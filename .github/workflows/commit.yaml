@@ -22,8 +22,13 @@ jobs:
       tag: ${{ steps.git.outputs.tag }}
 
     steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
     - id: config
-      run: echo "::set-output name=image::docker.io/tetrate/build-tools:release-1.7-2020-11-18T23-24-38" # ISTIO_BUILD_TOOLS
+      run: |
+        IMG=$( make default RUN='printenv IMG #' )
+        echo "::set-output name=image::${IMG}" # ISTIO_BUILD_TOOLS
 
     - id: git
       run: |
@@ -62,6 +67,15 @@ jobs:
         GOOGLE_APPLICATION_CREDENTIALS: /gcs.key.json
 
     steps:
+    - name: "Install latest `git`"
+      run: |
+        apt-get purge git -y
+        add-apt-repository ppa:git-core/ppa -y
+        apt-get update && apt-get install -y --no-install-recommends \
+            git \
+         && apt-get clean \
+         && rm -rf /var/lib/apt/lists/*
+
     - name: "Checkout"
       uses: actions/checkout@v2
       with:
