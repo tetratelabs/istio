@@ -20,7 +20,10 @@
 
 BUILD_WITH_CONTAINER ?= 1
 CONTAINER_OPTIONS = --mount type=bind,source=/tmp,destination=/tmp --net=host
-IMG ?= docker.io/tetrate/build-tools:release-1.7-2020-11-18T23-24-38
+
+# version of `build-tools` that corresponds to Istio 1.7.4 + patch that brings back support for k8s 1.15
+# see https://github.com/tetrateio/istio-tools/tree/release-1.7.4
+IMG ?= docker.io/tetrate/build-tools:release-1.7.4-2021-05-01T23-42-37
 
 ifeq ($(BUILD_WITH_CONTAINER),1)
 # create phony targets for the top-level items in the repo

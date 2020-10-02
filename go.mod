@@ -23,8 +23,8 @@ replace github.com/Microsoft/hcsshim => github.com/Microsoft/hcsshim v0.8.8-0.20
 // Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
 replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 
-// istio/api 1.7.3 + cherry pick commits that restore Kubernetes v1.15 support
-replace istio.io/api => github.com/tetratelabs/istio-api v0.0.0-20201002104923-4c72b6f61bc8
+// istio/api 1.7.4 + cherry pick commits that restore Kubernetes v1.15 support
+replace istio.io/api => github.com/tetratelabs/istio-api v0.0.0-20210502004156-b7f137e0dffe
 
 require (
 	cloud.google.com/go v0.50.0
@@ -163,7 +163,7 @@ require (
 	gopkg.in/square/go-jose.v2 v2.3.1
 	gopkg.in/yaml.v2 v2.3.0
 	helm.sh/helm/v3 v3.2.4
-	istio.io/api v0.0.0-20200911191701-0dc35ad5c478
+	istio.io/api v0.0.0-20201002153436-e6e7bbc4ebea
 	istio.io/client-go v0.0.0-20200626204548-8f69a2d0fe26
 	istio.io/gogo-genproto v0.0.0-20200807182027-a780f93e8ee1
 	istio.io/pkg v0.0.0-20200807181912-d97bc429be20
