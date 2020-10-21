@@ -22,7 +22,7 @@ SHELL := /bin/bash -o pipefail
 VERSION ?= 1.7-dev
 
 # Base version of Istio image to use
-BASE_VERSION ?= 1.7-dev.7
+BASE_VERSION ?= 1.7-dev.8
 
 export GO111MODULE ?= on
 export GOPROXY ?= https://proxy.golang.org
@@ -131,7 +131,7 @@ endif
 
 # Envoy binary variables Keep the default URLs up-to-date with the latest push from istio/proxy.
 
-export ISTIO_ENVOY_BASE_URL ?= https://storage.googleapis.com/tetrate-istio-build/proxy
+export ISTIO_ENVOY_BASE_URL ?= https://storage.googleapis.com/istio-build/proxy
 
 # Use envoy as the sidecar by default
 export SIDECAR ?= envoy
