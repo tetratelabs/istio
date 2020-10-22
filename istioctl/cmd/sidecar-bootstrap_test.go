@@ -17,17 +17,20 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"path"
 	"strings"
 	"testing"
+	"time"
 
-	coreV1 "k8s.io/api/core/v1"
-	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	authenticationv1 "k8s.io/api/authentication/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	kube "k8s.io/client-go/kubernetes"
+	kubeFake "k8s.io/client-go/kubernetes/fake"
+	kubeTesting "k8s.io/client-go/testing"
 
 	clientnetworking "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	istioclient "istio.io/client-go/pkg/clientset/versioned"
@@ -42,7 +45,6 @@ type vmBootstrapTestcase struct {
 	cannedK8sConfig   []runtime.Object
 	expectedString    string
 	shouldFail        bool
-	certOrg           string
 	tempDir           string
 }
 
@@ -52,7 +54,7 @@ var (
 
 	istioStaticWorkspace = []clientnetworking.WorkloadEntry{
 		{
-			ObjectMeta: metaV1.ObjectMeta{
+			ObjectMeta: metav1.ObjectMeta{
 				Name:      "workload",
 				Namespace: "NS",
 			},
@@ -64,7 +66,7 @@ var (
 	}
 
 	// see `samples/certs` in the root of the repo
-	caCert = []byte(`-----BEGIN CERTIFICATE-----
+	caCert = `-----BEGIN CERTIFICATE-----
 MIIDnzCCAoegAwIBAgIJAON1ifrBZ2/BMA0GCSqGSIb3DQEBCwUAMIGLMQswCQYD
 VQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTESMBAGA1UEBwwJU3Vubnl2YWxl
 MQ4wDAYDVQQKDAVJc3RpbzENMAsGA1UECwwEVGVzdDEQMA4GA1UEAwwHUm9vdCBD
@@ -85,47 +87,57 @@ PQ/0hC4/0J3WJKzGBssaaMufJxzgFPPtDJ998kY8rlROghdSaVt423/jXIAYnP3Y
 05n8TGERBj7TLdtIVbtUIx3JHAo3PWJywA6mEDovFMJhJERp9sDHIr1BbhXK1TFN
 Z6HNH6gInkSSMtvC4Ptejb749PTaePRPF7ID//eq/3AH8UK50F3TQcLjEqWUsJUn
 aFKltOc+RAjzDklcUPeG4Y6eMA==
------END CERTIFICATE-----`)
-
-	caKey = []byte(`-----BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEAyzCxr/xu0zy5rVBiso9ffgl00bRKvB/HF4AX9/ytmZ6Hqsy1
-3XIQk8/u/By9iCvVwXIMvyT0CbiJq/aPEj5mJUy0lzbrUs13oneXqrPXf7ir3Hzd
-Rw+SBhXlsh9zAPZJXcF93DJU3GabPKwBvGJ0IVMJPIFCuDIPwW4kFAI7R/8A5LSd
-PrFx6EyMXl7KM8jekC0y9DnTj83/fY72WcWX7YTpgZeBHAeeQOPTZ2KYbFal2gLs
-ar69PgFS0TomESO9M14Yit7mzB1WDK2z9g3r+zLxENdJ5JG/ZskKe+TO4Diqi5OJ
-t/h8yspS1ck8LJtCole9919umByg5oruflqIlQIDAQABAoIBAGZI8fnUinmd5R6B
-C941XG3XFs6GAuUm3hNPcUFuGnntmv/5I0gBpqSyFO0nDqYg4u8Jma8TTCIkmnFN
-ogIeFU+LiJFinR3GvwWzTE8rTz1FWoaY+M9P4ENd/I4pVLxUPuSKhfA2ChAVOupU
-8F7D9Q/dfBXQQCT3VoUaC+FiqjL4HvIhji1zIqaqpK7fChGPraC/4WHwLMNzI0Zg
-oDdAanwVygettvm6KD7AeKzhK94gX1PcnsOi3KuzQYvkenQE1M6/K7YtEc5qXCYf
-QETj0UCzB55btgdF36BGoZXf0LwHqxys9ubfHuhwKBpY0xg2z4/4RXZNhfIDih3w
-J3mihcECgYEA6FtQ0cfh0Zm03OPDpBGc6sdKxTw6aBDtE3KztfI2hl26xHQoeFqp
-FmV/TbnExnppw+gWJtwx7IfvowUD8uRR2P0M2wGctWrMpnaEYTiLAPhXsj69HSM/
-CYrh54KM0YWyjwNhtUzwbOTrh1jWtT9HV5e7ay9Atk3UWljuR74CFMUCgYEA392e
-DVoDLE0XtbysmdlfSffhiQLP9sT8+bf/zYnr8Eq/4LWQoOtjEARbuCj3Oq7bP8IE
-Vz45gT1mEE3IacC9neGwuEa6icBiuQi86NW8ilY/ZbOWrRPLOhk3zLiZ+yqkt+sN
-cqWx0JkIh7IMKWI4dVQgk4I0jcFP7vNG/So4AZECgYEA426eSPgxHQwqcBuwn6Nt
-yJCRq0UsljgbFfIr3Wfb3uFXsntQMZ3r67QlS1sONIgVhmBhbmARrcfQ0+xQ1SqO
-wqnOL4AAd8K11iojoVXLGYP7ssieKysYxKpgPE8Yru0CveE9fkx0+OGJeM2IO5hY
-qHAoTt3NpaPAuz5Y3XgqaVECgYA0TONS/TeGjxA9/jFY1Cbl8gp35vdNEKKFeM5D
-Z7h+cAg56FE8tyFyqYIAGVoBFL7WO26mLzxiDEUfA/0Rb90c2JBfzO5hpleqIPd5
-cg3VR+cRzI4kK16sWR3nLy2SN1k6OqjuovVS5Z3PjfI3bOIBz0C5FY9Pmt0g1yc7
-mDRzcQKBgQCXWCZStbdjewaLd5u5Hhbw8tIWImMVfcfs3H1FN669LLpbARM8RtAa
-8dYwDVHmWmevb/WX03LiSE+GCjCBO79fa1qc5RKAalqH/1OYxTuvYOeTUebSrg8+
-lQFlP2OC4GGolKrN6HVWdxtf+F+SdjwX6qGCfYkXJRLYXIFSFjFeuw==
------END RSA PRIVATE KEY-----`)
+-----END CERTIFICATE-----`
 
 	baseTempdir, _ = ioutil.TempDir("", "vm_bootstrap_test_dir")
 
-	k8sCertStatic = []runtime.Object{
-		&coreV1.Secret{
-			ObjectMeta: metaV1.ObjectMeta{
-				Name:      "istio-ca-secret",
+	fullK8sConfig = []runtime.Object{
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "extension-apiserver-authentication",
+				Namespace: "kube-system",
+			},
+			Data: map[string]string{
+				"client-ca-file": `-----BEGIN CERTIFICATE-----
+MIICyDCCAbCgAwIBAgIBADANBgkqhkiG9w0BAQsFADAVMRMwEQYDVQQDEwprdWJl
+cm5ldGVzMB4XDTIwMTAyMjE1NTM1MVoXDTMwMTAyMDE1NTM1MVowFTETMBEGA1UE
+AxMKa3ViZXJuZXRlczCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALHj
+8lB2a7cGe7DWdfUzVlxDYTN63UahoeJIOtqiMn4a9yXJJFUwedlRRiv+GDHVNJ4I
+NSrhaH13dOGZWL6DRQRXBOPSEUZ/TJjXFPtS5y1Cxd6nAgPCa1I+eyFGU8e9pss9
+/6uo7PyLx6zqcQDawtqZte90nJyYjsYuMTvRzMFbAAwBt1OTrNF2PboCEuuj3dTn
+29ggev5mj8JOzHYOjWASAj/zqm706AwWv0y50IfNKR0j5t+fYI+1kj5Qfy09BuP5
+kCHq9YT8LT4PddE05ztaTkSW2DSHIHt3aEdsvczD6VU633tDn5dQ64RCAZKnQAEB
+1FZ3xHUppH9RuQyYyLkCAwEAAaMjMCEwDgYDVR0PAQH/BAQDAgKkMA8GA1UdEwEB
+/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAAllw6xJeu1+tp2m8NgPJuxpBvAf
+Xo//ySR69jlDQxmCIafR/0lWMkzPDQy8gv+INhpeOK99gooEU/qC9pjs1m53MzmQ
+kM3Ru/GM1uqMnUmTuwLptxFJxDjSKcmXcYn63k1BdriExs3Wl2IiFDHjUdfGaUo0
+twjnHmtommvAAbMeGyMSoM1Wd8mIzJO9Bk0d5l4wEZeA4corbAIDyoAhM3pyNrxL
+yFkHk8ul+CzDoZSdfQulovH/T0GShzE6WFVO7LzOVQwylI1qYMoV20/8e4cO/L0K
+ewSti8ZCFKFSQcfSMCjKDzPB5mnXiec9m+qtnv+cNS7nZ8EmGYMsffP1rx4=
+-----END CERTIFICATE-----`,
+			},
+		},
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "istio-ca-root-cert",
 				Namespace: "istio-system",
 			},
-			Data: map[string][]byte{
-				"ca-key.pem":  caKey,
-				"ca-cert.pem": caCert,
+			Data: map[string]string{
+				"root-cert.pem": caCert,
+			},
+		},
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "istio-ingressgateway",
+				Namespace: "istio-system",
+			},
+			Status: corev1.ServiceStatus{
+				LoadBalancer: corev1.LoadBalancerStatus{
+					Ingress: []corev1.LoadBalancerIngress{
+						{Hostname: "x.y.z"},
+						{IP: "1.2.3.4"},
+					},
+				},
 			},
 		},
 	}
@@ -141,7 +153,6 @@ func TestVmBootstrap(t *testing.T) {
 			cannedK8sConfig:   emptyK8sConfig,
 			expectedString:    "istioctl experimental sidecar-bootstrap <workloadEntry>.<namespace> [flags]",
 			shouldFail:        true,
-			certOrg:           "",
 			tempDir:           "",
 		},
 		// Workload Entry + all flag
@@ -150,9 +161,8 @@ func TestVmBootstrap(t *testing.T) {
 			args:              strings.Split("x sidecar-bootstrap --all workload.NS", " "),
 			cannedIstioConfig: emptyIstioConfig,
 			cannedK8sConfig:   emptyK8sConfig,
-			expectedString:    "sidecar-bootstrap requires a workload entry, or the --all flag",
+			expectedString:    "sidecar-bootstrap requires a WorkloadEntry, or the --all flag",
 			shouldFail:        true,
-			certOrg:           "",
 			tempDir:           "",
 		},
 		// all flag + no namespace
@@ -161,9 +171,8 @@ func TestVmBootstrap(t *testing.T) {
 			args:              strings.Split("x sidecar-bootstrap --all", " "),
 			cannedIstioConfig: emptyIstioConfig,
 			cannedK8sConfig:   emptyK8sConfig,
-			expectedString:    "sidecar-bootstrap needs a namespace if fetching all workspaces",
+			expectedString:    "sidecar-bootstrap needs a namespace if fetching all WorkloadEntry(s)",
 			shouldFail:        true,
-			certOrg:           "",
 			tempDir:           "",
 		},
 		// unknown workload entry, okay to have fake dumpDir here.
@@ -172,42 +181,18 @@ func TestVmBootstrap(t *testing.T) {
 			args:              strings.Split("x sidecar-bootstrap workload.fakeNS --local-dir /tmp/", " "),
 			cannedIstioConfig: istioStaticWorkspace,
 			cannedK8sConfig:   emptyK8sConfig,
-			expectedString:    "workload entry: workload in namespace: fakeNS was not found",
+			expectedString:    `unable to find WorkloadEntry(s): workload entry "/namespaces/fakeNS/workloadentries/workload" was not found`,
 			shouldFail:        true,
-			certOrg:           "",
 			tempDir:           "",
 		},
-		// known workload entry, no secret
-		{
-			address:           "127.0.0.1",
-			args:              strings.Split("x sidecar-bootstrap workload.NS --local-dir /tmp/", " "),
-			cannedIstioConfig: istioStaticWorkspace,
-			cannedK8sConfig:   emptyK8sConfig,
-			expectedString:    "secrets \"istio-ca-secret\" not found",
-			shouldFail:        true,
-			certOrg:           "",
-			tempDir:           "",
-		},
-		// known workload entry, known secret, derived organization
+		// known workload entry, known secret
 		{
 			address:           "127.0.0.1",
 			args:              strings.Split("x sidecar-bootstrap workload.NS --local-dir "+path.Join(baseTempdir, "derived_output"), " "),
 			cannedIstioConfig: istioStaticWorkspace,
-			cannedK8sConfig:   k8sCertStatic,
+			cannedK8sConfig:   fullK8sConfig,
 			expectedString:    "",
 			shouldFail:        false,
-			certOrg:           "Istio",
-			tempDir:           path.Join(baseTempdir, "derived_output"),
-		},
-		// known workload entry, known secret, non derive organization
-		{
-			address:           "127.0.0.1",
-			args:              strings.Split("x sidecar-bootstrap workload.NS -o Juju --local-dir "+path.Join(baseTempdir, "derived_output"), " "),
-			cannedIstioConfig: istioStaticWorkspace,
-			cannedK8sConfig:   k8sCertStatic,
-			expectedString:    "",
-			shouldFail:        false,
-			certOrg:           "Juju",
 			tempDir:           path.Join(baseTempdir, "derived_output"),
 		},
 	}
@@ -224,13 +209,25 @@ func verifyVMCommandCaseOutput(t *testing.T, c vmBootstrapTestcase) {
 
 	configStoreFactory = mockClientFactoryGenerator(func(client istioclient.Interface) {
 		for _, cfg := range c.cannedIstioConfig {
-			_, err := client.NetworkingV1alpha3().WorkloadEntries(cfg.Namespace).Create(context.TODO(), &cfg, metaV1.CreateOptions{})
+			_, err := client.NetworkingV1alpha3().WorkloadEntries(cfg.Namespace).Create(context.TODO(), &cfg, metav1.CreateOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
 	})
-	interfaceFactory = mockInterfaceFactoryGenerator(c.cannedK8sConfig)
+	interfaceFactory = FakeKubeInterfaceGeneratorFunc(mockInterfaceFactoryGenerator(c.cannedK8sConfig)).
+		Configure(func(clientset *kubeFake.Clientset) {
+			clientset.PrependReactor("create", "serviceaccounts", func(action kubeTesting.Action) (handled bool, ret runtime.Object, err error) {
+				if action.GetSubresource() == "token" {
+					createAction := action.(kubeTesting.CreateAction)
+					tokenRequest := createAction.GetObject().(*authenticationv1.TokenRequest)
+					tokenRequest.Status.Token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+					tokenRequest.Status.ExpirationTimestamp = metav1.Date(2020, time.October, 16, 19, 50, 37, 123, time.UTC)
+					return true, tokenRequest, nil
+				}
+				return false, nil, nil
+			})
+		})
 
 	var out bytes.Buffer
 	rootCmd := GetRootCmd(c.args)
@@ -254,19 +251,17 @@ func verifyVMCommandCaseOutput(t *testing.T, c vmBootstrapTestcase) {
 			t.Fatalf("Command should not have failed for 'istioctl %s': %v", strings.Join(c.args, " "), fErr)
 		}
 	}
+}
 
-	if c.certOrg != "" {
-		certFile, rErr := ioutil.ReadFile(path.Join(c.tempDir, "cert-"+c.address+".pem"))
-		if rErr != nil {
-			t.Fatalf("Failed to read certificate file: %v", rErr)
+type FakeKubeInterfaceGeneratorFunc func(kubeconfig string) (kube.Interface, error)
+
+func (f FakeKubeInterfaceGeneratorFunc) Configure(fn func(clientset *kubeFake.Clientset)) FakeKubeInterfaceGeneratorFunc {
+	return func(kubeconfig string) (kube.Interface, error) {
+		clientset, err := f(kubeconfig)
+		if err != nil {
+			return nil, err
 		}
-		block, _ := pem.Decode(certFile)
-		cert, cErr := x509.ParseCertificate(block.Bytes)
-		if cErr != nil {
-			t.Fatalf("Failed to parse certificate data:\n%s\nerror: %v", certFile, cErr)
-		}
-		if cert.Subject.Organization[0] != c.certOrg {
-			t.Fatalf("Certificate does not have matching organization: %s is not expected: %s", cert.Subject.Organization[0], c.certOrg)
-		}
+		fn(clientset.(*kubeFake.Clientset))
+		return clientset, nil
 	}
 }
