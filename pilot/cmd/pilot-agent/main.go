@@ -98,6 +98,7 @@ var (
 	istioNamespaceVar    = env.RegisterStringVar("ISTIO_NAMESPACE", "", "")
 	kubeAppProberNameVar = env.RegisterStringVar(status.KubeAppProberEnvName, "", "")
 	clusterIDVar         = env.RegisterStringVar("ISTIO_META_CLUSTER_ID", "", "")
+	pilotSANVar          = env.RegisterStringVar("PILOT_SAN", "", "")
 
 	pilotCertProvider = env.RegisterStringVar("PILOT_CERT_PROVIDER", "istiod",
 		"the provider of Pilot DNS certificate.").Get()
@@ -314,8 +315,13 @@ var (
 				setSpiffeTrustDomain(podNamespace, role.DNSDomain)
 				// Obtain the Mixer SAN, which uses SPIFFE certs. Used below to create a Envoy proxy.
 				mixerSAN = getSAN(getControlPlaneNamespace(podNamespace, proxyConfig.DiscoveryAddress), securityutil.MixerSvcAccName, mixerIdentity)
-				// Obtain Pilot SAN, using DNS.
-				pilotSAN = []string{getPilotSan(proxyConfig.DiscoveryAddress)}
+				// Check if Pilot's SAN was specified as env variable
+				if len(pilotSANVar.Get()) == 0 {
+					// Obtain Pilot SAN, using DNS.
+					pilotSAN = []string{getPilotSan(proxyConfig.DiscoveryAddress)}
+				} else {
+					pilotSAN = []string{pilotSANVar.Get()}
+				}
 			}
 			log.Infof("PilotSAN %#v", pilotSAN)
 			log.Infof("MixerSAN %#v", mixerSAN)
