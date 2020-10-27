@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -42,12 +43,14 @@ import (
 	bootstrapBundle "istio.io/istio/istioctl/pkg/bootstrap/bundle"
 	bootstrapSsh "istio.io/istio/istioctl/pkg/bootstrap/ssh"
 	bootstrapSshFake "istio.io/istio/istioctl/pkg/bootstrap/ssh/fake"
+	bootstrapUtil "istio.io/istio/istioctl/pkg/bootstrap/util"
 	istioconfig "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/util/gogoprotomarshal"
 	"istio.io/pkg/log"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -192,11 +195,35 @@ func getIstioCaCert(kubeClient kubernetes.Interface, namespace string) ([]byte, 
 	return []byte(caCert), nil
 }
 
-func getIstioIngressGatewayAddress(kubeClient kubernetes.Interface, namespace, service string) (string, error) {
+func getIstioIngressGatewayService(kubeClient kubernetes.Interface, namespace, service string) (*corev1.Service, error) {
 	svc, err := kubeClient.CoreV1().Services(namespace).Get(context.TODO(), service, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("failed to get Service /namespaces/%s/services/%s: %w", namespace, service, err)
+		return nil, fmt.Errorf("failed to get Service /namespaces/%s/services/%s: %w", namespace, service, err)
 	}
+	return svc, nil
+}
+
+func verifyMeshExpansionPorts(svc *corev1.Service) error {
+	ports := make(map[string]int32)
+	for _, port := range svc.Spec.Ports {
+		ports[port.Name] = port.Port
+	}
+	meshExpansionPorts := []struct {
+		name string
+		port int32
+	}{
+		{name: "tcp-istiod", port: 15012},
+		{name: "tls", port: 15443},
+	}
+	for _, expected := range meshExpansionPorts {
+		if actual, present := ports[expected.name]; !present || actual != expected.port {
+			return fmt.Errorf("mesh expansion is not possible because Istio Ingress Gateway Service /namespaces/%s/services/%s is missing a port '%s (%d)'", svc.Namespace, svc.Name, expected.name, expected.port)
+		}
+	}
+	return nil
+}
+
+func getIstioIngressGatewayAddress(svc *corev1.Service) (string, error) {
 	if len(svc.Status.LoadBalancer.Ingress) == 0 {
 		return "", fmt.Errorf("Service /namespaces/%s/services/%s has no ingress points", svc.Namespace, svc.Name)
 	}
@@ -392,6 +419,8 @@ func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) err
 		"-d",
 		"--name",
 		bundle.IstioProxyContainerName,
+		"--restart",
+		"unless-stopped",
 		"--network",
 		"host", // you need to deal with Sidecar CR if you want it to be "non-captured" mode
 		"-v",
@@ -424,10 +453,23 @@ func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) err
 	return nil
 }
 
-func deriveSSHMethod() error {
+func deriveSSHMethod(in io.Reader) (errs error) {
+	call := func(fn func() error) {
+		if fn == nil {
+			return
+		}
+		err := fn()
+		if err != nil {
+			errs = multierror.Append(errs, err)
+		}
+	}
 	if sshKeyLocation == "" {
-		term := terminal.NewTerminal(os.Stdin, "")
-		var err error
+		rawModeStdin, restoreStdin, err := bootstrapUtil.RawModeStdin(in)
+		if err != nil {
+			return err
+		}
+		defer call(restoreStdin)
+		term := terminal.NewTerminal(rawModeStdin, "")
 		sshPassword, err := term.ReadPassword("Please enter the SSH password: ")
 		if err != nil {
 			return err
@@ -445,7 +487,12 @@ func deriveSSHMethod() error {
 		key, err := ssh.ParsePrivateKey(rawKey)
 		if err != nil {
 			if err, ok := err.(*ssh.PassphraseMissingError); ok {
-				term := terminal.NewTerminal(os.Stdin, "")
+				rawModeStdin, restoreStdin, err := bootstrapUtil.RawModeStdin(in)
+				if err != nil {
+					return err
+				}
+				defer call(restoreStdin)
+				term := terminal.NewTerminal(rawModeStdin, "")
 				sshKeyPassword, err := term.ReadPassword("Please enter the password for the SSH key: ")
 				if err != nil {
 					return err
@@ -516,7 +563,7 @@ Istio will be started on the host network as a docker container in capture mode.
 				defaultSshUser = user.Username
 			}
 			if outputDir == "" && !dryRun {
-				err := deriveSSHMethod()
+				err := deriveSSHMethod(cmd.InOrStdin())
 				if err != nil {
 					return err
 				}
@@ -530,10 +577,12 @@ Istio will be started on the host network as a docker container in capture mode.
 					if err != nil {
 						return fmt.Errorf("failed to determine current user: %w", err)
 					}
-					callback, err = knownhosts.New(filepath.Join(user.HomeDir, ".ssh", "known_hosts"))
+					knownhost, err := knownhosts.New(filepath.Join(user.HomeDir, ".ssh", "known_hosts"))
 					if err != nil {
-						return fmt.Errorf("failed to create SSH host key callback: %w", err)
+						return fmt.Errorf("failed to parse $HOME/.ssh/known_hosts: %w", err)
 					}
+					prompt := bootstrapSsh.HostKeyPrompt(cmd.InOrStdin(), cmd.ErrOrStderr())
+					callback = bootstrapSsh.HostKeyCallbackChain(knownhost, prompt)
 				}
 
 				sshConfig = ssh.ClientConfig{
@@ -577,10 +626,6 @@ Istio will be started on the host network as a docker container in capture mode.
 				return fmt.Errorf("failed to read Istio global values: %w", err)
 			}
 
-			if enabled := istioConfigValues.GetGlobal().GetMeshExpansion().GetEnabled().GetValue(); !enabled {
-				return fmt.Errorf("mesh expansion is not enabled. Please enable mesh expansion to be able to use %q command", c.CommandPath())
-			}
-
 			if actual, expected := istioConfigValues.GetGlobal().GetJwtPolicy(), "third-party-jwt"; actual != expected {
 				return fmt.Errorf("jwt policy is set to %q. At the moment, %q command only supports jwt policy %q", actual, c.CommandPath(), expected)
 			}
@@ -599,11 +644,20 @@ Istio will be started on the host network as a docker container in capture mode.
 				return fmt.Errorf("unable to find Istio CA cert: %w", err)
 			}
 
-			ingressSvc := "istio-ingressgateway" // fallback value according to Istio docs
+			ingressServiceName := "istio-ingressgateway" // fallback value according to Istio docs
 			if value := meshConfig.GetIngressService(); value != "" {
-				ingressSvc = value
+				ingressServiceName = value
 			}
-			istioGatewayAddress, err := getIstioIngressGatewayAddress(kubeClient, istioNamespace, ingressSvc)
+			ingressSvc, err := getIstioIngressGatewayService(kubeClient, istioNamespace, ingressServiceName)
+			if err != nil {
+				return fmt.Errorf("unable to find Istio Ingress Gateway: %w", err)
+			}
+
+			if err := verifyMeshExpansionPorts(ingressSvc); err != nil {
+				return fmt.Errorf("Istio Ingress Gateway is not configured for mesh expansion: %w", err)
+			}
+
+			istioGatewayAddress, err := getIstioIngressGatewayAddress(ingressSvc)
 			if err != nil {
 				return fmt.Errorf("unable to find address of the Istio Ingress Gateway: %w", err)
 			}
@@ -659,10 +713,10 @@ Istio will be started on the host network as a docker container in capture mode.
 	vmBSCommand.PersistentFlags().StringVarP(&sshKeyLocation, "ssh-key", "k", "",
 		"(experimental) the location of the SSH key")
 	vmBSCommand.PersistentFlags().IntVar(&defaultSshPort, "ssh-port", 22,
-		"(experimental) the port to SSH to the machine on")
+		"(experimental) default port to SSH to (is only effective unless the 'sidecar-bootstrap.istioctl.istio.io/ssh-port' annotation is present on a WorkloadEntry)")
 	vmBSCommand.PersistentFlags().StringVarP(&defaultSshUser, "ssh-user", "u", "",
-		"(experimental) the user to SSH as, defaults to the current user")
-	vmBSCommand.PersistentFlags().DurationVar(&sshConnectTimeout, "ssh-connect-timeout", 5*time.Second,
+		"(experimental) default user to SSH as, defaults to the current user (is only effective unless the 'sidecar-bootstrap.istioctl.istio.io/ssh-user' annotation is present on a WorkloadEntry)")
+	vmBSCommand.PersistentFlags().DurationVar(&sshConnectTimeout, "ssh-connect-timeout", 10*time.Second,
 		"(experimental) the maximum amount of time to establish SSH connection")
 	vmBSCommand.PersistentFlags().BoolVar(&startIstioProxy, "start-istio-proxy", false,
 		"start Istio proxy on a remote host after copying workload identity")

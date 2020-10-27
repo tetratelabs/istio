@@ -162,6 +162,24 @@ var (
 		return string(value), nil
 	})
 
+	// Istio-related annotations of the Workload.
+	ISTIO_METAJSON_ISTIO_ANNOTATIONS = newEnvVar("ISTIO_METAJSON_ISTIO_ANNOTATIONS", func(data *SidecarData) (string, error) {
+		annotations := make(map[string]string)
+		for name, value := range data.Workload.Annotations {
+			if strings.Contains(name, "istio.io/") && !strings.Contains(name, "istioctl.istio.io/") {
+				annotations[name] = value
+			}
+		}
+		if len(annotations) == 0 {
+			return "", nil
+		}
+		value, err := json.Marshal(annotations)
+		if err != nil {
+			return "", err
+		}
+		return string(value), nil
+	})
+
 	ISTIO_META_WORKLOAD_NAME = newEnvVar("ISTIO_META_WORKLOAD_NAME", func(data *SidecarData) (string, error) {
 		return data.GetAppOrServiceAccount(), nil
 	})
@@ -193,6 +211,7 @@ var (
 		ISTIO_META_INTERCEPTION_MODE,
 		ISTIO_META_NETWORK,
 		ISTIO_METAJSON_LABELS,
+		ISTIO_METAJSON_ISTIO_ANNOTATIONS,
 		ISTIO_META_WORKLOAD_NAME,
 		ISTIO_META_OWNER,
 		ISTIO_META_MESH_ID,
