@@ -131,6 +131,12 @@ ewSti8ZCFKFSQcfSMCjKDzPB5mnXiec9m+qtnv+cNS7nZ8EmGYMsffP1rx4=
 				Name:      "istio-ingressgateway",
 				Namespace: "istio-system",
 			},
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{
+					{Name: "tcp-istiod", Port: 15012},
+					{Name: "tls", Port: 15443},
+				},
+			},
 			Status: corev1.ServiceStatus{
 				LoadBalancer: corev1.LoadBalancerStatus{
 					Ingress: []corev1.LoadBalancerIngress{
