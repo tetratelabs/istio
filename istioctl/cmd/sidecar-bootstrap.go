@@ -15,12 +15,7 @@
 package cmd
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -31,7 +26,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -45,6 +39,9 @@ import (
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	istioclient "istio.io/client-go/pkg/clientset/versioned"
+	bootstrapBundle "istio.io/istio/istioctl/pkg/bootstrap/bundle"
+	bootstrapSsh "istio.io/istio/istioctl/pkg/bootstrap/ssh"
+	bootstrapSshFake "istio.io/istio/istioctl/pkg/bootstrap/ssh/fake"
 	istioconfig "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/util/gogoprotomarshal"
@@ -55,134 +52,101 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+type BootstrapBundle = bootstrapBundle.BootstrapBundle
+type SidecarData = bootstrapBundle.SidecarData
+
 const (
+	// IP address or DNS name of the machine represented by this WorkloadEntry to use
+	// instead of WorkloadEntry.Address for SSH connections from `istioctl x sidecar-bootstrap`.
+	//
+	// This setting is intended for those scenarios where `istioctl x sidecar-bootstrap`
+	// will be run on a machine without direct connectivity to the WorkloadEntry.Address.
+	// E.g., one might set WorkloadEntry.Address to the "internal IP" of a VM
+	// and set value of this annotation to the "external IP" of that VM.
+	//
+	// By default, value of WorkloadEntry.Address is assumed.
 	sidecarBootstrapSshHostAnnotation = "sidecar-bootstrap.istioctl.istio.io/ssh-host"
+
+	// Port of the SSH server on the machine represented by this WorkloadEntry to use
+	// for SSH connections from `istioctl x sidecar-bootstrap`.
+	//
+	// By default, `22` is assumed.
 	sidecarBootstrapSshPortAnnotation = "sidecar-bootstrap.istioctl.istio.io/ssh-port"
+
+	// User on the machine represented by this WorkloadEntry to use for SSH connections
+	// from `istioctl x sidecar-bootstrap`.
+	//
+	// Make sure that user has enough permissions to create the config dir and
+	// to run Docker container without `sudo`.
+	//
+	// By default, a user running `istioctl x sidecar-bootstrap` is assumed.
 	sidecarBootstrapSshUserAnnotation = "sidecar-bootstrap.istioctl.istio.io/ssh-user"
+
+	// Path to the `scp` binary on the machine represented by this WorkloadEntry to use
+	// in SSH connections from `istioctl x sidecar-bootstrap`.
+	//
+	// By default, `/usr/bin/scp` is assumed.
+	sidecarBootstrapScpPathAnnotation = "sidecar-bootstrap.istioctl.istio.io/scp-path"
+
+	// Directory on the machine represented by this WorkloadEntry where `istioctl x sidecar-bootstrap`
+	// should copy bootstrap bundle to.
+	//
+	// By default, `/tmp/istio-proxy` is assumed (the most reliable default value for out-of-the-box experience).
+	sidecarBootstrapDestinationDirAnnotation = "sidecar-bootstrap.istioctl.istio.io/destination-dir"
+)
+
+const (
+	defaultDestinationDir = "/tmp/istio-proxy" // the most reliable default value for out-of-the-box experience
 )
 
 var (
+	dryRun            bool
 	all               bool
 	tokenDuration     time.Duration
-	dumpDir           string
-	remoteDirectory   string
-	scpPath           string
-	scpTimeout        time.Duration
+	outputDir         string
+	defaultSshPort    int
+	defaultSshUser    string
 	sshConnectTimeout time.Duration
 	sshAuthMethod     ssh.AuthMethod
 	sshKeyLocation    string
 	sshIgnoreHostKeys bool
-	sshPort           int
-	sshUser           string
-	startIstio        bool
-	dryRun            bool
+	defaultScpOpts    = bootstrapSsh.CopyOpts{
+		RemoteScpPath: "/usr/bin/scp",
+	}
+	startIstioProxy bool
+)
+
+var (
+	sshConfig ssh.ClientConfig
 )
 
 type workloadIdentity struct {
 	ServiceAccountToken []byte
 }
 
-type sidecarInjectData struct {
-	/* k8s */
-	K8sCaCert []byte
-	/* mesh */
-	IstioNamespace             string
-	IstioMeshConfig            *meshconfig.MeshConfig
-	IstioValues                *istioconfig.Values
-	IstioCaCert                []byte
-	IstioIngressGatewayAddress string
-	/* workload */
-	Workload *networking.WorkloadEntry
-	/* sidecar */
-	ProxyConfig *meshconfig.ProxyConfig
-}
-
-type bootstrapBundle struct {
-	/* k8s */
-	K8sCaCert []byte
-	/* mesh */
-	IstioCaCert                []byte
-	IstioIngressGatewayAddress string
-	/* workload */
-	Workload            networking.WorkloadEntry
-	ServiceAccountToken []byte
-	/* sidecar */
-	IstioProxyContainerName string
-	IstioProxyImage         string
-	IstioProxyArgs          []string
-	IstioProxyEnvironment   []byte
-	IstioProxyHosts         []string
-}
-
-type sshClient interface {
-	Dial(address, username string) error
-	Exec(command string) error
-	Copy(data []byte, dstPath string) error
-	io.Closer
-}
-
 var (
 	sshClientFactory = newSshClient
 )
 
-func newSshClient(stdout, stderr io.Writer) sshClient {
+func newSshClient(stdout, stderr io.Writer) bootstrapSsh.Client {
 	if dryRun {
-		return newDryRunSshClient(stdout, stderr)
+		return bootstrapSshFake.NewClient(stdout, stderr)
 	} else {
-		return newRealSshClient(stdout, stderr)
+		return bootstrapSsh.NewClient(stdout, stderr)
 	}
 }
 
-func newRealSshClient(stdout, stderr io.Writer) sshClient {
-	return &realSshClient{stdout: stdout, stderr: stderr}
-}
-
-type realSshClient struct {
-	stdout io.Writer
-	stderr io.Writer
-	client *ssh.Client
-}
-
-func (c *realSshClient) Close() error {
-	fmt.Fprintf(c.stderr, "[SSH client] closing connection\n")
-
-	if c.client == nil {
-		return nil
+func getConfigValuesFromConfigMap(kubeconfig string) (*istioconfig.Values, error) {
+	valuesConfig, err := getValuesFromConfigMap(kubeconfig)
+	if err != nil {
+		return nil, err
 	}
-	return c.client.Close()
-}
-
-func newDryRunSshClient(_, stderr io.Writer) sshClient {
-	return dryRunSshClient{stderr: stderr}
-}
-
-type dryRunSshClient struct {
-	stderr io.Writer
-}
-
-func (c dryRunSshClient) Dial(address, username string) error {
-	fmt.Fprintf(c.stderr, "\n[SSH client] going to connect to %s@%s\n", username, address)
-	return nil
-}
-
-func (c dryRunSshClient) Copy(data []byte, dstPath string) error {
-	fmt.Fprintf(c.stderr, "\n[SSH client] going to copy into a remote file: %s\n%s\n", dstPath, string(data))
-	return nil
-}
-
-func (c dryRunSshClient) Exec(command string) error {
-	fmt.Fprintf(c.stderr, "\n[SSH client] going to execute a command remotely: %s\n", command)
-	return nil
-}
-
-func (c dryRunSshClient) Close() error {
-	fmt.Fprintf(c.stderr, "\n[SSH client] going to close connection\n")
-	return nil
-}
-
-type remoteResponse struct {
-	typ     uint8
-	message string
+	values := new(istioconfig.Values)
+	err = (&jsonpb.Unmarshaler{AllowUnknownFields: true}).Unmarshal(strings.NewReader(valuesConfig), values)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal Istio config values: %w", err)
+	}
+	return values, nil
 }
 
 func fetchSingleWorkloadEntry(client istioclient.Interface, workloadName string) ([]networking.WorkloadEntry, string, error) {
@@ -193,7 +157,7 @@ func fetchSingleWorkloadEntry(client istioclient.Interface, workloadName string)
 
 	we, err := client.NetworkingV1alpha3().WorkloadEntries(workloadSplit[1]).Get(context.Background(), workloadSplit[0], metav1.GetOptions{})
 	if we == nil || err != nil {
-		return nil, "", fmt.Errorf("workload entry \"/namespaces/%s/workloadentries/%s\" was not found", workloadSplit[1], workloadSplit[0])
+		return nil, "", fmt.Errorf("WorkloadEntry \"/namespaces/%s/workloadentries/%s\" was not found", workloadSplit[1], workloadSplit[0])
 	}
 
 	return []networking.WorkloadEntry{*we}, workloadSplit[1], nil
@@ -286,241 +250,11 @@ func getIdentityForEachWorkload(
 	return seenServiceAccounts, nil
 }
 
-func parseRemoteResponse(reader io.Reader) (*remoteResponse, error) {
-	buffer := make([]uint8, 1)
-	if _, err := reader.Read(buffer); err != nil {
-		return nil, err
-	}
-
-	typ := buffer[0]
-	if typ > 0 {
-		buf := bufio.NewReader(reader)
-		message, err := buf.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		return &remoteResponse{typ, message}, nil
-	}
-
-	return &remoteResponse{typ: typ, message: ""}, nil
-}
-
-func checkRemoteResponse(r io.Reader) error {
-	response, err := parseRemoteResponse(r)
-	if err != nil {
-		return err
-	}
-
-	if response.typ > 0 {
-		return errors.New(response.message)
-	}
-
-	return nil
-}
-
-func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
-	c := make(chan struct{})
-	go func() {
-		defer close(c)
-		wg.Wait()
-	}()
-	select {
-	case <-c:
-		return false // completed normally.
-	case <-time.After(timeout):
-		return true // timed out.
-	}
-}
-
-func (c *realSshClient) Dial(address, username string) error {
-	fmt.Fprintf(c.stderr, "[SSH client] connecting to %s@%s\n", username, address)
-
-	var callback ssh.HostKeyCallback
-	if sshIgnoreHostKeys {
-		callback = ssh.InsecureIgnoreHostKey()
-	} else {
-		user, err := user.Current()
-		if err != nil {
-			return fmt.Errorf("failed to determine current user: %w", err)
-		}
-		callback, err = knownhosts.New(filepath.Join(user.HomeDir, ".ssh", "known_hosts"))
-		if err != nil {
-			return fmt.Errorf("failed to create SSH host key callback: %w", err)
-		}
-	}
-
-	sshConfig := &ssh.ClientConfig{
-		User:            username,
-		Auth:            []ssh.AuthMethod{sshAuthMethod},
-		HostKeyCallback: callback,
-		Timeout:         sshConnectTimeout,
-	}
-	client, err := ssh.Dial("tcp", address, sshConfig)
-	if err != nil {
-		return fmt.Errorf("failed to estabslish SSH connection: %w", err)
-	}
-	c.client = client
-	return nil
-}
-
-func (c *realSshClient) Copy(data []byte, dstPath string) (err error) {
-	fmt.Fprintf(c.stderr, "[SSH client] copying into a remote file: %s\n", dstPath)
-
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("failed to copy into a remote file %q: %w", dstPath, err)
-		}
-	}()
-	session, err := c.newSession()
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-
-	filename := path.Base(dstPath)
-	r := bytes.NewReader(data)
-
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	errCh := make(chan error, 2)
-
-	size := len(data)
-
-	go func() {
-		defer wg.Done()
-		w, err := session.StdinPipe()
-		if err != nil {
-			errCh <- err
-			return
-		}
-		defer w.Close()
-
-		session.Stdout = nil // TODO(yskopets): use io.MultiWriter()
-		stdout, err := session.StdoutPipe()
-		if err != nil {
-			errCh <- err
-			return
-		}
-
-		// Set the unix file permissions to `0644`.
-		//
-		// If you don't read unix permissions this correlates to:
-		//
-		//   Owning User: READ/WRITE
-		//   Owning Group: READ
-		//   "Other": READ.
-		//
-		// We keep "OTHER"/"OWNING GROUP" to read so this seemlessly
-		// works with the Istio container we start up below.
-		_, err = fmt.Fprintln(w, "C0644", size, filename)
-		if err != nil {
-			errCh <- err
-			return
-		}
-
-		if err = checkRemoteResponse(stdout); err != nil {
-			errCh <- err
-			return
-		}
-
-		_, err = io.Copy(w, r)
-		if err != nil {
-			errCh <- err
-			return
-		}
-
-		_, err = fmt.Fprint(w, "\x00")
-		if err != nil {
-			errCh <- err
-			return
-		}
-
-		if err = checkRemoteResponse(stdout); err != nil {
-			errCh <- err
-			return
-		}
-	}()
-
-	go func() {
-		defer wg.Done()
-		err := session.Run(fmt.Sprintf("%s -qt %s", scpPath, dstPath))
-		if err != nil {
-			errCh <- err
-			return
-		}
-	}()
-
-	if waitTimeout(&wg, scpTimeout) {
-		return fmt.Errorf("timeout uploading file")
-	}
-
-	close(errCh)
-	for err := range errCh {
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (c *realSshClient) newSession() (*ssh.Session, error) {
-	session, err := c.client.NewSession()
-	if err != nil {
-		return nil, fmt.Errorf("failed to open a new SSH session: %w", err)
-	}
-	session.Stdout = c.stdout
-	session.Stderr = c.stderr
-	return session, nil
-}
-
-func (c *realSshClient) Exec(command string) (err error) {
-	fmt.Fprintf(c.stderr, "[SSH client] executing a command remotely: %s\n", command)
-
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("failed to execute a remote command [%s]: %w", command, err)
-		}
-	}()
-	session, err := c.newSession()
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-	return session.Run(command)
-}
-
-func dumpBootstrapBundle(outputDir string, bundle bootstrapBundle) error {
-	dump := func(filepath string, content []byte) error {
-		err := ioutil.WriteFile(filepath, content, 0644)
-		if err != nil {
-			return fmt.Errorf("failed to dump into a file %q: %w", filepath, err)
-		}
-		return nil
-	}
-	if err := dump(path.Join(outputDir, "sidecar.env"), bundle.IstioProxyEnvironment); err != nil {
-		return err
-	}
-	if err := dump(path.Join(outputDir, "k8s-ca.pem"), bundle.K8sCaCert); err != nil {
-		return err
-	}
-	if err := dump(path.Join(outputDir, "istio-ca.pem"), bundle.IstioCaCert); err != nil {
-		return err
-	}
-	if err := dump(path.Join(outputDir, "istio-token"), bundle.ServiceAccountToken); err != nil {
-		return err
-	}
-	return nil
-}
-
-func addressToPodNameAddition(address string) string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(address)))[0:7]
-}
-
 func processWorkloads(kubeClient kubernetes.Interface,
 	workloads []networking.WorkloadEntry,
 	workloadIdentityMapping map[string]workloadIdentity,
-	data *sidecarInjectData,
-	handle func(bundle bootstrapBundle) error) error {
+	data *SidecarData,
+	handle func(bundle BootstrapBundle) error) error {
 
 	for _, workload := range workloads {
 		identity, hasIdentity := workloadIdentityMapping[workload.Spec.ServiceAccount]
@@ -544,7 +278,7 @@ func processWorkloads(kubeClient kubernetes.Interface,
 			return err
 		}
 
-		bundle := bootstrapBundle{
+		bundle := BootstrapBundle{
 			/* k8s */
 			K8sCaCert: data.K8sCaCert,
 			/* mesh */
@@ -568,52 +302,86 @@ func processWorkloads(kubeClient kubernetes.Interface,
 	return nil
 }
 
-func copyBootstrapBundle(client sshClient, bundle bootstrapBundle) error {
+func dumpBootstrapBundle(outputDir string, bundle BootstrapBundle) error {
+	dump := func(filepath string, content []byte) error {
+		err := ioutil.WriteFile(filepath, content, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to dump into a file %q: %w", filepath, err)
+		}
+		return nil
+	}
+	if err := dump(path.Join(outputDir, "sidecar.env"), bundle.IstioProxyEnvironment); err != nil {
+		return err
+	}
+	if err := dump(path.Join(outputDir, "k8s-ca.pem"), bundle.K8sCaCert); err != nil {
+		return err
+	}
+	if err := dump(path.Join(outputDir, "istio-ca.pem"), bundle.IstioCaCert); err != nil {
+		return err
+	}
+	if err := dump(path.Join(outputDir, "istio-token"), bundle.ServiceAccountToken); err != nil {
+		return err
+	}
+	return nil
+}
+
+func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) error {
 	host := bundle.Workload.Spec.Address
 	if value := bundle.Workload.Annotations[sidecarBootstrapSshHostAnnotation]; value != "" {
 		host = value
 	}
-	port := strconv.Itoa(sshPort)
+	port := strconv.Itoa(defaultSshPort)
 	if value := bundle.Workload.Annotations[sidecarBootstrapSshPortAnnotation]; value != "" {
 		port = value
 	}
-	username := sshUser
+	username := defaultSshUser
 	if value := bundle.Workload.Annotations[sidecarBootstrapSshUserAnnotation]; value != "" {
 		username = value
 	}
 	address := net.JoinHostPort(host, port)
-	err := client.Dial(address, username)
+
+	err := client.Dial(address, username, sshConfig)
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
+	remoteDir := defaultDestinationDir
+	if value := bundle.Workload.Annotations[sidecarBootstrapDestinationDirAnnotation]; value != "" {
+		remoteDir = value
+	}
+
 	// Ensure the remote directory exists.
-	err = client.Exec("mkdir -p " + remoteDirectory)
+	err = client.Exec("mkdir -p " + remoteDir)
 	if err != nil {
 		return err
 	}
 
-	remoteEnvPath := path.Join(remoteDirectory, "sidecar.env")
-	err = client.Copy(bundle.IstioProxyEnvironment, remoteEnvPath)
+	scpOpts := defaultScpOpts
+	if value := bundle.Workload.Annotations[sidecarBootstrapScpPathAnnotation]; value != "" {
+		scpOpts.RemoteScpPath = value
+	}
+
+	remoteEnvPath := path.Join(remoteDir, "sidecar.env")
+	err = client.Copy(bundle.IstioProxyEnvironment, remoteEnvPath, scpOpts)
 	if err != nil {
 		return err
 	}
 
-	remoteK8sCaPath := path.Join(remoteDirectory, "k8s-ca.pem")
-	err = client.Copy(bundle.K8sCaCert, remoteK8sCaPath)
+	remoteK8sCaPath := path.Join(remoteDir, "k8s-ca.pem")
+	err = client.Copy(bundle.K8sCaCert, remoteK8sCaPath, scpOpts)
 	if err != nil {
 		return err
 	}
 
-	remoteIstioCaPath := path.Join(remoteDirectory, "istio-ca.pem")
-	err = client.Copy(bundle.IstioCaCert, remoteIstioCaPath)
+	remoteIstioCaPath := path.Join(remoteDir, "istio-ca.pem")
+	err = client.Copy(bundle.IstioCaCert, remoteIstioCaPath, scpOpts)
 	if err != nil {
 		return err
 	}
 
-	remoteIstioTokenPath := path.Join(remoteDirectory, "istio-token")
-	err = client.Copy(bundle.ServiceAccountToken, remoteIstioTokenPath)
+	remoteIstioTokenPath := path.Join(remoteDir, "istio-token")
+	err = client.Copy(bundle.ServiceAccountToken, remoteIstioTokenPath, scpOpts)
 	if err != nil {
 		return err
 	}
@@ -644,7 +412,7 @@ func copyBootstrapBundle(client sshClient, bundle bootstrapBundle) error {
 	cmd = append(cmd, bundle.IstioProxyImage)
 	cmd = append(cmd, bundle.IstioProxyArgs...)
 
-	if startIstio {
+	if startIstioProxy {
 		if err := client.Exec(fmt.Sprintf("docker rm --force %s", bundle.IstioProxyContainerName)); err != nil {
 			log.Warna(err)
 		}
@@ -731,24 +499,48 @@ Istio will be started on the host network as a docker container in capture mode.
   # Generate workload identity for a VM represented by the WorkloadEntry named "we" in the "ns" namespace; and save generated files into a local directory:
   istioctl x sidecar-bootstrap we.ns --local-dir path/where/i/want/workload/identity`,
 		Args: func(cmd *cobra.Command, args []string) error {
-			if (len(args) == 1) == all {
-				cmd.Println(cmd.UsageString())
-				return fmt.Errorf("sidecar-bootstrap requires a WorkloadEntry, or the --all flag")
+			if len(args) == 0 && !all {
+				return fmt.Errorf("sidecar-bootstrap requires either a WorkloadEntry or the --all flag")
+			}
+			if len(args) > 0 && all {
+				return fmt.Errorf("sidecar-bootstrap requires either a WorkloadEntry or the --all flag but not both")
 			}
 			if all && namespace == "" {
 				return fmt.Errorf("sidecar-bootstrap needs a namespace if fetching all WorkloadEntry(s)")
 			}
-			if sshUser == "" {
+			if defaultSshUser == "" {
 				user, err := user.Current()
 				if err != nil {
 					return fmt.Errorf("failed to determine current user: %w", err)
 				}
-				sshUser = user.Username
+				defaultSshUser = user.Username
 			}
-			if dumpDir == "" && !dryRun {
+			if outputDir == "" && !dryRun {
 				err := deriveSSHMethod()
 				if err != nil {
 					return err
+				}
+			}
+			if !dryRun {
+				var callback ssh.HostKeyCallback
+				if sshIgnoreHostKeys {
+					callback = ssh.InsecureIgnoreHostKey()
+				} else {
+					user, err := user.Current()
+					if err != nil {
+						return fmt.Errorf("failed to determine current user: %w", err)
+					}
+					callback, err = knownhosts.New(filepath.Join(user.HomeDir, ".ssh", "known_hosts"))
+					if err != nil {
+						return fmt.Errorf("failed to create SSH host key callback: %w", err)
+					}
+				}
+
+				sshConfig = ssh.ClientConfig{
+					User:            defaultSshUser,
+					Auth:            []ssh.AuthMethod{sshAuthMethod},
+					HostKeyCallback: callback,
+					Timeout:         sshConnectTimeout,
 				}
 			}
 			return nil
@@ -780,20 +572,20 @@ Istio will be started on the host network as a docker container in capture mode.
 				return fmt.Errorf("failed to read Istio Mesh configuration: %w", err)
 			}
 
-			istioValues, err := getConfigValuesFromConfigMap(kubeconfig)
+			istioConfigValues, err := getConfigValuesFromConfigMap(kubeconfig)
 			if err != nil {
 				return fmt.Errorf("failed to read Istio global values: %w", err)
 			}
 
-			if enabled := istioValues.GetGlobal().GetMeshExpansion().GetEnabled().GetValue(); !enabled {
+			if enabled := istioConfigValues.GetGlobal().GetMeshExpansion().GetEnabled().GetValue(); !enabled {
 				return fmt.Errorf("mesh expansion is not enabled. Please enable mesh expansion to be able to use %q command", c.CommandPath())
 			}
 
-			if actual, expected := istioValues.GetGlobal().GetJwtPolicy(), "third-party-jwt"; actual != expected {
+			if actual, expected := istioConfigValues.GetGlobal().GetJwtPolicy(), "third-party-jwt"; actual != expected {
 				return fmt.Errorf("jwt policy is set to %q. At the moment, %q command only supports jwt policy %q", actual, c.CommandPath(), expected)
 			}
 
-			if actual, expected := istioValues.GetGlobal().GetPilotCertProvider(), "istiod"; actual != expected {
+			if actual, expected := istioConfigValues.GetGlobal().GetPilotCertProvider(), "istiod"; actual != expected {
 				return fmt.Errorf("pilot cert provider is set to %q. At the moment, %q command only supports pilot cert provider %q", actual, c.CommandPath(), expected)
 			}
 
@@ -825,10 +617,10 @@ Istio will be started on the host network as a docker container in capture mode.
 				return fmt.Errorf("failed to generate security token(s) for WorkloadEntry(s): %w", err)
 			}
 
-			var action func(bundle bootstrapBundle) error
-			if dumpDir != "" {
-				action = func(bundle bootstrapBundle) error {
-					bundleDir := filepath.Join(dumpDir, bundle.Workload.Namespace, bundle.Workload.Name)
+			var action func(bundle BootstrapBundle) error
+			if outputDir != "" {
+				action = func(bundle BootstrapBundle) error {
+					bundleDir := filepath.Join(outputDir, bundle.Workload.Namespace, bundle.Workload.Name)
 					err = os.MkdirAll(bundleDir, os.ModePerm)
 					if err != nil && !os.IsExist(err) {
 						return fmt.Errorf("failed to create a local output directory %q: %w", bundleDir, err)
@@ -836,17 +628,17 @@ Istio will be started on the host network as a docker container in capture mode.
 					return dumpBootstrapBundle(bundleDir, bundle)
 				}
 			} else {
-				action = func(bundle bootstrapBundle) error {
+				action = func(bundle BootstrapBundle) error {
 					sshClient := sshClientFactory(c.OutOrStdout(), c.ErrOrStderr())
 					return copyBootstrapBundle(sshClient, bundle)
 				}
 			}
 
-			data := &sidecarInjectData{
+			data := &SidecarData{
 				K8sCaCert:                  k8sCaCert,
-				IstioNamespace:             istioNamespace,
+				IstioSystemNamespace:       istioNamespace,
 				IstioMeshConfig:            meshConfig,
-				IstioValues:                istioValues,
+				IstioConfigValues:          istioConfigValues,
 				IstioCaCert:                istioCaCert,
 				IstioIngressGatewayAddress: istioGatewayAddress,
 			}
@@ -855,28 +647,24 @@ Istio will be started on the host network as a docker container in capture mode.
 	}
 
 	vmBSCommand.PersistentFlags().BoolVarP(&all, "all", "a", false,
-		"attempt to bootstrap all workload entries")
+		"attempt to bootstrap all WorkloadEntry(s) in that namespace")
 	vmBSCommand.PersistentFlags().DurationVar(&tokenDuration, "duration", 24*time.Hour,
 		"(experimental) duration the generated ServiceAccount tokens are valid for.")
-	vmBSCommand.PersistentFlags().StringVarP(&dumpDir, "local-dir", "d", "",
-		"directory to put workload identities in locally as opposed to copying")
-	vmBSCommand.PersistentFlags().StringVar(&remoteDirectory, "remote-directory", "/var/run/istio",
-		"(experimental) the directory to create on the remote machine.")
-	vmBSCommand.PersistentFlags().StringVar(&scpPath, "remote-scp-path", "/usr/bin/scp",
-		"(experimental) the scp binary location on the target machine if not at /usr/bin/scp")
-	vmBSCommand.PersistentFlags().DurationVar(&scpTimeout, "timeout", 60*time.Second,
-		"(experimental) the timeout for copying workload identities")
+	vmBSCommand.PersistentFlags().StringVarP(&outputDir, "local-dir", "d", "",
+		"directory to put bootstrap bundle(s) in locally as opposed to copying")
+	vmBSCommand.PersistentFlags().DurationVar(&defaultScpOpts.Timeout, "timeout", 60*time.Second,
+		"(experimental) the timeout for copying a bootstrap bundle")
 	vmBSCommand.PersistentFlags().BoolVar(&sshIgnoreHostKeys, "ignore-host-keys", false,
 		"(experimental) ignore host keys on the remote host")
 	vmBSCommand.PersistentFlags().StringVarP(&sshKeyLocation, "ssh-key", "k", "",
 		"(experimental) the location of the SSH key")
-	vmBSCommand.PersistentFlags().IntVar(&sshPort, "ssh-port", 22,
+	vmBSCommand.PersistentFlags().IntVar(&defaultSshPort, "ssh-port", 22,
 		"(experimental) the port to SSH to the machine on")
-	vmBSCommand.PersistentFlags().StringVarP(&sshUser, "ssh-user", "u", "",
+	vmBSCommand.PersistentFlags().StringVarP(&defaultSshUser, "ssh-user", "u", "",
 		"(experimental) the user to SSH as, defaults to the current user")
 	vmBSCommand.PersistentFlags().DurationVar(&sshConnectTimeout, "ssh-connect-timeout", 5*time.Second,
 		"(experimental) the maximum amount of time to establish SSH connection")
-	vmBSCommand.PersistentFlags().BoolVar(&startIstio, "start-istio-proxy", false,
+	vmBSCommand.PersistentFlags().BoolVar(&startIstioProxy, "start-istio-proxy", false,
 		"start Istio proxy on a remote host after copying workload identity")
 	vmBSCommand.PersistentFlags().BoolVar(&dryRun, "dry-run", false,
 		"show generated configuration and respective SSH commands but don't connect to, copy files or execute commands remotely")
@@ -888,352 +676,4 @@ Istio will be started on the host network as a docker container in capture mode.
 		fmt.Sprintf("ConfigMap name for Istio sidecar injection, key should be %q", injectConfigMapKey))
 
 	return vmBSCommand
-}
-
-func getConfigValuesFromConfigMap(kubeconfig string) (*istioconfig.Values, error) {
-	valuesConfig, err := getValuesFromConfigMap(kubeconfig)
-	if err != nil {
-		return nil, err
-	}
-	values := new(istioconfig.Values)
-	err = (&jsonpb.Unmarshaler{AllowUnknownFields: true}).Unmarshal(strings.NewReader(valuesConfig), values)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal Istio config values: %w", err)
-	}
-	return values, nil
-}
-
-type valueFunc func(data *sidecarInjectData) (string, error)
-
-type envVar struct {
-	Name  string
-	Value valueFunc
-}
-
-func newEnvVar(name string, fn valueFunc) envVar {
-	return envVar{
-		Name:  name,
-		Value: fn,
-	}
-}
-
-var (
-	// Instruct 'istio-agent' to look for a ServiceAccount token
-	// at a hardcoded path './var/run/secrets/tokens/istio-token'
-	JWT_POLICY = newEnvVar("JWT_POLICY", func(data *sidecarInjectData) (string, error) {
-		return data.IstioValues.GetGlobal().GetJwtPolicy(), nil
-	})
-
-	// The provider of Pilot DNS certificate setting implicitly determines
-	// the path 'istio-agent' will be looking for the CA cert at:
-	//  istiod:     ./var/run/secrets/istio/root-cert.pem
-	//  kubernetes: ./var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-	//  custom:     ./etc/certs/root-cert.pem
-	PILOT_CERT_PROVIDER = newEnvVar("PILOT_CERT_PROVIDER", func(data *sidecarInjectData) (string, error) {
-		return data.IstioValues.GetGlobal().GetPilotCertProvider(), nil
-	})
-
-	// If the following setting is unset, 'istio-agent' will be using it
-	// implicitly in certain code paths, despite saying that it defaults to
-	// XDS address.
-	CA_ADDR = newEnvVar("CA_ADDR", func(data *sidecarInjectData) (string, error) {
-		if value := data.IstioValues.GetGlobal().GetCaAddress(); value != "" {
-			return value, nil
-		}
-		return data.ProxyConfig.GetDiscoveryAddress(), nil
-	})
-
-	POD_NAME = newEnvVar("POD_NAME", func(data *sidecarInjectData) (string, error) {
-		addressIdentifier := addressToPodNameAddition(data.Workload.Spec.Address)
-		return data.Workload.Name + "-" + addressIdentifier, nil
-	})
-
-	POD_NAMESPACE = newEnvVar("POD_NAMESPACE", func(data *sidecarInjectData) (string, error) {
-		return data.Workload.Namespace, nil
-	})
-
-	// Make sure that 'istio-agent' picks a given address as the primary address of this workload.
-	INSTANCE_IP = newEnvVar("INSTANCE_IP", func(data *sidecarInjectData) (string, error) {
-		return data.Workload.Spec.Address, nil
-	})
-
-	SERVICE_ACCOUNT = newEnvVar("SERVICE_ACCOUNT", func(data *sidecarInjectData) (string, error) {
-		return data.Workload.Spec.ServiceAccount, nil
-	})
-
-	HOST_IP = newEnvVar("HOST_IP", func(data *sidecarInjectData) (string, error) {
-		return data.Workload.Spec.Address, nil
-	})
-
-	CANONICAL_SERVICE = newEnvVar("CANONICAL_SERVICE", func(data *sidecarInjectData) (string, error) {
-		return data.Workload.Labels["service.istio.io/canonical-name"], nil
-	})
-
-	CANONICAL_REVISION = newEnvVar("CANONICAL_REVISION", func(data *sidecarInjectData) (string, error) {
-		return data.Workload.Labels["service.istio.io/canonical-revision"], nil
-	})
-
-	PROXY_CONFIG = newEnvVar("PROXY_CONFIG", func(data *sidecarInjectData) (string, error) {
-		if data.ProxyConfig == nil {
-			return "", nil
-		}
-		value, err := new(jsonpb.Marshaler).MarshalToString(data.ProxyConfig)
-		if err != nil {
-			return "", err
-		}
-		return string(value), nil
-	})
-
-	ISTIO_META_CLUSTER_ID = newEnvVar("ISTIO_META_CLUSTER_ID", func(data *sidecarInjectData) (string, error) {
-		if name := data.IstioValues.GetGlobal().GetMultiCluster().GetClusterName(); name != "" {
-			return name, nil
-		}
-		return "Kubernetes", nil
-	})
-
-	ISTIO_META_INTERCEPTION_MODE = newEnvVar("ISTIO_META_INTERCEPTION_MODE", func(data *sidecarInjectData) (string, error) {
-		if mode := data.Workload.Annotations[annotation.SidecarInterceptionMode.Name]; mode != "" {
-			return mode, nil
-		}
-		return data.ProxyConfig.GetInterceptionMode().String(), nil
-	})
-
-	ISTIO_META_NETWORK = newEnvVar("ISTIO_META_NETWORK", func(data *sidecarInjectData) (string, error) {
-		return data.IstioValues.GetGlobal().GetNetwork(), nil
-	})
-
-	// Workload labels
-	ISTIO_METAJSON_LABELS = newEnvVar("ISTIO_METAJSON_LABELS", func(data *sidecarInjectData) (string, error) {
-		if len(data.Workload.Labels)+len(data.Workload.Spec.Labels) == 0 {
-			return "", nil
-		}
-		labels := make(map[string]string)
-		for name, value := range data.Workload.Labels {
-			labels[name] = value
-		}
-		for name, value := range data.Workload.Spec.Labels {
-			labels[name] = value
-		}
-		value, err := json.Marshal(labels)
-		if err != nil {
-			return "", err
-		}
-		return string(value), nil
-	})
-
-	ISTIO_META_WORKLOAD_NAME = newEnvVar("ISTIO_META_WORKLOAD_NAME", func(data *sidecarInjectData) (string, error) {
-		return data.GetAppOrServiceAccount(), nil
-	})
-
-	ISTIO_META_OWNER = newEnvVar("ISTIO_META_OWNER", func(data *sidecarInjectData) (string, error) {
-		return fmt.Sprintf("kubernetes://apis/networking.istio.io/v1alpha3/namespaces/%s/workloadentries/%s", data.Workload.Namespace, data.Workload.Name), nil
-	})
-
-	ISTIO_META_MESH_ID = newEnvVar("ISTIO_META_MESH_ID", func(data *sidecarInjectData) (string, error) {
-		if value := data.IstioValues.GetGlobal().GetMeshID(); value != "" {
-			return value, nil
-		}
-		return data.IstioValues.GetGlobal().GetTrustDomain(), nil
-	})
-
-	SIDECAR_ENV = []envVar{
-		JWT_POLICY,
-		PILOT_CERT_PROVIDER,
-		CA_ADDR,
-		POD_NAME,
-		POD_NAMESPACE,
-		INSTANCE_IP,
-		SERVICE_ACCOUNT,
-		HOST_IP,
-		CANONICAL_SERVICE,
-		CANONICAL_REVISION,
-		PROXY_CONFIG,
-		ISTIO_META_CLUSTER_ID,
-		ISTIO_META_INTERCEPTION_MODE,
-		ISTIO_META_NETWORK,
-		ISTIO_METAJSON_LABELS,
-		ISTIO_META_WORKLOAD_NAME,
-		ISTIO_META_OWNER,
-		ISTIO_META_MESH_ID,
-	}
-)
-
-func (d *sidecarInjectData) GetEnv() ([]string, error) {
-	vars := make([]string, 0, len(d.ProxyConfig.GetProxyMetadata())+len(SIDECAR_ENV))
-	// lower priority
-	for name, value := range d.ProxyConfig.GetProxyMetadata() {
-		vars = append(vars, fmt.Sprintf("%s=%s", name, value))
-	}
-	// higher priority
-	for _, envar := range SIDECAR_ENV {
-		value, err := envar.Value(d)
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate a value of the environment variable %q: %w", envar.Name, err)
-		}
-		vars = append(vars, fmt.Sprintf("%s=%s", envar.Name, value))
-	}
-	return vars, nil
-}
-
-func (d *sidecarInjectData) GetEnvFile() ([]byte, error) {
-	vars, err := d.GetEnv()
-	if err != nil {
-		return nil, err
-	}
-	return []byte(strings.Join(vars, "\n")), nil
-}
-
-func (d *sidecarInjectData) GetIstioProxyArgs() []string {
-	return []string{
-		"proxy",
-		"sidecar",
-		"--serviceCluster", // `istio-agent` will only respect this setting from command-line
-		d.GetServiceCluster(),
-		"--concurrency",
-		fmt.Sprintf("%d", d.GetConcurrency()), // `istio-agent` will only respect this setting from command-line
-		"--proxyLogLevel",
-		d.GetLogLevel(),
-		"--proxyComponentLogLevel",
-		d.GetComponentLogLevel(),
-		"--trust-domain",
-		d.GetTrustDomain(),
-	}
-}
-
-func (d *sidecarInjectData) GetIstioNamespace() string {
-	return d.IstioNamespace
-}
-
-func (d *sidecarInjectData) GetCanonicalDiscoveryAddress() string {
-	revision := d.IstioValues.GetGlobal().GetRevision()
-	if revision != "" {
-		revision = "-" + revision
-	}
-	return fmt.Sprintf("istiod%s.%s.svc:15012", revision, d.GetIstioNamespace())
-}
-
-func (d *sidecarInjectData) GetIstioProxyHosts() []string {
-	candidates := []string{
-		d.GetCanonicalDiscoveryAddress(),
-		d.ProxyConfig.GetDiscoveryAddress(),
-		d.ProxyConfig.GetTracing().GetZipkin().GetAddress(),
-		d.ProxyConfig.GetTracing().GetLightstep().GetAddress(),
-		d.ProxyConfig.GetTracing().GetDatadog().GetAddress(),
-		d.ProxyConfig.GetTracing().GetTlsSettings().GetSni(),
-		d.ProxyConfig.GetEnvoyAccessLogService().GetAddress(),
-		d.ProxyConfig.GetEnvoyAccessLogService().GetTlsSettings().GetSni(),
-		d.ProxyConfig.GetEnvoyMetricsService().GetAddress(),
-		d.ProxyConfig.GetEnvoyMetricsService().GetTlsSettings().GetSni(),
-		d.ProxyConfig.GetZipkinAddress(), // deprecated
-		d.IstioValues.GetGlobal().GetRemotePolicyAddress(),
-		d.IstioValues.GetGlobal().GetRemotePilotAddress(),
-		d.IstioValues.GetGlobal().GetRemoteTelemetryAddress(),
-		d.IstioValues.GetGlobal().GetCaAddress(),
-	}
-	hosts := make([]string, 0, len(candidates)*4)
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue // skip undefined addresses
-		}
-		host, _, err := net.SplitHostPort(candidate)
-		if err != nil {
-			host = candidate
-		}
-		if net.ParseIP(host) != nil {
-			continue // skip IP address
-		}
-		if !isClusterLocal(host) {
-			continue // skip non- cluster local address
-		}
-		segments := strings.SplitN(host, ".", 3)
-		svc := segments[0]
-		ns := d.Workload.Namespace
-		if len(segments) > 1 {
-			ns = segments[1]
-		}
-		hosts = append(hosts, getClusterLocalAliases(svc, ns)...)
-	}
-	return hosts
-}
-
-func (d *sidecarInjectData) GetIstioProxyContainerName() string {
-	return fmt.Sprintf("%s-%s-istio-proxy", d.Workload.Namespace, d.Workload.Name)
-}
-
-func (d *sidecarInjectData) GetIstioProxyImage() string {
-	if value := d.Workload.Annotations[annotation.SidecarProxyImage.Name]; value != "" {
-		return value
-	}
-	return fmt.Sprintf("%s/%s:%s",
-		d.IstioValues.GetGlobal().GetHub(),
-		d.IstioValues.GetGlobal().GetProxy().GetImage(),
-		d.IstioValues.GetGlobal().GetTag())
-}
-
-func (d *sidecarInjectData) GetAppOrServiceAccount() string {
-	if value := d.Workload.Spec.Labels["app"]; value != "" {
-		return value
-	}
-	if value := d.Workload.Labels["app"]; value != "" {
-		return value
-	}
-	return d.Workload.Spec.ServiceAccount
-}
-
-func (d *sidecarInjectData) GetServiceCluster() string {
-	return fmt.Sprintf("%s.%s", d.GetAppOrServiceAccount(), d.Workload.Namespace)
-}
-
-func (d *sidecarInjectData) GetConcurrency() int32 {
-	return d.ProxyConfig.GetConcurrency().GetValue()
-}
-
-func (d *sidecarInjectData) GetTrustDomain() string {
-	return d.IstioValues.GetGlobal().GetTrustDomain()
-}
-
-func (d *sidecarInjectData) GetLogLevel() string {
-	if value := d.Workload.Annotations[annotation.SidecarLogLevel.Name]; value != "" {
-		return value
-	}
-	if value := d.IstioValues.GetGlobal().GetProxy().GetLogLevel(); value != "" {
-		return value
-	}
-	return "info"
-}
-
-func (d *sidecarInjectData) GetComponentLogLevel() string {
-	if value := d.Workload.Annotations[annotation.SidecarComponentLogLevel.Name]; value != "" {
-		return value
-	}
-	if value := d.IstioValues.GetGlobal().GetProxy().GetComponentLogLevel(); value != "" {
-		return value
-	}
-	return "misc:info"
-}
-
-func isClusterLocal(host string) bool {
-	segments := strings.Split(host, ".")
-	switch len(segments) {
-	case 1, 2:
-		return true // TODO(yskopets): beware of fake positives like `docker.io`
-	case 3:
-		return segments[2] == "svc"
-	case 4:
-		return segments[2] == "svc" && segments[3] == "cluster"
-	case 5:
-		return segments[2] == "svc" && segments[3] == "cluster" && segments[4] == "local"
-	default:
-		return false
-	}
-}
-
-func getClusterLocalAliases(svc, ns string) []string {
-	base := svc + "." + ns
-	return []string{
-		base,
-		base + ".svc",
-		base + ".svc.cluster",
-		base + ".svc.cluster.local",
-	}
 }
