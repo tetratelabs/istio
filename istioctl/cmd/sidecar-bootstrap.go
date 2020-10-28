@@ -60,7 +60,7 @@ type BootstrapBundle = bootstrapBundle.BootstrapBundle
 type SidecarData = bootstrapBundle.SidecarData
 
 const (
-	defaultDestinationDir = "/tmp/istio-proxy" // the most reliable default value for out-of-the-box experience
+	defaultProxyConfigDir = "/tmp/istio-proxy" // the most reliable default value for out-of-the-box experience
 )
 
 var (
@@ -336,8 +336,8 @@ func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) err
 	}
 	defer client.Close()
 
-	remoteDir := defaultDestinationDir
-	if value := bundle.Workload.Annotations[bootstrapAnnotation.DestinationDir]; value != "" {
+	remoteDir := defaultProxyConfigDir
+	if value := bundle.Workload.Annotations[bootstrapAnnotation.ProxyConfigDir]; value != "" {
 		remoteDir = value
 	}
 
