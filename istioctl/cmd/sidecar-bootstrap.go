@@ -292,7 +292,7 @@ func processWorkloads(kubeClient kubernetes.Interface,
 
 		data.Workload = &workload
 		data.ProxyConfig = proto.Clone(data.IstioMeshConfig.GetDefaultConfig()).(*meshconfig.ProxyConfig)
-		data.ProxyConfig.ServiceCluster = workload.Spec.ServiceAccount
+		data.ProxyConfig.ServiceCluster = data.GetServiceCluster()
 		data.ProxyConfig.Concurrency = nil // by default, use all CPU cores of the VM
 		if value := workload.Annotations[annotation.ProxyConfig.Name]; value != "" {
 			if err := gogoprotomarshal.ApplyYAML(value, data.ProxyConfig); err != nil {

@@ -136,7 +136,7 @@ var (
 		if mode := data.Workload.Annotations[annotation.SidecarInterceptionMode.Name]; mode != "" {
 			return mode, nil
 		}
-		return data.ProxyConfig.GetInterceptionMode().String(), nil
+		return "NONE", nil // ignore data.ProxyConfig.GetInterceptionMode()
 	})
 
 	ISTIO_META_NETWORK = newEnvVar("ISTIO_META_NETWORK", func(data *SidecarData) (string, error) {
