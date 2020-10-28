@@ -27,6 +27,8 @@ import (
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	istioconfig "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
+
+	bootstrapAnnotation "istio.io/istio/istioctl/pkg/bootstrap/annotation"
 )
 
 type SidecarData struct {
@@ -324,8 +326,12 @@ func (d *SidecarData) GetIstioProxyImage() string {
 	if value := d.Workload.Annotations[annotation.SidecarProxyImage.Name]; value != "" {
 		return value
 	}
+	hub := d.IstioConfigValues.GetGlobal().GetHub()
+	if value := d.Workload.Annotations[bootstrapAnnotation.ProxyImageHub]; value != "" {
+		hub = value
+	}
 	return fmt.Sprintf("%s/%s:%s",
-		d.IstioConfigValues.GetGlobal().GetHub(),
+		strings.TrimRight(hub, "/"),
 		d.IstioConfigValues.GetGlobal().GetProxy().GetImage(),
 		d.IstioConfigValues.GetGlobal().GetTag())
 }
