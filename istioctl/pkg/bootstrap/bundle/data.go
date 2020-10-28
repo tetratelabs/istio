@@ -97,7 +97,20 @@ var (
 
 	// Make sure that 'istio-agent' picks a given address as the primary address of this workload.
 	INSTANCE_IP = newEnvVar("INSTANCE_IP", func(data *SidecarData) (string, error) {
-		return data.Workload.Spec.Address, nil
+		ip := ""
+		if net.ParseIP(data.Workload.Spec.Address) != nil {
+			ip = data.Workload.Spec.Address
+		}
+		if value := data.Workload.Annotations[bootstrapAnnotation.ProxyInstanceIP]; value != "" {
+			if net.ParseIP(value) == nil {
+				return "", fmt.Errorf("value of %q annotation on the WorkloadEntry is not a valid IP address: %q", bootstrapAnnotation.ProxyInstanceIP, value)
+			}
+			ip = value
+		}
+		if ip == "" {
+			return "", fmt.Errorf("unable to bootstrap a WorkloadEntry that has neither an Address field set to a valid IP nor a %q annotation as an alternative source of the IP address to bind 'inbound' listeners to", bootstrapAnnotation.ProxyInstanceIP)
+		}
+		return ip, nil
 	})
 
 	SERVICE_ACCOUNT = newEnvVar("SERVICE_ACCOUNT", func(data *SidecarData) (string, error) {
@@ -230,7 +243,7 @@ func (d *SidecarData) GetEnv() ([]string, error) {
 	for _, envar := range SIDECAR_ENV {
 		value, err := envar.Value(d)
 		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate a value of the environment variable %q: %w", envar.Name, err)
+			return nil, fmt.Errorf("failed to generate value of the environment variable %q: %w", envar.Name, err)
 		}
 		vars = append(vars, fmt.Sprintf("%s=%s", envar.Name, value))
 	}
