@@ -17,6 +17,7 @@ package fake
 import (
 	"fmt"
 	"io"
+	"os"
 
 	"golang.org/x/crypto/ssh"
 
@@ -36,7 +37,7 @@ func (c *client) Dial(address, username string, _ ssh.ClientConfig) error {
 	return nil
 }
 
-func (c *client) Copy(data []byte, dstPath string, _ bootstrapSsh.CopyOpts) error {
+func (c *client) Copy(data []byte, dstPath string, _ os.FileMode, _ bootstrapSsh.CopyOpts) error {
 	fmt.Fprintf(c.stderr, "\n[SSH client] going to copy into a remote file: %s\n%s\n", dstPath, string(data))
 	return nil
 }

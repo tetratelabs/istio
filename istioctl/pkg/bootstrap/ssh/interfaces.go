@@ -16,6 +16,7 @@ package ssh
 
 import (
 	"io"
+	"os"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -29,6 +30,6 @@ type CopyOpts struct {
 type Client interface {
 	Dial(address, username string, config ssh.ClientConfig) error
 	Exec(command string) error
-	Copy(data []byte, dstPath string, opts CopyOpts) error
+	Copy(data []byte, dstPath string, perm os.FileMode, opts CopyOpts) error
 	io.Closer
 }
