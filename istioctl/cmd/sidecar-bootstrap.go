@@ -40,6 +40,7 @@ import (
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	istioclient "istio.io/client-go/pkg/clientset/versioned"
+	bootstrapAnnotation "istio.io/istio/istioctl/pkg/bootstrap/annotation"
 	bootstrapBundle "istio.io/istio/istioctl/pkg/bootstrap/bundle"
 	bootstrapSsh "istio.io/istio/istioctl/pkg/bootstrap/ssh"
 	bootstrapSshFake "istio.io/istio/istioctl/pkg/bootstrap/ssh/fake"
@@ -57,46 +58,6 @@ import (
 
 type BootstrapBundle = bootstrapBundle.BootstrapBundle
 type SidecarData = bootstrapBundle.SidecarData
-
-const (
-	// IP address or DNS name of the machine represented by this WorkloadEntry to use
-	// instead of WorkloadEntry.Address for SSH connections from `istioctl x sidecar-bootstrap`.
-	//
-	// This setting is intended for those scenarios where `istioctl x sidecar-bootstrap`
-	// will be run on a machine without direct connectivity to the WorkloadEntry.Address.
-	// E.g., one might set WorkloadEntry.Address to the "internal IP" of a VM
-	// and set value of this annotation to the "external IP" of that VM.
-	//
-	// By default, value of WorkloadEntry.Address is assumed.
-	sidecarBootstrapSshHostAnnotation = "sidecar-bootstrap.istioctl.istio.io/ssh-host"
-
-	// Port of the SSH server on the machine represented by this WorkloadEntry to use
-	// for SSH connections from `istioctl x sidecar-bootstrap`.
-	//
-	// By default, `22` is assumed.
-	sidecarBootstrapSshPortAnnotation = "sidecar-bootstrap.istioctl.istio.io/ssh-port"
-
-	// User on the machine represented by this WorkloadEntry to use for SSH connections
-	// from `istioctl x sidecar-bootstrap`.
-	//
-	// Make sure that user has enough permissions to create the config dir and
-	// to run Docker container without `sudo`.
-	//
-	// By default, a user running `istioctl x sidecar-bootstrap` is assumed.
-	sidecarBootstrapSshUserAnnotation = "sidecar-bootstrap.istioctl.istio.io/ssh-user"
-
-	// Path to the `scp` binary on the machine represented by this WorkloadEntry to use
-	// in SSH connections from `istioctl x sidecar-bootstrap`.
-	//
-	// By default, `/usr/bin/scp` is assumed.
-	sidecarBootstrapScpPathAnnotation = "sidecar-bootstrap.istioctl.istio.io/scp-path"
-
-	// Directory on the machine represented by this WorkloadEntry where `istioctl x sidecar-bootstrap`
-	// should copy bootstrap bundle to.
-	//
-	// By default, `/tmp/istio-proxy` is assumed (the most reliable default value for out-of-the-box experience).
-	sidecarBootstrapDestinationDirAnnotation = "sidecar-bootstrap.istioctl.istio.io/destination-dir"
-)
 
 const (
 	defaultDestinationDir = "/tmp/istio-proxy" // the most reliable default value for out-of-the-box experience
@@ -356,15 +317,15 @@ func dumpBootstrapBundle(outputDir string, bundle BootstrapBundle) error {
 
 func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) error {
 	host := bundle.Workload.Spec.Address
-	if value := bundle.Workload.Annotations[sidecarBootstrapSshHostAnnotation]; value != "" {
+	if value := bundle.Workload.Annotations[bootstrapAnnotation.SshHost]; value != "" {
 		host = value
 	}
 	port := strconv.Itoa(defaultSshPort)
-	if value := bundle.Workload.Annotations[sidecarBootstrapSshPortAnnotation]; value != "" {
+	if value := bundle.Workload.Annotations[bootstrapAnnotation.SshPort]; value != "" {
 		port = value
 	}
 	username := defaultSshUser
-	if value := bundle.Workload.Annotations[sidecarBootstrapSshUserAnnotation]; value != "" {
+	if value := bundle.Workload.Annotations[bootstrapAnnotation.SshUser]; value != "" {
 		username = value
 	}
 	address := net.JoinHostPort(host, port)
@@ -376,7 +337,7 @@ func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) err
 	defer client.Close()
 
 	remoteDir := defaultDestinationDir
-	if value := bundle.Workload.Annotations[sidecarBootstrapDestinationDirAnnotation]; value != "" {
+	if value := bundle.Workload.Annotations[bootstrapAnnotation.DestinationDir]; value != "" {
 		remoteDir = value
 	}
 
@@ -387,7 +348,7 @@ func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) err
 	}
 
 	scpOpts := defaultScpOpts
-	if value := bundle.Workload.Annotations[sidecarBootstrapScpPathAnnotation]; value != "" {
+	if value := bundle.Workload.Annotations[bootstrapAnnotation.ScpPath]; value != "" {
 		scpOpts.RemoteScpPath = value
 	}
 
@@ -718,9 +679,9 @@ Istio will be started on the host network as a docker container in capture mode.
 	vmBSCommand.PersistentFlags().StringVarP(&sshKeyLocation, "ssh-key", "k", "",
 		"(experimental) the location of the SSH key")
 	vmBSCommand.PersistentFlags().IntVar(&defaultSshPort, "ssh-port", 22,
-		"(experimental) default port to SSH to (is only effective unless the 'sidecar-bootstrap.istioctl.istio.io/ssh-port' annotation is present on a WorkloadEntry)")
+		fmt.Sprintf("(experimental) default port to SSH to (is only effective unless the '%s' annotation is present on a WorkloadEntry)", bootstrapAnnotation.SshPort))
 	vmBSCommand.PersistentFlags().StringVarP(&defaultSshUser, "ssh-user", "u", "",
-		"(experimental) default user to SSH as, defaults to the current user (is only effective unless the 'sidecar-bootstrap.istioctl.istio.io/ssh-user' annotation is present on a WorkloadEntry)")
+		fmt.Sprintf("(experimental) default user to SSH as, defaults to the current user (is only effective unless the '%s' annotation is present on a WorkloadEntry)", bootstrapAnnotation.SshUser))
 	vmBSCommand.PersistentFlags().DurationVar(&sshConnectTimeout, "ssh-connect-timeout", 10*time.Second,
 		"(experimental) the maximum amount of time to establish SSH connection")
 	vmBSCommand.PersistentFlags().BoolVar(&startIstioProxy, "start-istio-proxy", false,
