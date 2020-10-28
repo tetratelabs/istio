@@ -51,7 +51,7 @@ const (
 	// should copy bootstrap bundle to.
 	//
 	// By default, `/tmp/istio-proxy` is assumed (the most reliable default value for out-of-the-box experience).
-	DestinationDir = "sidecar-bootstrap.istioctl.istio.io/destination-dir"
+	ProxyConfigDir = "sidecar-bootstrap.istioctl.istio.io/proxy-config-dir"
 
 	// Hub with Istio Proxy images that the machine represented by this WorkloadEntry
 	// should pull from instead of the mesh-wide hub.
