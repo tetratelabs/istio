@@ -53,9 +53,19 @@ const (
 	// By default, `/tmp/istio-proxy` is assumed (the most reliable default value for out-of-the-box experience).
 	DestinationDir = "sidecar-bootstrap.istioctl.istio.io/destination-dir"
 
-	// Hub with Istio Proxy images that the the machine represented by this WorkloadEntry
-	// should pull from instead of a mesh-wide hub.
+	// Hub with Istio Proxy images that the machine represented by this WorkloadEntry
+	// should pull from instead of the mesh-wide hub.
 	//
 	// By default, mesh-wide hub is assumed.
 	ProxyImageHub = "sidecar-bootstrap.istioctl.istio.io/proxy-image-hub"
+
+	// IP address of the machine represented by this WorkloadEntry that Istio Proxy
+	// should bind `inbound` listeners to.
+	//
+	// This setting is intended for those scenarios where Istio Proxy cannot bind to
+	// the IP address specified in the WorkloadEntry.Address (e.g., on AWS EC2 where
+	// a VM can only bind the private IP but not the public one).
+	//
+	// By default, WorkloadEntry.Address is assumed.
+	ProxyInstanceIP = "sidecar-bootstrap.istioctl.istio.io/proxy-instance-ip"
 )
