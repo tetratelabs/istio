@@ -330,23 +330,25 @@ func processWorkloads(kubeClient kubernetes.Interface,
 }
 
 func dumpBootstrapBundle(outputDir string, bundle BootstrapBundle) error {
-	dump := func(filepath string, content []byte) error {
-		err := ioutil.WriteFile(filepath, content, 0644)
+	dump := func(filepath string, perm os.FileMode, content []byte) error {
+		err := ioutil.WriteFile(filepath, content, perm)
 		if err != nil {
 			return fmt.Errorf("failed to dump into a file %q: %w", filepath, err)
 		}
 		return nil
 	}
-	if err := dump(path.Join(outputDir, "sidecar.env"), bundle.IstioProxyEnvironment); err != nil {
+	configFilePerm := os.FileMode(0644)
+	secretFilePerm := os.FileMode(0640)
+	if err := dump(path.Join(outputDir, "sidecar.env"), configFilePerm, bundle.IstioProxyEnvironment); err != nil {
 		return err
 	}
-	if err := dump(path.Join(outputDir, "k8s-ca.pem"), bundle.K8sCaCert); err != nil {
+	if err := dump(path.Join(outputDir, "k8s-ca.pem"), configFilePerm, bundle.K8sCaCert); err != nil {
 		return err
 	}
-	if err := dump(path.Join(outputDir, "istio-ca.pem"), bundle.IstioCaCert); err != nil {
+	if err := dump(path.Join(outputDir, "istio-ca.pem"), configFilePerm, bundle.IstioCaCert); err != nil {
 		return err
 	}
-	if err := dump(path.Join(outputDir, "istio-token"), bundle.ServiceAccountToken); err != nil {
+	if err := dump(path.Join(outputDir, "istio-token"), secretFilePerm, bundle.ServiceAccountToken); err != nil {
 		return err
 	}
 	return nil
@@ -389,26 +391,29 @@ func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) err
 		scpOpts.RemoteScpPath = value
 	}
 
+	configFilePerm := os.FileMode(0644)
+	secretFilePerm := os.FileMode(0640)
+
 	remoteEnvPath := path.Join(remoteDir, "sidecar.env")
-	err = client.Copy(bundle.IstioProxyEnvironment, remoteEnvPath, scpOpts)
+	err = client.Copy(bundle.IstioProxyEnvironment, remoteEnvPath, configFilePerm, scpOpts)
 	if err != nil {
 		return err
 	}
 
 	remoteK8sCaPath := path.Join(remoteDir, "k8s-ca.pem")
-	err = client.Copy(bundle.K8sCaCert, remoteK8sCaPath, scpOpts)
+	err = client.Copy(bundle.K8sCaCert, remoteK8sCaPath, configFilePerm, scpOpts)
 	if err != nil {
 		return err
 	}
 
 	remoteIstioCaPath := path.Join(remoteDir, "istio-ca.pem")
-	err = client.Copy(bundle.IstioCaCert, remoteIstioCaPath, scpOpts)
+	err = client.Copy(bundle.IstioCaCert, remoteIstioCaPath, configFilePerm, scpOpts)
 	if err != nil {
 		return err
 	}
 
 	remoteIstioTokenPath := path.Join(remoteDir, "istio-token")
-	err = client.Copy(bundle.ServiceAccountToken, remoteIstioTokenPath, scpOpts)
+	err = client.Copy(bundle.ServiceAccountToken, remoteIstioTokenPath, secretFilePerm, scpOpts)
 	if err != nil {
 		return err
 	}

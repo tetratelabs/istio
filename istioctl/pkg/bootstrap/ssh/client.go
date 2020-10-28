@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"sync"
 	"time"
@@ -55,7 +56,7 @@ func (c *client) Dial(address, user string, config ssh.ClientConfig) error {
 	return nil
 }
 
-func (c *client) Copy(data []byte, dstPath string, opts CopyOpts) (err error) {
+func (c *client) Copy(data []byte, dstPath string, perm os.FileMode, opts CopyOpts) (err error) {
 	fmt.Fprintf(c.stderr, "[SSH client] copying into a remote file: %s\n", dstPath)
 
 	defer func() {
@@ -94,7 +95,7 @@ func (c *client) Copy(data []byte, dstPath string, opts CopyOpts) (err error) {
 			return
 		}
 
-		// Set the unix file permissions to `0644`.
+		// Set the unix file permissions (e.g., `0644`).
 		//
 		// If you don't read unix permissions this correlates to:
 		//
@@ -104,7 +105,7 @@ func (c *client) Copy(data []byte, dstPath string, opts CopyOpts) (err error) {
 		//
 		// We keep "OTHER"/"OWNING GROUP" to read so this seemlessly
 		// works with the Istio container we start up below.
-		_, err = fmt.Fprintln(w, "C0644", size, filename)
+		_, err = fmt.Fprintf(w, "C0%03o %d %s\n", perm, size, filename)
 		if err != nil {
 			errCh <- err
 			return
