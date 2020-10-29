@@ -269,6 +269,20 @@ func TestServiceNode(t *testing.T) {
 			},
 			out: "sidecar~10.3.3.3~random~local",
 		},
+		{
+			in: &model.Proxy{
+				Type:          model.SidecarProxy,
+				ID:            "random",
+				ServiceNodeIP: "1.2.3.4",
+				IPAddresses:   []string{"10.3.3.3", "10.4.4.4", "10.5.5.5", "10.6.6.6"},
+				DNSDomain:     "local",
+				Metadata: &model.NodeMetadata{
+					InstanceIPs: []string{"10.3.3.3", "10.4.4.4", "10.5.5.5", "10.6.6.6"},
+				},
+				IstioVersion: model.MaxIstioVersion,
+			},
+			out: "sidecar~1.2.3.4~random~local",
+		},
 	}
 
 	for _, node := range cases {
@@ -276,13 +290,17 @@ func TestServiceNode(t *testing.T) {
 		if out != node.out {
 			t.Errorf("%#v.ServiceNode() => Got %s, want %s", node.in, out, node.out)
 		}
-		in, err := model.ParseServiceNodeWithMetadata(node.out, node.in.Metadata)
+		got, err := model.ParseServiceNodeWithMetadata(node.out, node.in.Metadata)
 
 		if err != nil {
 			t.Errorf("ParseServiceNode(%q) => Got error %v", node.out, err)
 		}
-		if !reflect.DeepEqual(in, node.in) {
-			t.Errorf("ParseServiceNode(%q) => Got %#v, want %#v", node.out, in, node.in)
+		want := *node.in
+		if want.ServiceNodeIP == "" && len(want.IPAddresses) > 0 {
+			want.ServiceNodeIP = want.IPAddresses[0]
+		}
+		if !reflect.DeepEqual(got, &want) {
+			t.Errorf("ParseServiceNode(%q) => Got %#v, want %#v", node.out, got, &want)
 		}
 	}
 }
@@ -295,13 +313,25 @@ func TestParseMetadata(t *testing.T) {
 	}{
 		{
 			name: "Basic Case",
-			out: model.Proxy{Type: "sidecar", IPAddresses: []string{"1.1.1.1"}, DNSDomain: "domain", ID: "id", IstioVersion: model.MaxIstioVersion,
-				Metadata: &model.NodeMetadata{Raw: map[string]interface{}{}}},
+			out: model.Proxy{
+				Type:          "sidecar",
+				ServiceNodeIP: "1.1.1.1",
+				IPAddresses:   []string{"1.1.1.1"},
+				DNSDomain:     "domain",
+				ID:            "id",
+				IstioVersion:  model.MaxIstioVersion,
+				Metadata:      &model.NodeMetadata{Raw: map[string]interface{}{}}},
 		},
 		{
 			name:     "Capture Arbitrary Metadata",
 			metadata: map[string]interface{}{"foo": "bar"},
-			out: model.Proxy{Type: "sidecar", IPAddresses: []string{"1.1.1.1"}, DNSDomain: "domain", ID: "id", IstioVersion: model.MaxIstioVersion,
+			out: model.Proxy{
+				Type:          "sidecar",
+				ServiceNodeIP: "1.1.1.1",
+				IPAddresses:   []string{"1.1.1.1"},
+				DNSDomain:     "domain",
+				ID:            "id",
+				IstioVersion:  model.MaxIstioVersion,
 				Metadata: &model.NodeMetadata{
 					Raw: map[string]interface{}{
 						"foo": "bar",
@@ -315,7 +345,13 @@ func TestParseMetadata(t *testing.T) {
 					"foo": "bar",
 				},
 			},
-			out: model.Proxy{Type: "sidecar", IPAddresses: []string{"1.1.1.1"}, DNSDomain: "domain", ID: "id", IstioVersion: model.MaxIstioVersion,
+			out: model.Proxy{
+				Type:          "sidecar",
+				ServiceNodeIP: "1.1.1.1",
+				IPAddresses:   []string{"1.1.1.1"},
+				DNSDomain:     "domain",
+				ID:            "id",
+				IstioVersion:  model.MaxIstioVersion,
 				Metadata: &model.NodeMetadata{
 					Raw: map[string]interface{}{
 						"LABELS": map[string]interface{}{"foo": "bar"},
@@ -329,7 +365,13 @@ func TestParseMetadata(t *testing.T) {
 			metadata: map[string]interface{}{
 				"POD_PORTS": `[{"name":"http","containerPort":8080,"protocol":"TCP"},{"name":"grpc","containerPort":8079,"protocol":"TCP"}]`,
 			},
-			out: model.Proxy{Type: "sidecar", IPAddresses: []string{"1.1.1.1"}, DNSDomain: "domain", ID: "id", IstioVersion: model.MaxIstioVersion,
+			out: model.Proxy{
+				Type:          "sidecar",
+				ServiceNodeIP: "1.1.1.1",
+				IPAddresses:   []string{"1.1.1.1"},
+				DNSDomain:     "domain",
+				ID:            "id",
+				IstioVersion:  model.MaxIstioVersion,
 				Metadata: &model.NodeMetadata{
 					Raw: map[string]interface{}{
 						"POD_PORTS": `[{"name":"http","containerPort":8080,"protocol":"TCP"},{"name":"grpc","containerPort":8079,"protocol":"TCP"}]`,

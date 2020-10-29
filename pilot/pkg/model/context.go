@@ -155,6 +155,11 @@ type Proxy struct {
 	// Type specifies the node type. First part of the ID.
 	Type NodeType
 
+	// ServiceNodeIP is an IP address encoded into the node ID.
+	// This IP uniquely identifies that proxy to the control plane,
+	// even though the proxy might not be able to bind to it (e.g., External IP of an AWS EC2 instance).
+	ServiceNodeIP string
+
 	// IPAddresses is the IP addresses of the proxy used to identify it and its
 	// co-located service instances. Example: "10.60.1.6". In some cases, the host
 	// where the poxy and service instances reside may have more than one IP address
@@ -623,14 +628,22 @@ func IsApplicationNodeType(nType NodeType) bool {
 	}
 }
 
+// IP address that uniquely identifies that proxy to the control plane,
+// even though the proxy might not be able to bind to it (e.g., External IP of an AWS EC2 instance).
+func (node *Proxy) IdentityIP() string {
+	if node.ServiceNodeIP != "" {
+		return node.ServiceNodeIP
+	}
+	if len(node.IPAddresses) > 0 {
+		return node.IPAddresses[0]
+	}
+	return ""
+}
+
 // ServiceNode encodes the proxy node attributes into a URI-acceptable string
 func (node *Proxy) ServiceNode() string {
-	ip := ""
-	if len(node.IPAddresses) > 0 {
-		ip = node.IPAddresses[0]
-	}
 	return strings.Join([]string{
-		string(node.Type), ip, node.ID, node.DNSDomain,
+		string(node.Type), node.IdentityIP(), node.ID, node.DNSDomain,
 	}, serviceNodeSeparator)
 
 }
@@ -817,6 +830,7 @@ func ParseServiceNodeWithMetadata(s string, metadata *NodeMetadata) (*Proxy, err
 		return out, fmt.Errorf("invalid node type (valid types: sidecar, router in the service node %q", s)
 	}
 	out.Type = NodeType(parts[0])
+	out.ServiceNodeIP = parts[1]
 
 	// Get all IP Addresses from Metadata
 	if hasValidIPAddresses(metadata.InstanceIPs) {
