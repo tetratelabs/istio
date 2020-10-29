@@ -70,7 +70,7 @@ func endpointServiceInstances(c *Controller, endpoints *v1.Endpoints, proxy *mod
 	c.RUnlock()
 
 	if svc != nil {
-		podIP := proxy.IPAddresses[0]
+		podIP := proxy.IdentityIP()
 		pod := c.pods.getPodByIP(podIP)
 		builder := NewEndpointBuilder(c, pod)
 

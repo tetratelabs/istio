@@ -216,7 +216,7 @@ func (sd *ServiceDiscovery) GetProxyServiceInstances(node *model.Proxy) ([]*mode
 		if !service.External() {
 			for v := 0; v < sd.versions; v++ {
 				// Only one IP for memory discovery?
-				if node.IPAddresses[0] == MakeIP(service, v) {
+				if node.IdentityIP() == MakeIP(service, v) {
 					for _, port := range service.Ports {
 						out = append(out, newServiceInstance(service, port, v, Locality))
 					}
