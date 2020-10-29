@@ -269,6 +269,20 @@ func TestServiceNode(t *testing.T) {
 			},
 			out: "sidecar~10.3.3.3~random~local",
 		},
+		{
+			in: &model.Proxy{
+				Type:          model.SidecarProxy,
+				ID:            "random",
+				ServiceNodeIP: "1.2.3.4",
+				IPAddresses:   []string{"10.3.3.3", "10.4.4.4", "10.5.5.5", "10.6.6.6"},
+				DNSDomain:     "local",
+				Metadata: &model.NodeMetadata{
+					InstanceIPs: []string{"10.3.3.3", "10.4.4.4", "10.5.5.5", "10.6.6.6"},
+				},
+				IstioVersion: model.MaxIstioVersion,
+			},
+			out: "sidecar~1.2.3.4~random~local",
+		},
 	}
 
 	for _, node := range cases {

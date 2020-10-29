@@ -825,10 +825,10 @@ func (c *Controller) collectWorkloadInstanceEndpoints(svc *model.Service) []*mod
 // TODO: this code does not return k8s service instances when the proxy's IP is a workload entry
 // To tackle this, we need a ip2instance map like what we have in service entry.
 func (c *Controller) GetProxyServiceInstances(proxy *model.Proxy) ([]*model.ServiceInstance, error) {
-	if len(proxy.IPAddresses) > 0 {
+	if proxy.IdentityIP() != "" {
 		// only need to fetch the corresponding pod through the first IP, although there are multiple IP scenarios,
 		// because multiple ips belong to the same pod
-		proxyIP := proxy.IPAddresses[0]
+		proxyIP := proxy.IdentityIP()
 
 		pod := c.pods.getPodByIP(proxyIP)
 		if workload, f := c.workloadInstancesByIP[proxyIP]; f {
@@ -1133,7 +1133,7 @@ func (c *Controller) getProxyServiceInstancesByPod(pod *v1.Pod, service *v1.Serv
 
 func (c *Controller) GetProxyWorkloadLabels(proxy *model.Proxy) (labels.Collection, error) {
 	// There is only one IP for kube registry
-	proxyIP := proxy.IPAddresses[0]
+	proxyIP := proxy.IdentityIP()
 
 	pod := c.pods.getPodByIP(proxyIP)
 	if pod != nil {
