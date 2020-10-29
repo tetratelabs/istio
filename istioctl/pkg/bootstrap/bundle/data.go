@@ -159,6 +159,9 @@ var (
 	})
 
 	ISTIO_META_NETWORK = newEnvVar("ISTIO_META_NETWORK", func(data *SidecarData) (string, error) {
+		if value := data.Workload.Spec.GetNetwork(); value != "" {
+            return value, nil
+        }
 		return data.IstioConfigValues.GetGlobal().GetNetwork(), nil
 	})
 
