@@ -95,6 +95,10 @@ var (
 		return data.Workload.Namespace, nil
 	})
 
+	IDENTITY_IP = newEnvVar("IDENTITY_IP", func(data *SidecarData) (string, error) {
+		return data.Workload.Spec.Address, nil
+	})
+
 	// Make sure that 'istio-agent' picks a given address as the primary address of this workload.
 	INSTANCE_IP = newEnvVar("INSTANCE_IP", func(data *SidecarData) (string, error) {
 		ip := ""
@@ -216,6 +220,7 @@ var (
 		CA_ADDR,
 		POD_NAME,
 		POD_NAMESPACE,
+		IDENTITY_IP,
 		INSTANCE_IP,
 		SERVICE_ACCOUNT,
 		HOST_IP,
