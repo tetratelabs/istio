@@ -543,9 +543,10 @@ Istio will be started on the host network as a docker container in capture mode.
 					if err != nil {
 						return fmt.Errorf("failed to determine current user: %w", err)
 					}
-					knownhost, err := knownhosts.New(filepath.Join(user.HomeDir, ".ssh", "known_hosts"))
+					filename := filepath.Join(user.HomeDir, ".ssh", "known_hosts")
+					knownhost, err := knownhosts.New(filename)
 					if err != nil {
-						return fmt.Errorf("failed to parse $HOME/.ssh/known_hosts: %w", err)
+						return fmt.Errorf("failed to parse %s: %w", filename, err)
 					}
 					prompt := bootstrapSsh.HostKeyPrompt(cmd.InOrStdin(), cmd.ErrOrStderr())
 					callback = bootstrapSsh.HostKeyCallbackChain(knownhost, prompt)
