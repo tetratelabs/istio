@@ -50,6 +50,7 @@ var (
 
 type citadelClient struct {
 	caEndpoint    string
+	caEndpointSni string
 	enableTLS     bool
 	caTLSRootCert []byte
 	client        pb.IstioCertificateServiceClient
@@ -58,9 +59,10 @@ type citadelClient struct {
 }
 
 // NewCitadelClient create a CA client for Citadel.
-func NewCitadelClient(endpoint string, tls bool, rootCert []byte, clusterID string) (security.Client, error) {
+func NewCitadelClient(endpoint string, endpointSni string, tls bool, rootCert []byte, clusterID string) (security.Client, error) {
 	c := &citadelClient{
 		caEndpoint:    endpoint,
+		caEndpointSni: endpointSni,
 		enableTLS:     tls,
 		caTLSRootCert: rootCert,
 		clusterID:     clusterID,
@@ -144,6 +146,7 @@ func (c *citadelClient) getTLSDialOption() (grpc.DialOption, error) {
 			}
 			return &certificate, nil
 		},
+		ServerName: c.caEndpointSni,
 	}
 	config.RootCAs = certPool
 
