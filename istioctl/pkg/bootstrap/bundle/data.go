@@ -22,11 +22,14 @@ import (
 	"strings"
 
 	"github.com/gogo/protobuf/jsonpb"
+	"github.com/gogo/protobuf/proto"
 
 	"istio.io/api/annotation"
 	meshconfig "istio.io/api/mesh/v1alpha1"
-	networking "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	networking "istio.io/api/networking/v1alpha3"
+	networkingCrd "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	istioconfig "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
+	"istio.io/istio/pkg/util/gogoprotomarshal"
 
 	bootstrapAnnotation "istio.io/istio/istioctl/pkg/bootstrap/annotation"
 )
@@ -40,8 +43,9 @@ type SidecarData struct {
 	IstioConfigValues          *istioconfig.Values
 	IstioCaCert                []byte
 	IstioIngressGatewayAddress string
+	ExpansionProxyConfig       string // optional override config for expansion proxies
 	/* workload */
-	Workload *networking.WorkloadEntry
+	Workload *networkingCrd.WorkloadEntry
 	/* sidecar */
 	ProxyConfig *meshconfig.ProxyConfig
 }
@@ -203,7 +207,7 @@ var (
 	})
 
 	ISTIO_META_WORKLOAD_NAME = newEnvVar("ISTIO_META_WORKLOAD_NAME", func(data *SidecarData) (string, error) {
-		return data.GetAppOrServiceAccount(), nil
+		return getAppOrServiceAccount(data.Workload), nil
 	})
 
 	ISTIO_META_OWNER = newEnvVar("ISTIO_META_OWNER", func(data *SidecarData) (string, error) {
@@ -241,6 +245,136 @@ var (
 	}
 )
 
+func (d *SidecarData) ForWorkload(workload *networkingCrd.WorkloadEntry) (*SidecarData, error) {
+	proxyConfig := proto.Clone(d.IstioMeshConfig.GetDefaultConfig()).(*meshconfig.ProxyConfig)
+	// set reasonable defaults
+	proxyConfig.ServiceCluster = getServiceCluster(workload)
+	proxyConfig.Concurrency = nil // by default, use all CPU cores of the VM
+	// apply defaults for all mesh expansion proxies
+	if value := d.ExpansionProxyConfig; value != "" {
+		if err := gogoprotomarshal.ApplyYAML(value, proxyConfig); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal ProxyConfig for mesh expansion proxies [%v]: %w", value, err)
+		}
+	}
+
+	// if address of the Istio Ingress Gateway is a DNS name rather than IP,
+	// we cannot use /etc/hosts to remap *.svc.cluster.local DNS names
+	if net.ParseIP(d.IstioIngressGatewayAddress) == nil {
+		replaceClusterLocalAddresses(proxyConfig, workload.Namespace, d.IstioIngressGatewayAddress)
+	}
+
+	// apply explicit configuration for that particular proxy
+	if value := workload.Annotations[annotation.ProxyConfig.Name]; value != "" {
+		if err := gogoprotomarshal.ApplyYAML(value, proxyConfig); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal ProxyConfig from %q annotation [%v]: %w", annotation.ProxyConfig.Name, value, err)
+		}
+	}
+
+	d.Workload = workload
+	d.ProxyConfig = proxyConfig
+
+	return d, nil
+}
+
+func replaceClusterLocalAddresses(proxyConfig *meshconfig.ProxyConfig, workloadNamespace string, externalDnsName string) {
+	replace := func(address string, addressSetter func(string), tlsSettings *networking.ClientTLSSettings) {
+		if address == "" {
+			return
+		}
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			host = address
+		}
+		if net.ParseIP(host) != nil {
+			return // skip IP address
+		}
+		if !isClusterLocal(host) {
+			return // skip non- cluster local address
+		}
+		externalAddress := externalDnsName
+		if port != "" {
+			externalAddress = net.JoinHostPort(externalDnsName, port)
+		}
+		addressSetter(externalAddress)
+		if tlsSettings != nil && tlsSettings.GetMode() != networking.ClientTLSSettings_DISABLE {
+			canonicalHost := canonicalClusterLocalAlias(host, workloadNamespace)
+			shortHost := shortClusterLocalAlias(host, workloadNamespace)
+			if tlsSettings.GetSni() == "" {
+				tlsSettings.Sni = canonicalHost
+			}
+			for _, extraName := range []string {canonicalHost, shortHost} {
+				registered := false
+				for _, knownName := range tlsSettings.GetSubjectAltNames() {
+					if extraName == knownName {
+						registered = true
+						break
+					}
+				}
+				if !registered {
+					tlsSettings.SubjectAltNames = append(tlsSettings.SubjectAltNames, extraName)
+				}
+			}
+		}
+	}
+
+	replace(
+		proxyConfig.GetDiscoveryAddress(),
+		func(value string) {
+			proxyConfig.DiscoveryAddress = value
+		},
+		nil,
+	)
+
+	replace(
+		proxyConfig.GetTracing().GetZipkin().GetAddress(),
+		func(value string) {
+			proxyConfig.GetTracing().GetZipkin().Address = value
+		},
+		proxyConfig.GetTracing().GetTlsSettings(),
+	)
+
+	replace(
+		proxyConfig.GetTracing().GetLightstep().GetAddress(),
+		func(value string) {
+			proxyConfig.GetTracing().GetLightstep().Address = value
+		},
+		proxyConfig.GetTracing().GetTlsSettings(),
+	)
+
+	replace(
+		proxyConfig.GetTracing().GetDatadog().GetAddress(),
+		func(value string) {
+			proxyConfig.GetTracing().GetDatadog().Address = value
+		},
+		proxyConfig.GetTracing().GetTlsSettings(),
+	)
+
+	replace(
+		proxyConfig.GetEnvoyAccessLogService().GetAddress(),
+		func(value string) {
+			proxyConfig.GetEnvoyAccessLogService().Address = value
+		},
+		proxyConfig.GetEnvoyAccessLogService().GetTlsSettings(),
+	)
+
+	replace(
+		proxyConfig.GetEnvoyMetricsService().GetAddress(),
+		func(value string) {
+			proxyConfig.GetEnvoyMetricsService().Address = value
+		},
+		proxyConfig.GetEnvoyMetricsService().GetTlsSettings(),
+	)
+
+	// deprecated
+	replace(
+		proxyConfig.GetZipkinAddress(),
+		func(value string) {
+			proxyConfig.ZipkinAddress = value
+		},
+		proxyConfig.GetEnvoyMetricsService().GetTlsSettings(),
+	)
+}
+
 func (d *SidecarData) GetEnv() ([]string, error) {
 	vars := make([]string, 0, len(d.ProxyConfig.GetProxyMetadata())+len(SIDECAR_ENV))
 	// lower priority
@@ -271,9 +405,9 @@ func (d *SidecarData) GetIstioProxyArgs() []string {
 		"proxy",
 		"sidecar",
 		"--serviceCluster", // `istio-agent` will only respect this setting from command-line
-		d.GetServiceCluster(),
+		d.ProxyConfig.GetServiceCluster(),
 		"--concurrency",
-		fmt.Sprintf("%d", d.GetConcurrency()), // `istio-agent` will only respect this setting from command-line
+		fmt.Sprintf("%d", d.ProxyConfig.GetConcurrency().GetValue()), // `istio-agent` will only respect this setting from command-line
 		"--proxyLogLevel",
 		d.GetLogLevel(),
 		"--proxyComponentLogLevel",
@@ -296,6 +430,11 @@ func (d *SidecarData) GetCanonicalDiscoveryAddress() string {
 }
 
 func (d *SidecarData) GetIstioProxyHosts() []string {
+	if net.ParseIP(d.IstioIngressGatewayAddress) == nil {
+		// if address of the Istio Ingress Gateway is a DNS name rather than IP,
+		// we cannot use /etc/hosts to remap *.svc.cluster.local DNS names
+		return nil
+	}
 	candidates := []string{
 		d.GetCanonicalDiscoveryAddress(),
 		d.ProxyConfig.GetDiscoveryAddress(),
@@ -328,12 +467,7 @@ func (d *SidecarData) GetIstioProxyHosts() []string {
 		if !isClusterLocal(host) {
 			continue // skip non- cluster local address
 		}
-		segments := strings.SplitN(host, ".", 3)
-		svc := segments[0]
-		ns := d.Workload.Namespace
-		if len(segments) > 1 {
-			ns = segments[1]
-		}
+		svc, ns := splitServiceAndNamespace(host, d.Workload.Namespace)
 		hosts = append(hosts, getClusterLocalAliases(svc, ns)...)
 	}
 	return hosts
@@ -357,22 +491,18 @@ func (d *SidecarData) GetIstioProxyImage() string {
 		d.IstioConfigValues.GetGlobal().GetTag())
 }
 
-func (d *SidecarData) GetAppOrServiceAccount() string {
-	if value := d.Workload.Spec.Labels["app"]; value != "" {
+func getAppOrServiceAccount(workload *networkingCrd.WorkloadEntry) string {
+	if value := workload.Spec.Labels["app"]; value != "" {
 		return value
 	}
-	if value := d.Workload.Labels["app"]; value != "" {
+	if value := workload.Labels["app"]; value != "" {
 		return value
 	}
-	return d.Workload.Spec.ServiceAccount
+	return workload.Spec.ServiceAccount
 }
 
-func (d *SidecarData) GetServiceCluster() string {
-	return fmt.Sprintf("%s.%s", d.GetAppOrServiceAccount(), d.Workload.Namespace)
-}
-
-func (d *SidecarData) GetConcurrency() int32 {
-	return d.ProxyConfig.GetConcurrency().GetValue()
+func getServiceCluster(workload *networkingCrd.WorkloadEntry) string {
+	return fmt.Sprintf("%s.%s", GetAppOrServiceAccount(workload), workload.Namespace)
 }
 
 func (d *SidecarData) GetTrustDomain() string {
@@ -403,7 +533,7 @@ func isClusterLocal(host string) bool {
 	segments := strings.Split(host, ".")
 	switch len(segments) {
 	case 1, 2:
-		return true // TODO(yskopets): beware of fake positives like `docker.io`
+		return true // TODO(yskopets): beware of false positives like `docker.io`
 	case 3:
 		return segments[2] == "svc"
 	case 4:
@@ -415,6 +545,14 @@ func isClusterLocal(host string) bool {
 	}
 }
 
+func splitServiceAndNamespace(host, workloadNamespace string) (string, string) {
+	segments := strings.SplitN(host, ".", 3)
+	if len(segments) > 1 {
+		return segments[0], segments[1]
+	}
+	return segments[0], workloadNamespace
+}
+
 func getClusterLocalAliases(svc, ns string) []string {
 	base := svc + "." + ns
 	return []string{
@@ -423,6 +561,16 @@ func getClusterLocalAliases(svc, ns string) []string {
 		base + ".svc.cluster",
 		base + ".svc.cluster.local",
 	}
+}
+
+func shortClusterLocalAlias(host, workloadNamespace string) string {
+	svc, ns := splitServiceAndNamespace(host, workloadNamespace)
+	return fmt.Sprintf("%s.%s.svc", svc, ns)
+}
+
+func canonicalClusterLocalAlias(host, workloadNamespace string) string {
+	svc, ns := splitServiceAndNamespace(host, workloadNamespace)
+	return fmt.Sprintf("%s.%s.svc.cluster.local", svc, ns)
 }
 
 func addressToPodNameAddition(address string) string {

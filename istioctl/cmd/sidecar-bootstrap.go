@@ -35,8 +35,6 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 
 	"github.com/gogo/protobuf/jsonpb"
-	"github.com/gogo/protobuf/proto"
-	"istio.io/api/annotation"
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	istioclient "istio.io/client-go/pkg/clientset/versioned"
@@ -111,6 +109,30 @@ func getConfigValuesFromConfigMap(kubeconfig string) (*istioconfig.Values, error
 		return nil, fmt.Errorf("failed to unmarshal Istio config values: %w", err)
 	}
 	return values, nil
+}
+
+func getExpansionProxyConfig(kubeClient kubernetes.Interface, namespace string) (string, error) {
+	ns, err := kubeClient.CoreV1().Namespaces().Get(context.Background(), namespace, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to read Namespace %q: %w", namespace, err)
+	}
+	configMapName := ns.Annotations[bootstrapAnnotation.MeshExpansionConfigMapName]
+	if configMapName == "" {
+		return "", nil
+	}
+	cm, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.Background(), configMapName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to read ConfigMap /namespaces/%s/configmaps/%s refered to from the %q annotation on the Namespace %q: %w", namespace, configMapName, bootstrapAnnotation.MeshExpansionConfigMapName, namespace, err)
+	}
+	value := cm.Data["PROXY_CONFIG"]
+	if value == "" {
+		return "", nil
+	}
+	proxyConfig := new(meshconfig.ProxyConfig)
+	if err := gogoprotomarshal.ApplyYAML(value, proxyConfig); err != nil {
+		return "", fmt.Errorf("failed to unmarshal ProxyConfig from the ConfigMap /namespaces/%s/configmaps/%s refered to from the %q annotation on the Namespace %q : %w", cm.Namespace, cm.Name, bootstrapAnnotation.MeshExpansionConfigMapName, namespace, err)
+	}
+	return value, nil
 }
 
 func fetchSingleWorkloadEntry(client istioclient.Interface, workloadName string) ([]networking.WorkloadEntry, string, error) {
@@ -241,7 +263,7 @@ func getIdentityForEachWorkload(
 func processWorkloads(kubeClient kubernetes.Interface,
 	workloads []networking.WorkloadEntry,
 	workloadIdentityMapping map[string]workloadIdentity,
-	data *SidecarData,
+	templateData *SidecarData,
 	handle func(bundle BootstrapBundle) error) error {
 
 	for _, workload := range workloads {
@@ -251,14 +273,9 @@ func processWorkloads(kubeClient kubernetes.Interface,
 			continue
 		}
 
-		data.Workload = &workload
-		data.ProxyConfig = proto.Clone(data.IstioMeshConfig.GetDefaultConfig()).(*meshconfig.ProxyConfig)
-		data.ProxyConfig.ServiceCluster = data.GetServiceCluster()
-		data.ProxyConfig.Concurrency = nil // by default, use all CPU cores of the VM
-		if value := workload.Annotations[annotation.ProxyConfig.Name]; value != "" {
-			if err := gogoprotomarshal.ApplyYAML(value, data.ProxyConfig); err != nil {
-				return fmt.Errorf("failed to unmarshal ProxyConfig from %q annotation [%v]: %w", annotation.ProxyConfig.Name, value, err)
-			}
+		data, err := templateData.ForWorkload(&workload)
+		if err != nil {
+			return err
 		}
 
 		environment, err := data.GetEnvFile()
@@ -593,6 +610,11 @@ Istio will be started on the host network as a docker container in capture mode.
 				return fmt.Errorf("failed to read Istio global values: %w", err)
 			}
 
+			expansionProxyConfig, err := getExpansionProxyConfig(kubeClient, istioNamespace)
+			if err != nil {
+				return fmt.Errorf("failed to read ProxyConfig for mesh expansion proxies: %w", err)
+			}
+
 			if actual, expected := istioConfigValues.GetGlobal().GetJwtPolicy(), "third-party-jwt"; actual != expected {
 				return fmt.Errorf("jwt policy is set to %q. At the moment, %q command only supports jwt policy %q", actual, c.CommandPath(), expected)
 			}
@@ -629,10 +651,6 @@ Istio will be started on the host network as a docker container in capture mode.
 				return fmt.Errorf("unable to find address of the Istio Ingress Gateway: %w", err)
 			}
 
-			if net.ParseIP(istioGatewayAddress) == nil {
-				return fmt.Errorf("Istio Ingress Gateway uses a hostname %q rather than IP address. At the moment, %q command only supports Ingress Gateways with IP address", istioGatewayAddress, c.CommandPath())
-			}
-
 			identities, err := getIdentityForEachWorkload(kubeClient, entries, chosenNS)
 			if err != nil {
 				return fmt.Errorf("failed to generate security token(s) for WorkloadEntry(s): %w", err)
@@ -662,6 +680,7 @@ Istio will be started on the host network as a docker container in capture mode.
 				IstioConfigValues:          istioConfigValues,
 				IstioCaCert:                istioCaCert,
 				IstioIngressGatewayAddress: istioGatewayAddress,
+				ExpansionProxyConfig:       expansionProxyConfig,
 			}
 			return processWorkloads(kubeClient, entries, identities, data, action)
 		},
