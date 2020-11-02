@@ -117,6 +117,11 @@ ewSti8ZCFKFSQcfSMCjKDzPB5mnXiec9m+qtnv+cNS7nZ8EmGYMsffP1rx4=
 -----END CERTIFICATE-----`,
 			},
 		},
+		&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "istio-system",
+			},
+		},
 		&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "istio-ca-root-cert",

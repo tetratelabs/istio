@@ -15,6 +15,13 @@
 package annotation
 
 const (
+	// Name of the Kubernetes config map that holds configuration intended for those
+	// Istio Proxies that expand the mesh.
+	//
+	// By default, config map is considered undefined and thus expansion proxies will
+	// have exactly the same configurion as the regular ones.
+	MeshExpansionConfigMapName = "sidecar-bootstrap.istioctl.istio.io/mesh-expansion-configmap"
+
 	// IP address or DNS name of the machine represented by this WorkloadEntry to use
 	// instead of WorkloadEntry.Address for SSH connections from `istioctl x sidecar-bootstrap`.
 	//
