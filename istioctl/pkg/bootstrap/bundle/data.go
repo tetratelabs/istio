@@ -84,22 +84,15 @@ var (
 	// implicitly in certain code paths, despite saying that it defaults to
 	// XDS address.
 	CA_ADDR = newEnvVar("CA_ADDR", func(data *SidecarData) (string, error) {
-		if value := data.IstioConfigValues.GetGlobal().GetCaAddress(); value != "" {
-			return value, nil
-		}
-		return data.ProxyConfig.GetDiscoveryAddress(), nil
+		return data.GetCaAddr(), nil
 	})
 
-	PILOT_SAN = newEnvVar("PILOT_SAN", func(data *SidecarData) (string, error) {
-		address := data.ProxyConfig.GetDiscoveryAddress()
-		host, _, err := net.SplitHostPort(address)
-		if err != nil {
-			host = address
-		}
-		if !isClusterLocal(host) {
-			return "istiod.istio-system.svc", nil
-		}
-		return "", nil // use the default value
+	CA_SNI = newEnvVar("CA_SNI", func(data *SidecarData) (string, error) {
+		return clusterLocalSni(data.GetCaAddr(), shortClusterLocalAlias("istiod", data.IstioSystemNamespace)), nil
+	})
+
+	PILOT_SNI = newEnvVar("PILOT_SNI", func(data *SidecarData) (string, error) {
+		return clusterLocalSni(data.ProxyConfig.GetDiscoveryAddress(), shortClusterLocalAlias("istiod", data.IstioSystemNamespace)), nil
 	})
 
 	POD_NAME = newEnvVar("POD_NAME", func(data *SidecarData) (string, error) {
@@ -237,7 +230,7 @@ var (
 		JWT_POLICY,
 		PILOT_CERT_PROVIDER,
 		CA_ADDR,
-		PILOT_SAN,
+		CA_SNI,
 		POD_NAME,
 		POD_NAMESPACE,
 		IDENTITY_IP,
@@ -247,6 +240,7 @@ var (
 		CANONICAL_SERVICE,
 		CANONICAL_REVISION,
 		PROXY_CONFIG,
+		PILOT_SNI,
 		ISTIO_META_CLUSTER_ID,
 		ISTIO_META_INTERCEPTION_MODE,
 		ISTIO_META_NETWORK,
@@ -317,7 +311,7 @@ func replaceClusterLocalAddresses(proxyConfig *meshconfig.ProxyConfig, workloadN
 			canonicalHost := canonicalClusterLocalAlias(host, workloadNamespace)
 			shortHost := shortClusterLocalAlias(host, workloadNamespace)
 			if tlsSettings.GetSni() == "" {
-				tlsSettings.Sni = canonicalHost
+				tlsSettings.Sni = shortHost
 			}
 			for _, extraName := range []string {canonicalHost, shortHost} {
 				registered := false
@@ -390,6 +384,13 @@ func replaceClusterLocalAddresses(proxyConfig *meshconfig.ProxyConfig, workloadN
 		},
 		proxyConfig.GetEnvoyMetricsService().GetTlsSettings(),
 	)
+}
+
+func (d *SidecarData) GetCaAddr() string {
+	if value := d.IstioConfigValues.GetGlobal().GetCaAddress(); value != "" {
+		return value
+	}
+	return d.ProxyConfig.GetDiscoveryAddress()
 }
 
 func (d *SidecarData) GetEnv() ([]string, error) {
@@ -588,6 +589,17 @@ func shortClusterLocalAlias(host, workloadNamespace string) string {
 func canonicalClusterLocalAlias(host, workloadNamespace string) string {
 	svc, ns := splitServiceAndNamespace(host, workloadNamespace)
 	return fmt.Sprintf("%s.%s.svc.cluster.local", svc, ns)
+}
+
+func clusterLocalSni(address, defaultSni string) string {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		host = address
+	}
+	if !isClusterLocal(host) {
+		return defaultSni
+	}
+	return "" // use the default value
 }
 
 func addressToPodNameAddition(address string) string {

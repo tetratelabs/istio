@@ -96,7 +96,7 @@ func TestCitadelClient(t *testing.T) {
 		// The goroutine starting the server may not be ready, results in flakiness.
 		time.Sleep(1 * time.Second)
 
-		cli, err := NewCitadelClient(lis.Addr().String(), false, nil, "")
+		cli, err := NewCitadelClient(lis.Addr().String(), "", false, nil, "")
 		if err != nil {
 			t.Errorf("Test case [%s]: failed to create ca client: %v", id, err)
 		}
@@ -196,7 +196,7 @@ func TestCitadelClientWithDifferentTypeToken(t *testing.T) {
 			}()
 
 			err = retry.UntilSuccess(func() error {
-				cli, err := NewCitadelClient(lis.Addr().String(), false, nil, "Kubernetes")
+				cli, err := NewCitadelClient(lis.Addr().String(), "", false, nil, "Kubernetes")
 				if err != nil {
 					return fmt.Errorf("test case [%s]: failed to create ca client: %v", id, err)
 				}

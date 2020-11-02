@@ -98,7 +98,8 @@ var (
 	istioNamespaceVar    = env.RegisterStringVar("ISTIO_NAMESPACE", "", "")
 	kubeAppProberNameVar = env.RegisterStringVar(status.KubeAppProberEnvName, "", "")
 	clusterIDVar         = env.RegisterStringVar("ISTIO_META_CLUSTER_ID", "", "")
-	pilotSANVar          = env.RegisterStringVar("PILOT_SAN", "", "")
+	pilotSniEnv          = env.RegisterStringVar("PILOT_SNI", "",
+		"SNI value to use in connections to the Istio Pilot.").Get()
 
 	pilotCertProvider = env.RegisterStringVar("PILOT_CERT_PROVIDER", "istiod",
 		"the provider of Pilot DNS certificate.").Get()
@@ -121,6 +122,8 @@ var (
 	caProviderEnv = env.RegisterStringVar("CA_PROVIDER", "Citadel", "name of authentication provider").Get()
 	// TODO: default to same as discovery address
 	caEndpointEnv = env.RegisterStringVar("CA_ADDR", "", "Address of the spiffee certificate provider. Defaults to discoveryAddress").Get()
+	caEndpointSniEnv = env.RegisterStringVar("CA_SNI", "",
+		"SNI value to use in connections to the CA endpoint.").Get()
 
 	// TODO: this is a horribly named env, it's really TOKEN_EXCHANGE_PLUGINS - but to avoid breaking
 	// it's left unchanged. It may not be needed because we autodetect.
@@ -272,6 +275,7 @@ var (
 				ClusterID:          clusterIDVar.Get(),
 				FileMountedCerts:   fileMountedCertsEnv,
 				CAEndpoint:         caEndpointEnv,
+				CAEndpointSni:      caEndpointSniEnv,
 				UseTokenForCSR:     useTokenForCSREnv,
 				CredFetcher:        nil,
 			}
@@ -316,11 +320,11 @@ var (
 				// Obtain the Mixer SAN, which uses SPIFFE certs. Used below to create a Envoy proxy.
 				mixerSAN = getSAN(getControlPlaneNamespace(podNamespace, proxyConfig.DiscoveryAddress), securityutil.MixerSvcAccName, mixerIdentity)
 				// Check if Pilot's SAN was specified as env variable
-				if len(pilotSANVar.Get()) == 0 {
+				if pilotSniEnv == "" {
 					// Obtain Pilot SAN, using DNS.
 					pilotSAN = []string{getPilotSan(proxyConfig.DiscoveryAddress)}
 				} else {
-					pilotSAN = []string{pilotSANVar.Get()}
+					pilotSAN = []string{pilotSniEnv}
 				}
 			}
 			log.Infof("PilotSAN %#v", pilotSAN)
