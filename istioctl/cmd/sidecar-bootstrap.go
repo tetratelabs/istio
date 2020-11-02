@@ -278,14 +278,6 @@ func processWorkloads(kubeClient kubernetes.Interface,
 			return err
 		}
 
-		if net.ParseIP(data.IstioIngressGatewayAddress) == nil {
-			// Specified address of IstioIngressGatewayAddress
-			// is not IP address. Assume it is FQDN.
-			SIDECAR_ENV = append(SIDECAR_ENV, newEnvVar("PILOT_SAN", func(data *sidecarInjectData) (string, error) {
-				return "istiod.istio-system.svc.cluster.local", nil
-			}))
-		}
-
 		environment, err := data.GetEnvFile()
 		if err != nil {
 			return err
