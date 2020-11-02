@@ -90,6 +90,18 @@ var (
 		return data.ProxyConfig.GetDiscoveryAddress(), nil
 	})
 
+	PILOT_SAN = newEnvVar("PILOT_SAN", func(data *SidecarData) (string, error) {
+		address := data.ProxyConfig.GetDiscoveryAddress()
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			host = address
+		}
+		if !isClusterLocal(host) {
+			return "istiod.istio-system.svc", nil
+		}
+		return "", nil // use the default value
+	})
+
 	POD_NAME = newEnvVar("POD_NAME", func(data *SidecarData) (string, error) {
 		addressIdentifier := addressToPodNameAddition(data.Workload.Spec.Address)
 		return data.Workload.Name + "-" + addressIdentifier, nil
@@ -225,6 +237,7 @@ var (
 		JWT_POLICY,
 		PILOT_CERT_PROVIDER,
 		CA_ADDR,
+		PILOT_SAN,
 		POD_NAME,
 		POD_NAMESPACE,
 		IDENTITY_IP,
@@ -245,6 +258,10 @@ var (
 	}
 )
 
+func (d *SidecarData) IsIstioIngressGatewayHasIP() bool {
+	return net.ParseIP(d.IstioIngressGatewayAddress) != nil
+}
+
 func (d *SidecarData) ForWorkload(workload *networkingCrd.WorkloadEntry) (*SidecarData, error) {
 	proxyConfig := proto.Clone(d.IstioMeshConfig.GetDefaultConfig()).(*meshconfig.ProxyConfig)
 	// set reasonable defaults
@@ -259,7 +276,7 @@ func (d *SidecarData) ForWorkload(workload *networkingCrd.WorkloadEntry) (*Sidec
 
 	// if address of the Istio Ingress Gateway is a DNS name rather than IP,
 	// we cannot use /etc/hosts to remap *.svc.cluster.local DNS names
-	if net.ParseIP(d.IstioIngressGatewayAddress) == nil {
+	if !d.IsIstioIngressGatewayHasIP() {
 		replaceClusterLocalAddresses(proxyConfig, workload.Namespace, d.IstioIngressGatewayAddress)
 	}
 
@@ -430,7 +447,7 @@ func (d *SidecarData) GetCanonicalDiscoveryAddress() string {
 }
 
 func (d *SidecarData) GetIstioProxyHosts() []string {
-	if net.ParseIP(d.IstioIngressGatewayAddress) == nil {
+	if !d.IsIstioIngressGatewayHasIP() {
 		// if address of the Istio Ingress Gateway is a DNS name rather than IP,
 		// we cannot use /etc/hosts to remap *.svc.cluster.local DNS names
 		return nil
@@ -502,7 +519,7 @@ func getAppOrServiceAccount(workload *networkingCrd.WorkloadEntry) string {
 }
 
 func getServiceCluster(workload *networkingCrd.WorkloadEntry) string {
-	return fmt.Sprintf("%s.%s", GetAppOrServiceAccount(workload), workload.Namespace)
+	return fmt.Sprintf("%s.%s", getAppOrServiceAccount(workload), workload.Namespace)
 }
 
 func (d *SidecarData) GetTrustDomain() string {
