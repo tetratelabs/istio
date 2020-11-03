@@ -90,6 +90,32 @@ type workloadIdentity struct {
 	ServiceAccountToken []byte
 }
 
+type fileToCopy struct {
+	name string
+	dir  string
+	perm os.FileMode
+	data []byte
+}
+
+type cmdToExec struct {
+	cmd      string
+	required bool
+}
+
+type bootstrapItems struct {
+	// Files to copy to the VM
+	filesToCopy []fileToCopy
+	// Commands to execute on the VM (order is important).
+	cmdsToExec []cmdToExec
+}
+
+type sshParams struct {
+	address  string
+	username string
+	scp      bootstrapSsh.CopyOpts
+	client   bootstrapSsh.Client
+}
+
 var (
 	sshClientFactory = newSSHClient
 )
@@ -375,95 +401,46 @@ func processWorkloads(
 	return nil
 }
 
-func dumpBootstrapBundle(outputDir string, bundle BootstrapBundle) error {
-	dump := func(filepath string, perm os.FileMode, content []byte) error {
-		err := ioutil.WriteFile(filepath, content, perm)
-		if err != nil {
-			return fmt.Errorf("failed to dump into a file %q: %w", filepath, err)
-		}
-		return nil
-	}
-	configFilePerm := os.FileMode(0644)
-	secretFilePerm := os.FileMode(0640)
-	if err := dump(path.Join(outputDir, "sidecar.env"), configFilePerm, bundle.IstioProxyEnvironment); err != nil {
-		return err
-	}
-	if err := dump(path.Join(outputDir, "k8s-ca.pem"), configFilePerm, bundle.K8sCaCert); err != nil {
-		return err
-	}
-	if err := dump(path.Join(outputDir, "istio-ca.pem"), configFilePerm, bundle.IstioCaCert); err != nil {
-		return err
-	}
-	if err := dump(path.Join(outputDir, "istio-token"), secretFilePerm, bundle.ServiceAccountToken); err != nil {
-		return err
-	}
-	return nil
-}
-
-func copyBootstrapBundle(client bootstrapSsh.Client, config ssh.ClientConfig, bundle BootstrapBundle) error {
-	host := bundle.Workload.Spec.Address
-	if value := bundle.Workload.Annotations[bootstrapAnnotation.SSHHost.Name]; value != "" {
-		host = value
-	}
-	port := strconv.Itoa(defaultSSHPort)
-	if value := bundle.Workload.Annotations[bootstrapAnnotation.SSHPort.Name]; value != "" {
-		port = value
-	}
-	username := defaultSSHUser
-	if value := bundle.Workload.Annotations[bootstrapAnnotation.SSHUser.Name]; value != "" {
-		username = value
-	}
-	address := net.JoinHostPort(host, port)
-
-	err := client.Dial(address, username, config)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
+func processBundle(bundle BootstrapBundle) bootstrapItems {
+	var files []fileToCopy
 
 	remoteDir := defaultProxyConfigDir
 	if value := bundle.Workload.Annotations[bootstrapAnnotation.ProxyConfigDir.Name]; value != "" {
 		remoteDir = value
 	}
 
-	// Ensure the remote directory exists.
-	err = client.Exec("mkdir -p " + remoteDir)
-	if err != nil {
-		return err
-	}
-
-	scpOpts := defaultScpOpts
-	if value := bundle.Workload.Annotations[bootstrapAnnotation.ScpPath.Name]; value != "" {
-		scpOpts.RemoteScpPath = value
-	}
-
 	configFilePerm := os.FileMode(0644)
 	secretFilePerm := os.FileMode(0640)
 
-	remoteEnvPath := path.Join(remoteDir, "sidecar.env")
-	err = client.Copy(bundle.IstioProxyEnvironment, remoteEnvPath, configFilePerm, scpOpts)
-	if err != nil {
-		return err
-	}
+	files = append(files, fileToCopy{
+		name: "sidecar.env",
+		dir:  remoteDir,
+		perm: configFilePerm,
+		data: bundle.IstioProxyEnvironment,
+	})
 
-	remoteK8sCaPath := path.Join(remoteDir, "k8s-ca.pem")
-	err = client.Copy(bundle.K8sCaCert, remoteK8sCaPath, configFilePerm, scpOpts)
-	if err != nil {
-		return err
-	}
+	files = append(files, fileToCopy{
+		name: "k8s-ca.pem",
+		dir:  remoteDir,
+		perm: configFilePerm,
+		data: bundle.K8sCaCert,
+	})
 
-	remoteIstioCaPath := path.Join(remoteDir, "istio-ca.pem")
-	err = client.Copy(bundle.IstioCaCert, remoteIstioCaPath, configFilePerm, scpOpts)
-	if err != nil {
-		return err
-	}
+	files = append(files, fileToCopy{
+		name: "istio-ca.pem",
+		dir:  remoteDir,
+		perm: configFilePerm,
+		data: bundle.IstioCaCert,
+	})
 
-	remoteIstioTokenPath := path.Join(remoteDir, "istio-token")
-	err = client.Copy(bundle.ServiceAccountToken, remoteIstioTokenPath, secretFilePerm, scpOpts)
-	if err != nil {
-		return err
-	}
+	files = append(files, fileToCopy{
+		name: "istio-token",
+		dir:  remoteDir,
+		perm: secretFilePerm,
+		data: bundle.ServiceAccountToken,
+	})
 
+	var commands []cmdToExec
 	cmd := []string{
 		"docker",
 		"run",
@@ -476,16 +453,17 @@ func copyBootstrapBundle(client bootstrapSsh.Client, config ssh.ClientConfig, bu
 		"host", // you need to deal with Sidecar CR if you want it to be "non-captured" mode
 		"-v",
 		// "./var/run/secrets/istio/root-cert.pem" is a hardcoded value in `istio-agent` that corresponds to `PILOT_CERT_PROVIDER == istiod`
-		remoteIstioCaPath + ":" + "/var/run/secrets/istio/root-cert.pem",
+		path.Join(remoteDir, "istio-ca.pem") + ":" + "/var/run/secrets/istio/root-cert.pem",
 		"-v",
 		// "./var/run/secrets/tokens/istio-token" is a hardcoded value in `istio-agent` that corresponds to `JWT_POLICY == third-party-jwt`
-		remoteIstioTokenPath + ":" + "/var/run/secrets/tokens/istio-token",
+		path.Join(remoteDir, "istio-token") + ":" + "/var/run/secrets/tokens/istio-token",
 		"-v",
 		// "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" is a well-known k8s path heavily abused in k8s world
-		remoteK8sCaPath + ":" + "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+		path.Join(remoteDir, "k8s-ca.pem") + ":" + "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
 		"--env-file",
-		remoteEnvPath,
+		path.Join(remoteDir, "sidecar.env"),
 	}
+
 	for _, host := range bundle.IstioProxyHosts {
 		cmd = append(cmd,
 			"--add-host",
@@ -495,13 +473,58 @@ func copyBootstrapBundle(client bootstrapSsh.Client, config ssh.ClientConfig, bu
 	cmd = append(cmd, bundle.IstioProxyImage)
 	cmd = append(cmd, bundle.IstioProxyArgs...)
 
-	if startIstioProxy {
-		if err := client.Exec(fmt.Sprintf("docker rm --force %s", bundle.IstioProxyContainerName)); err != nil {
-			log.Warna(err)
+	commands = append(commands, cmdToExec{cmd: fmt.Sprintf("docker rm --force %s", bundle.IstioProxyContainerName), required: false})
+	commands = append(commands, cmdToExec{cmd: strings.Join(cmd, " "), required: true})
+
+	return bootstrapItems{filesToCopy: files, cmdsToExec: commands}
+}
+
+func dumpBootstrapBundle(outputDir string, items bootstrapItems) error {
+	dump := func(filepath string, perm os.FileMode, content []byte) error {
+		err := ioutil.WriteFile(filepath, content, perm)
+		if err != nil {
+			return fmt.Errorf("failed to dump into a file %q: %w", filepath, err)
+		}
+		return nil
+	}
+	// Dump files.
+	for _, file := range items.filesToCopy {
+		if err := dump(path.Join(outputDir, file.name), file.perm, file.data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyBootstrapBundle(sshConfig ssh.ClientConfig, ssh sshParams, items bootstrapItems) error {
+	err := ssh.client.Dial(ssh.address, ssh.username, sshConfig)
+	if err != nil {
+		return err
+	}
+	defer ssh.client.Close()
+
+	// Copy all files to the VM.
+	for _, file := range items.filesToCopy {
+		// Ensure the remote directory exists.
+		err = ssh.client.Exec("mkdir -p " + file.dir)
+		if err != nil {
+			return err
 		}
 
-		if err := client.Exec(strings.Join(cmd, " ")); err != nil {
+		err = ssh.client.Copy(file.data, path.Join(file.dir, file.name), file.perm, ssh.scp)
+		if err != nil {
 			return err
+		}
+	}
+
+	if startIstioProxy {
+		for _, command := range items.cmdsToExec {
+			if err := ssh.client.Exec(command.cmd); err != nil {
+				if command.required {
+					return err
+				}
+				log.Warna(err)
+			}
 		}
 	}
 	return nil
@@ -847,7 +870,7 @@ Hint: make sure that "kubectl" or "istioctl" run successfully in this environmen
 					if err != nil && !os.IsExist(err) {
 						return fmt.Errorf("failed to create a local output directory %q: %w", bundleDir, err)
 					}
-					return dumpBootstrapBundle(bundleDir, bundle)
+					return dumpBootstrapBundle(bundleDir, processBundle(bundle))
 				}
 			} else {
 				sshConfig, err := parseSSHConfig(c.InOrStdin(), c.ErrOrStderr())
@@ -856,8 +879,31 @@ Hint: make sure that "kubectl" or "istioctl" run successfully in this environmen
 				}
 
 				action = func(bundle BootstrapBundle) error {
+					host := bundle.Workload.Spec.Address
+					if value := bundle.Workload.Annotations[bootstrapAnnotation.SSHHost.Name]; value != "" {
+						host = value
+					}
+					port := strconv.Itoa(defaultSSHPort)
+					if value := bundle.Workload.Annotations[bootstrapAnnotation.SSHPort.Name]; value != "" {
+						port = value
+					}
+					username := defaultSSHUser
+					if value := bundle.Workload.Annotations[bootstrapAnnotation.SSHUser.Name]; value != "" {
+						username = value
+					}
+					address := net.JoinHostPort(host, port)
+					scpOpts := defaultScpOpts
+					if value := bundle.Workload.Annotations[bootstrapAnnotation.ScpPath.Name]; value != "" {
+						scpOpts.RemoteScpPath = value
+					}
 					sshClient := sshClientFactory(c.OutOrStdout(), c.ErrOrStderr())
-					return copyBootstrapBundle(sshClient, *sshConfig, bundle)
+					sshParams := sshParams{
+						address:  address,
+						username: username,
+						client:   sshClient,
+						scp:      scpOpts,
+					}
+					return copyBootstrapBundle(*sshConfig, sshParams, processBundle(bundle))
 				}
 			}
 
