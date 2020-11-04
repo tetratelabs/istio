@@ -493,6 +493,16 @@ func dumpBootstrapBundle(outputDir string, items bootstrapItems) error {
 			return err
 		}
 	}
+
+	// Create a script to start proxy.
+	content := "#!/bin/bash\n"
+	for _, command := range items.cmdsToExec {
+		content += command.cmd + "\n"
+	}
+
+	if err := dump(path.Join(outputDir, "start-istio-proxy.sh"), 0755, []byte(content)); err != nil {
+		return err
+	}
 	return nil
 }
 
