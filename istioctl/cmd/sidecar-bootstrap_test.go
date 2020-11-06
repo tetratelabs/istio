@@ -17,6 +17,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"path"
@@ -92,13 +93,48 @@ aFKltOc+RAjzDklcUPeG4Y6eMA==
 	baseTempdir, _ = ioutil.TempDir("", "vm_bootstrap_test_dir")
 
 	fullK8sConfig = []runtime.Object{
+		&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "istio-system",
+			},
+		},
 		&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "extension-apiserver-authentication",
-				Namespace: "kube-system",
+				Name:      "istio-ca-root-cert",
+				Namespace: "istio-system",
 			},
 			Data: map[string]string{
-				"client-ca-file": `-----BEGIN CERTIFICATE-----
+				"root-cert.pem": caCert,
+			},
+		},
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "istio",
+				Namespace: "istio-system",
+			},
+			Data: map[string]string{
+				"mesh": "",
+				"meshNetworks": "networks: {}",
+			},
+		},
+		&corev1.ServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "default",
+				Namespace: "istio-system",
+			},
+			Secrets: []corev1.ObjectReference{{
+				Name: "default-token-6n2ql",
+			}},
+		},
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "default-token-6n2ql",
+				Namespace: "istio-system",
+			},
+			Type: "kubernetes.io/service-account-token",
+			Data: map[string][]byte {
+				"ca.crt": []byte(base64.StdEncoding.EncodeToString([]byte(
+`-----BEGIN CERTIFICATE-----
 MIICyDCCAbCgAwIBAgIBADANBgkqhkiG9w0BAQsFADAVMRMwEQYDVQQDEwprdWJl
 cm5ldGVzMB4XDTIwMTAyMjE1NTM1MVoXDTMwMTAyMDE1NTM1MVowFTETMBEGA1UE
 AxMKa3ViZXJuZXRlczCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALHj
@@ -114,21 +150,7 @@ kM3Ru/GM1uqMnUmTuwLptxFJxDjSKcmXcYn63k1BdriExs3Wl2IiFDHjUdfGaUo0
 twjnHmtommvAAbMeGyMSoM1Wd8mIzJO9Bk0d5l4wEZeA4corbAIDyoAhM3pyNrxL
 yFkHk8ul+CzDoZSdfQulovH/T0GShzE6WFVO7LzOVQwylI1qYMoV20/8e4cO/L0K
 ewSti8ZCFKFSQcfSMCjKDzPB5mnXiec9m+qtnv+cNS7nZ8EmGYMsffP1rx4=
------END CERTIFICATE-----`,
-			},
-		},
-		&corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "istio-system",
-			},
-		},
-		&corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "istio-ca-root-cert",
-				Namespace: "istio-system",
-			},
-			Data: map[string]string{
-				"root-cert.pem": caCert,
+-----END CERTIFICATE-----`))),
 			},
 		},
 		&corev1.Service{
