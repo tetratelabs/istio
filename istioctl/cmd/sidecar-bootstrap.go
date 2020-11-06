@@ -154,16 +154,78 @@ func fetchAllWorkloadEntries(client istioclient.Interface) ([]networking.Workloa
 	return list.Items, namespace, err
 }
 
-func getK8sCaCert(kubeClient kubernetes.Interface) ([]byte, error) {
-	cm, err := kubeClient.CoreV1().ConfigMaps("kube-system").Get(context.TODO(), "extension-apiserver-authentication", metav1.GetOptions{})
+func getK8sCaCertFromConfigMap(kubeClient kubernetes.Interface, namespace string) ([]byte, error) {
+	ns, err := kubeClient.CoreV1().Namespaces().Get(context.Background(), namespace, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get ConfigMap /namespaces/%s/configmaps/%s: %w", "kube-system", "extension-apiserver-authentication", err)
+		return nil, fmt.Errorf("failed to read Namespace %q: %w", namespace, err)
 	}
-	caCert := cm.Data["client-ca-file"]
-	if caCert == "" {
-		return nil, fmt.Errorf("expected ConfigMap /namespaces/%s/configmaps/%s to have a key %q", cm.Namespace, cm.Name, "client-ca-file")
+	configMapName := ns.Annotations[bootstrapAnnotation.K8sCaRootCertConfigMapName]
+	if configMapName == "" {
+		return nil, fmt.Errorf("Namespace %q has no a config map that would hold the root cert of a k8s CA", namespace)
 	}
-	return []byte(caCert), nil
+	cm, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.Background(), configMapName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ConfigMap /namespaces/%s/configmaps/%s refered to from the %q annotation on the Namespace %q: %w", namespace, configMapName, bootstrapAnnotation.MeshExpansionConfigMapName, namespace, err)
+	}
+	value := cm.Data["ca.crt"] // well-known k8s constant
+	if value == "" {
+		return nil, fmt.Errorf("there is no root cert of a k8s CA in the ConfigMap /namespaces/%s/configmaps/%s", cm.Namespace, cm.Name)
+	}
+	return []byte(value), nil
+}
+
+func getK8sCaCertFromServiceAccountTokenSecret(kubeClient kubernetes.Interface, namespace string) ([]byte, error) {
+	sa, err := kubeClient.CoreV1().ServiceAccounts(namespace).Get(context.Background(), "default", metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ServiceAccount /namespaces/%s/serviceaccounts/%s: %w", namespace, "default", err)
+	}
+	for _, ref := range sa.Secrets {
+		secret, err := kubeClient.CoreV1().Secrets(namespace).Get(context.Background(), ref.Name, metav1.GetOptions{})
+		if err != nil {
+			log.Debugf("%v", err)
+			continue
+		}
+		if secret.Type != "kubernetes.io/service-account-token" {
+			continue
+		}
+		value := secret.Data["ca.crt"]
+		if len(value) == 0 {
+			continue
+		}
+		return value, nil
+	}
+	return nil, fmt.Errorf("unable to find a Secret with the root cert of a k8s CA among ServiceAccountToken Secrets of the ServiceAccount /namespaces/%s/serviceaccounts/%s" +
+		sa.Namespace, sa.Name)
+}
+
+func getK8sCaCert(kubeClient kubernetes.Interface, namespace, istioNamespace string) ([]byte, error) {
+	type K8sCaRootCertSource func(kubeClient kubernetes.Interface) ([]byte, error)
+	sources := []K8sCaRootCertSource{
+		func(kubeClient kubernetes.Interface) ([]byte, error) {
+			return getK8sCaCertFromConfigMap(kubeClient, istioNamespace)
+		},
+		func(kubeClient kubernetes.Interface) ([]byte, error) {
+			return getK8sCaCertFromServiceAccountTokenSecret(kubeClient, istioNamespace)
+		},
+		func(kubeClient kubernetes.Interface) ([]byte, error) {
+			return getK8sCaCertFromServiceAccountTokenSecret(kubeClient, namespace)
+		},
+		func(kubeClient kubernetes.Interface) ([]byte, error) {
+			return getK8sCaCertFromServiceAccountTokenSecret(kubeClient, "kube-public")
+		},
+	}
+	for _, source := range sources {
+		value, err := source(kubeClient)
+		if err != nil {
+			log.Debugf("%v", err)
+			continue
+		}
+		return value, nil
+	}
+	return nil, fmt.Errorf("all supported strategies to find a k8s CA have failed.\n" +
+		"To overcome this, either grant the user permissions to read k8s Secrets in one of the Namespaces %v,\n" +
+		"or create a ConfigMap with the root cert of a k8s CA in the %q Namespace and use %q annotation to give this command a hint where to find such a ConfigMap.",
+		[]string{istioNamespace, namespace, "kube-public"}, istioNamespace, bootstrapAnnotation.K8sCaRootCertConfigMapName)
 }
 
 func getIstioCaCert(kubeClient kubernetes.Interface, namespace string) ([]byte, error) {
@@ -623,9 +685,9 @@ Istio will be started on the host network as a docker container in capture mode.
 				return fmt.Errorf("pilot cert provider is set to %q. At the moment, %q command only supports pilot cert provider %q", actual, c.CommandPath(), expected)
 			}
 
-			k8sCaCert, err := getK8sCaCert(kubeClient)
+			k8sCaCert, err := getK8sCaCert(kubeClient, chosenNS, istioNamespace)
 			if err != nil {
-				return fmt.Errorf("unable to find k8s CA cert: %w", err)
+				return fmt.Errorf("unable to find the root cert of a k8s CA: %w", err)
 			}
 
 			istioCaCert, err := getIstioCaCert(kubeClient, istioNamespace)
