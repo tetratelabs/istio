@@ -15,11 +15,25 @@
 package annotation
 
 const (
+	// Name of the Kubernetes config map that holds the root cert of a k8s CA.
+	//
+	// By default, config map is considered undefined and thus the only way to find out
+	// the root cert of a k8s CA is
+	//  1) either to read a k8s Secret with a ServiceAccountToken, which among other things
+	//     holds the root cert of a k8s CA
+	//  2) or to read the root cert of a k8s CA from the `/var/run/secrets/kubernetes.io/serviceaccount/ca.crt`
+	//     file, which is auto-mounted into Pods by k8s
+	K8sCaRootCertConfigMapName = "sidecar-bootstrap.istioctl.istio.io/k8s-ca-root-cert-configmap"
+
 	// Name of the Kubernetes config map that holds configuration intended for those
 	// Istio Proxies that expand the mesh.
 	//
+	// This configuration is applied on top of mesh-wide default ProxyConfig,
+	// but prior to the workload-specific ProxyConfig from `proxy.istio.io/config` annotation
+	// on a WorkloadEntry.
+	//
 	// By default, config map is considered undefined and thus expansion proxies will
-	// have exactly the same configurion as the regular ones.
+	// have the same configuration as the regular ones.
 	MeshExpansionConfigMapName = "sidecar-bootstrap.istioctl.istio.io/mesh-expansion-configmap"
 
 	// IP address or DNS name of the machine represented by this WorkloadEntry to use
