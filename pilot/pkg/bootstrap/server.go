@@ -210,6 +210,7 @@ func NewServer(args *PilotArgs) (*Server, error) {
 		return nil, fmt.Errorf("error initializing kube client: %v", err)
 	}
 
+	s.initDnsResolver()
 	s.initMeshNetworks(args, s.fileWatcher)
 	s.initMeshHandlers()
 

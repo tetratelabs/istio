@@ -29,6 +29,7 @@ import (
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/util/sets"
 	"istio.io/istio/pkg/config/constants"
+	"istio.io/istio/pkg/config/dns"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/config/protocol"
@@ -818,7 +819,7 @@ func (ps *PushContext) InitContext(env *Environment, oldPushContext *PushContext
 	}
 
 	// TODO: only do this when meshnetworks or gateway service changed
-	ps.initMeshNetworks()
+	ps.initMeshNetworks(env)
 
 	ps.initClusterLocalHosts(env)
 
@@ -1554,8 +1555,9 @@ func (ps *PushContext) mergeGateways(proxy *Proxy) *MergedGateway {
 }
 
 // pre computes gateways for each network
-func (ps *PushContext) initMeshNetworks() {
+func (ps *PushContext) initMeshNetworks(env *Environment) {
 	if ps.Networks == nil || len(ps.Networks.Networks) == 0 {
+		log.Debugf("PushContext has no network gateways")
 		return
 	}
 
@@ -1571,7 +1573,7 @@ func (ps *PushContext) initMeshNetworks() {
 		gateways := []*Gateway{}
 
 		for _, gw := range gws {
-			gateways = append(gateways, getGatewayAddresses(gw, registryNames, ps.ServiceDiscovery)...)
+			gateways = append(gateways, getGatewayAddresses(gw, registryNames, ps.ServiceDiscovery, env.Resolver)...)
 		}
 
 		log.Debugf("Endpoints from registries %v on network %v reachable through %d gateways",
@@ -1651,7 +1653,19 @@ func getNetworkRegistries(network *meshconfig.Network) []string {
 	return registryNames
 }
 
-func getGatewayAddresses(gw *meshconfig.Network_IstioNetworkGateway, registryNames []string, discovery ServiceDiscovery) []*Gateway {
+func asGateways(ips []string, port uint32) []*Gateway {
+	if len(ips) == 0 {
+		return nil
+	}
+	gateways := make([]*Gateway, len(ips))
+	for i, ip := range ips {
+		gateways[i] = &Gateway{ip, port}
+	}
+	return gateways
+}
+
+func getGatewayAddresses(gw *meshconfig.Network_IstioNetworkGateway, registryNames []string,
+	discovery ServiceDiscovery, dnsResolver dns.Resolver) (gateways []*Gateway) {
 	// First, if a gateway address is provided in the configuration use it. If the gateway address
 	// in the config was a hostname it got already resolved and replaced with an IP address
 	// when loading the config
@@ -1659,11 +1673,16 @@ func getGatewayAddresses(gw *meshconfig.Network_IstioNetworkGateway, registryNam
 		return []*Gateway{{gw.GetAddress(), gw.Port}}
 	}
 
+	if gw.GetAddress() != "" {
+		gwIPs := dnsResolver.LookupIP(gw.GetAddress())
+		gateways = append(gateways, asGateways(gwIPs, gw.Port)...)
+	}
+
 	// Second, try to find the gateway addresses by the provided service name
 	if gwSvcName := gw.GetRegistryServiceName(); gwSvcName != "" {
 		svc, _ := discovery.GetService(host.Name(gwSvcName))
 		if svc == nil {
-			return nil
+			return
 		}
 		// No need lock here as the service returned is a new one
 		if svc.Attributes.ClusterExternalAddresses != nil {
@@ -1680,16 +1699,20 @@ func getGatewayAddresses(gw *meshconfig.Network_IstioNetworkGateway, registryNam
 						}
 					}
 				}
-				ips := svc.Attributes.ClusterExternalAddresses[clusterName]
-				for _, ip := range ips {
-					gateways = append(gateways, &Gateway{ip, remotePort})
+				addresses := svc.Attributes.ClusterExternalAddresses[clusterName]
+				for _, address := range addresses {
+					if gwIP := net.ParseIP(address); gwIP != nil {
+						gateways = append(gateways, &Gateway{address, gw.Port})
+					} else {
+						gwIPs := dnsResolver.LookupIP(address)
+						gateways = append(gateways, asGateways(gwIPs, gw.Port)...)
+					}
 				}
 			}
-			return gateways
 		}
 	}
 
-	return nil
+	return
 }
 
 func (ps *PushContext) NetworkGateways() map[string][]*Gateway {
