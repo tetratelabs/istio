@@ -495,7 +495,7 @@ func dumpBootstrapBundle(outputDir string, items bootstrapItems) error {
 	}
 
 	// Create a script to start proxy.
-	content := "#!/bin/bash\n"
+	content := "#!/usr/bin/env bash\n"
 	for _, command := range items.cmdsToExec {
 		content += command.cmd + "\n"
 	}
