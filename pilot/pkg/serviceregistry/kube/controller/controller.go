@@ -35,6 +35,7 @@ import (
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/serviceregistry"
 	"istio.io/istio/pilot/pkg/serviceregistry/kube"
+	"istio.io/istio/pkg/config/dns"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/config/mesh"
@@ -118,6 +119,9 @@ type Options struct {
 	// NetworksWatcher observes changes to the mesh networks config.
 	NetworksWatcher mesh.NetworksWatcher
 
+	// DnsResolver resolves DNS names, e.g. DNS name of a LoadBalancer.
+	DnsResolver dns.Resolver
+
 	// EndpointMode decides what source to use to get endpoint information
 	EndpointMode EndpointMode
 
@@ -179,6 +183,7 @@ type Controller struct {
 
 	metrics         model.Metrics
 	networksWatcher mesh.NetworksWatcher
+	dnsResolver     dns.Resolver
 	xdsUpdater      model.XDSUpdater
 	domainSuffix    string
 	clusterID       string
@@ -213,6 +218,9 @@ type Controller struct {
 	// Network name for the registry as specified by the MeshNetworks configmap
 	networkForRegistry string
 
+	// known gateways
+	gateways gateways
+
 	// initialSync becomes true only after the resources that exist at startup are processed
 	// to ensure correct ordering
 	syncMu      sync.Mutex
@@ -238,6 +246,7 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 		workloadInstancesByIP:      make(map[string]*model.WorkloadInstance),
 		workloadInstancesIPsByName: make(map[string]string),
 		networksWatcher:            options.NetworksWatcher,
+		dnsResolver:                options.DnsResolver,
 		metrics:                    options.Metrics,
 	}
 
@@ -322,6 +331,7 @@ func (c *Controller) onServiceEvent(curr interface{}, event model.Event) error {
 		delete(c.servicesMap, svcConv.Hostname)
 		delete(c.nodeSelectorsForServices, svcConv.Hostname)
 		delete(c.externalNameSvcInstanceMap, svcConv.Hostname)
+		c.forgetGatewayServiceDnsNames(svcConv.Hostname)
 		c.Unlock()
 	default:
 		if isNodePortGatewayService(svc) {
@@ -341,6 +351,7 @@ func (c *Controller) onServiceEvent(curr interface{}, event model.Event) error {
 		if len(instances) > 0 {
 			c.externalNameSvcInstanceMap[svcConv.Hostname] = instances
 		}
+		c.watchGatewayServiceDnsNames(svcConv.Hostname)
 		c.Unlock()
 	}
 
@@ -559,6 +570,8 @@ func (c *Controller) Run(stop <-chan struct{}) {
 		c.networksWatcher.AddNetworksHandler(c.reloadNetworkLookup)
 		c.reloadNetworkLookup()
 	}
+
+	c.dnsResolver.AddUpdateHandler(c.refreshGatewayEndpoints)
 
 	go func() {
 		cache.WaitForCacheSync(stop, c.HasSynced)

@@ -16,11 +16,28 @@ package controller
 
 import (
 	"net"
+	"strings"
 
 	"github.com/yl2chen/cidranger"
 
+	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pilot/pkg/serviceregistry/kube"
+	"istio.io/istio/pkg/config/dns"
+	"istio.io/istio/pkg/config/host"
 	"istio.io/pkg/log"
 )
+
+type gateways struct {
+	dnsNames     dns.NameSet
+	serviceNames dns.NameSet
+}
+
+func newGateways() gateways {
+	return gateways{
+		dnsNames:     dns.NewNameSet(),
+		serviceNames: dns.NewNameSet(),
+	}
+}
 
 // namedRangerEntry for holding network's CIDR and name
 type namedRangerEntry struct {
@@ -33,18 +50,29 @@ func (n namedRangerEntry) Network() net.IPNet {
 	return n.network
 }
 
+func (c *Controller) canonicalServiceName(name string) host.Name {
+	segments := strings.SplitN(name, ".", 3)
+	switch len(segments) {
+	case 1:
+		return kube.ServiceHostname(segments[0], IstioNamespace, c.domainSuffix)
+	default:
+		return kube.ServiceHostname(segments[0], segments[1], c.domainSuffix)
+	}
+}
+
 // reloadNetworkLookup will read the mesh networks configuration from the environment
 // and initialize CIDR rangers for an efficient network lookup when needed
 func (c *Controller) reloadNetworkLookup() {
-	meshNetworks := c.networksWatcher.Networks()
-	if meshNetworks == nil || len(meshNetworks.Networks) == 0 {
-		return
-	}
+	c.Lock()
+
+	c.networkForRegistry = ""
+	oldGateways := c.gateways
+	c.gateways = newGateways()
 
 	ranger := cidranger.NewPCTrieRanger()
 
-	c.Lock()
-	for n, v := range meshNetworks.Networks {
+	meshNetworks := c.networksWatcher.Networks()
+	for n, v := range meshNetworks.GetNetworks() {
 		for _, ep := range v.Endpoints {
 			if ep.GetFromCidr() != "" {
 				_, network, err := net.ParseCIDR(ep.GetFromCidr())
@@ -62,8 +90,22 @@ func (c *Controller) reloadNetworkLookup() {
 				c.networkForRegistry = n
 			}
 		}
+
+		for _, gw := range v.Gateways {
+			if gwAddress := gw.GetAddress(); gwAddress != "" && net.ParseIP(gwAddress) == nil {
+				c.gateways.dnsNames.Add(gwAddress)
+			}
+
+			// track which services from this registry act as gateways for what networks
+			if c.networkForRegistry == n {
+				if gwSvcName := gw.GetRegistryServiceName(); gwSvcName != "" {
+					c.gateways.serviceNames.Add(string(c.canonicalServiceName(gwSvcName)))
+				}
+			}
+		}
 	}
 	c.ranger = ranger
+	c.configureDnsResolver(oldGateways, c.gateways)
 	c.Unlock()
 	// the network for endpoints are computed when we process the events; this will fix the cache
 	// NOTE: this must run before the other network watcher handler that creates a force push
@@ -72,6 +114,64 @@ func (c *Controller) reloadNetworkLookup() {
 	}
 	if err := c.syncEndpoints(); err != nil {
 		log.Errorf("one or more errors force-syncing endpoints: %v", err)
+	}
+}
+
+func (c *Controller) configureDnsResolver(old, new gateways) {
+	log.Debugf("Re-configuring DNS resolver on mesh networks change: old gateways=%#v, new gateways=%#v", old, new)
+
+	log.Debugf("Start watching for DNS names from the MeshNetworks config: %v", new.dnsNames.List())
+	if c.dnsResolver != nil {
+		c.dnsResolver.Watch(dns.Referer{APIGroup: "istio.mesh", Kind: "MeshNetworks"}, new.dnsNames.List())
+	}
+
+	for serviceName := range new.serviceNames {
+		c.watchServiceDnsNames(serviceName)
+	}
+
+	_, deleted := new.serviceNames.Diff(old.serviceNames)
+	for serviceName := range deleted {
+		c.forgetServiceDnsNames(serviceName)
+	}
+}
+
+func (c *Controller) watchServiceDnsNames(serviceName string) {
+	dnsNames := dns.NewNameSet()
+
+	svc := c.servicesMap[host.Name(serviceName)]
+	if svc != nil && svc.Attributes.ClusterExternalAddresses != nil {
+		addresses := svc.Attributes.ClusterExternalAddresses[c.clusterID]
+		for _, address := range addresses {
+			if net.ParseIP(address) == nil {
+				dnsNames.Add(address)
+			}
+		}
+	}
+
+	log.Debugf("Start watching for DNS names of a gateway Service %q: %v", serviceName, dnsNames.List())
+	if c.dnsResolver != nil {
+		c.dnsResolver.Watch(dns.Referer{Kind: "Service", Name: serviceName}, dnsNames.List())
+	}
+}
+
+func (c *Controller) forgetServiceDnsNames(serviceName string) {
+	log.Debugf("Stop watching for DNS names of a gateway Service %q", serviceName)
+	if c.dnsResolver != nil {
+		c.dnsResolver.Cancel(dns.Referer{Kind: "Service", Name: serviceName})
+	}
+}
+
+func (c *Controller) watchGatewayServiceDnsNames(serviceName host.Name) {
+	name := string(serviceName)
+	if c.gateways.serviceNames.Contains(name) {
+		c.watchServiceDnsNames(name)
+	}
+}
+
+func (c *Controller) forgetGatewayServiceDnsNames(serviceName host.Name) {
+	name := string(serviceName)
+	if c.gateways.serviceNames.Contains(name) {
+		c.forgetServiceDnsNames(name)
 	}
 }
 
@@ -101,4 +201,17 @@ func (c *Controller) endpointNetwork(endpointIP string) string {
 	}
 
 	return (entries[0].(namedRangerEntry)).name
+}
+
+func (c *Controller) isGatewayDNS(dnsName string) bool {
+	return true // TODO(yskopets): optimize once DnsResolver is used for anything other than gateways
+}
+
+func (c *Controller) refreshGatewayEndpoints(dnsName string) {
+	if c.isGatewayDNS(dnsName) {
+		log.Debugf("Triggering a full xDS push since DNS name %q of a network gateway is now resolved into a different set of IP addresses", dnsName)
+		c.xdsUpdater.ConfigUpdate(&model.PushRequest{
+			Full: true,
+		})
+	}
 }

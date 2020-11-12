@@ -29,6 +29,7 @@ import (
 
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry/aggregate"
+	"istio.io/istio/pkg/config/dns"
 	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/kube/secretcontroller"
@@ -63,6 +64,7 @@ type Multicluster struct {
 	m                     sync.Mutex // protects remoteKubeControllers
 	remoteKubeControllers map[string]*kubeController
 	networksWatcher       mesh.NetworksWatcher
+	dnsResolver           dns.Resolver
 
 	// fetchCaRoot maps the certificate name to the certificate
 	fetchCaRoot      func() map[string]string
@@ -74,7 +76,8 @@ type Multicluster struct {
 // NewMulticluster initializes data structure to store multicluster information
 // It also starts the secret controller
 func NewMulticluster(kc kubernetes.Interface, secretNamespace string, opts Options,
-	serviceController *aggregate.Controller, xds model.XDSUpdater, networksWatcher mesh.NetworksWatcher) (*Multicluster, error) {
+	serviceController *aggregate.Controller, xds model.XDSUpdater,
+	networksWatcher mesh.NetworksWatcher, dnsResolver dns.Resolver) (*Multicluster, error) {
 
 	remoteKubeController := make(map[string]*kubeController)
 	if opts.ResyncPeriod == 0 {
@@ -90,6 +93,7 @@ func NewMulticluster(kc kubernetes.Interface, secretNamespace string, opts Optio
 		XDSUpdater:            xds,
 		remoteKubeControllers: remoteKubeController,
 		networksWatcher:       networksWatcher,
+		dnsResolver:           dnsResolver,
 		metrics:               opts.Metrics,
 		fetchCaRoot:           opts.FetchCaRoot,
 		caBundlePath:          opts.CABundlePath,
@@ -116,6 +120,7 @@ func (m *Multicluster) AddMemberCluster(clients kubelib.Client, clusterID string
 		XDSUpdater:        m.XDSUpdater,
 		ClusterID:         clusterID,
 		NetworksWatcher:   m.networksWatcher,
+		DnsResolver:       m.dnsResolver,
 		Metrics:           m.metrics,
 	}
 	kubectl := NewController(clients, options)
