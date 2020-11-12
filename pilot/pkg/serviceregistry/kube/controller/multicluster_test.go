@@ -89,7 +89,7 @@ func Test_KubeSecretController(t *testing.T) {
 			DomainSuffix:      DomainSuffix,
 			ResyncPeriod:      ResyncPeriod,
 		},
-		mockserviceController, nil, nil)
+		mockserviceController, nil, nil, nil)
 
 	if err != nil {
 		t.Fatalf("error creating Multicluster object and startign secret controller: %v", err)
