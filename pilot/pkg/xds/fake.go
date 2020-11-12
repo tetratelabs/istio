@@ -46,6 +46,7 @@ import (
 	"istio.io/istio/pilot/pkg/serviceregistry/aggregate"
 	kube "istio.io/istio/pilot/pkg/serviceregistry/kube/controller"
 	"istio.io/istio/pilot/pkg/serviceregistry/serviceentry"
+	"istio.io/istio/pkg/config/dns"
 	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/config/schema/collections"
 	kubelib "istio.io/istio/pkg/kube"
@@ -66,6 +67,7 @@ type FakeOptions struct {
 	// If provided, this mesh config will be used
 	MeshConfig      *meshconfig.MeshConfig
 	NetworksWatcher mesh.NetworksWatcher
+	DnsResolver     dns.Resolver
 }
 
 type FakeDiscoveryServer struct {
@@ -177,6 +179,10 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 		opts.NetworksWatcher = mesh.NewFixedNetworksWatcher(nil)
 	}
 	env.NetworksWatcher = opts.NetworksWatcher
+	if opts.DnsResolver == nil {
+		opts.DnsResolver = dns.NewFixedResolver(nil)
+	}
+	env.Resolver = opts.DnsResolver
 
 	serviceHandler := func(svc *model.Service, _ model.Event) {
 		s.updateMutex.RLock()
@@ -195,6 +201,7 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 		DomainSuffix:    "cluster.local",
 		XDSUpdater:      s,
 		NetworksWatcher: env,
+		DnsResolver:     env,
 	})
 	kubeClient.RunAndWait(stop)
 	serviceDiscovery.AddRegistry(k8s)
