@@ -71,6 +71,18 @@ var (
 		return data.IstioConfigValues.GetGlobal().GetJwtPolicy(), nil
 	})
 
+	// PROV_CERT environment variable must be set in order to enable reprovisioning of the mTLS cert
+	// off the previous valid mTLS cert rather than JWT token that might have very short lifespan.
+	PROV_CERT = newEnvVar("PROV_CERT", func(data *SidecarData) (string, error) {
+		return data.GetSecretsDir(), nil
+	})
+
+	// OUTPUT_CERTS environment variable must be set in order to enable reprovisioning of the mTLS cert
+	// off the previous valid mTLS cert rather than JWT token that might have very short lifespan.
+	OUTPUT_CERTS = newEnvVar("OUTPUT_CERTS", func(data *SidecarData) (string, error) {
+		return data.GetSecretsDir(), nil
+	})
+
 	// The provider of Pilot DNS certificate setting implicitly determines
 	// the path 'istio-agent' will be looking for the CA cert at:
 	//  istiod:     ./var/run/secrets/istio/root-cert.pem
@@ -228,6 +240,8 @@ var (
 
 	SIDECAR_ENV = []envVar{
 		JWT_POLICY,
+		PROV_CERT,
+		OUTPUT_CERTS,
 		PILOT_CERT_PROVIDER,
 		CA_ADDR,
 		CA_SNI,
@@ -391,6 +405,11 @@ func (d *SidecarData) GetCaAddr() string {
 		return value
 	}
 	return d.ProxyConfig.GetDiscoveryAddress()
+}
+
+func (d *SidecarData) GetSecretsDir() string {
+	// same dir where `PILOT_CERT_PROVIDER == istiod` expects CA cert of the `istiod`
+	return "/var/run/secrets/istio"
 }
 
 func (d *SidecarData) GetEnv() ([]string, error) {
