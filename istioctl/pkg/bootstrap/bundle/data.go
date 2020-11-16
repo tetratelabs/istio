@@ -57,212 +57,230 @@ type envVar struct {
 	Value valueFunc
 }
 
-func newEnvVar(name string, fn valueFunc) envVar {
-	return envVar{
-		Name:  name,
-		Value: fn,
-	}
-}
-
 var (
-	// Instruct 'istio-agent' to look for a ServiceAccount token
-	// at a hardcoded path './var/run/secrets/tokens/istio-token'
-	JWT_POLICY = newEnvVar("JWT_POLICY", func(data *SidecarData) (string, error) {
-		return data.IstioConfigValues.GetGlobal().GetJwtPolicy(), nil
-	})
-
-	// PROV_CERT environment variable must be set in order to enable reprovisioning of the mTLS cert
-	// off the previous valid mTLS cert rather than JWT token that might have very short lifespan.
-	PROV_CERT = newEnvVar("PROV_CERT", func(data *SidecarData) (string, error) {
-		return data.GetSecretsDir(), nil
-	})
-
-	// OUTPUT_CERTS environment variable must be set in order to enable reprovisioning of the mTLS cert
-	// off the previous valid mTLS cert rather than JWT token that might have very short lifespan.
-	OUTPUT_CERTS = newEnvVar("OUTPUT_CERTS", func(data *SidecarData) (string, error) {
-		return data.GetSecretsDir(), nil
-	})
-
-	// The provider of Pilot DNS certificate setting implicitly determines
-	// the path 'istio-agent' will be looking for the CA cert at:
-	//  istiod:     ./var/run/secrets/istio/root-cert.pem
-	//  kubernetes: ./var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-	//  custom:     ./etc/certs/root-cert.pem
-	PILOT_CERT_PROVIDER = newEnvVar("PILOT_CERT_PROVIDER", func(data *SidecarData) (string, error) {
-		return data.IstioConfigValues.GetGlobal().GetPilotCertProvider(), nil
-	})
-
-	// If the following setting is unset, 'istio-agent' will be using it
-	// implicitly in certain code paths, despite saying that it defaults to
-	// XDS address.
-	CA_ADDR = newEnvVar("CA_ADDR", func(data *SidecarData) (string, error) {
-		return data.GetCaAddr(), nil
-	})
-
-	CA_SNI = newEnvVar("CA_SNI", func(data *SidecarData) (string, error) {
-		return clusterLocalSni(data.GetCaAddr(), shortClusterLocalAlias("istiod", data.IstioSystemNamespace)), nil
-	})
-
-	PILOT_SNI = newEnvVar("PILOT_SNI", func(data *SidecarData) (string, error) {
-		return clusterLocalSni(data.ProxyConfig.GetDiscoveryAddress(), shortClusterLocalAlias("istiod", data.IstioSystemNamespace)), nil
-	})
-
-	POD_NAME = newEnvVar("POD_NAME", func(data *SidecarData) (string, error) {
-		addressIdentifier := addressToPodNameAddition(data.Workload.Spec.Address)
-		return data.Workload.Name + "-" + addressIdentifier, nil
-	})
-
-	POD_NAMESPACE = newEnvVar("POD_NAMESPACE", func(data *SidecarData) (string, error) {
-		return data.Workload.Namespace, nil
-	})
-
-	IDENTITY_IP = newEnvVar("IDENTITY_IP", func(data *SidecarData) (string, error) {
-		return data.Workload.Spec.Address, nil
-	})
-
-	// Make sure that 'istio-agent' picks a given address as the primary address of this workload.
-	INSTANCE_IP = newEnvVar("INSTANCE_IP", func(data *SidecarData) (string, error) {
-		ip := ""
-		if net.ParseIP(data.Workload.Spec.Address) != nil {
-			ip = data.Workload.Spec.Address
-		}
-		if value := data.Workload.Annotations[bootstrapAnnotation.ProxyInstanceIP]; value != "" {
-			if net.ParseIP(value) == nil {
-				return "", fmt.Errorf("value of %q annotation on the WorkloadEntry is not a valid IP address: %q", bootstrapAnnotation.ProxyInstanceIP, value)
-			}
-			ip = value
-		}
-		if ip == "" {
-			return "", fmt.Errorf("unable to bootstrap a WorkloadEntry that has neither an Address field set to a valid IP nor a %q annotation as an alternative source of the IP address to bind 'inbound' listeners to", bootstrapAnnotation.ProxyInstanceIP)
-		}
-		return ip, nil
-	})
-
-	SERVICE_ACCOUNT = newEnvVar("SERVICE_ACCOUNT", func(data *SidecarData) (string, error) {
-		return data.Workload.Spec.ServiceAccount, nil
-	})
-
-	HOST_IP = newEnvVar("HOST_IP", func(data *SidecarData) (string, error) {
-		return data.Workload.Spec.Address, nil
-	})
-
-	CANONICAL_SERVICE = newEnvVar("CANONICAL_SERVICE", func(data *SidecarData) (string, error) {
-		return data.Workload.Labels["service.istio.io/canonical-name"], nil
-	})
-
-	CANONICAL_REVISION = newEnvVar("CANONICAL_REVISION", func(data *SidecarData) (string, error) {
-		return data.Workload.Labels["service.istio.io/canonical-revision"], nil
-	})
-
-	PROXY_CONFIG = newEnvVar("PROXY_CONFIG", func(data *SidecarData) (string, error) {
-		if data.ProxyConfig == nil {
-			return "", nil
-		}
-		value, err := new(jsonpb.Marshaler).MarshalToString(data.ProxyConfig)
-		if err != nil {
-			return "", err
-		}
-		return string(value), nil
-	})
-
-	ISTIO_META_CLUSTER_ID = newEnvVar("ISTIO_META_CLUSTER_ID", func(data *SidecarData) (string, error) {
-		if name := data.IstioConfigValues.GetGlobal().GetMultiCluster().GetClusterName(); name != "" {
-			return name, nil
-		}
-		return "Kubernetes", nil
-	})
-
-	ISTIO_META_INTERCEPTION_MODE = newEnvVar("ISTIO_META_INTERCEPTION_MODE", func(data *SidecarData) (string, error) {
-		if mode := data.Workload.Annotations[annotation.SidecarInterceptionMode.Name]; mode != "" {
-			return mode, nil
-		}
-		return "NONE", nil // ignore data.ProxyConfig.GetInterceptionMode()
-	})
-
-	ISTIO_META_NETWORK = newEnvVar("ISTIO_META_NETWORK", func(data *SidecarData) (string, error) {
-		if value := data.Workload.Spec.GetNetwork(); value != "" {
-            return value, nil
-        }
-		return data.IstioConfigValues.GetGlobal().GetNetwork(), nil
-	})
-
-	// Workload labels
-	ISTIO_METAJSON_LABELS = newEnvVar("ISTIO_METAJSON_LABELS", func(data *SidecarData) (string, error) {
-		if len(data.Workload.Labels)+len(data.Workload.Spec.Labels) == 0 {
-			return "", nil
-		}
-		labels := make(map[string]string)
-		for name, value := range data.Workload.Labels {
-			labels[name] = value
-		}
-		for name, value := range data.Workload.Spec.Labels {
-			labels[name] = value
-		}
-		value, err := json.Marshal(labels)
-		if err != nil {
-			return "", err
-		}
-		return string(value), nil
-	})
-
-	// Istio-related annotations of the Workload.
-	ISTIO_METAJSON_ISTIO_ANNOTATIONS = newEnvVar("ISTIO_METAJSON_ISTIO_ANNOTATIONS", func(data *SidecarData) (string, error) {
-		annotations := make(map[string]string)
-		for name, value := range data.Workload.Annotations {
-			if strings.Contains(name, "istio.io/") && !strings.Contains(name, "istioctl.istio.io/") {
-				annotations[name] = value
-			}
-		}
-		if len(annotations) == 0 {
-			return "", nil
-		}
-		value, err := json.Marshal(annotations)
-		if err != nil {
-			return "", err
-		}
-		return string(value), nil
-	})
-
-	ISTIO_META_WORKLOAD_NAME = newEnvVar("ISTIO_META_WORKLOAD_NAME", func(data *SidecarData) (string, error) {
-		return getAppOrServiceAccount(data.Workload), nil
-	})
-
-	ISTIO_META_OWNER = newEnvVar("ISTIO_META_OWNER", func(data *SidecarData) (string, error) {
-		return fmt.Sprintf("kubernetes://apis/networking.istio.io/v1alpha3/namespaces/%s/workloadentries/%s", data.Workload.Namespace, data.Workload.Name), nil
-	})
-
-	ISTIO_META_MESH_ID = newEnvVar("ISTIO_META_MESH_ID", func(data *SidecarData) (string, error) {
-		if value := data.IstioConfigValues.GetGlobal().GetMeshID(); value != "" {
-			return value, nil
-		}
-		return data.IstioConfigValues.GetGlobal().GetTrustDomain(), nil
-	})
-
-	SIDECAR_ENV = []envVar{
-		JWT_POLICY,
-		PROV_CERT,
-		OUTPUT_CERTS,
-		PILOT_CERT_PROVIDER,
-		CA_ADDR,
-		CA_SNI,
-		POD_NAME,
-		POD_NAMESPACE,
-		IDENTITY_IP,
-		INSTANCE_IP,
-		SERVICE_ACCOUNT,
-		HOST_IP,
-		CANONICAL_SERVICE,
-		CANONICAL_REVISION,
-		PROXY_CONFIG,
-		PILOT_SNI,
-		ISTIO_META_CLUSTER_ID,
-		ISTIO_META_INTERCEPTION_MODE,
-		ISTIO_META_NETWORK,
-		ISTIO_METAJSON_LABELS,
-		ISTIO_METAJSON_ISTIO_ANNOTATIONS,
-		ISTIO_META_WORKLOAD_NAME,
-		ISTIO_META_OWNER,
-		ISTIO_META_MESH_ID,
+	envVars = []envVar{
+		{
+			// JWT_POLICY environment variable instructs 'istio-agent' where to look for a ServiceAccount token,
+			// e.g. at a hardcoded path './var/run/secrets/tokens/istio-token'
+			Name: "JWT_POLICY",
+			Value: func(data *SidecarData) (string, error) {
+				return data.IstioConfigValues.GetGlobal().GetJwtPolicy(), nil
+			},
+		},
+		{
+			// PROV_CERT environment variable must be set in order to enable reprovisioning of the mTLS cert
+			// off the previous valid mTLS cert rather than JWT token that might have very short lifespan.
+			Name: "PROV_CERT",
+			Value: func(data *SidecarData) (string, error) {
+				return data.GetSecretsDir(), nil
+			},
+		},
+		{
+			// OUTPUT_CERTS environment variable must be set in order to enable reprovisioning of the mTLS cert
+			// off the previous valid mTLS cert rather than JWT token that might have very short lifespan.
+			Name: "OUTPUT_CERTS",
+			Value: func(data *SidecarData) (string, error) {
+				return data.GetSecretsDir(), nil
+			},
+		},
+		{
+			// PILOT_CERT_PROVIDER environment variable implicitly determines a path where `istio-agent` will be looking for the CA cert:
+			//  istiod:     ./var/run/secrets/istio/root-cert.pem
+			//  kubernetes: ./var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+			//  custom:     ./etc/certs/root-cert.pem
+			Name: "PILOT_CERT_PROVIDER",
+			Value: func(data *SidecarData) (string, error) {
+				return data.IstioConfigValues.GetGlobal().GetPilotCertProvider(), nil
+			},
+		},
+		{
+			// CA_ADDR environment variable instructs `istio-agent` to use given CA address. If unset, on certain code paths
+			// `istio-agent` will be using a hardocode value, despite saying that it will default to XDS address.
+			Name: "CA_ADDR",
+			Value: func(data *SidecarData) (string, error) {
+				return data.GetCaAddr(), nil
+			},
+		},
+		{
+			Name: "CA_SNI",
+			Value: func(data *SidecarData) (string, error) {
+				return clusterLocalSni(data.GetCaAddr(), shortClusterLocalAlias("istiod", data.IstioSystemNamespace)), nil
+			},
+		},
+		{
+			Name: "PILOT_SNI",
+			Value: func(data *SidecarData) (string, error) {
+				return clusterLocalSni(data.ProxyConfig.GetDiscoveryAddress(), shortClusterLocalAlias("istiod", data.IstioSystemNamespace)), nil
+			},
+		},
+		{
+			Name: "POD_NAME",
+			Value: func(data *SidecarData) (string, error) {
+				addressIdentifier := addressToPodNameAddition(data.Workload.Spec.Address)
+				return data.Workload.Name + "-" + addressIdentifier, nil
+			},
+		},
+		{
+			Name: "POD_NAMESPACE",
+			Value: func(data *SidecarData) (string, error) {
+				return data.Workload.Namespace, nil
+			},
+		},
+		{
+			Name: "IDENTITY_IP",
+			Value: func(data *SidecarData) (string, error) {
+				return data.Workload.Spec.Address, nil
+			},
+		},
+		{
+			// INSTANCE_IP environments variable instructs 'istio-agent' to pick given IP address as the primary address of this workload
+			// (in other words, address to bind inbound listeners to).
+			Name: "INSTANCE_IP",
+			Value: func(data *SidecarData) (string, error) {
+				ip := ""
+				if net.ParseIP(data.Workload.Spec.Address) != nil {
+					ip = data.Workload.Spec.Address
+				}
+				if value := data.Workload.Annotations[bootstrapAnnotation.ProxyInstanceIP]; value != "" {
+					if net.ParseIP(value) == nil {
+						return "", fmt.Errorf("value of %q annotation on the WorkloadEntry is not a valid IP address: %q",
+							bootstrapAnnotation.ProxyInstanceIP, value)
+					}
+					ip = value
+				}
+				if ip == "" {
+					return "", fmt.Errorf("unable to bootstrap a WorkloadEntry that has neither an Address field set to a valid IP nor a %q "+
+						"annotation as an alternative source of the IP address to bind 'inbound' listeners to", bootstrapAnnotation.ProxyInstanceIP)
+				}
+				return ip, nil
+			},
+		},
+		{
+			Name: "SERVICE_ACCOUNT",
+			Value: func(data *SidecarData) (string, error) {
+				return data.Workload.Spec.ServiceAccount, nil
+			},
+		},
+		{
+			Name: "HOST_IP",
+			Value: func(data *SidecarData) (string, error) {
+				return data.Workload.Spec.Address, nil
+			},
+		},
+		{
+			Name: "CANONICAL_SERVICE",
+			Value: func(data *SidecarData) (string, error) {
+				return data.Workload.Labels["service.istio.io/canonical-name"], nil
+			},
+		},
+		{
+			Name: "CANONICAL_REVISION",
+			Value: func(data *SidecarData) (string, error) {
+				return data.Workload.Labels["service.istio.io/canonical-revision"], nil
+			},
+		},
+		{
+			Name: "PROXY_CONFIG",
+			Value: func(data *SidecarData) (string, error) {
+				if data.ProxyConfig == nil {
+					return "", nil
+				}
+				value, err := new(jsonpb.Marshaler).MarshalToString(data.ProxyConfig)
+				if err != nil {
+					return "", err
+				}
+				return value, nil
+			},
+		},
+		{
+			Name: "ISTIO_META_CLUSTER_ID",
+			Value: func(data *SidecarData) (string, error) {
+				if name := data.IstioConfigValues.GetGlobal().GetMultiCluster().GetClusterName(); name != "" {
+					return name, nil
+				}
+				return "Kubernetes", nil
+			},
+		},
+		{
+			Name: "ISTIO_META_INTERCEPTION_MODE",
+			Value: func(data *SidecarData) (string, error) {
+				if mode := data.Workload.Annotations[annotation.SidecarInterceptionMode.Name]; mode != "" {
+					return mode, nil
+				}
+				return "NONE", nil // ignore data.ProxyConfig.GetInterceptionMode()
+			},
+		},
+		{
+			Name: "ISTIO_META_NETWORK",
+			Value: func(data *SidecarData) (string, error) {
+				if value := data.Workload.Spec.GetNetwork(); value != "" {
+					return value, nil
+				}
+				return data.IstioConfigValues.GetGlobal().GetNetwork(), nil
+			},
+		},
+		{
+			// Workload labels
+			Name: "ISTIO_METAJSON_LABELS",
+			Value: func(data *SidecarData) (string, error) {
+				if len(data.Workload.Labels)+len(data.Workload.Spec.Labels) == 0 {
+					return "", nil
+				}
+				labels := make(map[string]string)
+				for name, value := range data.Workload.Labels {
+					labels[name] = value
+				}
+				for name, value := range data.Workload.Spec.Labels {
+					labels[name] = value
+				}
+				value, err := json.Marshal(labels)
+				if err != nil {
+					return "", err
+				}
+				return string(value), nil
+			},
+		},
+		{
+			// Istio-related annotations of the Workload.
+			Name: "ISTIO_METAJSON_ISTIO_ANNOTATIONS",
+			Value: func(data *SidecarData) (string, error) {
+				annotations := make(map[string]string)
+				for name, value := range data.Workload.Annotations {
+					if strings.Contains(name, "istio.io/") && !strings.Contains(name, "istioctl.istio.io/") {
+						annotations[name] = value
+					}
+				}
+				if len(annotations) == 0 {
+					return "", nil
+				}
+				value, err := json.Marshal(annotations)
+				if err != nil {
+					return "", err
+				}
+				return string(value), nil
+			},
+		},
+		{
+			Name: "ISTIO_META_WORKLOAD_NAME",
+			Value: func(data *SidecarData) (string, error) {
+				return getAppOrServiceAccount(data.Workload), nil
+			},
+		},
+		{
+			Name: "ISTIO_META_OWNER",
+			Value: func(data *SidecarData) (string, error) {
+				return fmt.Sprintf("kubernetes://apis/networking.istio.io/v1alpha3/namespaces/%s/workloadentries/%s", data.Workload.Namespace, data.Workload.Name), nil
+			},
+		},
+		{
+			Name: "ISTIO_META_MESH_ID",
+			Value: func(data *SidecarData) (string, error) {
+				if value := data.IstioConfigValues.GetGlobal().GetMeshID(); value != "" {
+					return value, nil
+				}
+				return data.IstioConfigValues.GetGlobal().GetTrustDomain(), nil
+			},
+		},
 	}
 )
 
@@ -301,7 +319,7 @@ func (d *SidecarData) ForWorkload(workload *networkingCrd.WorkloadEntry) (*Sidec
 	return d, nil
 }
 
-func replaceClusterLocalAddresses(proxyConfig *meshconfig.ProxyConfig, workloadNamespace string, externalDnsName string) {
+func replaceClusterLocalAddresses(proxyConfig *meshconfig.ProxyConfig, workloadNamespace string, externalDNSName string) {
 	replace := func(address string, addressSetter func(string), tlsSettings *networking.ClientTLSSettings) {
 		if address == "" {
 			return
@@ -316,9 +334,9 @@ func replaceClusterLocalAddresses(proxyConfig *meshconfig.ProxyConfig, workloadN
 		if !isClusterLocal(host) {
 			return // skip non- cluster local address
 		}
-		externalAddress := externalDnsName
+		externalAddress := externalDNSName
 		if port != "" {
-			externalAddress = net.JoinHostPort(externalDnsName, port)
+			externalAddress = net.JoinHostPort(externalDNSName, port)
 		}
 		addressSetter(externalAddress)
 		if tlsSettings != nil && tlsSettings.GetMode() != networking.ClientTLSSettings_DISABLE {
@@ -327,7 +345,7 @@ func replaceClusterLocalAddresses(proxyConfig *meshconfig.ProxyConfig, workloadN
 			if tlsSettings.GetSni() == "" {
 				tlsSettings.Sni = shortHost
 			}
-			for _, extraName := range []string {canonicalHost, shortHost} {
+			for _, extraName := range []string{canonicalHost, shortHost} {
 				registered := false
 				for _, knownName := range tlsSettings.GetSubjectAltNames() {
 					if extraName == knownName {
@@ -390,9 +408,9 @@ func replaceClusterLocalAddresses(proxyConfig *meshconfig.ProxyConfig, workloadN
 		proxyConfig.GetEnvoyMetricsService().GetTlsSettings(),
 	)
 
-	// deprecated
+	// nolint: staticcheck
 	replace(
-		proxyConfig.GetZipkinAddress(),
+		proxyConfig.GetZipkinAddress(), // deprecated
 		func(value string) {
 			proxyConfig.ZipkinAddress = value
 		},
@@ -413,13 +431,13 @@ func (d *SidecarData) GetSecretsDir() string {
 }
 
 func (d *SidecarData) GetEnv() ([]string, error) {
-	vars := make([]string, 0, len(d.ProxyConfig.GetProxyMetadata())+len(SIDECAR_ENV))
+	vars := make([]string, 0, len(d.ProxyConfig.GetProxyMetadata())+len(envVars))
 	// lower priority
 	for name, value := range d.ProxyConfig.GetProxyMetadata() {
 		vars = append(vars, fmt.Sprintf("%s=%s", name, value))
 	}
 	// higher priority
-	for _, envar := range SIDECAR_ENV {
+	for _, envar := range envVars {
 		value, err := envar.Value(d)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate value of the environment variable %q: %w", envar.Name, err)
@@ -483,7 +501,7 @@ func (d *SidecarData) GetIstioProxyHosts() []string {
 		d.ProxyConfig.GetEnvoyAccessLogService().GetTlsSettings().GetSni(),
 		d.ProxyConfig.GetEnvoyMetricsService().GetAddress(),
 		d.ProxyConfig.GetEnvoyMetricsService().GetTlsSettings().GetSni(),
-		d.ProxyConfig.GetZipkinAddress(), // deprecated
+		d.ProxyConfig.GetZipkinAddress(), // nolint: staticcheck
 		d.IstioConfigValues.GetGlobal().GetRemotePolicyAddress(),
 		d.IstioConfigValues.GetGlobal().GetRemotePilotAddress(),
 		d.IstioConfigValues.GetGlobal().GetRemoteTelemetryAddress(),

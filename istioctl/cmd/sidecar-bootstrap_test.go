@@ -40,13 +40,11 @@ import (
 )
 
 type vmBootstrapTestcase struct {
-	address           string
 	args              []string
 	cannedIstioConfig []clientnetworking.WorkloadEntry
 	cannedK8sConfig   []runtime.Object
 	expectedString    string
 	shouldFail        bool
-	tempDir           string
 }
 
 var (
@@ -95,7 +93,7 @@ aFKltOc+RAjzDklcUPeG4Y6eMA==
 	fullK8sConfig = []runtime.Object{
 		&corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "istio-system",
+				Name: "istio-system",
 			},
 		},
 		&corev1.ConfigMap{
@@ -113,7 +111,7 @@ aFKltOc+RAjzDklcUPeG4Y6eMA==
 				Namespace: "istio-system",
 			},
 			Data: map[string]string{
-				"mesh": "",
+				"mesh":         "",
 				"meshNetworks": "networks: {}",
 			},
 		},
@@ -132,9 +130,9 @@ aFKltOc+RAjzDklcUPeG4Y6eMA==
 				Namespace: "istio-system",
 			},
 			Type: "kubernetes.io/service-account-token",
-			Data: map[string][]byte {
+			Data: map[string][]byte{
 				"ca.crt": []byte(base64.StdEncoding.EncodeToString([]byte(
-`-----BEGIN CERTIFICATE-----
+					`-----BEGIN CERTIFICATE-----
 MIICyDCCAbCgAwIBAgIBADANBgkqhkiG9w0BAQsFADAVMRMwEQYDVQQDEwprdWJl
 cm5ldGVzMB4XDTIwMTAyMjE1NTM1MVoXDTMwMTAyMDE1NTM1MVowFTETMBEGA1UE
 AxMKa3ViZXJuZXRlczCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALHj
@@ -180,53 +178,43 @@ func TestVmBootstrap(t *testing.T) {
 	cases := []vmBootstrapTestcase{
 		// No all flag, or no workload entry.
 		{
-			address:           "127.0.0.1",
 			args:              strings.Split("x sidecar-bootstrap", " "),
 			cannedIstioConfig: emptyIstioConfig,
 			cannedK8sConfig:   emptyK8sConfig,
 			expectedString:    "sidecar-bootstrap requires either a WorkloadEntry or the --all flag",
 			shouldFail:        true,
-			tempDir:           "",
 		},
 		// Workload Entry + all flag
 		{
-			address:           "127.0.0.1",
 			args:              strings.Split("x sidecar-bootstrap --all workload.NS", " "),
 			cannedIstioConfig: emptyIstioConfig,
 			cannedK8sConfig:   emptyK8sConfig,
 			expectedString:    "sidecar-bootstrap requires either a WorkloadEntry or the --all flag but not both",
 			shouldFail:        true,
-			tempDir:           "",
 		},
 		// all flag + no namespace
 		{
-			address:           "127.0.0.1",
 			args:              strings.Split("x sidecar-bootstrap --all", " "),
 			cannedIstioConfig: emptyIstioConfig,
 			cannedK8sConfig:   emptyK8sConfig,
 			expectedString:    "sidecar-bootstrap needs a namespace if fetching all WorkloadEntry(s)",
 			shouldFail:        true,
-			tempDir:           "",
 		},
 		// unknown workload entry, okay to have fake dumpDir here.
 		{
-			address:           "127.0.0.1",
 			args:              strings.Split("x sidecar-bootstrap workload.fakeNS --local-dir /tmp/", " "),
 			cannedIstioConfig: istioStaticWorkspace,
 			cannedK8sConfig:   emptyK8sConfig,
 			expectedString:    `unable to find WorkloadEntry(s): WorkloadEntry "/namespaces/fakeNS/workloadentries/workload" was not found`,
 			shouldFail:        true,
-			tempDir:           "",
 		},
 		// known workload entry, known secret
 		{
-			address:           "127.0.0.1",
 			args:              strings.Split("x sidecar-bootstrap workload.NS --local-dir "+path.Join(baseTempdir, "derived_output"), " "),
 			cannedIstioConfig: istioStaticWorkspace,
 			cannedK8sConfig:   fullK8sConfig,
 			expectedString:    "",
 			shouldFail:        false,
-			tempDir:           path.Join(baseTempdir, "derived_output"),
 		},
 	}
 
@@ -254,7 +242,7 @@ func verifyVMCommandCaseOutput(t *testing.T, c vmBootstrapTestcase) {
 				if action.GetSubresource() == "token" {
 					createAction := action.(kubeTesting.CreateAction)
 					tokenRequest := createAction.GetObject().(*authenticationv1.TokenRequest)
-					tokenRequest.Status.Token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+					tokenRequest.Status.Token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c" // nolint: lll
 					tokenRequest.Status.ExpirationTimestamp = metav1.Date(2020, time.October, 16, 19, 50, 37, 123, time.UTC)
 					return true, tokenRequest, nil
 				}

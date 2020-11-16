@@ -35,6 +35,7 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 
 	"github.com/gogo/protobuf/jsonpb"
+
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	istioclient "istio.io/client-go/pkg/clientset/versioned"
@@ -66,8 +67,8 @@ var (
 	all               bool
 	tokenDuration     time.Duration
 	outputDir         string
-	defaultSshPort    int
-	defaultSshUser    string
+	defaultSSHPort    int
+	defaultSSHUser    string
 	sshConnectTimeout time.Duration
 	sshAuthMethod     ssh.AuthMethod
 	sshKeyLocation    string
@@ -87,15 +88,14 @@ type workloadIdentity struct {
 }
 
 var (
-	sshClientFactory = newSshClient
+	sshClientFactory = newSSHClient
 )
 
-func newSshClient(stdout, stderr io.Writer) bootstrapSsh.Client {
+func newSSHClient(stdout, stderr io.Writer) bootstrapSsh.Client {
 	if dryRun {
 		return bootstrapSshFake.NewClient(stdout, stderr)
-	} else {
-		return bootstrapSsh.NewClient(stdout, stderr)
 	}
+	return bootstrapSsh.NewClient(stdout, stderr)
 }
 
 func getConfigValuesFromConfigMap(kubeconfig string) (*istioconfig.Values, error) {
@@ -122,7 +122,8 @@ func getExpansionProxyConfig(kubeClient kubernetes.Interface, namespace string) 
 	}
 	cm, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.Background(), configMapName, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("failed to read ConfigMap /namespaces/%s/configmaps/%s refered to from the %q annotation on the Namespace %q: %w", namespace, configMapName, bootstrapAnnotation.MeshExpansionConfigMapName, namespace, err)
+		return "", fmt.Errorf("failed to read ConfigMap /namespaces/%s/configmaps/%s referred to from the %q annotation on the Namespace "+
+			"%q: %w", namespace, configMapName, bootstrapAnnotation.MeshExpansionConfigMapName, namespace, err)
 	}
 	value := cm.Data["PROXY_CONFIG"]
 	if value == "" {
@@ -130,7 +131,8 @@ func getExpansionProxyConfig(kubeClient kubernetes.Interface, namespace string) 
 	}
 	proxyConfig := new(meshconfig.ProxyConfig)
 	if err := gogoprotomarshal.ApplyYAML(value, proxyConfig); err != nil {
-		return "", fmt.Errorf("failed to unmarshal ProxyConfig from the ConfigMap /namespaces/%s/configmaps/%s refered to from the %q annotation on the Namespace %q : %w", cm.Namespace, cm.Name, bootstrapAnnotation.MeshExpansionConfigMapName, namespace, err)
+		return "", fmt.Errorf("failed to unmarshal ProxyConfig from the ConfigMap /namespaces/%s/configmaps/%s referred to from the %q "+
+			"annotation on the Namespace %q : %w", cm.Namespace, cm.Name, bootstrapAnnotation.MeshExpansionConfigMapName, namespace, err)
 	}
 	return value, nil
 }
@@ -143,7 +145,7 @@ func fetchSingleWorkloadEntry(client istioclient.Interface, workloadName string)
 
 	we, err := client.NetworkingV1alpha3().WorkloadEntries(workloadSplit[1]).Get(context.Background(), workloadSplit[0], metav1.GetOptions{})
 	if we == nil || err != nil {
-		return nil, "", fmt.Errorf("WorkloadEntry \"/namespaces/%s/workloadentries/%s\" was not found", workloadSplit[1], workloadSplit[0])
+		return nil, "", fmt.Errorf("failed to find WorkloadEntry \"/namespaces/%s/workloadentries/%s\": %w", workloadSplit[1], workloadSplit[0], err)
 	}
 
 	return []networking.WorkloadEntry{*we}, workloadSplit[1], nil
@@ -161,11 +163,12 @@ func getK8sCaCertFromConfigMap(kubeClient kubernetes.Interface, namespace string
 	}
 	configMapName := ns.Annotations[bootstrapAnnotation.K8sCaRootCertConfigMapName]
 	if configMapName == "" {
-		return nil, fmt.Errorf("Namespace %q has no a config map that would hold the root cert of a k8s CA", namespace)
+		return nil, fmt.Errorf("k8s Namespace %q has no a config map that would hold the root cert of a k8s CA", namespace)
 	}
 	cm, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.Background(), configMapName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read ConfigMap /namespaces/%s/configmaps/%s refered to from the %q annotation on the Namespace %q: %w", namespace, configMapName, bootstrapAnnotation.MeshExpansionConfigMapName, namespace, err)
+		return nil, fmt.Errorf("failed to read ConfigMap /namespaces/%s/configmaps/%s referred to from the %q annotation on the "+
+			"Namespace %q: %w", namespace, configMapName, bootstrapAnnotation.MeshExpansionConfigMapName, namespace, err)
 	}
 	value := cm.Data["ca.crt"] // well-known k8s constant
 	if value == "" {
@@ -194,8 +197,8 @@ func getK8sCaCertFromServiceAccountTokenSecret(kubeClient kubernetes.Interface, 
 		}
 		return value, nil
 	}
-	return nil, fmt.Errorf("unable to find a Secret with the root cert of a k8s CA among ServiceAccountToken Secrets of the ServiceAccount /namespaces/%s/serviceaccounts/%s" +
-		sa.Namespace, sa.Name)
+	return nil, fmt.Errorf("unable to find a Secret with the root cert of a k8s CA among ServiceAccountToken Secrets of the "+
+		"ServiceAccount /namespaces/%s/serviceaccounts/%s", sa.Namespace, sa.Name)
 }
 
 func getK8sCaCert(kubeClient kubernetes.Interface, namespace, istioNamespace string) ([]byte, error) {
@@ -222,9 +225,9 @@ func getK8sCaCert(kubeClient kubernetes.Interface, namespace, istioNamespace str
 		}
 		return value, nil
 	}
-	return nil, fmt.Errorf("all supported strategies to find a k8s CA have failed.\n" +
-		"To overcome this, either grant the user permissions to read k8s Secrets in one of the Namespaces %v,\n" +
-		"or create a ConfigMap with the root cert of a k8s CA in the %q Namespace and use %q annotation to give this command a hint where to find such a ConfigMap.",
+	return nil, fmt.Errorf("all supported strategies to find a k8s CA have failed.\n"+
+		"To overcome this, either grant the user permissions to read k8s Secrets in one of the Namespaces %v,\n"+
+		"or create a ConfigMap with the root cert of a k8s CA in the %q Namespace and use %q annotation to give this command a hint where to find such a ConfigMap",
 		[]string{istioNamespace, namespace, "kube-public"}, istioNamespace, bootstrapAnnotation.K8sCaRootCertConfigMapName)
 }
 
@@ -262,7 +265,8 @@ func verifyMeshExpansionPorts(svc *corev1.Service) error {
 	}
 	for _, expected := range meshExpansionPorts {
 		if actual, present := ports[expected.name]; !present || actual != expected.port {
-			return fmt.Errorf("mesh expansion is not possible because Istio Ingress Gateway Service /namespaces/%s/services/%s is missing a port '%s (%d)'", svc.Namespace, svc.Name, expected.name, expected.port)
+			return fmt.Errorf("mesh expansion is not possible because Istio Ingress Gateway Service /namespaces/%s/services/%s "+
+				"is missing a port '%s (%d)'", svc.Namespace, svc.Name, expected.name, expected.port)
 		}
 	}
 	return nil
@@ -270,7 +274,7 @@ func verifyMeshExpansionPorts(svc *corev1.Service) error {
 
 func getIstioIngressGatewayAddress(svc *corev1.Service) (string, error) {
 	if len(svc.Status.LoadBalancer.Ingress) == 0 {
-		return "", fmt.Errorf("Service /namespaces/%s/services/%s has no ingress points", svc.Namespace, svc.Name)
+		return "", fmt.Errorf("k8s Service /namespaces/%s/services/%s has no ingress points", svc.Namespace, svc.Name)
 	}
 	// prefer ingress point with IP
 	for _, endpoint := range svc.Status.LoadBalancer.Ingress {
@@ -284,13 +288,12 @@ func getIstioIngressGatewayAddress(svc *corev1.Service) (string, error) {
 			return value, nil
 		}
 	}
-	return "", fmt.Errorf("Service /namespaces/%s/services/%s has no valid ingress points", svc.Namespace, svc.Name)
+	return "", fmt.Errorf("k8s Service /namespaces/%s/services/%s has no valid ingress points", svc.Namespace, svc.Name)
 }
 
 func getIdentityForEachWorkload(
 	kubeClient kubernetes.Interface,
-	workloadEntries []networking.WorkloadEntry,
-	namespace string) (map[string]workloadIdentity, error) {
+	workloadEntries []networking.WorkloadEntry) (map[string]workloadIdentity, error) {
 	seenServiceAccounts := make(map[string]workloadIdentity)
 
 	for _, entryCfg := range workloadEntries {
@@ -299,7 +302,8 @@ func getIdentityForEachWorkload(
 			continue // only generate one token per ServiceAccount
 		}
 		if wle.ServiceAccount == "" {
-			return nil, fmt.Errorf("cannot generate a ServiceAccount token for a WorkloadEntry \"/namespaces/%s/workloadentries/%s\" because ServiceAccount field is empty", entryCfg.Namespace, entryCfg.Name)
+			return nil, fmt.Errorf("cannot generate a ServiceAccount token for a WorkloadEntry \"/namespaces/%s/workloadentries/%s\" "+
+				"because ServiceAccount field is empty", entryCfg.Namespace, entryCfg.Name)
 		}
 
 		expirationSeconds := int64(tokenDuration / time.Second)
@@ -312,7 +316,8 @@ func getIdentityForEachWorkload(
 			}, metav1.CreateOptions{})
 
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate a ServiceAccount token for a WorkloadEntry /namespaces/%s/workloadentries/%s: %w", entryCfg.Namespace, entryCfg.Name, err)
+			return nil, fmt.Errorf("failed to generate a ServiceAccount token for a WorkloadEntry /namespaces/%s/workloadentries/%s: %w",
+				entryCfg.Namespace, entryCfg.Name, err)
 		}
 
 		seenServiceAccounts[wle.ServiceAccount] = workloadIdentity{
@@ -322,7 +327,7 @@ func getIdentityForEachWorkload(
 	return seenServiceAccounts, nil
 }
 
-func processWorkloads(kubeClient kubernetes.Interface,
+func processWorkloads(
 	workloads []networking.WorkloadEntry,
 	workloadIdentityMapping map[string]workloadIdentity,
 	templateData *SidecarData,
@@ -396,15 +401,15 @@ func dumpBootstrapBundle(outputDir string, bundle BootstrapBundle) error {
 
 func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) error {
 	host := bundle.Workload.Spec.Address
-	if value := bundle.Workload.Annotations[bootstrapAnnotation.SshHost]; value != "" {
+	if value := bundle.Workload.Annotations[bootstrapAnnotation.SSHHost]; value != "" {
 		host = value
 	}
-	port := strconv.Itoa(defaultSshPort)
-	if value := bundle.Workload.Annotations[bootstrapAnnotation.SshPort]; value != "" {
+	port := strconv.Itoa(defaultSSHPort)
+	if value := bundle.Workload.Annotations[bootstrapAnnotation.SSHPort]; value != "" {
 		port = value
 	}
-	username := defaultSshUser
-	if value := bundle.Workload.Annotations[bootstrapAnnotation.SshUser]; value != "" {
+	username := defaultSSHUser
+	if value := bundle.Workload.Annotations[bootstrapAnnotation.SSHUser]; value != "" {
 		username = value
 	}
 	address := net.JoinHostPort(host, port)
@@ -469,11 +474,14 @@ func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) err
 		"--network",
 		"host", // you need to deal with Sidecar CR if you want it to be "non-captured" mode
 		"-v",
-		remoteIstioCaPath + ":" + "/var/run/secrets/istio/root-cert.pem", // "./var/run/secrets/istio/root-cert.pem" is a hardcoded value in `istio-agent` that corresponds to `PILOT_CERT_PROVIDER == istiod`
+		// "./var/run/secrets/istio/root-cert.pem" is a hardcoded value in `istio-agent` that corresponds to `PILOT_CERT_PROVIDER == istiod`
+		remoteIstioCaPath + ":" + "/var/run/secrets/istio/root-cert.pem",
 		"-v",
-		remoteIstioTokenPath + ":" + "/var/run/secrets/tokens/istio-token", // "./var/run/secrets/tokens/istio-token" is a hardcoded value in `istio-agent` that corresponds to `JWT_POLICY == third-party-jwt`
+		// "./var/run/secrets/tokens/istio-token" is a hardcoded value in `istio-agent` that corresponds to `JWT_POLICY == third-party-jwt`
+		remoteIstioTokenPath + ":" + "/var/run/secrets/tokens/istio-token",
 		"-v",
-		remoteK8sCaPath + ":" + "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt", // "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" is a well-known k8s path heavily abused in k8s world
+		// "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" is a well-known k8s path heavily abused in k8s world
+		remoteK8sCaPath + ":" + "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
 		"--env-file",
 		remoteEnvPath,
 	}
@@ -600,12 +608,12 @@ Istio will be started on the host network as a docker container in capture mode.
 			if all && namespace == "" {
 				return fmt.Errorf("sidecar-bootstrap needs a namespace if fetching all WorkloadEntry(s)")
 			}
-			if defaultSshUser == "" {
+			if defaultSSHUser == "" {
 				user, err := user.Current()
 				if err != nil {
 					return fmt.Errorf("failed to determine current user: %w", err)
 				}
-				defaultSshUser = user.Username
+				defaultSSHUser = user.Username
 			}
 			if outputDir == "" && !dryRun {
 				err := deriveSSHMethod(cmd.InOrStdin())
@@ -632,7 +640,7 @@ Istio will be started on the host network as a docker container in capture mode.
 				}
 
 				sshConfig = ssh.ClientConfig{
-					User:            defaultSshUser,
+					User:            defaultSSHUser,
 					Auth:            []ssh.AuthMethod{sshAuthMethod},
 					HostKeyCallback: callback,
 					Timeout:         sshConnectTimeout,
@@ -705,7 +713,7 @@ Istio will be started on the host network as a docker container in capture mode.
 			}
 
 			if err := verifyMeshExpansionPorts(ingressSvc); err != nil {
-				return fmt.Errorf("Istio Ingress Gateway is not configured for mesh expansion: %w", err)
+				return fmt.Errorf("unable to proceed because Istio Ingress Gateway is not configured for mesh expansion: %w", err)
 			}
 
 			istioGatewayAddress, err := getIstioIngressGatewayAddress(ingressSvc)
@@ -713,7 +721,7 @@ Istio will be started on the host network as a docker container in capture mode.
 				return fmt.Errorf("unable to find address of the Istio Ingress Gateway: %w", err)
 			}
 
-			identities, err := getIdentityForEachWorkload(kubeClient, entries, chosenNS)
+			identities, err := getIdentityForEachWorkload(kubeClient, entries)
 			if err != nil {
 				return fmt.Errorf("failed to generate security token(s) for WorkloadEntry(s): %w", err)
 			}
@@ -744,7 +752,7 @@ Istio will be started on the host network as a docker container in capture mode.
 				IstioIngressGatewayAddress: istioGatewayAddress,
 				ExpansionProxyConfig:       expansionProxyConfig,
 			}
-			return processWorkloads(kubeClient, entries, identities, data, action)
+			return processWorkloads(entries, identities, data, action)
 		},
 	}
 
@@ -760,10 +768,12 @@ Istio will be started on the host network as a docker container in capture mode.
 		"(experimental) ignore host keys on the remote host")
 	vmBSCommand.PersistentFlags().StringVarP(&sshKeyLocation, "ssh-key", "k", "",
 		"(experimental) the location of the SSH key")
-	vmBSCommand.PersistentFlags().IntVar(&defaultSshPort, "ssh-port", 22,
-		fmt.Sprintf("(experimental) default port to SSH to (is only effective unless the '%s' annotation is present on a WorkloadEntry)", bootstrapAnnotation.SshPort))
-	vmBSCommand.PersistentFlags().StringVarP(&defaultSshUser, "ssh-user", "u", "",
-		fmt.Sprintf("(experimental) default user to SSH as, defaults to the current user (is only effective unless the '%s' annotation is present on a WorkloadEntry)", bootstrapAnnotation.SshUser))
+	vmBSCommand.PersistentFlags().IntVar(&defaultSSHPort, "ssh-port", 22,
+		fmt.Sprintf("(experimental) default port to SSH to (is only effective unless the '%s' annotation is present "+
+			"on a WorkloadEntry)", bootstrapAnnotation.SSHPort))
+	vmBSCommand.PersistentFlags().StringVarP(&defaultSSHUser, "ssh-user", "u", "",
+		fmt.Sprintf("(experimental) default user to SSH as, defaults to the current user (is only effective unless "+
+			"the '%s' annotation is present on a WorkloadEntry)", bootstrapAnnotation.SSHUser))
 	vmBSCommand.PersistentFlags().DurationVar(&sshConnectTimeout, "ssh-connect-timeout", 10*time.Second,
 		"(experimental) the maximum amount of time to establish SSH connection")
 	vmBSCommand.PersistentFlags().BoolVar(&startIstioProxy, "start-istio-proxy", false,
