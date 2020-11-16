@@ -121,7 +121,7 @@ var (
 
 	caProviderEnv = env.RegisterStringVar("CA_PROVIDER", "Citadel", "name of authentication provider").Get()
 	// TODO: default to same as discovery address
-	caEndpointEnv = env.RegisterStringVar("CA_ADDR", "", "Address of the spiffee certificate provider. Defaults to discoveryAddress").Get()
+	caEndpointEnv    = env.RegisterStringVar("CA_ADDR", "", "Address of the spiffee certificate provider. Defaults to discoveryAddress").Get()
 	caEndpointSniEnv = env.RegisterStringVar("CA_SNI", "",
 		"SNI value to use in connections to the CA endpoint.").Get()
 
