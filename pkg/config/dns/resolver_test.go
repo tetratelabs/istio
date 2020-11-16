@@ -133,7 +133,7 @@ func Test_Resolver_Updates(t *testing.T) {
 	actual = resolver.LookupIP("x.y.elb.amazonaws.com")
 	g.Expect(actual).To(BeNil())
 
-	responsesCh<-FakeResponse{
+	responsesCh <- FakeResponse{
 		addresses: []net.IP{net.ParseIP("1.2.3.4"), net.ParseIP("5.6.7.8")},
 	}
 
@@ -141,7 +141,7 @@ func Test_Resolver_Updates(t *testing.T) {
 		return resolver.LookupIP("x.y.elb.amazonaws.com")
 	}).Should(ConsistOf("1.2.3.4", "5.6.7.8"))
 
-	responsesCh<-FakeResponse{
+	responsesCh <- FakeResponse{
 		addresses: []net.IP{net.ParseIP("9.0.1.2")},
 	}
 
@@ -159,7 +159,6 @@ func (f ClientFuncs) LookupIP(name string) (addresses []net.IP, ttl time.Duratio
 }
 
 type FakeResponse struct {
-	dnsName   string
 	addresses []net.IP
 	ttl       time.Duration
 	err       error

@@ -19,8 +19,8 @@ import (
 	"istio.io/pkg/log"
 )
 
-// initDnsResolver initializes DNS resolver.
-func (s *Server) initDnsResolver() {
+// initDNSResolver initializes DNS resolver.
+func (s *Server) initDNSResolver() {
 	log.Info("initializing DNS resolver")
 
 	if s.environment.Resolver == nil {

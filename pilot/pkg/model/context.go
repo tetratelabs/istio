@@ -127,7 +127,7 @@ func (e *Environment) AddNetworksHandler(h func()) {
 	}
 }
 
-func (e *Environment) AddDnsUpdateHandler(h dns.UpdateHandler) {
+func (e *Environment) AddDNSUpdateHandler(h dns.UpdateHandler) {
 	if e != nil && e.Resolver != nil {
 		e.Resolver.AddUpdateHandler(h)
 	}

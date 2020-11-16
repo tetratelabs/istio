@@ -127,7 +127,7 @@ func (fx *FakeXdsUpdater) Clear() {
 type FakeControllerOptions struct {
 	Client            kubelib.Client
 	NetworksWatcher   mesh.NetworksWatcher
-	DnsResolver       dns.Resolver
+	DNSResolver       dns.Resolver
 	ServiceHandler    func(service *model.Service, event model.Event)
 	InstanceHandler   func(instance *model.ServiceInstance, event model.Event)
 	Mode              EndpointMode
@@ -161,7 +161,7 @@ func NewFakeControllerWithOptions(opts FakeControllerOptions) (*FakeController, 
 		XDSUpdater:        xdsUpdater,
 		Metrics:           &model.Environment{},
 		NetworksWatcher:   opts.NetworksWatcher,
-		DnsResolver:       opts.DnsResolver,
+		DNSResolver:       opts.DNSResolver,
 		EndpointMode:      opts.Mode,
 		ClusterID:         opts.ClusterID,
 	}
