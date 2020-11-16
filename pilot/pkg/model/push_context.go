@@ -1665,7 +1665,7 @@ func asGateways(ips []string, port uint32) []*Gateway {
 }
 
 func getGatewayAddresses(gw *meshconfig.Network_IstioNetworkGateway, registryNames []string,
-	discovery ServiceDiscovery, dnsResolver dns.Resolver) (gateways []*Gateway) {
+	discovery ServiceDiscovery, dnsResolver dns.Lookup) (gateways []*Gateway) {
 	// First, if a gateway address is provided in the configuration use it. If the gateway address
 	// in the config was a hostname it got already resolved and replaced with an IP address
 	// when loading the config
@@ -1675,9 +1675,14 @@ func getGatewayAddresses(gw *meshconfig.Network_IstioNetworkGateway, registryNam
 	}
 
 	if gw.GetAddress() != "" {
-		gwIPs := dnsResolver.LookupIP(gw.GetAddress())
+		gwIPs := dns.LookupOrNoop(dnsResolver).LookupIP(gw.GetAddress())
 		log.Debugf("Network gateway is defined using a DNS name %q which resolves into IPs %v", gw.GetAddress(), gwIPs)
-		gateways = append(gateways, asGateways(gwIPs, gw.Port)...)
+		if len(gwIPs) > 0 {
+			gateways = append(gateways, asGateways(gwIPs, gw.Port)...)
+		} else {
+			// add DNS name as is and let it be filtered out in EndpointsByNetworkFilter(...)
+			gateways = append(gateways, &Gateway{gw.GetAddress(), gw.Port})
+		}
 	}
 
 	// Second, try to find the gateway addresses by the provided service name
@@ -1709,10 +1714,15 @@ func getGatewayAddresses(gw *meshconfig.Network_IstioNetworkGateway, registryNam
 							gwSvcName, clusterName, address)
 						gateways = append(gateways, &Gateway{address, remotePort})
 					} else {
-						gwIPs := dnsResolver.LookupIP(address)
+						gwIPs := dns.LookupOrNoop(dnsResolver).LookupIP(address)
 						log.Debugf("Network gateway is defined via a service %q which on cluster %q has an external DNS name %q that "+
 							"resolves into IPs %v", gwSvcName, clusterName, address, gwIPs)
-						gateways = append(gateways, asGateways(gwIPs, remotePort)...)
+						if len(gwIPs) > 0 {
+							gateways = append(gateways, asGateways(gwIPs, remotePort)...)
+						} else {
+							// add DNS name as is and let it be filtered out in EndpointsByNetworkFilter(...)
+							gateways = append(gateways, &Gateway{address, remotePort})
+						}
 					}
 				}
 			}

@@ -30,12 +30,16 @@ type RefererSet map[Referer]bool
 
 type UpdateHandler func(dnsName string)
 
+type Lookup interface {
+	LookupIP(dnsName string) []string
+}
+
 type Resolver interface {
+	Lookup
+
 	Watch(referer Referer, dnsNames []string)
 
 	Cancel(referer Referer)
-
-	LookupIP(dnsName string) []string
 
 	AddUpdateHandler(UpdateHandler)
 }
@@ -73,4 +77,19 @@ func (s RefererSet) AddAll(referers ...Referer) RefererSet {
 func (s RefererSet) Remove(referer Referer) RefererSet {
 	delete(s, referer)
 	return s
+}
+
+type noopLookup struct{}
+
+func (l noopLookup) LookupIP(dnsName string) []string {
+	return nil
+}
+
+var noLookup noopLookup
+
+func LookupOrNoop(lookup Lookup) Lookup {
+	if lookup != nil {
+		return lookup
+	}
+	return noLookup
 }
