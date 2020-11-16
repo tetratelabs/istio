@@ -14,16 +14,16 @@ If you don't want to go through setting up a VM for testing a particular envoy p
 it is possible to allow the same infrastructure that builds our nightly getenvoy packages to build
 a istio binary for you. To accomplish this you'll need a couple things:
 
-  1. A GCP account capable of running builds in the `getenvoy-package` project.
-     (To check if you do run: `gcloud builds list --project getenvoy-package`)
-     (If you don't have permission file a ticket for infosec).
-  2. A public envoy commit that has made it's way into `envoy-wasm`, or
-     a `envoy-wasm` fork that is public.
-     (If you have just merged a patch into `envoyproxy/envoy`, it will be
-      mirrored over to `envoyproxy/envoy-wasm` soon. You could also just
-      test your patch on your own fork of: `envoyproxy/envoy-wasm`.)
-     (If you need to test a private patch such as a security release, please
-      get in contact with the #eng-getenvoy channel in slack).
+1. A GCP account capable of running builds in the `getenvoy-package` project.
+   (To check if you do run: `gcloud builds list --project getenvoy-package`)
+   (If you don't have permission file a ticket for infosec).
+1. A public envoy commit that has made it's way into `envoy-wasm`, or
+   a `envoy-wasm` fork that is public.
+   (If you have just merged a patch into `envoyproxy/envoy`, it will be
+    mirrored over to `envoyproxy/envoy-wasm` soon. You could also just
+    test your patch on your own fork of: `envoyproxy/envoy-wasm`.)
+   (If you need to test a private patch such as a security release, please
+    get in contact with the #eng-getenvoy channel in slack).
 
 If you have these two things, congratulations you're ready to go.
 
@@ -37,7 +37,7 @@ If you have these two things, congratulations you're ready to go.
    (NOTE: if you're targeting a fork of `https://github.com/istio/proxy`,
     save the fork git url: `export ISTIO_PROXY_URL="<my git url>"`.)
 
-2. Identify the Envoy Commit, and Envoy Git Repo you want to use. Remember it
+1. Identify the Envoy Commit, and Envoy Git Repo you want to use. Remember it
    is required the envoy git url be based off of `envoyproxy/envoy-wasm`.
    You can either wait for `envoyproxy/envoy-wasm` to mirror over your change, or
    fork `envoyproxy/envoy-wasm` and pick your change (if you made it to
@@ -47,23 +47,23 @@ If you have these two things, congratulations you're ready to go.
    `export ENVOY_GIT_URL="<my git url like https://github.com/envoyproxy/envoy-wasm>"`,
    and `export ENVOY_SHA="<my commit sha or tag>"`.
 
-3. Finally trigger a build of the envoy binary. To do this clone: `https://github.com/tetratelabs/getenvoy-ci`,
+1. Finally trigger a build of the envoy binary. To do this clone: `https://github.com/tetratelabs/getenvoy-ci`,
    and from the directory of `getenvoy-ci`, run:
 
-```shell
-gcloud builds submit \
-  --async \
-  --no-source \
-  --project getenvoy-package \
-  --config cloudbuild/package_istio_proxy.yaml \
-  --substitutions "_ENVOY_DIST=linux-glibc,_ENVOY_COMMIT=${ISTIO_PROXY_COMMIT},_ENVOY_REPO=${ISTIO_PROXY_URL:-"https://github.com/istio/proxy"},_OVERRIDE_ENVOY_REPO=${ENVOY_GIT_URL},_OVERRIDE_ENVOY_SHA=${ENVOY_SHA}"
-```
+   ```shell
+   gcloud builds submit \
+     --async \
+     --no-source \
+     --project getenvoy-package \
+     --config cloudbuild/package_istio_proxy.yaml \
+     --substitutions "_ENVOY_DIST=linux-glibc,_ENVOY_COMMIT=${ISTIO_PROXY_COMMIT},_ENVOY_REPO=${ISTIO_PROXY_URL:-"https://github.com/istio/proxy"},_OVERRIDE_ENVOY_REPO=${ENVOY_GIT_URL},_OVERRIDE_ENVOY_SHA=${ENVOY_SHA}"
+   ```
 
-  This will give you a URL to watch the build proceed (it should take around 20-30 minutes).
-  At the end of the job it will give you a URL for bintray where you can download the binary
-  for istio-proxy called "envoy" (and this will be shareable).
+   This will give you a URL to watch the build proceed (it should take around 20-30 minutes).
+   At the end of the job it will give you a URL for bintray where you can download the binary
+   for istio-proxy called "envoy" (and this will be shareable).
 
-4. Finally move the envoy binary into: `out/linux_amd64/release/envoy`, and run: `make docker.proxyv2`.
+1. Finally move the envoy binary into: `out/linux_amd64/release/envoy`, and run: `make docker.proxyv2`.
 
 ## Building an Envoy Binary Manually ##
 
@@ -76,17 +76,27 @@ Prepare ubuntu vm preferabbly on gcp as explained [here](https://github.com/tetr
 * On the ubuntu vm, `git clone https://github.com/istio/proxy` and `git clone https://github.com/envoyproxy/envoy-wasm`
 * Let say proxy and envoy-wasm are checked out at /home/vikas/
 * For remote build execution, add following in /home/vikas/proxy/.bazelrc:
-```
-build --remote_instance_name=projects/getenvoy-package/instances/default_instance
-build --config=remote-clang-libc++
-build --config=remote-ci
-build --jobs=80
-build --remote_download_outputs=all
-```
+
+  ```shell
+  build --remote_instance_name=projects/getenvoy-package/instances/default_instance
+  build --config=remote-clang-libc++
+  build --config=remote-ci
+  build --jobs=80
+  build --remote_download_outputs=all
+  ```
+
 * Make your changes in the /home/vikas/envoy-wasm
-* `export BAZEL_BUILD_ARGS="--override_repository=envoy=/home/vikas/envoy-wasm”`
-* `cd /home/vikas/proxy; make`
-* On local machine, `cd <istio-repo-path>`
-* `make init`
-* `scp -i <gcp-key> <ubuntu-vm-ip>:/home/vikas/proxy/bazel-bin/src/envoy/envoy        out/linux_amd64/release/envoy`
-* `make docker.proxyv2`
+
+  ```shell
+  export BAZEL_BUILD_ARGS="--override_repository=envoy=/home/vikas/envoy-wasm"
+  cd /home/vikas/proxy; make
+  ```
+
+* On local machine
+
+  ```shell
+  cd <istio-repo-path>
+  make init
+  scp -i <gcp-key> <ubuntu-vm-ip>:/home/vikas/proxy/bazel-bin/src/envoy/envoy out/linux_amd64/release/envoy
+  make docker.proxyv2
+  ```
