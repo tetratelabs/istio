@@ -145,7 +145,7 @@ func fetchSingleWorkloadEntry(client istioclient.Interface, workloadName string)
 
 	we, err := client.NetworkingV1alpha3().WorkloadEntries(workloadSplit[1]).Get(context.Background(), workloadSplit[0], metav1.GetOptions{})
 	if we == nil || err != nil {
-		return nil, "", fmt.Errorf("failed to find WorkloadEntry \"/namespaces/%s/workloadentries/%s\": %w", workloadSplit[1], workloadSplit[0], err)
+		return nil, "", fmt.Errorf("failed to read WorkloadEntry \"/namespaces/%s/workloadentries/%s\": %w", workloadSplit[1], workloadSplit[0], err)
 	}
 
 	return []networking.WorkloadEntry{*we}, workloadSplit[1], nil
