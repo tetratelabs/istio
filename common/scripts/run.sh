@@ -34,11 +34,18 @@ export TARGET_OUT=${CONTAINER_TARGET_OUT}
 export TARGET_OUT_LINUX=${CONTAINER_TARGET_OUT_LINUX}
 export REPO_ROOT=/work
 
+read -ra DOCKER_RUN_OPTIONS <<< "${DOCKER_RUN_OPTIONS:-}"
+
+[[ -t 1 ]] && DOCKER_RUN_OPTIONS+=("-it")
+
 # $CONTAINER_OPTIONS becomes an empty arg when quoted, so SC2086 is disabled for the
 # following command only
 # shellcheck disable=SC2086
-"${CONTAINER_CLI}" run --init -it --rm \
+"${CONTAINER_CLI}" run \
+    --rm \
+    "${DOCKER_RUN_OPTIONS[@]}" \
     -u "${UID}:${DOCKER_GID}" \
+    --init \
     --sig-proxy=true \
     ${DOCKER_SOCKET_MOUNT:--v /var/run/docker.sock:/var/run/docker.sock} \
     -v /etc/passwd:/etc/passwd:ro \
