@@ -88,14 +88,14 @@ git diff $( grep '^commit ' UPSTREAM-SHA | awk '{print $2}' ) HEAD >new.diff
 git push --set-upstream origin upstream-istio
 ```
 
-2. On commit, a new build will automatially be created in Cicrcle CI, however, paused at a manual approval step.
+1. On commit, a new build will automatially be created in Cicrcle CI, however, paused at a manual approval step.
 
-Go to https://app.circleci.com/pipelines/github/tetrateio/istio and approve the build to get all Istio containers
+Go to [CircleCI](https://app.circleci.com/pipelines/github/tetrateio/istio) and approve the build to get all Istio containers
 rebuilt.
 
 This step will reveal any merge conflict leftovers.
 
-3. Alternatively, you can rebuild all Istio docker containers by running the `trigger_istio_release.sh` script below.
+1. Alternatively, you can rebuild all Istio docker containers by running the `trigger_istio_release.sh` script below.
 
 NOTE(yskopets): the following instructions didn't work for me as of September 2020.
                 Maybe there have been some change on CircleCI side, but the job launched that way
@@ -129,13 +129,13 @@ curl -X POST --header "Content-Type: application/json" -d '{
 
 Wait for ~20 minutes for the images to build.
 
-4. Get PR approved and merged into the default branch (`tcc` rather than `master`)
+1. Get PR approved and merged into the default branch (`tcc` rather than `master`)
 
-5. Update [dependencies.sh](https://github.com/tetrateio/tetrate/blob/master/dependencies.sh) in [tetrateio/tetrate](https://github.com/tetrateio/tetrate) with the `TAG` and the commit `SHA`.
+1. Update [dependencies.sh](https://github.com/tetrateio/tetrate/blob/master/dependencies.sh) in [tetrateio/tetrate](https://github.com/tetrateio/tetrate) with the `TAG` and the commit `SHA`.
 
-6. It is encouraged to update the `istio.io/istio`'s replace entry in [go.mod](https://github.com/tetrateio/tetrate/blob/master/go.mod) to use the latest SHA of this repo (`tcc` branch).
+1. It is encouraged to update the `istio.io/istio`'s replace entry in [go.mod](https://github.com/tetrateio/tetrate/blob/master/go.mod) to use the latest SHA of this repo (`tcc` branch).
 
-```
+```shell
 $ go mod edit -replace istio.io/istio=github.com/tetrateio/istio@<LATEST_SHA_OF_THIS_REPO>
 # For example
 $ go mod edit -replace istio.io/istio=github.com/tetrateio/istio@23393db
