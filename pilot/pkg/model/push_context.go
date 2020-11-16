@@ -1705,12 +1705,14 @@ func getGatewayAddresses(gw *meshconfig.Network_IstioNetworkGateway, registryNam
 				addresses := svc.Attributes.ClusterExternalAddresses[clusterName]
 				for _, address := range addresses {
 					if gwIP := net.ParseIP(address); gwIP != nil {
-						log.Debugf("Network gateway is defined via a service %q which on cluster %q has an external IP address %q", gwSvcName, clusterName, address)
-						gateways = append(gateways, &Gateway{address, gw.Port})
+						log.Debugf("Network gateway is defined via a service %q which on cluster %q has an external IP address %q",
+							gwSvcName, clusterName, address)
+						gateways = append(gateways, &Gateway{address, remotePort})
 					} else {
 						gwIPs := dnsResolver.LookupIP(address)
-						log.Debugf("Network gateway is defined via a service %q which on cluster %q has an external DNS name %q that resolves into IPs %v", gwSvcName, clusterName, address, gwIPs)
-						gateways = append(gateways, asGateways(gwIPs, gw.Port)...)
+						log.Debugf("Network gateway is defined via a service %q which on cluster %q has an external DNS name %q that "+
+							"resolves into IPs %v", gwSvcName, clusterName, address, gwIPs)
+						gateways = append(gateways, asGateways(gwIPs, remotePort)...)
 					}
 				}
 			}

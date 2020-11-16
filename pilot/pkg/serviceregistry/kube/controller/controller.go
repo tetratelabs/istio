@@ -119,8 +119,8 @@ type Options struct {
 	// NetworksWatcher observes changes to the mesh networks config.
 	NetworksWatcher mesh.NetworksWatcher
 
-	// DnsResolver resolves DNS names, e.g. DNS name of a LoadBalancer.
-	DnsResolver dns.Resolver
+	// DNSResolver resolves DNS names, e.g. DNS name of a LoadBalancer.
+	DNSResolver dns.Resolver
 
 	// EndpointMode decides what source to use to get endpoint information
 	EndpointMode EndpointMode
@@ -246,7 +246,7 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 		workloadInstancesByIP:      make(map[string]*model.WorkloadInstance),
 		workloadInstancesIPsByName: make(map[string]string),
 		networksWatcher:            options.NetworksWatcher,
-		dnsResolver:                options.DnsResolver,
+		dnsResolver:                options.DNSResolver,
 		metrics:                    options.Metrics,
 	}
 
@@ -331,7 +331,7 @@ func (c *Controller) onServiceEvent(curr interface{}, event model.Event) error {
 		delete(c.servicesMap, svcConv.Hostname)
 		delete(c.nodeSelectorsForServices, svcConv.Hostname)
 		delete(c.externalNameSvcInstanceMap, svcConv.Hostname)
-		c.forgetGatewayServiceDnsNames(svcConv.Hostname)
+		c.forgetGatewayServiceDNSNames(svcConv.Hostname)
 		c.Unlock()
 	default:
 		if isNodePortGatewayService(svc) {
@@ -351,7 +351,7 @@ func (c *Controller) onServiceEvent(curr interface{}, event model.Event) error {
 		if len(instances) > 0 {
 			c.externalNameSvcInstanceMap[svcConv.Hostname] = instances
 		}
-		c.watchGatewayServiceDnsNames(svcConv.Hostname)
+		c.watchGatewayServiceDNSNames(svcConv.Hostname)
 		c.Unlock()
 	}
 

@@ -67,7 +67,7 @@ type FakeOptions struct {
 	// If provided, this mesh config will be used
 	MeshConfig      *meshconfig.MeshConfig
 	NetworksWatcher mesh.NetworksWatcher
-	DnsResolver     dns.Resolver
+	DNSResolver     dns.Resolver
 }
 
 type FakeDiscoveryServer struct {
@@ -179,10 +179,10 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 		opts.NetworksWatcher = mesh.NewFixedNetworksWatcher(nil)
 	}
 	env.NetworksWatcher = opts.NetworksWatcher
-	if opts.DnsResolver == nil {
-		opts.DnsResolver = dns.NewFixedResolver(nil)
+	if opts.DNSResolver == nil {
+		opts.DNSResolver = dns.NewFixedResolver(nil)
 	}
-	env.Resolver = opts.DnsResolver
+	env.Resolver = opts.DNSResolver
 
 	serviceHandler := func(svc *model.Service, _ model.Event) {
 		s.updateMutex.RLock()
@@ -201,7 +201,7 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 		DomainSuffix:    "cluster.local",
 		XDSUpdater:      s,
 		NetworksWatcher: env,
-		DnsResolver:     env,
+		DNSResolver:     env,
 	})
 	kubeClient.RunAndWait(stop)
 	serviceDiscovery.AddRegistry(k8s)

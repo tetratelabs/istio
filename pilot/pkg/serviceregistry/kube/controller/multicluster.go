@@ -120,7 +120,7 @@ func (m *Multicluster) AddMemberCluster(clients kubelib.Client, clusterID string
 		XDSUpdater:        m.XDSUpdater,
 		ClusterID:         clusterID,
 		NetworksWatcher:   m.networksWatcher,
-		DnsResolver:       m.dnsResolver,
+		DNSResolver:       m.dnsResolver,
 		Metrics:           m.metrics,
 	}
 	kubectl := NewController(clients, options)

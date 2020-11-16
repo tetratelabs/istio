@@ -31,7 +31,6 @@ type RefererSet map[Referer]bool
 type UpdateHandler func(dnsName string)
 
 type Resolver interface {
-
 	Watch(referer Referer, dnsNames []string)
 
 	Cancel(referer Referer)

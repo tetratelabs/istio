@@ -105,7 +105,7 @@ func (c *Controller) reloadNetworkLookup() {
 		}
 	}
 	c.ranger = ranger
-	c.configureDnsResolver(oldGateways, c.gateways)
+	c.configureDNSResolver(oldGateways, c.gateways)
 	c.Unlock()
 	// the network for endpoints are computed when we process the events; this will fix the cache
 	// NOTE: this must run before the other network watcher handler that creates a force push
@@ -117,25 +117,25 @@ func (c *Controller) reloadNetworkLookup() {
 	}
 }
 
-func (c *Controller) configureDnsResolver(old, new gateways) {
-	log.Debugf("Re-configuring DNS resolver on mesh networks change: old gateways=%#v, new gateways=%#v", old, new)
+func (c *Controller) configureDNSResolver(prev, next gateways) {
+	log.Debugf("Re-configuring DNS resolver on mesh networks change: old gateways=%#v, new gateways=%#v", prev, next)
 
-	log.Debugf("Start watching for DNS names from the MeshNetworks config: %v", new.dnsNames.List())
+	log.Debugf("Start watching for DNS names from the MeshNetworks config: %v", next.dnsNames.List())
 	if c.dnsResolver != nil {
-		c.dnsResolver.Watch(dns.Referer{APIGroup: "istio.mesh", Kind: "MeshNetworks"}, new.dnsNames.List())
+		c.dnsResolver.Watch(dns.Referer{APIGroup: "istio.mesh", Kind: "MeshNetworks"}, next.dnsNames.List())
 	}
 
-	for serviceName := range new.serviceNames {
-		c.watchServiceDnsNames(serviceName)
+	for serviceName := range next.serviceNames {
+		c.watchServiceDNSNames(serviceName)
 	}
 
-	_, deleted := new.serviceNames.Diff(old.serviceNames)
+	_, deleted := next.serviceNames.Diff(prev.serviceNames)
 	for serviceName := range deleted {
-		c.forgetServiceDnsNames(serviceName)
+		c.forgetServiceDNSNames(serviceName)
 	}
 }
 
-func (c *Controller) watchServiceDnsNames(serviceName string) {
+func (c *Controller) watchServiceDNSNames(serviceName string) {
 	dnsNames := dns.NewNameSet()
 
 	svc := c.servicesMap[host.Name(serviceName)]
@@ -154,24 +154,24 @@ func (c *Controller) watchServiceDnsNames(serviceName string) {
 	}
 }
 
-func (c *Controller) forgetServiceDnsNames(serviceName string) {
+func (c *Controller) forgetServiceDNSNames(serviceName string) {
 	log.Debugf("Stop watching for DNS names of a gateway Service %q", serviceName)
 	if c.dnsResolver != nil {
 		c.dnsResolver.Cancel(dns.Referer{Kind: "Service", Name: serviceName})
 	}
 }
 
-func (c *Controller) watchGatewayServiceDnsNames(serviceName host.Name) {
+func (c *Controller) watchGatewayServiceDNSNames(serviceName host.Name) {
 	name := string(serviceName)
 	if c.gateways.serviceNames.Contains(name) {
-		c.watchServiceDnsNames(name)
+		c.watchServiceDNSNames(name)
 	}
 }
 
-func (c *Controller) forgetGatewayServiceDnsNames(serviceName host.Name) {
+func (c *Controller) forgetGatewayServiceDNSNames(serviceName host.Name) {
 	name := string(serviceName)
 	if c.gateways.serviceNames.Contains(name) {
-		c.forgetServiceDnsNames(name)
+		c.forgetServiceDNSNames(name)
 	}
 }
 
@@ -204,7 +204,7 @@ func (c *Controller) endpointNetwork(endpointIP string) string {
 }
 
 func (c *Controller) isGatewayDNS(dnsName string) bool {
-	return true // TODO(yskopets): optimize once DnsResolver is used for anything other than gateways
+	return true // TODO(yskopets): optimize once DNSResolver is used for anything other than gateways
 }
 
 func (c *Controller) refreshGatewayEndpoints(dnsName string) {
