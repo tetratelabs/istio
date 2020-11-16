@@ -45,3 +45,114 @@ jobs:
       uses: actions/checkout@v2
 
     - run: make gen-check
+
+  integ-galley-k8s-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,-multicluster
+      run: prow/integ-suite-kind.sh test.integration.galley.kube.presubmit
+
+  integ-mixer-k8s-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,-multicluster
+      run: prow/integ-suite-kind.sh test.integration.mixer.kube.presubmit
+
+  integ-pilot-k8s-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,-multicluster
+      run: prow/integ-suite-kind.sh test.integration.pilot.kube.presubmit
+
+  integ-security-k8s-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,-multicluster
+      run: prow/integ-suite-kind.sh test.integration.security.kube.presubmit
+
+  integ-telemetry-k8s-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,-multicluster
+      run: prow/integ-suite-kind.sh test.integration.telemetry.kube.presubmit
+
+  integ-distroless-k8s-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        VARIANT: distroless
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.kube.reachability
+
+  integ-ipv6-k8s-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        DOCKER_IN_DOCKER_IPV6_ENABLED: true
+        IP_FAMILY: ipv6
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.kube.reachability
+
+  integ-operator-controller-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,-multicluster
+      run: prow/integ-suite-kind.sh test.integration.operator.kube.presubmit
+
+  integ-k8s-115:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        INTEGRATION_TEST_FLAGS: --istio.test.retries=1
+      run: prow/integ-suite-kind.sh --node-image kindest/node:v1.15.12 test.integration.kube.presubmit
+
+  integ-k8s-116:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        INTEGRATION_TEST_FLAGS: --istio.test.retries=1
+      run: prow/integ-suite-kind.sh --node-image kindest/node:v1.16.9 test.integration.kube.presubmit
+
+  install-cni-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - run: make cni.install-test
