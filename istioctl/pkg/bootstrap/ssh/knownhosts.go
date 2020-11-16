@@ -70,7 +70,7 @@ func HostKeyPrompt(stdin io.Reader, stderr io.Writer) ssh.HostKeyCallback {
 			case "yes":
 				return nil
 			case "no":
-				break
+				return fmt.Errorf("host key verification failed") // error message similar to the SSH CLI
 			default:
 				term.SetPrompt("Please type 'yes' or 'no': ")
 				answer, err = term.ReadLine()
@@ -79,7 +79,6 @@ func HostKeyPrompt(stdin io.Reader, stderr io.Writer) ssh.HostKeyCallback {
 				}
 			}
 		}
-		return fmt.Errorf("Host key verification failed.")
 	}
 }
 

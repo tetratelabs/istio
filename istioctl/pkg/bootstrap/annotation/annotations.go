@@ -45,13 +45,13 @@ const (
 	// and set value of this annotation to the "external IP" of that VM.
 	//
 	// By default, value of WorkloadEntry.Address is assumed.
-	SshHost = "sidecar-bootstrap.istioctl.istio.io/ssh-host"
+	SSHHost = "sidecar-bootstrap.istioctl.istio.io/ssh-host"
 
 	// Port of the SSH server on the machine represented by this WorkloadEntry to use
 	// for SSH connections from `istioctl x sidecar-bootstrap`.
 	//
 	// By default, `22` is assumed.
-	SshPort = "sidecar-bootstrap.istioctl.istio.io/ssh-port"
+	SSHPort = "sidecar-bootstrap.istioctl.istio.io/ssh-port"
 
 	// User on the machine represented by this WorkloadEntry to use for SSH connections
 	// from `istioctl x sidecar-bootstrap`.
@@ -60,7 +60,7 @@ const (
 	// to run Docker container without `sudo`.
 	//
 	// By default, a user running `istioctl x sidecar-bootstrap` is assumed.
-	SshUser = "sidecar-bootstrap.istioctl.istio.io/ssh-user"
+	SSHUser = "sidecar-bootstrap.istioctl.istio.io/ssh-user"
 
 	// Path to the `scp` binary on the machine represented by this WorkloadEntry to use
 	// in SSH connections from `istioctl x sidecar-bootstrap`.
