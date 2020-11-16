@@ -1,0 +1,47 @@
+# `name` value will appear "as is" in the badge.
+# See https://docs.github.com/en/actions/configuring-and-managing-workflows/configuring-a-workflow#adding-a-workflow-status-badge-to-your-repository
+name: "build"
+
+on:
+  push:
+    branches:
+    - tcc
+  pull_request:
+    branches:
+    - '**'
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0 # fetch all history for all tags and branches
+
+    - run: make -e T=-v build binaries-test
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - run: make -e T=-v init racetest
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - run: make lint
+
+  gencheck:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - run: make gen-check
