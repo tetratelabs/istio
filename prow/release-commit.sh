@@ -102,7 +102,11 @@ release-builder build --manifest <(echo "${MANIFEST}")
 release-builder validate --release "${WORK_DIR}/out"
 
 if [[ -z "${DRY_RUN:-}" ]]; then
-  release-builder publish --release "${WORK_DIR}/out" \
-    --gcsbucket "${GCS_BUCKET}" --gcsaliases "${NEXT_VERSION}-dev" \
-    --dockerhub "${DOCKER_HUB}" --dockertags "${VERSION},${NEXT_VERSION}-dev"
+  read -ra PUBLISH_OPTIONS <<< "${PUBLISH_OPTIONS:-}"
+
+  [[ "${PUBLISH_GCS:-}" != "0" ]] && PUBLISH_OPTIONS+=(--gcsbucket "${GCS_BUCKET}" --gcsaliases "${NEXT_VERSION}-dev")
+
+  [[ "${PUBLISH_DOCKER:-}" != "0" ]] && PUBLISH_OPTIONS+=(--dockerhub "${DOCKER_HUB}" --dockertags "${VERSION},${NEXT_VERSION}-dev")
+
+  release-builder publish --release "${WORK_DIR}/out" "${PUBLISH_OPTIONS[@]}"
 fi
