@@ -571,7 +571,9 @@ func (c *Controller) Run(stop <-chan struct{}) {
 		c.reloadNetworkLookup()
 	}
 
-	c.dnsResolver.AddUpdateHandler(c.refreshGatewayEndpoints)
+	if c.dnsResolver != nil {
+		c.dnsResolver.AddUpdateHandler(c.refreshGatewayEndpoints)
+	}
 
 	go func() {
 		cache.WaitForCacheSync(stop, c.HasSynced)
