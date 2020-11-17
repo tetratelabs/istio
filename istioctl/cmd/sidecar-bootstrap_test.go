@@ -115,6 +115,20 @@ aFKltOc+RAjzDklcUPeG4Y6eMA==
 				"meshNetworks": "networks: {}",
 			},
 		},
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "istio-sidecar-injector",
+				Namespace: "istio-system",
+			},
+			Data: map[string]string{
+				"values": `{
+				  "global": {
+					"jwtPolicy": "third-party-jwt",
+					"pilotCertProvider": "istiod"
+				  }
+				}`,
+			},
+		},
 		&corev1.ServiceAccount{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "default",
@@ -228,6 +242,11 @@ func TestVmBootstrap(t *testing.T) {
 
 func verifyVMCommandCaseOutput(t *testing.T, c vmBootstrapTestcase) {
 	t.Helper()
+
+	backupInterfaceFactory := interfaceFactory
+	defer func() {
+		interfaceFactory = backupInterfaceFactory
+	}()
 
 	configStoreFactory = mockClientFactoryGenerator(func(client istioclient.Interface) {
 		for _, cfg := range c.cannedIstioConfig {
