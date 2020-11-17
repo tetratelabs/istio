@@ -268,6 +268,17 @@ func ValidateIPSubnet(subnet string) error {
 	return ValidateIPAddress(subnet)
 }
 
+// ValidateNetworkGatewayAddress validates that a string is either an IP address or FQDN name.
+func ValidateNetworkGatewayAddress(addr string) error {
+	if err := ValidateIPAddress(addr); err == nil {
+		return nil
+	}
+	if err := ValidateFQDN(addr); err != nil {
+		return fmt.Errorf("gateway address %q is not a valid FQDN or IP address", addr)
+	}
+	return nil
+}
+
 // ValidateIPAddress validates that a string in "CIDR notation" or "Dot-decimal notation"
 func ValidateIPAddress(addr string) error {
 	ip := net.ParseIP(addr)
@@ -2649,7 +2660,7 @@ func validateNetwork(network *meshconfig.Network) (errs error) {
 				errs = multierror.Append(errs, err)
 			}
 		case *meshconfig.Network_IstioNetworkGateway_Address:
-			if err := ValidateIPAddress(g.Address); err != nil {
+			if err := ValidateNetworkGatewayAddress(g.Address); err != nil {
 				errs = multierror.Append(errs, err)
 			}
 		}

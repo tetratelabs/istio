@@ -5449,6 +5449,27 @@ func TestServiceSettings(t *testing.T) {
 	}
 }
 
+func TestValidateNetworkGatewayAddress(t *testing.T) {
+	addresses := map[string]bool{
+		"istiod":                  true,
+		"ist?od":                  false,
+		"istiod.istio-system":     true,
+		"istiod.istio-system.svc": true,
+		".isti":                   false,
+		"isti.":                   true,
+		"isti..":                  false,
+		"10.0.0.100":              true,
+		"1.2.3.999":               false,
+		"fe80::3c:eaff:fe00:61c2": true,
+		"2001:db8::100::80":       false,
+	}
+	for addr, valid := range addresses {
+		if got := ValidateNetworkGatewayAddress(addr); (got == nil) != valid {
+			t.Errorf("Failed: got valid=%t but wanted valid=%t: %v for %s", got == nil, valid, got, addr)
+		}
+	}
+}
+
 func TestValidateMeshNetworks(t *testing.T) {
 	testcases := []struct {
 		name  string
@@ -5498,6 +5519,28 @@ func TestValidateMeshNetworks(t *testing.T) {
 							},
 						},
 					},
+					"n3": {
+						Gateways: []*meshconfig.Network_IstioNetworkGateway{
+							{
+								Gw: &meshconfig.Network_IstioNetworkGateway_Address{
+									Address: "elb.amazonaws.com",
+								},
+								Port: 443,
+							},
+							{
+								Gw: &meshconfig.Network_IstioNetworkGateway_Address{
+									Address: "1.2.3.4",
+								},
+								Port: 8443,
+							},
+							{
+								Gw: &meshconfig.Network_IstioNetworkGateway_Address{
+									Address: "fe80::3c:eaff:fe00:61c2",
+								},
+								Port: 9443,
+							},
+						},
+					},
 				},
 			},
 			valid: true,
@@ -5520,6 +5563,60 @@ func TestValidateMeshNetworks(t *testing.T) {
 									RegistryServiceName: "istio-ingressgateway.istio-system.svc.cluster.local",
 								},
 								Port: 80,
+							},
+						},
+					},
+				},
+			},
+			valid: false,
+		},
+		{
+			name: "Invalid FQDN address",
+			mn: &meshconfig.MeshNetworks{
+				Networks: map[string]*meshconfig.Network{
+					"n1": {
+						Gateways: []*meshconfig.Network_IstioNetworkGateway{
+							{
+								Gw: &meshconfig.Network_IstioNetworkGateway_Address{
+									Address: "e?b.amazonaws.com",
+								},
+								Port: 443,
+							},
+						},
+					},
+				},
+			},
+			valid: false,
+		},
+		{
+			name: "Invalid IPv4 address",
+			mn: &meshconfig.MeshNetworks{
+				Networks: map[string]*meshconfig.Network{
+					"n1": {
+						Gateways: []*meshconfig.Network_IstioNetworkGateway{
+							{
+								Gw: &meshconfig.Network_IstioNetworkGateway_Address{
+									Address: "1.2.3.999",
+								},
+								Port: 443,
+							},
+						},
+					},
+				},
+			},
+			valid: false,
+		},
+		{
+			name: "Invalid IPv6 address",
+			mn: &meshconfig.MeshNetworks{
+				Networks: map[string]*meshconfig.Network{
+					"n1": {
+						Gateways: []*meshconfig.Network_IstioNetworkGateway{
+							{
+								Gw: &meshconfig.Network_IstioNetworkGateway_Address{
+									Address: "2001:db8::100::80",
+								},
+								Port: 443,
 							},
 						},
 					},
