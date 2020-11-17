@@ -54,7 +54,7 @@ func createInterface(kubeconfig string) (kubernetes.Interface, error) {
 }
 
 func getMeshConfigFromConfigMap(kubeconfig, command string) (*meshconfig.MeshConfig, error) {
-	client, err := createInterface(kubeconfig)
+	client, err := interfaceFactory(kubeconfig)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func getMeshConfigFromConfigMap(kubeconfig, command string) (*meshconfig.MeshCon
 
 // grabs the raw values from the ConfigMap. These are encoded as JSON.
 func getValuesFromConfigMap(kubeconfig string) (string, error) {
-	client, err := createInterface(kubeconfig)
+	client, err := interfaceFactory(kubeconfig)
 	if err != nil {
 		return "", err
 	}
@@ -104,7 +104,7 @@ func getValuesFromConfigMap(kubeconfig string) (string, error) {
 }
 
 func getInjectConfigFromConfigMap(kubeconfig string) (string, error) {
-	client, err := createInterface(kubeconfig)
+	client, err := interfaceFactory(kubeconfig)
 	if err != nil {
 		return "", err
 	}
