@@ -46,7 +46,10 @@ jobs:
       with:
         fetch-depth: 0 # fetch all history for all tags and branches
 
-    - run: prow/release-test.sh
+    - env:
+        DOCKER_HUB: gcr.io/tetrate-internal-containers
+        PUBLISH_GCS: "0" # don't publish release artifacts to GCS
+      run: prow/release-commit.sh
 
   lint:
     runs-on: ubuntu-latest
