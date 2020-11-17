@@ -13,7 +13,7 @@ on:
 jobs:
 
   build:
-    runs-on: ubuntu-latest # `build` step is relatively fast, thus GitHub-hosted runner is enough
+    runs-on: ubuntu-latest
 
     steps:
     - name: "Checkout"
@@ -24,7 +24,7 @@ jobs:
     - run: make -e T=-v build binaries-test
 
   unit-tests:
-    runs-on: [self-hosted, linux, x64, medium]
+    runs-on: ubuntu-latest
 
     steps:
     - name: "Checkout"
@@ -33,7 +33,7 @@ jobs:
     - run: make -e T=-v init racetest
 
   release-test:
-    runs-on: [self-hosted, linux, x64, medium]
+    runs-on: [self-hosted, linux, x64, medium] # we use a self-host runner here to get more disk space
 
     container:
       image: docker.io/yskopets/build-tools:release-1.7-2020-10-12T16-50-25 # IMG
@@ -49,7 +49,7 @@ jobs:
     - run: prow/release-test.sh
 
   lint:
-    runs-on: [self-hosted, linux, x64, medium]
+    runs-on: ubuntu-latest
 
     steps:
     - name: "Checkout"
@@ -58,7 +58,7 @@ jobs:
     - run: make lint
 
   gencheck:
-    runs-on: [self-hosted, linux, x64, medium]
+    runs-on: ubuntu-latest
 
     steps:
     - name: "Checkout"
