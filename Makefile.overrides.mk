@@ -20,6 +20,7 @@
 
 BUILD_WITH_CONTAINER ?= 1
 CONTAINER_OPTIONS = --mount type=bind,source=/tmp,destination=/tmp --net=host
+IMG ?= docker.io/tetrate/build-tools:release-1.7-2020-11-18T23-24-38
 
 ifeq ($(BUILD_WITH_CONTAINER),1)
 # create phony targets for the top-level items in the repo

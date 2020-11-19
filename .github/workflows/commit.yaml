@@ -12,6 +12,16 @@ on:
 
 jobs:
 
+  config:
+    runs-on: ubuntu-latest
+
+    outputs:
+      image: ${{ steps.config.outputs.image }}
+
+    steps:
+    - id: config
+      run: echo "::set-output name=image::docker.io/tetrate/build-tools:release-1.7-2020-11-18T23-24-38" # ISTIO_BUILD_TOOLS
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -30,7 +40,41 @@ jobs:
 
     - run: make -e T=-v init racetest
 
+  release:
+    needs: config
+    runs-on: [self-hosted, linux, x64, medium] # we use a self-host runner here to get more disk space
+
+    container:
+      image: ${{ needs.config.outputs.image }} # ISTIO_BUILD_TOOLS
+      env:
+        BUILD_WITH_CONTAINER: "0"
+
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0 # fetch all history for all tags and branches
+
+    - name: "Configure gcloud"
+      env:
+        # secrets should be populated according to https://github.com/tetrateio/infosec/issues/59
+        PROJECT_ID: ${{ secrets.GCP_INTERNAL_CONTAINERS_PROJECT_ID }}
+        SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_INTERNAL_CONTAINERS_SERVICE_ACCOUNT_KEY }}
+      run: |
+        KEY_FILE=${HOME}/gcp.key.json
+        echo "${SERVICE_ACCOUNT_KEY}" | base64 -d > ${KEY_FILE}
+        gcloud auth activate-service-account --key-file=${KEY_FILE} --project=${PROJECT_ID}
+        rm ${KEY_FILE}
+    - name: "Configure Docker to use gcloud as credentials helper"
+      run: gcloud auth configure-docker
+
+    - env:
+        DOCKER_HUB: gcr.io/tetrate-internal-containers
+        PUBLISH_GCS: "0" # don't publish release artifacts to GCS
+      run: prow/release-commit.sh
+
   lint:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
     - name: "Checkout"
@@ -39,6 +83,7 @@ jobs:
     - run: make lint
 
   gencheck:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
     - name: "Checkout"
@@ -47,6 +92,7 @@ jobs:
     - run: make gen-check
 
   integ-galley-k8s-tests:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
     - name: "Checkout"
@@ -57,6 +103,7 @@ jobs:
       run: prow/integ-suite-kind.sh test.integration.galley.kube.presubmit
 
   integ-mixer-k8s-tests:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
     - name: "Checkout"
@@ -67,6 +114,7 @@ jobs:
       run: prow/integ-suite-kind.sh test.integration.mixer.kube.presubmit
 
   integ-pilot-k8s-tests:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
     - name: "Checkout"
@@ -77,6 +125,7 @@ jobs:
       run: prow/integ-suite-kind.sh test.integration.pilot.kube.presubmit
 
   integ-security-k8s-tests:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
     - name: "Checkout"
@@ -87,6 +136,7 @@ jobs:
       run: prow/integ-suite-kind.sh test.integration.security.kube.presubmit
 
   integ-telemetry-k8s-tests:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
     - name: "Checkout"
@@ -95,6 +145,17 @@ jobs:
     - env:
         TEST_SELECT: -postsubmit,-flaky,-multicluster
       run: prow/integ-suite-kind.sh test.integration.telemetry.kube.presubmit
+
+  integ-multicluster-k8s-tests:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,+multicluster
+      run: prow/integ-suite-kind.sh --topology MULTICLUSTER test.integration.multicluster.kube.presubmit
 
   integ-distroless-k8s-tests:
     runs-on: ubuntu-latest
@@ -120,6 +181,7 @@ jobs:
       run: prow/integ-suite-kind.sh test.integration.kube.reachability
 
   integ-operator-controller-tests:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
     - name: "Checkout"
@@ -128,6 +190,61 @@ jobs:
     - env:
         TEST_SELECT: -postsubmit,-flaky,-multicluster
       run: prow/integ-suite-kind.sh test.integration.operator.kube.presubmit
+
+  integ-galley-k8s-tests-postsubmit:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.galley.kube
+
+  integ-mixer-k8s-tests-postsubmit:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.mixer.kube
+
+  integ-pilot-k8s-tests-postsubmit:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.pilot.kube
+
+  integ-security-k8s-tests-postsubmit:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.security.kube
+
+  integ-telemetry-k8s-tests-postsubmit:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.telemetry.kube
 
   integ-k8s-115:
     runs-on: ubuntu-latest
