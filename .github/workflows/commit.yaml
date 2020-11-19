@@ -48,6 +48,7 @@ jobs:
       image: ${{ needs.config.outputs.image }} # ISTIO_BUILD_TOOLS
       env:
         BUILD_WITH_CONTAINER: "0"
+        GOOGLE_APPLICATION_CREDENTIALS: /gcs.key.json
 
     steps:
     - name: "Checkout"
@@ -61,9 +62,14 @@ jobs:
         DOCKER_HUB_PASSWORD: ${{ secrets.TETRATE_CI_DOCKER_HUB_PASSWORD }}
       run: docker login --username "${DOCKER_HUB_USER}" --password "${DOCKER_HUB_PASSWORD}"
 
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+      run: echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+
     - env:
         DOCKER_HUB: ${{ secrets.TETRATE_CI_DOCKER_HUB }}
-        PUBLISH_GCS: "0" # don't publish release artifacts to GCS
+        GCS_BUCKET: ${{ secrets.TETRATE_CI_GCS_BUCKET }}
       run: prow/release-commit.sh
 
   lint:
