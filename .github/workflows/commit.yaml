@@ -55,21 +55,14 @@ jobs:
       with:
         fetch-depth: 0 # fetch all history for all tags and branches
 
-    - name: "Configure gcloud"
+    - name: "Docker login"
       env:
-        # secrets should be populated according to https://github.com/tetrateio/infosec/issues/59
-        PROJECT_ID: ${{ secrets.GCP_INTERNAL_CONTAINERS_PROJECT_ID }}
-        SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_INTERNAL_CONTAINERS_SERVICE_ACCOUNT_KEY }}
-      run: |
-        KEY_FILE=${HOME}/gcp.key.json
-        echo "${SERVICE_ACCOUNT_KEY}" | base64 -d > ${KEY_FILE}
-        gcloud auth activate-service-account --key-file=${KEY_FILE} --project=${PROJECT_ID}
-        rm ${KEY_FILE}
-    - name: "Configure Docker to use gcloud as credentials helper"
-      run: gcloud auth configure-docker
+        DOCKER_HUB_USER: ${{ secrets.TETRATE_CI_DOCKER_HUB_USER }}
+        DOCKER_HUB_PASSWORD: ${{ secrets.TETRATE_CI_DOCKER_HUB_PASSWORD }}
+      run: docker login --username "${DOCKER_HUB_USER}" --password "${DOCKER_HUB_PASSWORD}"
 
     - env:
-        DOCKER_HUB: gcr.io/tetrate-internal-containers
+        DOCKER_HUB: ${{ secrets.TETRATE_CI_DOCKER_HUB }}
         PUBLISH_GCS: "0" # don't publish release artifacts to GCS
       run: prow/release-commit.sh
 
