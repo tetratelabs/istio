@@ -141,16 +141,16 @@ var (
 				if net.ParseIP(data.Workload.Spec.Address) != nil {
 					ip = data.Workload.Spec.Address
 				}
-				if value := data.Workload.Annotations[bootstrapAnnotation.ProxyInstanceIP]; value != "" {
+				if value := data.Workload.Annotations[bootstrapAnnotation.ProxyInstanceIP.Name]; value != "" {
 					if net.ParseIP(value) == nil {
 						return "", fmt.Errorf("value of %q annotation on the WorkloadEntry is not a valid IP address: %q",
-							bootstrapAnnotation.ProxyInstanceIP, value)
+							bootstrapAnnotation.ProxyInstanceIP.Name, value)
 					}
 					ip = value
 				}
 				if ip == "" {
 					return "", fmt.Errorf("unable to bootstrap a WorkloadEntry that has neither an Address field set to a valid IP nor a %q "+
-						"annotation as an alternative source of the IP address to bind 'inbound' listeners to", bootstrapAnnotation.ProxyInstanceIP)
+						"annotation as an alternative source of the IP address to bind 'inbound' listeners to", bootstrapAnnotation.ProxyInstanceIP.Name)
 				}
 				return ip, nil
 			},
@@ -537,7 +537,7 @@ func (d *SidecarData) GetIstioProxyImage() string {
 		return value
 	}
 	hub := d.IstioConfigValues.GetGlobal().GetHub()
-	if value := d.Workload.Annotations[bootstrapAnnotation.ProxyImageHub]; value != "" {
+	if value := d.Workload.Annotations[bootstrapAnnotation.ProxyImageHub.Name]; value != "" {
 		hub = value
 	}
 	return fmt.Sprintf("%s/%s:%s",

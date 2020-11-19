@@ -195,7 +195,7 @@ func TestVmBootstrap(t *testing.T) {
 			args:              strings.Split("x sidecar-bootstrap", " "),
 			cannedIstioConfig: emptyIstioConfig,
 			cannedK8sConfig:   emptyK8sConfig,
-			expectedString:    "sidecar-bootstrap requires either a WorkloadEntry or the --all flag",
+			expectedString:    "sidecar-bootstrap command requires either a <workload-entry-name>[.<namespace>] argument or the --all flag",
 			shouldFail:        true,
 		},
 		// Workload Entry + all flag
@@ -203,15 +203,7 @@ func TestVmBootstrap(t *testing.T) {
 			args:              strings.Split("x sidecar-bootstrap --all workload.NS", " "),
 			cannedIstioConfig: emptyIstioConfig,
 			cannedK8sConfig:   emptyK8sConfig,
-			expectedString:    "sidecar-bootstrap requires either a WorkloadEntry or the --all flag but not both",
-			shouldFail:        true,
-		},
-		// all flag + no namespace
-		{
-			args:              strings.Split("x sidecar-bootstrap --all", " "),
-			cannedIstioConfig: emptyIstioConfig,
-			cannedK8sConfig:   emptyK8sConfig,
-			expectedString:    "sidecar-bootstrap needs a namespace if fetching all WorkloadEntry(s)",
+			expectedString:    "sidecar-bootstrap command requires either a <workload-entry-name>[.<namespace>] argument or the --all flag but not both",
 			shouldFail:        true,
 		},
 		// unknown workload entry, okay to have fake dumpDir here.
@@ -219,7 +211,7 @@ func TestVmBootstrap(t *testing.T) {
 			args:              strings.Split("x sidecar-bootstrap workload.fakeNS --local-dir /tmp/", " "),
 			cannedIstioConfig: istioStaticWorkspace,
 			cannedK8sConfig:   emptyK8sConfig,
-			expectedString: `unable to find WorkloadEntry(s): failed to read WorkloadEntry "/namespaces/fakeNS/workloadentries/workload": ` +
+			expectedString: `unable to find WorkloadEntry(s): failed to fetch WorkloadEntry "/namespaces/fakeNS/workloadentries/workload": ` +
 				`workloadentries.networking.istio.io "workload" not found`,
 			shouldFail: true,
 		},
