@@ -654,24 +654,24 @@ by adding various annotations on a WorkloadEntry resource. E.g., consider the fo
   kind: WorkloadEntry
   metadata:
     annotations:
-      sidecar-bootstrap.istioctl.istio.io/proxy-config-dir: /etc/istio-proxy # Directory on the remote node to copy generated files into
-      sidecar-bootstrap.istioctl.istio.io/ssh-user: istio-proxy              # User to SSH as; must have permissions to run Docker commands
-                                                                             # and to write copied files into the target directory
-      sidecar.istio.io/statsInclusionRegexps: ".*"                           # Configure Envoy proxy to export all available stats
+      sidecar-bootstrap.istio.io/proxy-config-dir: /etc/istio-proxy # Directory on the remote node to copy generated files into
+      sidecar-bootstrap.istio.io/ssh-user: istio-proxy              # User to SSH as; must have permissions to run Docker commands
+                                                                    # and to write copied files into the target directory
+      sidecar.istio.io/statsInclusionRegexps: ".*"                  # Configure Envoy proxy to export all available stats
       proxy.istio.io/config: |
-        concurrency: 3                                                       # ProxyConfig overrides to apply
+        concurrency: 3                                              # ProxyConfig overrides to apply
     name: my-vm
     namespace: my-namespace
   spec:
-    address: 1.2.3.4                                                         # At runtime, Istio Sidecar will bind incoming listeners to that address.
-                                                                             # At bootstrap time, this command will SSH to that address
+    address: 1.2.3.4                                                # At runtime, Istio Sidecar will bind incoming listeners to that address.
+                                                                    # At bootstrap time, this command will SSH to that address
     labels:
       app: ratings
       version: v1
-      class: vm                                                              # It's very handy to have extra labels on a WorkloadEntry
-                                                                             # to be able to narrow down label selectors to VM workloads only
-    network: on-premise                                                      # If your VM doesn't have L3 connectivity to k8s Pods,
-                                                                             # make sure to fill in network field
+      class: vm                                                     # It's very handy to have extra labels on a WorkloadEntry
+                                                                    # to be able to narrow down label selectors to VM workloads only
+    network: on-premise                                             # If your VM doesn't have L3 connectivity to k8s Pods,
+                                                                    # make sure to fill in network field
     serviceAccount: ratings-sa
 
 For a complete list of supported annotations run '%[2]s sidecar-bootstrap --docs'.`, bootstrapAnnotation.ScpPath.Name, opts.ParentCommandDocPath),

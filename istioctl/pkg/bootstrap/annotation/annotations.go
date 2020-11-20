@@ -22,7 +22,7 @@ type Instance = annotation.Instance
 
 var (
 	K8sCaRootCertConfigMapName = Instance{
-		Name: "sidecar-bootstrap.istioctl.istio.io/k8s-ca-root-cert-configmap",
+		Name: "sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap",
 		Description: `Name of the Kubernetes config map that holds the root cert of a k8s CA.
 
 By default, config map is considered undefined and thus the only way to find out
@@ -34,7 +34,7 @@ the root cert of a k8s CA is
 	}
 
 	MeshExpansionConfigMapName = Instance{
-		Name: "sidecar-bootstrap.istioctl.istio.io/mesh-expansion-configmap",
+		Name: "sidecar-bootstrap.istio.io/mesh-expansion-configmap",
 		Description: `Name of the Kubernetes config map that holds configuration intended for those
 Istio Proxies that expand the mesh.
 
@@ -47,7 +47,7 @@ have the same configuration as the regular ones.`,
 	}
 
 	SSHHost = Instance{
-		Name: "sidecar-bootstrap.istioctl.istio.io/ssh-host",
+		Name: "sidecar-bootstrap.istio.io/ssh-host",
 		Description: `IP address or DNS name of the machine represented by this WorkloadEntry to use
 instead of WorkloadEntry.Address for SSH connections initiated by the "sidecar-bootstrap" command.
 
@@ -60,7 +60,7 @@ By default, value of WorkloadEntry.Address is assumed.`,
 	}
 
 	SSHPort = Instance{
-		Name: "sidecar-bootstrap.istioctl.istio.io/ssh-port",
+		Name: "sidecar-bootstrap.istio.io/ssh-port",
 		Description: `Port of the SSH server on the machine represented by this WorkloadEntry to use
 for SSH connections initiated by the "sidecar-bootstrap" command.
 
@@ -68,7 +68,7 @@ By default, "22" is assumed.`,
 	}
 
 	SSHUser = Instance{
-		Name: "sidecar-bootstrap.istioctl.istio.io/ssh-user",
+		Name: "sidecar-bootstrap.istio.io/ssh-user",
 		Description: `User on the machine represented by this WorkloadEntry to use for SSH connections
 initiated by the "sidecar-bootstrap" command.
 
@@ -79,7 +79,7 @@ By default, a user running "sidecar-bootstrap" command is assumed.`,
 	}
 
 	ScpPath = Instance{
-		Name: "sidecar-bootstrap.istioctl.istio.io/scp-path",
+		Name: "sidecar-bootstrap.istio.io/scp-path",
 		Description: `Path to the "scp" binary on the machine represented by this WorkloadEntry to use
 in SSH connections initiated by the "sidecar-bootstrap" command.
 
@@ -87,7 +87,7 @@ By default, "/usr/bin/scp" is assumed.`,
 	}
 
 	ProxyConfigDir = Instance{
-		Name: "sidecar-bootstrap.istioctl.istio.io/proxy-config-dir",
+		Name: "sidecar-bootstrap.istio.io/proxy-config-dir",
 		Description: `Directory on the machine represented by this WorkloadEntry where "sidecar-bootstrap" command
 should copy bootstrap bundle to.
 
@@ -95,7 +95,7 @@ By default, "/tmp/istio-proxy" is assumed (the most reliable default value for o
 	}
 
 	ProxyImageHub = Instance{
-		Name: "sidecar-bootstrap.istioctl.istio.io/proxy-image-hub",
+		Name: "sidecar-bootstrap.istio.io/proxy-image-hub",
 		Description: `Hub with Istio Proxy images that the machine represented by this WorkloadEntry
 should pull from instead of the mesh-wide hub.
 
@@ -103,7 +103,7 @@ By default, mesh-wide hub is assumed.`,
 	}
 
 	ProxyContainerName = Instance{
-		Name: "sidecar-bootstrap.istioctl.istio.io/proxy-container-name",
+		Name: "sidecar-bootstrap.istio.io/proxy-container-name",
 		Description: `Name for a container with Istio Proxy.
 
 If you need to run multiple Istio Proxy containers on the same machine, make sure each of them has a unique name.
@@ -112,7 +112,7 @@ By default, "istio-proxy" is assumed.`,
 	}
 
 	ProxyInstanceIP = Instance{
-		Name: "sidecar-bootstrap.istioctl.istio.io/proxy-instance-ip",
+		Name: "sidecar-bootstrap.istio.io/proxy-instance-ip",
 		Description: `IP address of the machine represented by this WorkloadEntry that Istio Proxy
 should bind "inbound" listeners to.
 
