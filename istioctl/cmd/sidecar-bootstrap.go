@@ -563,7 +563,7 @@ func deriveSSHMethod(in io.Reader) (errs error) {
 	return nil
 }
 
-func vmBootstrapCommand() *cobra.Command {
+func NewVmBootstrapCommand() *cobra.Command {
 	vmBSCommand := &cobra.Command{
 		Use:   "sidecar-bootstrap [<workload-entry-name>[.<namespace>]]",
 		Short: "(experimental) bootstraps Istio Sidecar for a workload that runs on VM or Baremetal (mesh expansion scenario)",

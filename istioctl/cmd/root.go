@@ -133,22 +133,12 @@ func GetRootCmd(args []string) *cobra.Command {
 		Long: `Istio configuration command line utility for service operators to
 debug and diagnose their Istio mesh.
 `,
-		PersistentPreRunE: istioPersistentPreRunE,
+		PersistentPreRunE: IstioPersistentPreRunE,
 	}
 
 	rootCmd.SetArgs(args)
 
-	rootCmd.PersistentFlags().StringVarP(&kubeconfig, "kubeconfig", "c", "",
-		"Kubernetes configuration file")
-
-	rootCmd.PersistentFlags().StringVar(&configContext, "context", "",
-		"The name of the kubeconfig context to use")
-
-	rootCmd.PersistentFlags().StringVarP(&istioNamespace, "istioNamespace", "i", viper.GetString("istioNamespace"),
-		"Istio system namespace")
-
-	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", v1.NamespaceAll,
-		"Config namespace")
+	AddRootFlags(rootCmd)
 
 	// Attach the Istio logging options to the command.
 	loggingOptions.AttachCobraFlags(rootCmd)
@@ -221,7 +211,7 @@ debug and diagnose their Istio mesh.
 	experimentalCmd.AddCommand(addToMeshCmd())
 	experimentalCmd.AddCommand(removeFromMeshCmd())
 	experimentalCmd.AddCommand(softGraduatedCmd(Analyze()))
-	experimentalCmd.AddCommand(vmBootstrapCommand())
+	experimentalCmd.AddCommand(NewVmBootstrapCommand())
 	experimentalCmd.AddCommand(waitCmd())
 	experimentalCmd.AddCommand(mesh.UninstallCmd(loggingOptions))
 	experimentalCmd.AddCommand(configCmd())
@@ -283,6 +273,17 @@ debug and diagnose their Istio mesh.
 	return rootCmd
 }
 
+func AddRootFlags(rootCmd *cobra.Command) {
+	rootCmd.PersistentFlags().StringVarP(&kubeconfig, "kubeconfig", "c", "",
+		"Kubernetes configuration file")
+	rootCmd.PersistentFlags().StringVar(&configContext, "context", "",
+		"The name of the kubeconfig context to use")
+	rootCmd.PersistentFlags().StringVarP(&istioNamespace, "istioNamespace", "i", viper.GetString("istioNamespace"),
+		"Istio system namespace")
+	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", v1.NamespaceAll,
+		"Config namespace")
+}
+
 func hideInheritedFlags(orig *cobra.Command, hidden ...string) {
 	orig.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		for _, hidden := range hidden {
@@ -294,7 +295,7 @@ func hideInheritedFlags(orig *cobra.Command, hidden ...string) {
 	})
 }
 
-func istioPersistentPreRunE(_ *cobra.Command, _ []string) error {
+func IstioPersistentPreRunE(_ *cobra.Command, _ []string) error {
 	if err := log.Configure(loggingOptions); err != nil {
 		return err
 	}
