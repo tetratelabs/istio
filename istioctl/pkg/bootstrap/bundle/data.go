@@ -32,6 +32,7 @@ import (
 	"istio.io/istio/pkg/util/gogoprotomarshal"
 
 	bootstrapAnnotation "istio.io/istio/istioctl/pkg/bootstrap/annotation"
+	bootstrapUtil "istio.io/istio/istioctl/pkg/bootstrap/util"
 )
 
 type SidecarData struct {
@@ -269,7 +270,7 @@ var (
 		{
 			Name: "ISTIO_META_OWNER",
 			Value: func(data *SidecarData) (string, error) {
-				return fmt.Sprintf("kubernetes://apis/networking.istio.io/v1alpha3/namespaces/%s/workloadentries/%s", data.Workload.Namespace, data.Workload.Name), nil
+				return bootstrapUtil.ResourceURI("networking.istio.io/v1beta1", "workloadentries", data.Workload.Namespace, data.Workload.Name), nil
 			},
 		},
 		{

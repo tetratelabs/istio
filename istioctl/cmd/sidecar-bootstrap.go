@@ -62,6 +62,8 @@ import (
 type BootstrapBundle = bootstrapBundle.BootstrapBundle
 type SidecarData = bootstrapBundle.SidecarData
 
+var resourceURI = bootstrapUtil.ResourceURI
+
 const (
 	defaultProxyConfigDir = "/tmp/istio-proxy" // the most reliable default value for out-of-the-box experience
 )
@@ -128,8 +130,8 @@ func getExpansionProxyConfig(kubeClient kubernetes.Interface, namespace string) 
 	}
 	cm, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.Background(), configMapName, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("failed to read ConfigMap /namespaces/%s/configmaps/%s referred to from the %q annotation on the Namespace "+
-			"%q: %w", namespace, configMapName, bootstrapAnnotation.MeshExpansionConfigMapName.Name, namespace, err)
+		return "", fmt.Errorf("failed to read ConfigMap %s referred to from the %q annotation on the Namespace "+
+			"%q: %w", resourceURI("v1", "configmaps", namespace, configMapName), bootstrapAnnotation.MeshExpansionConfigMapName.Name, namespace, err)
 	}
 	value := cm.Data["PROXY_CONFIG"]
 	if value == "" {
@@ -137,8 +139,9 @@ func getExpansionProxyConfig(kubeClient kubernetes.Interface, namespace string) 
 	}
 	proxyConfig := new(meshconfig.ProxyConfig)
 	if err := gogoprotomarshal.ApplyYAML(value, proxyConfig); err != nil {
-		return "", fmt.Errorf("failed to unmarshal ProxyConfig from the ConfigMap /namespaces/%s/configmaps/%s referred to from the %q "+
-			"annotation on the Namespace %q : %w", cm.Namespace, cm.Name, bootstrapAnnotation.MeshExpansionConfigMapName.Name, namespace, err)
+		return "", fmt.Errorf("failed to unmarshal ProxyConfig from the ConfigMap %s referred to from the %q "+
+			"annotation on the Namespace %q: %w", resourceURI("v1", "configmaps", cm.Namespace, cm.Name),
+			bootstrapAnnotation.MeshExpansionConfigMapName.Name, namespace, err)
 	}
 	return value, nil
 }
@@ -146,7 +149,8 @@ func getExpansionProxyConfig(kubeClient kubernetes.Interface, namespace string) 
 func fetchSingleWorkloadEntry(client istioclient.Interface, namespace, workloadName string) ([]networking.WorkloadEntry, error) {
 	we, err := client.NetworkingV1alpha3().WorkloadEntries(namespace).Get(context.Background(), workloadName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch WorkloadEntry \"/namespaces/%s/workloadentries/%s\": %w", namespace, workloadName, err)
+		return nil, fmt.Errorf("failed to fetch WorkloadEntry %s: %w",
+			resourceURI("networking.istio.io/v1beta1", "workloadentries", namespace, workloadName), err)
 	}
 	return []networking.WorkloadEntry{*we}, nil
 }
@@ -167,12 +171,12 @@ func getK8sCaCertFromConfigMap(kubeClient kubernetes.Interface, namespace string
 	}
 	cm, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.Background(), configMapName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read ConfigMap /namespaces/%s/configmaps/%s referred to from the %q annotation on the "+
-			"Namespace %q: %w", namespace, configMapName, bootstrapAnnotation.MeshExpansionConfigMapName.Name, namespace, err)
+		return nil, fmt.Errorf("failed to read ConfigMap %s referred to from the %q annotation on the Namespace %q: %w",
+			resourceURI("v1", "configmaps", namespace, configMapName), bootstrapAnnotation.MeshExpansionConfigMapName.Name, namespace, err)
 	}
 	value := cm.Data["ca.crt"] // well-known k8s constant
 	if value == "" {
-		return nil, fmt.Errorf("there is no root cert of a k8s CA in the ConfigMap /namespaces/%s/configmaps/%s", cm.Namespace, cm.Name)
+		return nil, fmt.Errorf("there is no root cert of a k8s CA in the ConfigMap %s", resourceURI("v1", "configmaps", cm.Namespace, cm.Name))
 	}
 	return []byte(value), nil
 }
@@ -180,7 +184,7 @@ func getK8sCaCertFromConfigMap(kubeClient kubernetes.Interface, namespace string
 func getK8sCaCertFromServiceAccountTokenSecret(kubeClient kubernetes.Interface, namespace string) ([]byte, error) {
 	sa, err := kubeClient.CoreV1().ServiceAccounts(namespace).Get(context.Background(), "default", metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read ServiceAccount /namespaces/%s/serviceaccounts/%s: %w", namespace, "default", err)
+		return nil, fmt.Errorf("failed to read ServiceAccount %s: %w", resourceURI("v1", "serviceaccounts", namespace, "default"), err)
 	}
 	for _, ref := range sa.Secrets {
 		secret, err := kubeClient.CoreV1().Secrets(namespace).Get(context.Background(), ref.Name, metav1.GetOptions{})
@@ -197,8 +201,8 @@ func getK8sCaCertFromServiceAccountTokenSecret(kubeClient kubernetes.Interface, 
 		}
 		return value, nil
 	}
-	return nil, fmt.Errorf("unable to find a Secret with the root cert of a k8s CA among ServiceAccountToken Secrets of the "+
-		"ServiceAccount /namespaces/%s/serviceaccounts/%s", sa.Namespace, sa.Name)
+	return nil, fmt.Errorf("unable to find a Secret with the root cert of a k8s CA among ServiceAccountToken Secrets of the ServiceAccount %s",
+		resourceURI("v1", "serviceaccounts", sa.Namespace, sa.Name))
 }
 
 func getK8sCaCert(kubeClient kubernetes.Interface, namespace, istioNamespace string) ([]byte, error) {
@@ -234,11 +238,12 @@ func getK8sCaCert(kubeClient kubernetes.Interface, namespace, istioNamespace str
 func getIstioCaCert(kubeClient kubernetes.Interface, namespace string) ([]byte, error) {
 	cm, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.TODO(), "istio-ca-root-cert", metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get ConfigMap /namespaces/%s/configmaps/%s: %w", namespace, "istio-ca-root-cert", err)
+		return nil, fmt.Errorf("failed to get ConfigMap %s: %w", resourceURI("v1", "configmaps", namespace, "istio-ca-root-cert"), err)
 	}
 	caCert := cm.Data[constants.CACertNamespaceConfigMapDataName]
 	if caCert == "" {
-		return nil, fmt.Errorf("expected ConfigMap /namespaces/%s/configmaps/%s to have a key %q", cm.Namespace, cm.Name, constants.CACertNamespaceConfigMapDataName)
+		return nil, fmt.Errorf("expected ConfigMap %s to have a key %q", resourceURI("v1", "configmaps", cm.Namespace, cm.Name),
+			constants.CACertNamespaceConfigMapDataName)
 	}
 	return []byte(caCert), nil
 }
@@ -246,7 +251,7 @@ func getIstioCaCert(kubeClient kubernetes.Interface, namespace string) ([]byte, 
 func getIstioIngressGatewayService(kubeClient kubernetes.Interface, namespace, service string) (*corev1.Service, error) {
 	svc, err := kubeClient.CoreV1().Services(namespace).Get(context.TODO(), service, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get Service /namespaces/%s/services/%s: %w", namespace, service, err)
+		return nil, fmt.Errorf("failed to get Service %s: %w", resourceURI("v1", "services", namespace, service), err)
 	}
 	return svc, nil
 }
@@ -265,8 +270,8 @@ func verifyMeshExpansionPorts(svc *corev1.Service) error {
 	}
 	for _, expected := range meshExpansionPorts {
 		if actual, present := ports[expected.name]; !present || actual != expected.port {
-			return fmt.Errorf("mesh expansion is not possible because Istio Ingress Gateway Service /namespaces/%s/services/%s "+
-				"is missing a port '%s (%d)'", svc.Namespace, svc.Name, expected.name, expected.port)
+			return fmt.Errorf("mesh expansion is not possible because Istio Ingress Gateway Service %s is missing a port '%s (%d)'",
+				resourceURI("v1", "services", svc.Namespace, svc.Name), expected.name, expected.port)
 		}
 	}
 	return nil
@@ -274,7 +279,7 @@ func verifyMeshExpansionPorts(svc *corev1.Service) error {
 
 func getIstioIngressGatewayAddress(svc *corev1.Service) (string, error) {
 	if len(svc.Status.LoadBalancer.Ingress) == 0 {
-		return "", fmt.Errorf("k8s Service /namespaces/%s/services/%s has no ingress points", svc.Namespace, svc.Name)
+		return "", fmt.Errorf("k8s Service %s has no ingress points", resourceURI("v1", "services", svc.Namespace, svc.Name))
 	}
 	// prefer ingress point with IP
 	for _, endpoint := range svc.Status.LoadBalancer.Ingress {
@@ -288,7 +293,7 @@ func getIstioIngressGatewayAddress(svc *corev1.Service) (string, error) {
 			return value, nil
 		}
 	}
-	return "", fmt.Errorf("k8s Service /namespaces/%s/services/%s has no valid ingress points", svc.Namespace, svc.Name)
+	return "", fmt.Errorf("k8s Service %s has no valid ingress points", resourceURI("v1", "services", svc.Namespace, svc.Name))
 }
 
 func getIdentityForEachWorkload(
@@ -302,8 +307,8 @@ func getIdentityForEachWorkload(
 			continue // only generate one token per ServiceAccount
 		}
 		if wle.ServiceAccount == "" {
-			return nil, fmt.Errorf("cannot generate a ServiceAccount token for a WorkloadEntry \"/namespaces/%s/workloadentries/%s\" "+
-				"because ServiceAccount field is empty", entryCfg.Namespace, entryCfg.Name)
+			return nil, fmt.Errorf("cannot generate a ServiceAccount token for a WorkloadEntry %s because ServiceAccount field is empty",
+				resourceURI("networking.istio.io/v1beta1", "workloadentries", entryCfg.Namespace, entryCfg.Name))
 		}
 
 		expirationSeconds := int64(tokenDuration / time.Second)
@@ -316,8 +321,8 @@ func getIdentityForEachWorkload(
 			}, metav1.CreateOptions{})
 
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate a ServiceAccount token for a WorkloadEntry /namespaces/%s/workloadentries/%s: %w",
-				entryCfg.Namespace, entryCfg.Name, err)
+			return nil, fmt.Errorf("failed to generate a ServiceAccount token for a WorkloadEntry %s: %w",
+				resourceURI("networking.istio.io/v1beta1", "workloadentries", entryCfg.Namespace, entryCfg.Name), err)
 		}
 
 		seenServiceAccounts[wle.ServiceAccount] = workloadIdentity{
@@ -336,7 +341,8 @@ func processWorkloads(
 	for _, workload := range workloads {
 		identity, hasIdentity := workloadIdentityMapping[workload.Spec.ServiceAccount]
 		if !hasIdentity {
-			log.Warnf("skipping WorkloadEntry without a ServiceAccount: /namespaces/%s/workloadentries/%s", workload.Namespace, workload.Name)
+			log.Warnf("skipping WorkloadEntry without a ServiceAccount: %s",
+				resourceURI("networking.istio.io/v1beta1", "workloadentries", workload.Namespace, workload.Name))
 			continue
 		}
 
@@ -609,10 +615,20 @@ func deriveSSHMethod(in io.Reader) (errs error) {
 	return
 }
 
-func NewVmBootstrapCommand() *cobra.Command {
+type VmBootstrapCommandOpts struct {
+	// ParentCommandDocPath is a full path of the parent command that should be used in help messages.
+	//
+	// By default, "istioctl x" is assumed.
+	ParentCommandDocPath string
+}
+
+func NewVmBootstrapCommand(opts VmBootstrapCommandOpts) *cobra.Command {
+	if opts.ParentCommandDocPath == "" {
+		opts.ParentCommandDocPath = "istioctl x"
+	}
 	vmBSCommand := &cobra.Command{
 		Use:   "sidecar-bootstrap [<workload-entry-name>[.<namespace>]]",
-		Short: "(experimental) bootstraps Istio Sidecar for a workload that runs on VM or Baremetal (mesh expansion scenario)",
+		Short: "(experimental) Bootstrap Istio Sidecar for a workload that runs on VM or Baremetal (mesh expansion scenarios)",
 		Long: fmt.Sprintf(`(experimental) Takes in one or more WorkloadEntry(s), generates identity(s) for them,
 and optionally copies generated files to the remote node(s) over SSH protocol and starts Istio Sidecar(s) there.
 
@@ -626,7 +642,7 @@ We do not accept passwords through command line options to avoid leaking secrets
 
 File copying is performed over SCP protocol, and as such SCP binary must be installed on the remote node.
 If SCP is installed in a location other than "/usr/bin/scp", you have to provide absolute path to the SCP binary
-by adding %q annotation to the respective WorkloadEntry resource.
+by adding %[1]q annotation to the respective WorkloadEntry resource.
 
 To start Istio Sidecar on the remote node you must have Docker installed there.
 Istio Sidecar will be started on the host network as a docker container in capture mode.
@@ -658,24 +674,24 @@ by adding various annotations on a WorkloadEntry resource. E.g., consider the fo
                                                                              # make sure to fill in network field
     serviceAccount: ratings-sa
 
-For a complete list of supported annotations run '%s'.`, bootstrapAnnotation.ScpPath.Name, "istioctl x sidecar-bootstrap --docs"),
-		Example: `  # Show under-the-hood actions to copy workload identity of a VM represented by a given WorkloadEntry:
-  istioctl x sidecar-bootstrap my-vm.my-namespace --dry-run
+For a complete list of supported annotations run '%[2]s sidecar-bootstrap --docs'.`, bootstrapAnnotation.ScpPath.Name, opts.ParentCommandDocPath),
+		Example: fmt.Sprintf(`  # Show under-the-hood actions to copy workload identity of a VM represented by a given WorkloadEntry:
+  %[1]s sidecar-bootstrap my-vm.my-namespace --dry-run
 
   # Show under-the-hood actions to copy workload identity and start Istio Sidecar on a VM represented by a given WorkloadEntry:
-  istioctl x sidecar-bootstrap my-vm.my-namespace --start-istio-proxy --dry-run
+  %[1]s sidecar-bootstrap my-vm.my-namespace --start-istio-proxy --dry-run
 
   # Copy workload identity into a VM represented by a given WorkloadEntry:
-  istioctl x sidecar-bootstrap my-vm.my-namespace
+  %[1]s sidecar-bootstrap my-vm.my-namespace
 
   # Copy workload identity and start Istio Sidecar on a VM represented by a given WorkloadEntry:
-  istioctl x sidecar-bootstrap my-vm.my-namespace --start-istio-proxy
+  %[1]s sidecar-bootstrap my-vm.my-namespace --start-istio-proxy
 
   # Generate workload identity for a VM represented by a given WorkloadEntry and save generated files locally
-  istioctl x sidecar-bootstrap my-vm.my-namespace --local-dir path/to/save/workload/identity
+  %[1]s sidecar-bootstrap my-vm.my-namespace --local-dir path/to/save/workload/identity
 
   # Print a list of supported annotations on the WorkloadEntry resource:
-  istioctl x sidecar-bootstrap --docs`,
+  %[1]s sidecar-bootstrap --docs`, opts.ParentCommandDocPath),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if printDocs {
 				return nil
@@ -903,7 +919,7 @@ func printSidecarBootstrapDocs(out io.Writer, cmd string) {
 		format(item)
 	}
 
-	fmt.Fprintf(out, "Annotations unique to %q command:\n\n", cmd)
+	fmt.Fprintf(out, "Annotations specific to %q command:\n\n", cmd)
 	for _, item := range bootstrapAnnotation.SupportedCustomAnnotations() {
 		format(item)
 	}

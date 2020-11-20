@@ -211,7 +211,8 @@ func TestVmBootstrap(t *testing.T) {
 			args:              strings.Split("x sidecar-bootstrap workload.fakeNS --local-dir /tmp/", " "),
 			cannedIstioConfig: istioStaticWorkspace,
 			cannedK8sConfig:   emptyK8sConfig,
-			expectedString: `unable to find WorkloadEntry(s): failed to fetch WorkloadEntry "/namespaces/fakeNS/workloadentries/workload": ` +
+			expectedString: `unable to find WorkloadEntry(s): failed to fetch WorkloadEntry ` +
+				`kubernetes://apis/networking.istio.io/v1beta1/namespaces/fakeNS/workloadentries/workload: ` +
 				`workloadentries.networking.istio.io "workload" not found`,
 			shouldFail: true,
 		},

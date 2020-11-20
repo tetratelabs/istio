@@ -211,7 +211,7 @@ debug and diagnose their Istio mesh.
 	experimentalCmd.AddCommand(addToMeshCmd())
 	experimentalCmd.AddCommand(removeFromMeshCmd())
 	experimentalCmd.AddCommand(softGraduatedCmd(Analyze()))
-	experimentalCmd.AddCommand(NewVmBootstrapCommand())
+	experimentalCmd.AddCommand(NewVmBootstrapCommand(VmBootstrapCommandOpts{}))
 	experimentalCmd.AddCommand(waitCmd())
 	experimentalCmd.AddCommand(mesh.UninstallCmd(loggingOptions))
 	experimentalCmd.AddCommand(configCmd())

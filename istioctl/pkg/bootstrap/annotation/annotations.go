@@ -49,9 +49,9 @@ have the same configuration as the regular ones.`,
 	SSHHost = Instance{
 		Name: "sidecar-bootstrap.istioctl.istio.io/ssh-host",
 		Description: `IP address or DNS name of the machine represented by this WorkloadEntry to use
-instead of WorkloadEntry.Address for SSH connections from "istioctl x sidecar-bootstrap".
+instead of WorkloadEntry.Address for SSH connections initiated by the "sidecar-bootstrap" command.
 
-This setting is intended for those scenarios where "istioctl x sidecar-bootstrap"
+This setting is intended for those scenarios where "sidecar-bootstrap" command
 will be run on a machine without direct connectivity to the WorkloadEntry.Address.
 E.g., one might set WorkloadEntry.Address to the "internal IP" of a VM
 and set value of this annotation to the "external IP" of that VM.
@@ -62,7 +62,7 @@ By default, value of WorkloadEntry.Address is assumed.`,
 	SSHPort = Instance{
 		Name: "sidecar-bootstrap.istioctl.istio.io/ssh-port",
 		Description: `Port of the SSH server on the machine represented by this WorkloadEntry to use
-for SSH connections from "istioctl x sidecar-bootstrap".
+for SSH connections initiated by the "sidecar-bootstrap" command.
 
 By default, "22" is assumed.`,
 	}
@@ -70,25 +70,25 @@ By default, "22" is assumed.`,
 	SSHUser = Instance{
 		Name: "sidecar-bootstrap.istioctl.istio.io/ssh-user",
 		Description: `User on the machine represented by this WorkloadEntry to use for SSH connections
-from "istioctl x sidecar-bootstrap".
+initiated by the "sidecar-bootstrap" command.
 
 Make sure that user has enough permissions to create the config dir and
 to run Docker container without "sudo".
 
-By default, a user running "istioctl x sidecar-bootstrap" is assumed.`,
+By default, a user running "sidecar-bootstrap" command is assumed.`,
 	}
 
 	ScpPath = Instance{
 		Name: "sidecar-bootstrap.istioctl.istio.io/scp-path",
 		Description: `Path to the "scp" binary on the machine represented by this WorkloadEntry to use
-in SSH connections from "istioctl x sidecar-bootstrap".
+in SSH connections initiated by the "sidecar-bootstrap" command.
 
 By default, "/usr/bin/scp" is assumed.`,
 	}
 
 	ProxyConfigDir = Instance{
 		Name: "sidecar-bootstrap.istioctl.istio.io/proxy-config-dir",
-		Description: `Directory on the machine represented by this WorkloadEntry where "istioctl x sidecar-bootstrap"
+		Description: `Directory on the machine represented by this WorkloadEntry where "sidecar-bootstrap" command
 should copy bootstrap bundle to.
 
 By default, "/tmp/istio-proxy" is assumed (the most reliable default value for out-of-the-box experience).`,
