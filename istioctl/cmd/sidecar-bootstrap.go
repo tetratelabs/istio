@@ -76,7 +76,6 @@ var (
 	defaultSSHPort    int
 	defaultSSHUser    string
 	sshConnectTimeout time.Duration
-	sshAuthMethod     ssh.AuthMethod
 	useSSHPassword    bool
 	sshKeyLocation    string
 	sshIgnoreHostKeys bool
@@ -85,10 +84,6 @@ var (
 	}
 	startIstioProxy bool
 	printDocs       bool
-)
-
-var (
-	sshConfig ssh.ClientConfig
 )
 
 type workloadIdentity struct {
@@ -405,7 +400,7 @@ func dumpBootstrapBundle(outputDir string, bundle BootstrapBundle) error {
 	return nil
 }
 
-func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) error {
+func copyBootstrapBundle(client bootstrapSsh.Client, config ssh.ClientConfig, bundle BootstrapBundle) error {
 	host := bundle.Workload.Spec.Address
 	if value := bundle.Workload.Annotations[bootstrapAnnotation.SSHHost.Name]; value != "" {
 		host = value
@@ -420,7 +415,7 @@ func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) err
 	}
 	address := net.JoinHostPort(host, port)
 
-	err := client.Dial(address, username, sshConfig)
+	err := client.Dial(address, username, config)
 	if err != nil {
 		return err
 	}
@@ -512,7 +507,50 @@ func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) err
 	return nil
 }
 
-func deriveSSHMethod(in io.Reader) (errs error) {
+func parseSSHConfig(stdin io.Reader, stderr io.Writer) (*ssh.ClientConfig, error) {
+	if defaultSSHUser == "" {
+		user, err := user.Current()
+		if err != nil {
+			return nil, fmt.Errorf("failed to determine current user: %w", err)
+		}
+		defaultSSHUser = user.Username
+	}
+	sshConfig := ssh.ClientConfig{
+		Timeout: sshConnectTimeout,
+	}
+	if dryRun {
+		return &sshConfig, nil // don't force users to provide SSH credentials in dry run mode
+	}
+	authMethod, err := deriveSSHMethod(stdin)
+	if err != nil {
+		return nil, err
+	}
+	sshConfig.Auth = []ssh.AuthMethod{authMethod}
+	var callback ssh.HostKeyCallback
+	if sshIgnoreHostKeys {
+		callback = ssh.InsecureIgnoreHostKey()
+	} else {
+		prompt := bootstrapSsh.HostKeyPrompt(stdin, stderr)
+		homeDir, err := homedir.Dir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to determine home directory of the current user: %w", err)
+		}
+		filename := filepath.Join(homeDir, ".ssh", "known_hosts")
+		knownhost, err := knownhosts.New(filename)
+		switch {
+		case os.IsNotExist(err):
+			callback = prompt
+		case err != nil:
+			return nil, fmt.Errorf("failed to parse %s: %w", filename, err)
+		default:
+			callback = bootstrapSsh.HostKeyCallbackChain(knownhost, prompt)
+		}
+	}
+	sshConfig.HostKeyCallback = callback
+	return &sshConfig, nil
+}
+
+func deriveSSHMethod(stdin io.Reader) (_ ssh.AuthMethod, errs error) {
 	readSSHPassword := func() (secret string, errs error) {
 		call := func(fn func() error) {
 			if fn == nil {
@@ -524,7 +562,7 @@ func deriveSSHMethod(in io.Reader) (errs error) {
 			}
 		}
 
-		rawModeStdin, restoreStdin, err := bootstrapUtil.RawModeStdin(in)
+		rawModeStdin, restoreStdin, err := bootstrapUtil.RawModeStdin(stdin)
 		if err != nil {
 			return "", err
 		}
@@ -555,7 +593,7 @@ func deriveSSHMethod(in io.Reader) (errs error) {
 			return key, nil
 		}
 		if _, ok := err.(*ssh.PassphraseMissingError); ok {
-			rawModeStdin, restoreStdin, err := bootstrapUtil.RawModeStdin(in)
+			rawModeStdin, restoreStdin, err := bootstrapUtil.RawModeStdin(stdin)
 			if err != nil {
 				return nil, err
 			}
@@ -576,10 +614,9 @@ func deriveSSHMethod(in io.Reader) (errs error) {
 	if useSSHPassword {
 		sshPassword, err := readSSHPassword()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		sshAuthMethod = ssh.Password(sshPassword)
-		return nil
+		return ssh.Password(sshPassword), nil
 	}
 
 	var candidateKeyLocations []string
@@ -588,7 +625,7 @@ func deriveSSHMethod(in io.Reader) (errs error) {
 	} else {
 		homeDir, err := homedir.Dir()
 		if err != nil {
-			return fmt.Errorf("failed to determine home directory of the current user: %w", err)
+			return nil, fmt.Errorf("failed to determine home directory of the current user: %w", err)
 		}
 		candidateKeyLocations = []string{
 			filepath.Join(homeDir, ".ssh", "id_dsa"),
@@ -609,10 +646,9 @@ func deriveSSHMethod(in io.Reader) (errs error) {
 			errs = multierror.Append(errs, fmt.Errorf("failed to parse SSH key from %q: %w", candidateKeyLocation, err))
 			return // stop iterating over candidate keys after the first parse failure
 		}
-		sshAuthMethod = ssh.PublicKeys(key)
-		return nil
+		return ssh.PublicKeys(key), nil
 	}
-	return
+	return nil, errs
 }
 
 type VmBootstrapCommandOpts struct {
@@ -702,48 +738,6 @@ For a complete list of supported annotations run '%[2]s sidecar-bootstrap --docs
 			if len(args) > 0 && all {
 				return fmt.Errorf("sidecar-bootstrap command requires either a <workload-entry-name>[.<namespace>] argument or the --all flag but not both")
 			}
-			if defaultSSHUser == "" {
-				user, err := user.Current()
-				if err != nil {
-					return fmt.Errorf("failed to determine current user: %w", err)
-				}
-				defaultSSHUser = user.Username
-			}
-			if outputDir == "" && !dryRun {
-				err := deriveSSHMethod(cmd.InOrStdin())
-				if err != nil {
-					return err
-				}
-			}
-			if !dryRun {
-				var callback ssh.HostKeyCallback
-				if sshIgnoreHostKeys {
-					callback = ssh.InsecureIgnoreHostKey()
-				} else {
-					prompt := bootstrapSsh.HostKeyPrompt(cmd.InOrStdin(), cmd.ErrOrStderr())
-					homeDir, err := homedir.Dir()
-					if err != nil {
-						return fmt.Errorf("failed to determine home directory of the current user: %w", err)
-					}
-					filename := filepath.Join(homeDir, ".ssh", "known_hosts")
-					knownhost, err := knownhosts.New(filename)
-					switch {
-					case os.IsNotExist(err):
-						callback = prompt
-					case err != nil:
-						return fmt.Errorf("failed to parse %s: %w", filename, err)
-					default:
-						callback = bootstrapSsh.HostKeyCallbackChain(knownhost, prompt)
-					}
-				}
-
-				sshConfig = ssh.ClientConfig{
-					User:            defaultSSHUser,
-					Auth:            []ssh.AuthMethod{sshAuthMethod},
-					HostKeyCallback: callback,
-					Timeout:         sshConnectTimeout,
-				}
-			}
 			return nil
 		},
 		RunE: func(c *cobra.Command, args []string) error {
@@ -759,7 +753,7 @@ For a complete list of supported annotations run '%[2]s sidecar-bootstrap --docs
 
 			_, err = kubeClient.Discovery().ServerVersion() // to avoid confusing error messages later on, check connectivity to k8s in the beginning
 			if err != nil {
-				return fmt.Errorf(`failed to access k8s APIs: %w
+				return fmt.Errorf(`unable to access k8s API: %w
 
 Hint: make sure that "kubectl" or "istioctl" run successfully in this environment;
       you might have forgotten to switch k8s context or your authentication might have expired
@@ -856,9 +850,14 @@ Hint: make sure that "kubectl" or "istioctl" run successfully in this environmen
 					return dumpBootstrapBundle(bundleDir, bundle)
 				}
 			} else {
+				sshConfig, err := parseSSHConfig(c.InOrStdin(), c.ErrOrStderr())
+				if err != nil {
+					return err
+				}
+
 				action = func(bundle BootstrapBundle) error {
 					sshClient := sshClientFactory(c.OutOrStdout(), c.ErrOrStderr())
-					return copyBootstrapBundle(sshClient, bundle)
+					return copyBootstrapBundle(sshClient, *sshConfig, bundle)
 				}
 			}
 
