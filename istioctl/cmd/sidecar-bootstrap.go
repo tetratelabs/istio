@@ -651,14 +651,14 @@ func deriveSSHMethod(stdin io.Reader) (_ ssh.AuthMethod, errs error) {
 	return nil, errs
 }
 
-type VmBootstrapCommandOpts struct {
+type VMBootstrapCommandOpts struct {
 	// ParentCommandDocPath is a full path of the parent command that should be used in help messages.
 	//
 	// By default, "istioctl x" is assumed.
 	ParentCommandDocPath string
 }
 
-func NewVmBootstrapCommand(opts VmBootstrapCommandOpts) *cobra.Command {
+func NewVMBootstrapCommand(opts VMBootstrapCommandOpts) *cobra.Command {
 	if opts.ParentCommandDocPath == "" {
 		opts.ParentCommandDocPath = "istioctl x"
 	}

@@ -20,8 +20,10 @@ import (
 )
 
 func ResourceURI(groupVersion, resource, ns, name string) string {
-	agv := "apis/" + groupVersion
-	if strings.Index(groupVersion, "/") < 0 {
+	var agv string
+	if strings.Contains(groupVersion, "/") {
+		agv = "apis/" + groupVersion
+	} else {
 		agv = "api/" + groupVersion
 	}
 	return fmt.Sprintf("kubernetes://%s/namespaces/%s/%s/%s", agv, ns, resource, name)
