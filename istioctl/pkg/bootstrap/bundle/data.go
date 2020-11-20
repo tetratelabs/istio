@@ -529,7 +529,10 @@ func (d *SidecarData) GetIstioProxyHosts() []string {
 }
 
 func (d *SidecarData) GetIstioProxyContainerName() string {
-	return fmt.Sprintf("%s-%s-istio-proxy", d.Workload.Namespace, d.Workload.Name)
+	if value := d.Workload.Annotations[bootstrapAnnotation.ProxyContainerName.Name]; value != "" {
+		return value
+	}
+	return "istio-proxy"
 }
 
 func (d *SidecarData) GetIstioProxyImage() string {

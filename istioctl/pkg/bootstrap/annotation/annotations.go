@@ -102,6 +102,15 @@ should pull from instead of the mesh-wide hub.
 By default, mesh-wide hub is assumed.`,
 	}
 
+	ProxyContainerName = Instance{
+		Name: "sidecar-bootstrap.istioctl.istio.io/proxy-container-name",
+		Description: `Name for a container with Istio Proxy.
+
+If you need to run multiple Istio Proxy containers on the same machine, make sure each of them has a unique name.
+
+By default, "istio-proxy" is assumed.`,
+	}
+
 	ProxyInstanceIP = Instance{
 		Name: "sidecar-bootstrap.istioctl.istio.io/proxy-instance-ip",
 		Description: `IP address of the machine represented by this WorkloadEntry that Istio Proxy
@@ -125,6 +134,7 @@ func SupportedCustomAnnotations() []*Instance {
 		&ScpPath,
 		&ProxyConfigDir,
 		&ProxyImageHub,
+		&ProxyContainerName,
 		&ProxyInstanceIP,
 	}
 }
