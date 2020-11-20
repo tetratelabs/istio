@@ -514,11 +514,15 @@ func copyBootstrapBundle(sshConfig ssh.ClientConfig, ssh sshParams, items bootst
 	defer ssh.client.Close()
 
 	// Copy all files to the VM.
+	dirs := make(map[string]bool)
 	for _, file := range items.filesToCopy {
-		// Ensure the remote directory exists.
-		err = ssh.client.Exec("mkdir -p " + file.dir)
-		if err != nil {
-			return err
+		if created := dirs[file.dir]; !created {
+			// Ensure the remote directory exists.
+			err = ssh.client.Exec("mkdir -p " + file.dir)
+			if err != nil {
+				return err
+			}
+			dirs[file.dir] = true
 		}
 
 		err = ssh.client.Copy(file.data, path.Join(file.dir, file.name), file.perm, ssh.scp)
@@ -931,19 +935,19 @@ Hint: make sure that "kubectl" or "istioctl" run successfully in this environmen
 	}
 
 	vmBSCommand.PersistentFlags().BoolVarP(&all, "all", "a", false,
-		"attempt to bootstrap all WorkloadEntry(s) in that namespace")
+		"bootstrap all WorkloadEntry(s) in a given namespace")
 	vmBSCommand.PersistentFlags().DurationVar(&tokenDuration, "duration", 24*time.Hour,
-		"(experimental) duration the generated ServiceAccount tokens are valid for.")
+		"(experimental) amount of time that generated ServiceAccount tokens should be valid for")
 	vmBSCommand.PersistentFlags().StringVarP(&outputDir, "local-dir", "d", "",
-		"directory to put bootstrap bundle(s) in locally as opposed to copying")
+		"save generated files into a local directory instead of copying them to a remote machine")
 	vmBSCommand.PersistentFlags().DurationVar(&defaultScpOpts.Timeout, "timeout", 60*time.Second,
-		"(experimental) the timeout for copying a bootstrap bundle")
+		"(experimental) timeout on copying a single file to a remote host")
 	vmBSCommand.PersistentFlags().BoolVar(&sshIgnoreHostKeys, "ignore-host-keys", false,
-		"(experimental) ignore host keys on the remote host")
+		"(experimental) do not verify remote host key when establishing SSH connection")
 	vmBSCommand.PersistentFlags().BoolVar(&useSSHPassword, "ssh-password", false,
 		"(experimental) force SSH password-based authentication")
 	vmBSCommand.PersistentFlags().StringVarP(&sshKeyLocation, "ssh-key", "k", "",
-		"(experimental) the location of the SSH key")
+		"(experimental) authenticate with SSH key at a given location")
 	vmBSCommand.PersistentFlags().IntVar(&defaultSSHPort, "ssh-port", 22,
 		fmt.Sprintf("(experimental) default port to SSH to (is only effective unless the '%s' annotation is present "+
 			"on a WorkloadEntry)", bootstrapAnnotation.SSHPort.Name))
@@ -951,13 +955,13 @@ Hint: make sure that "kubectl" or "istioctl" run successfully in this environmen
 		fmt.Sprintf("(experimental) default user to SSH as, defaults to the current user (is only effective unless "+
 			"the '%s' annotation is present on a WorkloadEntry)", bootstrapAnnotation.SSHUser.Name))
 	vmBSCommand.PersistentFlags().DurationVar(&sshConnectTimeout, "ssh-connect-timeout", 10*time.Second,
-		"(experimental) the maximum amount of time to establish SSH connection")
+		"(experimental) timeout on establishing SSH connection")
 	vmBSCommand.PersistentFlags().BoolVar(&startIstioProxy, "start-istio-proxy", false,
-		"start Istio Sidecar on a remote host after copying workload identity")
+		"start Istio Sidecar on a remote host after copying configuration files")
 	vmBSCommand.PersistentFlags().BoolVar(&dryRun, "dry-run", false,
-		"show generated configuration and respective SSH commands but don't connect to, copy files or execute commands remotely")
+		"print generated configuration and respective SSH commands but don't connect to, copy files or execute commands remotely")
 	vmBSCommand.PersistentFlags().BoolVar(&printDocs, "docs", false,
-		"(experimental) print supported annotations on the WorkloadEntry resource")
+		"(experimental) print a list of supported annotations on the WorkloadEntry resource")
 
 	// same options as in `istioctl inject`
 	vmBSCommand.PersistentFlags().StringVar(&meshConfigMapName, "meshConfigMapName", defaultMeshConfigMapName,
