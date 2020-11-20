@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -74,6 +75,7 @@ var (
 	defaultSSHUser    string
 	sshConnectTimeout time.Duration
 	sshAuthMethod     ssh.AuthMethod
+	useSSHPassword    bool
 	sshKeyLocation    string
 	sshIgnoreHostKeys bool
 	defaultScpOpts    = bootstrapSsh.CopyOpts{
@@ -505,62 +507,106 @@ func copyBootstrapBundle(client bootstrapSsh.Client, bundle BootstrapBundle) err
 }
 
 func deriveSSHMethod(in io.Reader) (errs error) {
-	call := func(fn func() error) {
-		if fn == nil {
-			return
+	readSSHPassword := func() (secret string, errs error) {
+		call := func(fn func() error) {
+			if fn == nil {
+				return
+			}
+			err := fn()
+			if err != nil {
+				errs = multierror.Append(errs, err)
+			}
 		}
-		err := fn()
-		if err != nil {
-			errs = multierror.Append(errs, err)
-		}
-	}
-	if sshKeyLocation == "" {
+
 		rawModeStdin, restoreStdin, err := bootstrapUtil.RawModeStdin(in)
 		if err != nil {
-			return err
+			return "", err
 		}
 		defer call(restoreStdin)
 		term := terminal.NewTerminal(rawModeStdin, "")
 		sshPassword, err := term.ReadPassword("Please enter the SSH password: ")
 		if err != nil {
-			return err
+			return "", err
 		}
 		if sshPassword == "" {
-			return fmt.Errorf("a password, or SSH key location is required for sidecar-bootstrap")
+			return "", fmt.Errorf("SSH password cannot be empty")
+		}
+		return sshPassword, nil
+	}
+	parseSSHKey := func(rawKey []byte, name string) (_ ssh.Signer, errs error) {
+		call := func(fn func() error) {
+			if fn == nil {
+				return
+			}
+			err := fn()
+			if err != nil {
+				errs = multierror.Append(errs, err)
+			}
+		}
+
+		key, err := ssh.ParsePrivateKey(rawKey)
+		if err == nil {
+			return key, nil
+		}
+		if _, ok := err.(*ssh.PassphraseMissingError); ok {
+			rawModeStdin, restoreStdin, err := bootstrapUtil.RawModeStdin(in)
+			if err != nil {
+				return nil, err
+			}
+			defer call(restoreStdin)
+			term := terminal.NewTerminal(rawModeStdin, "")
+			sshKeyPassword, err := term.ReadPassword(fmt.Sprintf("Please enter the password for the SSH key %q: ", name))
+			if err != nil {
+				return nil, err
+			}
+			decryptedKey, err := ssh.ParsePrivateKeyWithPassphrase(rawKey, []byte(sshKeyPassword))
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse password-protected SSH key: %w", err)
+			}
+			return decryptedKey, nil
+		}
+		return nil, err
+	}
+	if useSSHPassword {
+		sshPassword, err := readSSHPassword()
+		if err != nil {
+			return err
 		}
 		sshAuthMethod = ssh.Password(sshPassword)
+		return nil
+	}
+
+	var candidateKeyLocations []string
+	if sshKeyLocation != "" {
+		candidateKeyLocations = []string{sshKeyLocation}
 	} else {
-		// Attempt to parse the key.
-		rawKey, err := ioutil.ReadFile(sshKeyLocation)
+		homeDir, err := homedir.Dir()
 		if err != nil {
-			return fmt.Errorf("failed to read SSH key from %q: %w", sshKeyLocation, err)
+			return fmt.Errorf("failed to determine home directory of the current user: %w", err)
 		}
-		key, err := ssh.ParsePrivateKey(rawKey)
-		if err != nil {
-			if err, ok := err.(*ssh.PassphraseMissingError); ok {
-				rawModeStdin, restoreStdin, err := bootstrapUtil.RawModeStdin(in)
-				if err != nil {
-					return err
-				}
-				defer call(restoreStdin)
-				term := terminal.NewTerminal(rawModeStdin, "")
-				sshKeyPassword, err := term.ReadPassword("Please enter the password for the SSH key: ")
-				if err != nil {
-					return err
-				}
-				decryptedKey, err := ssh.ParsePrivateKeyWithPassphrase(rawKey, []byte(sshKeyPassword))
-				if err != nil {
-					return fmt.Errorf("failed to parse password-protected SSH key from %q: %w", sshKeyLocation, err)
-				}
-				sshAuthMethod = ssh.PublicKeys(decryptedKey)
-			} else {
-				return fmt.Errorf("failed to parse SSH key from %q: %w", sshKeyLocation, err)
-			}
-		} else {
-			sshAuthMethod = ssh.PublicKeys(key)
+		candidateKeyLocations = []string{
+			filepath.Join(homeDir, ".ssh", "id_dsa"),
+			filepath.Join(homeDir, ".ssh", "id_ecdsa"),
+			filepath.Join(homeDir, ".ssh", "id_ed25519"),
+			filepath.Join(homeDir, ".ssh", "id_rsa"),
 		}
 	}
-	return nil
+	for _, candidateKeyLocation := range candidateKeyLocations {
+		// Attempt to parse the key.
+		rawKey, err := ioutil.ReadFile(candidateKeyLocation)
+		if err != nil {
+			errs = multierror.Append(errs, fmt.Errorf("failed to read SSH key from %q: %w", candidateKeyLocation, err))
+			continue
+		}
+		key, err := parseSSHKey(rawKey, candidateKeyLocation)
+		if err != nil {
+			errs = multierror.Append(errs, fmt.Errorf("failed to parse SSH key from %q: %w", candidateKeyLocation, err))
+			return // stop iterating over candidate keys after the first parse failure
+		}
+		sshAuthMethod = ssh.PublicKeys(key)
+		return nil
+	}
+	return
 }
 
 func NewVmBootstrapCommand() *cobra.Command {
@@ -658,12 +704,12 @@ For a complete list of supported annotations run '%s'.`, bootstrapAnnotation.Scp
 				if sshIgnoreHostKeys {
 					callback = ssh.InsecureIgnoreHostKey()
 				} else {
-					user, err := user.Current()
-					if err != nil {
-						return fmt.Errorf("failed to determine current user: %w", err)
-					}
 					prompt := bootstrapSsh.HostKeyPrompt(cmd.InOrStdin(), cmd.ErrOrStderr())
-					filename := filepath.Join(user.HomeDir, ".ssh", "known_hosts")
+					homeDir, err := homedir.Dir()
+					if err != nil {
+						return fmt.Errorf("failed to determine home directory of the current user: %w", err)
+					}
+					filename := filepath.Join(homeDir, ".ssh", "known_hosts")
 					knownhost, err := knownhosts.New(filename)
 					switch {
 					case os.IsNotExist(err):
@@ -811,6 +857,8 @@ For a complete list of supported annotations run '%s'.`, bootstrapAnnotation.Scp
 		"(experimental) the timeout for copying a bootstrap bundle")
 	vmBSCommand.PersistentFlags().BoolVar(&sshIgnoreHostKeys, "ignore-host-keys", false,
 		"(experimental) ignore host keys on the remote host")
+	vmBSCommand.PersistentFlags().BoolVar(&useSSHPassword, "ssh-password", false,
+		"(experimental) force SSH password-based authentication")
 	vmBSCommand.PersistentFlags().StringVarP(&sshKeyLocation, "ssh-key", "k", "",
 		"(experimental) the location of the SSH key")
 	vmBSCommand.PersistentFlags().IntVar(&defaultSSHPort, "ssh-port", 22,
