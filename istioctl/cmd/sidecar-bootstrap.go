@@ -757,6 +757,18 @@ For a complete list of supported annotations run '%[2]s sidecar-bootstrap --docs
 				return fmt.Errorf("failed to create k8s client: %w", err)
 			}
 
+			_, err = kubeClient.Discovery().ServerVersion() // to avoid confusing error messages later on, check connectivity to k8s in the beginning
+			if err != nil {
+				return fmt.Errorf(`failed to access k8s APIs: %w
+
+Hint: make sure that "kubectl" or "istioctl" run successfully in this environment;
+      you might have forgotten to switch k8s context or your authentication might have expired
+
+      E.g., check whether the following command succeeds:
+
+        kubectl version`, err)
+			}
+
 			configClient, err := configStoreFactory()
 			if err != nil {
 				return fmt.Errorf("failed to create Istio config client: %w", err)
