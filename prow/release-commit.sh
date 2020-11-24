@@ -38,7 +38,7 @@ BUILDER_SHA=dedd0ac061a7b043f845cc26fbf2cb92e1cd1e18
 # This will create a version like 1.4-alpha.sha
 NEXT_VERSION=1.7
 TAG=$(git rev-parse HEAD)
-VERSION="${NEXT_VERSION}-alpha.${TAG}"
+VERSION="${VERSION:-${NEXT_VERSION}-alpha.${TAG}}"
 
 # In CI we want to store the outputs to artifacts, which will preserve the build
 # If not specified, we can just create a temporary directory

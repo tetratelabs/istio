@@ -6,6 +6,8 @@ on:
   push:
     branches:
     - tcc
+    tags:
+    - '**'
   pull_request:
     branches:
     - '**'
@@ -17,10 +19,19 @@ jobs:
 
     outputs:
       image: ${{ steps.config.outputs.image }}
+      tag: ${{ steps.git.outputs.tag }}
 
     steps:
     - id: config
       run: echo "::set-output name=image::docker.io/tetrate/build-tools:release-1.7-2020-11-18T23-24-38" # ISTIO_BUILD_TOOLS
+
+    - id: git
+      run: |
+        TAG=
+        if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+          TAG=$( echo "${GITHUB_REF}" | tail -c +11 )
+        fi
+        echo "::set-output name=tag::${TAG}"
 
   build:
     runs-on: ubuntu-latest
@@ -70,6 +81,7 @@ jobs:
     - env:
         DOCKER_HUB: ${{ secrets.TETRATE_CI_DOCKER_HUB }}
         GCS_BUCKET: ${{ secrets.TETRATE_CI_GCS_BUCKET }}
+        VERSION: ${{ needs.config.outputs.tag }}
       run: prow/release-commit.sh
 
   lint:
