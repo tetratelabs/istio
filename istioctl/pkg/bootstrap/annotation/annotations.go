@@ -22,23 +22,6 @@ import (
 type Instance = annotation.Instance
 
 var (
-	K8sCaRootCertConfigMapName = Instance{
-		Name: "sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap",
-		Description: `Name of the Kubernetes config map that holds root certs of a k8s CA and, if applicable, OpenShift Service CA.
-
-ConfigMap should include the following keys:
-* ` + markdown.InlineCode("ca.crt") + `         - (mandatory) root certs of a k8s CA
-* ` + markdown.InlineCode("service-ca.crt") + ` - (optional)  root certs of an OpenShift Service CA
-
-By default, config map is considered undefined and thus the only way to find out
-the root certs of a k8s CA and, if applicable, OpenShift Service CA is
-1) either to read a k8s Secret with a ServiceAccountToken, which among other things
-   holds the root certs of a k8s CA and, if applicable, OpenShift Service CA
-2) or to read the root certs of a k8s CA from the ` + markdown.InlineCode("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt") + `
-   file, which is auto-mounted into Pods by k8s, and, if applicable, root certs of an OpenShift Service CA from the
-   ` + markdown.InlineCode("/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"),
-	}
-
 	MeshExpansionConfigMapName = Instance{
 		Name: "sidecar-bootstrap.istio.io/mesh-expansion-configmap",
 		Description: `Name of the Kubernetes config map that holds configuration intended for those
@@ -136,7 +119,6 @@ By default, WorkloadEntry.Address is assumed.`,
 
 func SupportedCustomAnnotations() []*Instance {
 	return []*Instance{
-		&K8sCaRootCertConfigMapName,
 		&MeshExpansionConfigMapName,
 		&SSHHost,
 		&SSHPort,

@@ -40,7 +40,25 @@ metadata:
   name: istio
   namespace: istio-system
 data:
-  mesh: ""
+  mesh: |
+    defaultConfig:
+      discoveryAddress: istiod.istio-system.svc:15012
+      envoyAccessLogService:
+        address: als.istio-system.svc:9876
+        tlsSettings:
+          mode: SIMPLE
+          caCertificates: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        tcpKeepalive:
+          probes: 1
+          time: 2s
+          interval: 3s
+      tracing:
+        zipkin:
+          address: zipkin.istio-system.svc:9411
+      proxyMetadata:
+        ISTIO_ADDITIONAL_METADATA_EXCHANGE_KEYS: CUSTOM_KEY_1,CUSTOM_KEY_2
+        CUSTOM_KEY_1: value1
+        CUSTOM_KEY_2: value2
   meshNetworks: |
     networks: {}
 ---
@@ -79,3 +97,28 @@ status:
   loadBalancer:
     ingress:
     - ip: 1.2.3.4
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: global-mesh-expansion
+  namespace: istio-system
+data:
+  PROXY_CONFIG: |
+    discoveryAddress: istiod.istio-system.svc:15443
+    envoyAccessLogService:
+      address: als.istio-system.svc:15443
+      tlsSettings:
+        mode: ISTIO_MUTUAL
+        sni: als.istio-system.svc
+      tcpKeepalive:
+        probes: 3
+        time: 10s
+        interval: 20s
+    tracing:
+      zipkin:
+        address: zipkin.istio-system.svc:15443
+      tlsSettings:
+        mode: ISTIO_MUTUAL
+        sni: zipkin.istio-system.svc
+    

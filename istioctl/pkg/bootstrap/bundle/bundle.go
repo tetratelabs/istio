@@ -19,10 +19,6 @@ import (
 )
 
 type BootstrapBundle struct {
-	/* k8s */
-	K8sCaCert []byte
-	/* OpenShift */
-	OpenShiftCaCert []byte
 	/* mesh */
 	IstioCaCert                []byte
 	IstioIngressGatewayAddress string

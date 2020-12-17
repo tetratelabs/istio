@@ -15,10 +15,10 @@
 package bundle
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 
 	"github.com/gogo/protobuf/jsonpb"
@@ -36,17 +36,13 @@ import (
 )
 
 type SidecarData struct {
-	/* k8s */
-	K8sCaCert []byte
-	/* OpenShift */
-	OpenShiftCaCert []byte
 	/* mesh */
 	IstioSystemNamespace       string
 	IstioMeshConfig            *meshconfig.MeshConfig
 	IstioConfigValues          *istioconfig.Values
 	IstioCaCert                []byte
 	IstioIngressGatewayAddress string
-	ExpansionProxyConfig       string // optional override config for expansion proxies
+	ProxyConfigOverrides       []string // optional override configuration for expansion proxies
 	/* workload */
 	Workload *networkingCrd.WorkloadEntry
 	/* sidecar */
@@ -119,8 +115,7 @@ var (
 		{
 			Name: "POD_NAME",
 			Value: func(data *SidecarData) (string, error) {
-				addressIdentifier := addressToPodNameAddition(data.Workload.Spec.Address)
-				return data.Workload.Name + "-" + addressIdentifier, nil
+				return data.Workload.Name, nil
 			},
 		},
 		{
@@ -296,10 +291,13 @@ func (d *SidecarData) ForWorkload(workload *networkingCrd.WorkloadEntry) (*Sidec
 	// set reasonable defaults
 	proxyConfig.ServiceCluster = getServiceCluster(workload)
 	proxyConfig.Concurrency = nil // by default, use all CPU cores of the VM
-	// apply defaults for all mesh expansion proxies
-	if value := d.ExpansionProxyConfig; value != "" {
-		if err := gogoprotomarshal.ApplyYAML(value, proxyConfig); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal ProxyConfig for mesh expansion proxies [%v]: %w", value, err)
+
+	// apply defaults intended for all mesh expansion proxies
+	for _, proxyConfigOverrides := range d.ProxyConfigOverrides {
+		if proxyConfigOverrides != "" {
+			if err := gogoprotomarshal.ApplyYAML(proxyConfigOverrides, proxyConfig); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal ProxyConfig overrides for mesh expansion proxies [%v]: %w", proxyConfigOverrides, err)
+			}
 		}
 	}
 
@@ -348,16 +346,18 @@ func replaceClusterLocalAddresses(proxyConfig *meshconfig.ProxyConfig, workloadN
 			if tlsSettings.GetSni() == "" {
 				tlsSettings.Sni = shortHost
 			}
-			for _, extraName := range []string{canonicalHost, shortHost} {
-				registered := false
-				for _, knownName := range tlsSettings.GetSubjectAltNames() {
-					if extraName == knownName {
-						registered = true
-						break
+			if tlsSettings.GetMode() != networking.ClientTLSSettings_ISTIO_MUTUAL {
+				for _, extraName := range []string{canonicalHost, shortHost} {
+					registered := false
+					for _, knownName := range tlsSettings.GetSubjectAltNames() {
+						if extraName == knownName {
+							registered = true
+							break
+						}
 					}
-				}
-				if !registered {
-					tlsSettings.SubjectAltNames = append(tlsSettings.SubjectAltNames, extraName)
+					if !registered {
+						tlsSettings.SubjectAltNames = append(tlsSettings.SubjectAltNames, extraName)
+					}
 				}
 			}
 		}
@@ -436,8 +436,15 @@ func (d *SidecarData) GetSecretsDir() string {
 func (d *SidecarData) GetEnv() ([]string, error) {
 	vars := make([]string, 0, len(d.ProxyConfig.GetProxyMetadata())+len(envVars))
 	// lower priority
-	for name, value := range d.ProxyConfig.GetProxyMetadata() {
-		vars = append(vars, fmt.Sprintf("%s=%s", name, value))
+	metadata := d.ProxyConfig.GetProxyMetadata()
+	metakeys := make([]string, 0, len(metadata))
+	for key := range metadata {
+		metakeys = append(metakeys, key)
+	}
+	sort.Strings(metakeys)
+	for _, key := range metakeys {
+		value := metadata[key]
+		vars = append(vars, fmt.Sprintf("%s=%s", key, value))
 	}
 	// higher priority
 	for _, envar := range envVars {
@@ -510,7 +517,7 @@ func (d *SidecarData) GetIstioProxyHosts() []string {
 		d.IstioConfigValues.GetGlobal().GetRemoteTelemetryAddress(),
 		d.IstioConfigValues.GetGlobal().GetCaAddress(),
 	}
-	hosts := make([]string, 0, len(candidates)*4)
+	hostSet := make(map[string]bool, len(candidates)*4)
 	for _, candidate := range candidates {
 		if candidate == "" {
 			continue // skip undefined addresses
@@ -526,8 +533,15 @@ func (d *SidecarData) GetIstioProxyHosts() []string {
 			continue // skip non- cluster local address
 		}
 		svc, ns := SplitServiceAndNamespace(host, d.Workload.Namespace)
-		hosts = append(hosts, getClusterLocalAliases(svc, ns)...)
+		for _, alias := range getClusterLocalAliases(svc, ns) {
+			hostSet[alias] = true
+		}
 	}
+	hosts := make([]string, 0, len(hostSet))
+	for host := range hostSet {
+		hosts = append(hosts, host)
+	}
+	sort.Strings(hosts)
 	return hosts
 }
 
@@ -646,10 +660,6 @@ func clusterLocalSni(address, defaultSni string) string {
 		return defaultSni
 	}
 	return "" // use the default value
-}
-
-func addressToPodNameAddition(address string) string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(address)))[0:7]
 }
 
 func nonemptyOrDefault(value, defaultValue string) string {

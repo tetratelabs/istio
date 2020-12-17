@@ -60,6 +60,7 @@ import (
 
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -75,7 +76,8 @@ var resourceURI = bootstrapUtil.ResourceURI
 
 var (
 	// overridable by unit tests
-	now = time.Now
+	now                                  = time.Now
+	vmBootstrapCmd func() *cobra.Command = defaultVMBootstrapCmd
 )
 
 const (
@@ -184,7 +186,29 @@ func getMeshNetworksFromConfigMap(kubeconfig, command string) (*meshconfig.MeshN
 	return cfg, err
 }
 
-func getExpansionProxyConfig(kubeClient kubernetes.Interface, namespace string) (string, error) {
+func getGlobalProxyConfigOverrides(kubeClient kubernetes.Interface, namespace, configmap string) (string, error) {
+	cm, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.Background(), configmap, metav1.GetOptions{})
+	if kerrors.IsNotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to read ConfigMap %s that holds global config overrides for mesh expansion proxies: %w",
+			resourceURI("v1", "configmaps", namespace, configmap), err)
+	}
+	value := cm.Data["PROXY_CONFIG"]
+	if value == "" {
+		return "", nil
+	}
+	proxyConfig := new(meshconfig.ProxyConfig)
+	if err := gogoprotomarshal.ApplyYAML(value, proxyConfig); err != nil {
+		return "", fmt.Errorf("failed to unmarshal ProxyConfig from the ConfigMap %s "+
+			"that holds global config overrides for mesh expansion proxies: %w",
+			resourceURI("v1", "configmaps", cm.Namespace, cm.Name), err)
+	}
+	return value, nil
+}
+
+func getProxyConfigOverrides(kubeClient kubernetes.Interface, namespace string) (string, error) {
 	ns, err := kubeClient.CoreV1().Namespaces().Get(context.Background(), namespace, metav1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to read Namespace %q: %w", namespace, err)
@@ -223,87 +247,6 @@ func fetchSingleWorkloadEntry(client istioclient.Interface, namespace, workloadN
 func fetchAllWorkloadEntries(client istioclient.Interface, namespace string) ([]networking.WorkloadEntry, error) {
 	list, err := client.NetworkingV1alpha3().WorkloadEntries(namespace).List(context.Background(), metav1.ListOptions{})
 	return list.Items, err
-}
-
-func getK8sCaCertFromConfigMap(kubeClient kubernetes.Interface, namespace string) ([]byte, []byte, error) {
-	ns, err := kubeClient.CoreV1().Namespaces().Get(context.Background(), namespace, metav1.GetOptions{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read Namespace %q: %w", namespace, err)
-	}
-	configMapName := ns.Annotations[bootstrapAnnotation.K8sCaRootCertConfigMapName.Name]
-	if configMapName == "" {
-		return nil, nil, fmt.Errorf("k8s Namespace %q doesn't specify a ConfigMap that would hold root certs of a k8s CA and, "+
-			"if applicable, an OpenShift Service CA", namespace)
-	}
-	cm, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.Background(), configMapName, metav1.GetOptions{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read ConfigMap %s that was referenced to by means of %q annotation on the %q Namespace: %w",
-			resourceURI("v1", "configmaps", namespace, configMapName), bootstrapAnnotation.MeshExpansionConfigMapName.Name, namespace, err)
-	}
-	k8sCaCert := cm.Data["ca.crt"] // well-known k8s constant
-	if k8sCaCert == "" {
-		return nil, nil, fmt.Errorf("ConfigMap %s has no value for a mandatory key %q", // nolint:golint
-			resourceURI("v1", "configmaps", cm.Namespace, cm.Name), "ca.crt")
-	}
-	openshiftCaCert := cm.Data["service-ca.crt"] // well-known OpenShift constant
-	return []byte(k8sCaCert), []byte(openshiftCaCert), nil
-}
-
-func getK8sCaCertFromServiceAccountTokenSecret(kubeClient kubernetes.Interface, namespace string) ([]byte, []byte, error) {
-	sa, err := kubeClient.CoreV1().ServiceAccounts(namespace).Get(context.Background(), "default", metav1.GetOptions{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read ServiceAccount %s: %w", resourceURI("v1", "serviceaccounts", namespace, "default"), err)
-	}
-	for _, ref := range sa.Secrets {
-		secret, err := kubeClient.CoreV1().Secrets(namespace).Get(context.Background(), ref.Name, metav1.GetOptions{})
-		if err != nil {
-			log.Debugf("%v", err)
-			continue
-		}
-		if secret.Type != "kubernetes.io/service-account-token" { // well-known k8s constant
-			continue
-		}
-		k8sCaCert := secret.Data["ca.crt"] // well-known k8s constant
-		if len(k8sCaCert) == 0 {
-			continue
-		}
-		openshiftCaCert := secret.Data["service-ca.crt"] // well-known OpenShift constant
-		return k8sCaCert, openshiftCaCert, nil
-	}
-	return nil, nil, fmt.Errorf("unable to find a Secret with the root cert of a k8s CA in the ServiceAccount %s",
-		resourceURI("v1", "serviceaccounts", sa.Namespace, sa.Name))
-}
-
-func getK8sCaCert(kubeClient kubernetes.Interface, namespace, istioNamespace string) ([]byte, []byte, error) {
-	type K8sCaRootCertSource func(kubeClient kubernetes.Interface) ([]byte, []byte, error)
-	sources := []K8sCaRootCertSource{
-		func(kubeClient kubernetes.Interface) ([]byte, []byte, error) {
-			return getK8sCaCertFromConfigMap(kubeClient, istioNamespace)
-		},
-		func(kubeClient kubernetes.Interface) ([]byte, []byte, error) {
-			return getK8sCaCertFromServiceAccountTokenSecret(kubeClient, istioNamespace)
-		},
-		func(kubeClient kubernetes.Interface) ([]byte, []byte, error) {
-			return getK8sCaCertFromServiceAccountTokenSecret(kubeClient, namespace)
-		},
-		func(kubeClient kubernetes.Interface) ([]byte, []byte, error) {
-			return getK8sCaCertFromServiceAccountTokenSecret(kubeClient, "kube-public")
-		},
-	}
-	for _, source := range sources {
-		k8sCaCert, openshiftCaCert, err := source(kubeClient)
-		if err != nil {
-			log.Debugf("%v", err)
-			continue
-		}
-		return k8sCaCert, openshiftCaCert, nil
-	}
-	return nil, nil, fmt.Errorf("all supported strategies to find k8s CA certs have failed.\n"+
-		"To overcome this, either grant the user permissions to read k8s Secrets in one of the following Namespaces %v,\n"+
-		"or create a ConfigMap with the root certs of a k8s CA (and, if applicable, an OpenShift Service CA)\n"+
-		"in the %q Namespace and use %q annotation\n"+
-		"to give this command a hint where to find such a ConfigMap",
-		[]string{istioNamespace, namespace, "kube-public"}, istioNamespace, bootstrapAnnotation.K8sCaRootCertConfigMapName.Name)
 }
 
 func getIstioCaCert(kubeClient kubernetes.Interface, namespace string) ([]byte, error) {
@@ -383,21 +326,20 @@ func getIstioIngressGatewayService(kubeClient kubernetes.Interface, namespace, s
 }
 
 func verifyMeshExpansionPorts(svc *corev1.Service) error {
-	ports := make(map[string]int32)
+	actualPorts := make(map[int32]bool)
 	for _, port := range svc.Spec.Ports {
-		ports[port.Name] = port.Port
+		actualPorts[port.Port] = true
 	}
 	meshExpansionPorts := []struct {
-		name string
-		port int32
+		port        int32
+		description string
 	}{
-		{name: "tcp-istiod", port: 15012},
-		{name: "tls", port: 15443},
+		{port: 15443, description: "TLS AUTO_PASSTHROUGH"},
 	}
 	for _, expected := range meshExpansionPorts {
-		if actual, present := ports[expected.name]; !present || actual != expected.port {
-			return fmt.Errorf("mesh expansion is not possible because Istio Ingress Gateway Service %s is missing a port '%s (%d)'",
-				resourceURI("v1", "services", svc.Namespace, svc.Name), expected.name, expected.port)
+		if present := actualPorts[expected.port]; !present {
+			return fmt.Errorf("mesh expansion is not possible because Istio Ingress Gateway Service %s is missing a port '%d (%s)'",
+				resourceURI("v1", "services", svc.Namespace, svc.Name), expected.port, expected.description)
 		}
 	}
 	return nil
@@ -483,10 +425,6 @@ func processWorkloads(
 		}
 
 		bundle := BootstrapBundle{
-			/* k8s */
-			K8sCaCert: data.K8sCaCert,
-			/* OpenShift */
-			OpenShiftCaCert: data.OpenShiftCaCert,
 			/* mesh */
 			IstioCaCert:                data.IstioCaCert,
 			IstioIngressGatewayAddress: data.IstioIngressGatewayAddress,
@@ -522,12 +460,6 @@ func processBundle(bundle BootstrapBundle, remoteDir string) bootstrapItems {
 			data: bundle.IstioProxyEnvironment,
 		},
 		fileToCopy{
-			name: "k8s-ca.pem",
-			dir:  remoteDir,
-			perm: configFilePerm,
-			data: bundle.K8sCaCert,
-		},
-		fileToCopy{
 			name: "istio-ca.pem",
 			dir:  remoteDir,
 			perm: configFilePerm,
@@ -540,16 +472,6 @@ func processBundle(bundle BootstrapBundle, remoteDir string) bootstrapItems {
 			data: bundle.ServiceAccountToken,
 		},
 	)
-	if len(bundle.OpenShiftCaCert) > 0 {
-		files = append(files,
-			fileToCopy{
-				name: "openshift-ca.pem",
-				dir:  remoteDir,
-				perm: configFilePerm,
-				data: bundle.OpenShiftCaCert,
-			},
-		)
-	}
 
 	var commands []cmdToExec
 	cmd := []string{
@@ -568,23 +490,9 @@ func processBundle(bundle BootstrapBundle, remoteDir string) bootstrapItems {
 		"-v",
 		// "./var/run/secrets/tokens/istio-token" is a hardcoded value in `istio-agent` that corresponds to `JWT_POLICY == third-party-jwt`
 		remoteDir + "/istio-token" + ":" + "/var/run/secrets/tokens/istio-token",
-		"-v",
-		// "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" is a well-known k8s path heavily abused in k8s world
-		remoteDir + "/k8s-ca.pem" + ":" + "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
-	}
-
-	if len(bundle.OpenShiftCaCert) > 0 {
-		cmd = append(cmd,
-			"-v",
-			// "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt" is a well-known OpenShift path
-			remoteDir+"/openshift-ca.pem"+":"+"/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt",
-		)
-	}
-
-	cmd = append(cmd,
 		"--env-file",
-		remoteDir+"/sidecar.env",
-	)
+		remoteDir + "/sidecar.env",
+	}
 
 	for _, host := range bundle.IstioProxyHosts {
 		cmd = append(cmd,
@@ -973,6 +881,16 @@ type VMBootstrapCommandOpts struct {
 	//
 	// By default, "istioctl x" is assumed.
 	ParentCommandDocPath string
+
+	// GlobalProxyConfigOverridesConfigMap specifies a custom ConfigMap with configuration that
+	// 1) will override mesh-wide default ProxyConfig
+	// 2) will be overridden by user-defined ProxyConfig overrides for all mesh expansion proxies
+	// 3) will be overridden by user-defined ProxyConfig overrides for a particual mesh expansion proxy
+	GlobalProxyConfigOverridesConfigMap string
+}
+
+func defaultVMBootstrapCmd() *cobra.Command {
+	return NewVMBootstrapCommand(VMBootstrapCommandOpts{})
 }
 
 func NewVMBootstrapCommand(opts VMBootstrapCommandOpts) *cobra.Command {
@@ -1143,22 +1061,12 @@ Hint: make sure that "kubectl" or "istioctl" run successfully in this environmen
 				return fmt.Errorf("failed to read Istio global values: %w", err)
 			}
 
-			expansionProxyConfig, err := getExpansionProxyConfig(kubeClient, istioNamespace)
-			if err != nil {
-				return fmt.Errorf("failed to read ProxyConfig for mesh expansion proxies: %w", err)
-			}
-
 			if actual, expected := istioConfigValues.GetGlobal().GetJwtPolicy(), "third-party-jwt"; actual != expected {
 				return fmt.Errorf("jwt policy is set to %q. At the moment, %q command only supports jwt policy %q", actual, c.CommandPath(), expected)
 			}
 
 			if actual, expected := istioConfigValues.GetGlobal().GetPilotCertProvider(), "istiod"; actual != expected {
 				return fmt.Errorf("pilot cert provider is set to %q. At the moment, %q command only supports pilot cert provider %q", actual, c.CommandPath(), expected)
-			}
-
-			k8sCaCert, openshiftCaCert, err := getK8sCaCert(kubeClient, ns, istioNamespace)
-			if err != nil {
-				return fmt.Errorf("unable to find the root cert of a k8s CA: %w", err)
 			}
 
 			istioCaCert, err := getIstioCaCert(kubeClient, istioNamespace)
@@ -1171,20 +1079,31 @@ Hint: make sure that "kubectl" or "istioctl" run successfully in this environmen
 				return fmt.Errorf("unable to proceed because mesh expansion is either disabled or misconfigured: %w", err)
 			}
 
+			globalProxyConfigOverrides := ""
+			if opts.GlobalProxyConfigOverridesConfigMap != "" {
+				globalProxyConfigOverrides, err = getGlobalProxyConfigOverrides(kubeClient, istioNamespace, opts.GlobalProxyConfigOverridesConfigMap)
+				if err != nil {
+					return fmt.Errorf("failed to read ProxyConfig overrides for mesh expansion proxies: %w", err)
+				}
+			}
+
+			userProxyConfigOverrides, err := getProxyConfigOverrides(kubeClient, istioNamespace)
+			if err != nil {
+				return fmt.Errorf("failed to read ProxyConfig overrides for mesh expansion proxies: %w", err)
+			}
+
 			identities, err := getIdentityForEachWorkload(kubeClient, entries)
 			if err != nil {
 				return fmt.Errorf("failed to generate security token(s) for WorkloadEntry(s): %w", err)
 			}
 
 			data := &SidecarData{
-				K8sCaCert:                  k8sCaCert,
-				OpenShiftCaCert:            openshiftCaCert,
 				IstioSystemNamespace:       istioNamespace,
 				IstioMeshConfig:            meshConfig,
 				IstioConfigValues:          istioConfigValues,
 				IstioCaCert:                istioCaCert,
 				IstioIngressGatewayAddress: istioGatewayAddress,
-				ExpansionProxyConfig:       expansionProxyConfig,
+				ProxyConfigOverrides:       []string{globalProxyConfigOverrides, userProxyConfigOverrides},
 			}
 
 			multiEntry := len(args) == 0

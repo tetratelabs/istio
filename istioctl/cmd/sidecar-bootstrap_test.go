@@ -26,6 +26,7 @@ import (
 	"time"
 
 	. "github.com/onsi/gomega"
+	"github.com/spf13/cobra"
 
 	"github.com/mholt/archiver"
 
@@ -402,6 +403,56 @@ Next steps:
 				},
 			}
 		}(),
+		// save generated files into a dir
+		func() vmBootstrapTestcase {
+			outputDir, err := ioutil.TempDir(baseTempdir, "")
+			g.Expect(err).NotTo(HaveOccurred())
+			return vmBootstrapTestcase{
+				args:           []string{"x", "sidecar-bootstrap", "my-vm.my-ns", "--output-dir", outputDir},
+				istioResources: parseK8sObjectsFromFile("testdata/sidecar-bootstrap/gke/input/istio.yaml"),
+				k8sResources:   parseK8sObjectsFromFile("testdata/sidecar-bootstrap/gke/input/k8s.yaml"),
+				shouldFail:     false,
+				expectedStdout: "",
+				expectedStderr: func() string {
+					return `Generated files have been saved to the directory ` + fmt.Sprintf("`%s`", outputDir) + `
+
+Next steps:
+
+  1. Copy the contents of ` + fmt.Sprintf("`%s`", outputDir) + ` directory to the remote host represented by the WorkloadEntry
+
+  2. Once on the remote host, run ` + "`<dir>/bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
+`
+				}(),
+				verifyFunc: func(t *testing.T) {
+					verifyBootstrapOutputDir(t, "testdata/sidecar-bootstrap/gke/output/single", outputDir)
+				},
+			}
+		}(),
+		// save generated files into a dir
+		func() vmBootstrapTestcase {
+			outputDir, err := ioutil.TempDir(baseTempdir, "")
+			g.Expect(err).NotTo(HaveOccurred())
+			return vmBootstrapTestcase{
+				args:           []string{"x", "sidecar-bootstrap", "my-vm.my-ns", "--output-dir", outputDir},
+				istioResources: parseK8sObjectsFromFile("testdata/sidecar-bootstrap/eks/input/istio.yaml"),
+				k8sResources:   parseK8sObjectsFromFile("testdata/sidecar-bootstrap/eks/input/k8s.yaml"),
+				shouldFail:     false,
+				expectedStdout: "",
+				expectedStderr: func() string {
+					return `Generated files have been saved to the directory ` + fmt.Sprintf("`%s`", outputDir) + `
+
+Next steps:
+
+  1. Copy the contents of ` + fmt.Sprintf("`%s`", outputDir) + ` directory to the remote host represented by the WorkloadEntry
+
+  2. Once on the remote host, run ` + "`<dir>/bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
+`
+				}(),
+				verifyFunc: func(t *testing.T) {
+					verifyBootstrapOutputDir(t, "testdata/sidecar-bootstrap/eks/output/single", outputDir)
+				},
+			}
+		}(),
 	}
 
 	for i, c := range cases {
@@ -438,8 +489,19 @@ func verifyVMCommandCaseOutput(t *testing.T, c vmBootstrapTestcase) {
 		configStoreFactory = backupConfigStoreFactory
 	}()
 
+	backupVMBootstrapCmd := vmBootstrapCmd
+	defer func() {
+		vmBootstrapCmd = backupVMBootstrapCmd
+	}()
+
 	now = func() time.Time {
 		return c.now
+	}
+
+	vmBootstrapCmd = func() *cobra.Command {
+		return NewVMBootstrapCommand(VMBootstrapCommandOpts{
+			GlobalProxyConfigOverridesConfigMap: "global-mesh-expansion",
+		})
 	}
 
 	// setup fake k8s client
@@ -529,7 +591,7 @@ func TestVmBundleCreate(t *testing.T) {
 		}
 
 		// Verify that docker run command contains proper mapping for files.
-		filesToTest := []string{"istio-ca.pem", "istio-token", "k8s-ca.pem", "sidecar.env"}
+		filesToTest := []string{"istio-ca.pem", "istio-token", "sidecar.env"}
 		for _, execCmd := range items.cmdsToExec {
 			if strings.Contains(execCmd.cmd, "docker run") {
 				// check all files.
@@ -550,589 +612,6 @@ func TestVmBundleCreate(t *testing.T) {
 
 }
 
-func TestVmBootstrap_GetK8sCaCertFromConfigMap(t *testing.T) {
-	testCases := []struct {
-		name                    string
-		k8sConfig               []runtime.Object
-		expectedK8sCaCert       []byte
-		expectedOpenshiftCaCert []byte
-		expectedErr             string
-	}{
-		{
-			name: "Namespace w/o `sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap` annotation",
-			k8sConfig: []runtime.Object{
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "istio-system",
-					},
-				},
-			},
-			expectedErr: `k8s Namespace "istio-system" doesn't specify a ConfigMap that would hold root certs of a k8s CA and, ` +
-				`if applicable, an OpenShift Service CA`,
-		},
-		{
-			name: "Namespace w/ `sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap` annotation but no value",
-			k8sConfig: []runtime.Object{
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "istio-system",
-						Annotations: map[string]string{
-							"sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap": "",
-						},
-					},
-				},
-			},
-			expectedErr: `k8s Namespace "istio-system" doesn't specify a ConfigMap that would hold root certs of a k8s CA and, ` +
-				`if applicable, an OpenShift Service CA`,
-		},
-		{
-			name: "Namespace w/ `sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap` annotation that points to a non-existing ConfigMap",
-			k8sConfig: []runtime.Object{
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "istio-system",
-						Annotations: map[string]string{
-							"sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap": "non-existing",
-						},
-					},
-				},
-			},
-			expectedErr: `failed to read ConfigMap kubernetes://api/v1/namespaces/istio-system/configmaps/non-existing that was referenced to ` +
-				`by means of "sidecar-bootstrap.istio.io/mesh-expansion-configmap" annotation on the "istio-system" Namespace: ` +
-				`configmaps "non-existing" not found`,
-		},
-		{
-			name: "ConfigMap w/o `ca.crt` key",
-			k8sConfig: []runtime.Object{
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "istio-system",
-						Annotations: map[string]string{
-							"sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap": "k8s-ca",
-						},
-					},
-				},
-				&corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "k8s-ca",
-						Namespace: "istio-system",
-					},
-					Data: map[string]string{},
-				},
-			},
-			expectedErr: `ConfigMap kubernetes://api/v1/namespaces/istio-system/configmaps/k8s-ca has no value for a mandatory key "ca.crt"`,
-		},
-		{
-			name: "ConfigMap w/ `ca.crt` key but no value",
-			k8sConfig: []runtime.Object{
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "istio-system",
-						Annotations: map[string]string{
-							"sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap": "k8s-ca",
-						},
-					},
-				},
-				&corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "k8s-ca",
-						Namespace: "istio-system",
-					},
-					Data: map[string]string{
-						"ca.crt": "",
-					},
-				},
-			},
-			expectedErr: `ConfigMap kubernetes://api/v1/namespaces/istio-system/configmaps/k8s-ca has no value for a mandatory key "ca.crt"`,
-		},
-		{
-			name: "ConfigMap w/ `ca.crt` key",
-			k8sConfig: []runtime.Object{
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "istio-system",
-						Annotations: map[string]string{
-							"sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap": "k8s-ca",
-						},
-					},
-				},
-				&corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "k8s-ca",
-						Namespace: "istio-system",
-					},
-					Data: map[string]string{
-						"ca.crt": "ABCDEFGH",
-					},
-				},
-			},
-			expectedK8sCaCert: []byte("ABCDEFGH"),
-		},
-		{
-			name: "ConfigMap w/ `ca.crt` and `service-ca.crt` keys",
-			k8sConfig: []runtime.Object{
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "istio-system",
-						Annotations: map[string]string{
-							"sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap": "k8s-ca",
-						},
-					},
-				},
-				&corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "k8s-ca",
-						Namespace: "istio-system",
-					},
-					Data: map[string]string{
-						"ca.crt":         "ABCDEFGH",
-						"service-ca.crt": "0123456789",
-					},
-				},
-			},
-			expectedK8sCaCert:       []byte("ABCDEFGH"),
-			expectedOpenshiftCaCert: []byte("0123456789"),
-		},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			g := NewGomegaWithT(t)
-
-			kubeClient, err := mockInterfaceFactoryGenerator(testCase.k8sConfig)("fake kube config")
-			g.Expect(err).NotTo(HaveOccurred())
-
-			k8sCaCert, openshiftCaCert, err := getK8sCaCertFromConfigMap(kubeClient, "istio-system")
-			if testCase.expectedErr != "" {
-				g.Expect(err).To(MatchError(testCase.expectedErr))
-			} else {
-				g.Expect(k8sCaCert).To(Equal(testCase.expectedK8sCaCert))
-				g.Expect(openshiftCaCert).To(Equal(testCase.expectedOpenshiftCaCert))
-			}
-		})
-	}
-}
-
-func TestVmBootstrap_GetK8sCaCertFromServiceAccountTokenSecret(t *testing.T) {
-	testCases := []struct {
-		name                    string
-		k8sConfig               []runtime.Object
-		expectedK8sCaCert       []byte
-		expectedOpenshiftCaCert []byte
-		expectedErr             string
-	}{
-		{
-			name:      "ServiceAccount doesn't exist",
-			k8sConfig: []runtime.Object{},
-			expectedErr: `failed to read ServiceAccount kubernetes://api/v1/namespaces/istio-system/serviceaccounts/default: ` +
-				`serviceaccounts "default" not found`,
-		},
-		{
-			name: "ServiceAccount w/o secrets",
-			k8sConfig: []runtime.Object{
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "istio-system",
-					},
-					Secrets: []corev1.ObjectReference{},
-				},
-			},
-			expectedErr: `unable to find a Secret with the root cert of a k8s CA in the ServiceAccount ` +
-				`kubernetes://api/v1/namespaces/istio-system/serviceaccounts/default`,
-		},
-		{
-			name: "ServiceAccount w/ reference to a non-existing Secret",
-			k8sConfig: []runtime.Object{
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "istio-system",
-					},
-					Secrets: []corev1.ObjectReference{{
-						Name: "non-existing",
-					}},
-				},
-			},
-			expectedErr: `unable to find a Secret with the root cert of a k8s CA in the ServiceAccount ` +
-				`kubernetes://api/v1/namespaces/istio-system/serviceaccounts/default`,
-		},
-		{
-			name: "ServiceAccount w/ reference to a Secret of type other than `kubernetes.io/service-account-token`",
-			k8sConfig: []runtime.Object{
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "istio-system",
-					},
-					Secrets: []corev1.ObjectReference{{
-						Name: "wrong-secret-type",
-					}},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "wrong-secret-type",
-						Namespace: "istio-system",
-					},
-					Data: map[string][]byte{
-						"ca.crt": []byte(`ABCDEFGH`),
-					},
-				},
-			},
-			expectedErr: `unable to find a Secret with the root cert of a k8s CA in the ServiceAccount ` +
-				`kubernetes://api/v1/namespaces/istio-system/serviceaccounts/default`,
-		},
-		{
-			name: "ServiceAccount w/ reference to a Secret of type `kubernetes.io/service-account-token` but no value for `ca.crt`",
-			k8sConfig: []runtime.Object{
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "istio-system",
-					},
-					Secrets: []corev1.ObjectReference{{
-						Name: "default-token-6n2ql",
-					}},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "default-token-6n2ql",
-					},
-					Type: "kubernetes.io/service-account-token",
-					Data: map[string][]byte{
-						"ca.crt": {},
-					},
-				},
-			},
-			expectedErr: `unable to find a Secret with the root cert of a k8s CA in the ServiceAccount ` +
-				`kubernetes://api/v1/namespaces/istio-system/serviceaccounts/default`,
-		},
-		{
-			name: "ServiceAccount w/ reference to a Secret of type `kubernetes.io/service-account-token` and `ca.crt` key",
-			k8sConfig: []runtime.Object{
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "istio-system",
-					},
-					Secrets: []corev1.ObjectReference{
-						{
-							Name: "non-existing",
-						},
-						{
-							Name: "default-token-6n2ql",
-						},
-					},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default-token-6n2ql",
-						Namespace: "istio-system",
-					},
-					Type: "kubernetes.io/service-account-token",
-					Data: map[string][]byte{
-						"ca.crt": []byte("ABCDEFGH"),
-					},
-				},
-			},
-			expectedK8sCaCert: []byte("ABCDEFGH"),
-		},
-		{
-			name: "ServiceAccount w/ reference to a Secret of type `kubernetes.io/service-account-token` and `ca.crt` key",
-			k8sConfig: []runtime.Object{
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "istio-system",
-					},
-					Secrets: []corev1.ObjectReference{
-						{
-							Name: "non-existing",
-						},
-						{
-							Name: "default-token-6n2ql",
-						},
-					},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default-token-6n2ql",
-						Namespace: "istio-system",
-					},
-					Type: "kubernetes.io/service-account-token",
-					Data: map[string][]byte{
-						"ca.crt":         []byte("ABCDEFGH"),
-						"service-ca.crt": []byte("0123456789"),
-					},
-				},
-			},
-			expectedK8sCaCert:       []byte(`ABCDEFGH`),
-			expectedOpenshiftCaCert: []byte("0123456789"),
-		},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			g := NewGomegaWithT(t)
-
-			kubeClient, err := mockInterfaceFactoryGenerator(testCase.k8sConfig)("fake kube config")
-			g.Expect(err).NotTo(HaveOccurred())
-
-			k8sCaCert, openshiftCaCert, err := getK8sCaCertFromServiceAccountTokenSecret(kubeClient, "istio-system")
-			if testCase.expectedErr != "" {
-				g.Expect(err).To(MatchError(testCase.expectedErr))
-			} else {
-				g.Expect(k8sCaCert).To(Equal(testCase.expectedK8sCaCert))
-				g.Expect(openshiftCaCert).To(Equal(testCase.expectedOpenshiftCaCert))
-			}
-		})
-	}
-}
-
-func TestVmBootstrap_GetK8sCaCert(t *testing.T) {
-	testCases := []struct {
-		name                    string
-		k8sConfig               []runtime.Object
-		expectedK8sCaCert       []byte
-		expectedOpenshiftCaCert []byte
-		expectedErr             string
-	}{
-		{
-			name:      "all supported strategies have failed",
-			k8sConfig: []runtime.Object{},
-			expectedErr: `all supported strategies to find k8s CA certs have failed.
-To overcome this, either grant the user permissions to read k8s Secrets in one of the following Namespaces [istio-system bookinfo kube-public],
-or create a ConfigMap with the root certs of a k8s CA (and, if applicable, an OpenShift Service CA)
-in the "istio-system" Namespace and use "sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap" annotation
-to give this command a hint where to find such a ConfigMap`,
-		},
-		{
-			name: "ConfigMap wins over other strategies",
-			k8sConfig: []runtime.Object{
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "istio-system",
-						Annotations: map[string]string{
-							"sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap": "k8s-ca",
-						},
-					},
-				},
-				&corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "k8s-ca",
-						Namespace: "istio-system",
-					},
-					Data: map[string]string{
-						"ca.crt":         "configmap.ca.crt",
-						"service-ca.crt": "configmap.service-ca.crt",
-					},
-				},
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "istio-system",
-					},
-					Secrets: []corev1.ObjectReference{{
-						Name: "default-token-6n2ql",
-					}},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default-token-6n2ql",
-						Namespace: "istio-system",
-					},
-					Type: "kubernetes.io/service-account-token",
-					Data: map[string][]byte{
-						"ca.crt":         []byte("secret.istio-system.ca.crt"),
-						"service-ca.crt": []byte("secret.istio-system.service-ca.crt"),
-					},
-				},
-			},
-			expectedK8sCaCert:       []byte("configmap.ca.crt"),
-			expectedOpenshiftCaCert: []byte("configmap.service-ca.crt"),
-		},
-		{
-			name: "`istio-system` Namespace wins over other namespaces",
-			k8sConfig: []runtime.Object{
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "istio-system",
-						Annotations: map[string]string{
-							"sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap": "k8s-ca",
-						},
-					},
-				},
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "istio-system",
-					},
-					Secrets: []corev1.ObjectReference{{
-						Name: "default-token-6n2ql",
-					}},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default-token-6n2ql",
-						Namespace: "istio-system",
-					},
-					Type: "kubernetes.io/service-account-token",
-					Data: map[string][]byte{
-						"ca.crt":         []byte("secret.istio-system.ca.crt"),
-						"service-ca.crt": []byte("secret.istio-system.service-ca.crt"),
-					},
-				},
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "bookinfo",
-					},
-				},
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "bookinfo",
-					},
-					Secrets: []corev1.ObjectReference{{
-						Name: "default-token-8l84n",
-					}},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default-token-8l84n",
-						Namespace: "bookinfo",
-					},
-					Type: "kubernetes.io/service-account-token",
-					Data: map[string][]byte{
-						"ca.crt":         []byte("secret.bookinfo.ca.crt"),
-						"service-ca.crt": []byte("secret.bookinfo.service-ca.crt"),
-					},
-				},
-			},
-			expectedK8sCaCert:       []byte("secret.istio-system.ca.crt"),
-			expectedOpenshiftCaCert: []byte("secret.istio-system.service-ca.crt"),
-		},
-		{
-			name: "WorkloadEntry Namespace wins over `kube-public`",
-			k8sConfig: []runtime.Object{
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "istio-system",
-						Annotations: map[string]string{
-							"sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap": "k8s-ca",
-						},
-					},
-				},
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "bookinfo",
-					},
-				},
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "bookinfo",
-					},
-					Secrets: []corev1.ObjectReference{{
-						Name: "default-token-8l84n",
-					}},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default-token-8l84n",
-						Namespace: "bookinfo",
-					},
-					Type: "kubernetes.io/service-account-token",
-					Data: map[string][]byte{
-						"ca.crt":         []byte("secret.bookinfo.ca.crt"),
-						"service-ca.crt": []byte("secret.bookinfo.service-ca.crt"),
-					},
-				},
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "kube-public",
-					},
-				},
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "kube-public",
-					},
-					Secrets: []corev1.ObjectReference{{
-						Name: "default-token-gxfbc",
-					}},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default-token-gxfbc",
-						Namespace: "kube-public",
-					},
-					Type: "kubernetes.io/service-account-token",
-					Data: map[string][]byte{
-						"ca.crt":         []byte("secret.kube-public.ca.crt"),
-						"service-ca.crt": []byte("secret.kube-public.service-ca.crt"),
-					},
-				},
-			},
-			expectedK8sCaCert:       []byte("secret.bookinfo.ca.crt"),
-			expectedOpenshiftCaCert: []byte("secret.bookinfo.service-ca.crt"),
-		},
-		{
-			name: "`kube-public` Namespace is a last resort",
-			k8sConfig: []runtime.Object{
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "istio-system",
-						Annotations: map[string]string{
-							"sidecar-bootstrap.istio.io/k8s-ca-root-cert-configmap": "k8s-ca",
-						},
-					},
-				},
-				&corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "kube-public",
-					},
-				},
-				&corev1.ServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "kube-public",
-					},
-					Secrets: []corev1.ObjectReference{{
-						Name: "default-token-gxfbc",
-					}},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default-token-gxfbc",
-						Namespace: "kube-public",
-					},
-					Type: "kubernetes.io/service-account-token",
-					Data: map[string][]byte{
-						"ca.crt":         []byte("secret.kube-public.ca.crt"),
-						"service-ca.crt": []byte("secret.kube-public.service-ca.crt"),
-					},
-				},
-			},
-			expectedK8sCaCert:       []byte("secret.kube-public.ca.crt"),
-			expectedOpenshiftCaCert: []byte("secret.kube-public.service-ca.crt"),
-		},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			g := NewGomegaWithT(t)
-
-			kubeClient, err := mockInterfaceFactoryGenerator(testCase.k8sConfig)("fake kube config")
-			g.Expect(err).NotTo(HaveOccurred())
-
-			k8sCaCert, openshiftCaCert, err := getK8sCaCert(kubeClient, "bookinfo", "istio-system")
-			if testCase.expectedErr != "" {
-				g.Expect(err).To(MatchError(testCase.expectedErr))
-			} else {
-				g.Expect(k8sCaCert).To(Equal(testCase.expectedK8sCaCert))
-				g.Expect(openshiftCaCert).To(Equal(testCase.expectedOpenshiftCaCert))
-			}
-		})
-	}
-}
-
 func TestVmBootstrap_ProcessBundle(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -1140,10 +619,8 @@ func TestVmBootstrap_ProcessBundle(t *testing.T) {
 		expectedItems bootstrapItems
 	}{
 		{
-			name: "w/o OpenShift Service CA certs",
+			name: "w/ host names",
 			bundle: BootstrapBundle{
-				/* k8s */
-				K8sCaCert: []byte(`k8s CA certs`),
 				/* mesh */
 				IstioCaCert:                []byte(`Istio CA certs`),
 				IstioIngressGatewayAddress: "1.2.3.4",
@@ -1163,12 +640,6 @@ func TestVmBootstrap_ProcessBundle(t *testing.T) {
 						dir:  "/etc/istio-proxy",
 						perm: os.FileMode(0644),
 						data: []byte("KEY=VALUE"),
-					},
-					{
-						name: "k8s-ca.pem",
-						dir:  "/etc/istio-proxy",
-						perm: os.FileMode(0644),
-						data: []byte("k8s CA certs"),
 					},
 					{
 						name: "istio-ca.pem",
@@ -1192,80 +663,6 @@ func TestVmBootstrap_ProcessBundle(t *testing.T) {
 						cmd: "docker run -d --name istio-proxy --restart unless-stopped --network host " +
 							"-v /etc/istio-proxy/istio-ca.pem:/var/run/secrets/istio/root-cert.pem " +
 							"-v /etc/istio-proxy/istio-token:/var/run/secrets/tokens/istio-token " +
-							"-v /etc/istio-proxy/k8s-ca.pem:/var/run/secrets/kubernetes.io/serviceaccount/ca.crt " +
-							"--env-file /etc/istio-proxy/sidecar.env " +
-							"--add-host istiod.istio-system.svc:1.2.3.4 " +
-							"--add-host zipkin.istio-monitoring.svc:1.2.3.4 " +
-							"proxyv2:latest " +
-							"proxy sidecar",
-						required: true,
-					},
-				},
-			},
-		},
-		{
-			name: "w/ OpenShift Service CA certs",
-			bundle: BootstrapBundle{
-				/* k8s */
-				K8sCaCert: []byte(`k8s CA certs`),
-				/* OpenShift */
-				OpenShiftCaCert: []byte(`OpenShift Service CA certs`),
-				/* mesh */
-				IstioCaCert:                []byte(`Istio CA certs`),
-				IstioIngressGatewayAddress: "1.2.3.4",
-				/* workload */
-				ServiceAccountToken: []byte(`k8s SA token`),
-				/* sidecar */
-				IstioProxyContainerName: "istio-proxy",
-				IstioProxyImage:         "proxyv2:latest",
-				IstioProxyArgs:          []string{"proxy", "sidecar"},
-				IstioProxyEnvironment:   []byte(`KEY=VALUE`),
-				IstioProxyHosts:         []string{"istiod.istio-system.svc", "zipkin.istio-monitoring.svc"},
-			},
-			expectedItems: bootstrapItems{
-				filesToCopy: []fileToCopy{
-					{
-						name: "sidecar.env",
-						dir:  "/etc/istio-proxy",
-						perm: os.FileMode(0644),
-						data: []byte("KEY=VALUE"),
-					},
-					{
-						name: "k8s-ca.pem",
-						dir:  "/etc/istio-proxy",
-						perm: os.FileMode(0644),
-						data: []byte("k8s CA certs"),
-					},
-					{
-						name: "istio-ca.pem",
-						dir:  "/etc/istio-proxy",
-						perm: os.FileMode(0644),
-						data: []byte("Istio CA certs"),
-					},
-					{
-						name: "istio-token",
-						dir:  "/etc/istio-proxy",
-						perm: os.FileMode(0640),
-						data: []byte("k8s SA token"),
-					},
-					{
-						name: "openshift-ca.pem",
-						dir:  "/etc/istio-proxy",
-						perm: os.FileMode(0644),
-						data: []byte("OpenShift Service CA certs"),
-					},
-				},
-				cmdsToExec: []cmdToExec{
-					{
-						cmd:      "docker rm --force istio-proxy",
-						required: false,
-					},
-					{
-						cmd: "docker run -d --name istio-proxy --restart unless-stopped --network host " +
-							"-v /etc/istio-proxy/istio-ca.pem:/var/run/secrets/istio/root-cert.pem " +
-							"-v /etc/istio-proxy/istio-token:/var/run/secrets/tokens/istio-token " +
-							"-v /etc/istio-proxy/k8s-ca.pem:/var/run/secrets/kubernetes.io/serviceaccount/ca.crt " +
-							"-v /etc/istio-proxy/openshift-ca.pem:/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt " +
 							"--env-file /etc/istio-proxy/sidecar.env " +
 							"--add-host istiod.istio-system.svc:1.2.3.4 " +
 							"--add-host zipkin.istio-monitoring.svc:1.2.3.4 " +
