@@ -158,6 +158,32 @@ func verifyBootstrapOutputArchive(t *testing.T, expectedDir string, actualFile s
 	verifyBootstrapOutputDir(t, expectedDir, tempdir)
 }
 
+func expectedNextStepsForBootstrapDir(outputDir string) string {
+	return `Generated files have been saved to the directory ` + fmt.Sprintf("`%s`", outputDir) + `
+
+Next steps:
+
+  1. Copy the contents of ` + fmt.Sprintf("`%s`", outputDir) + ` directory to the remote host represented by the WorkloadEntry
+
+  2. Once on the remote host, run ` + "`<dir>/bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
+`
+}
+
+func expectedNextStepsForBootstrapArchive(outputFile string) string {
+	return `Generated files have been saved into the TGZ archive ` + fmt.Sprintf("`%s`", outputFile) + `
+
+Next steps:
+
+  1. Copy the file ` + fmt.Sprintf("`%s`", outputFile) + ` to the remote host represented by the WorkloadEntry
+
+  2. Once on the remote host,
+
+     1. run ` + fmt.Sprintf("`tar -xvf %s`", filepath.Base(outputFile)) + ` to extract archive into the working directory
+
+     2. run ` + "`./bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
+`
+}
+
 type vmBootstrapTestcase struct {
 	now            time.Time
 	cwd            string
@@ -239,16 +265,7 @@ func TestVmBootstrap(t *testing.T) {
 				k8sResources:   parseK8sObjectsFromFile("testdata/sidecar-bootstrap/basic/input/k8s.yaml"),
 				shouldFail:     false,
 				expectedStdout: "",
-				expectedStderr: func() string {
-					return `Generated files have been saved to the directory ` + fmt.Sprintf("`%s`", outputDir) + `
-
-Next steps:
-
-  1. Copy the contents of ` + fmt.Sprintf("`%s`", outputDir) + ` directory to the remote host represented by the WorkloadEntry
-
-  2. Once on the remote host, run ` + "`<dir>/bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
-`
-				}(),
+				expectedStderr: expectedNextStepsForBootstrapDir(outputDir),
 				verifyFunc: func(t *testing.T) {
 					verifyBootstrapOutputDir(t, "testdata/sidecar-bootstrap/basic/output/single", outputDir)
 				},
@@ -265,20 +282,7 @@ Next steps:
 				k8sResources:   parseK8sObjectsFromFile("testdata/sidecar-bootstrap/basic/input/k8s.yaml"),
 				shouldFail:     false,
 				expectedStdout: "",
-				expectedStderr: func() string {
-					return `Generated files have been saved into the TGZ archive ` + fmt.Sprintf("`%s`", outputFile.Name()) + `
-
-Next steps:
-
-  1. Copy the file ` + fmt.Sprintf("`%s`", outputFile.Name()) + ` to the remote host represented by the WorkloadEntry
-
-  2. Once on the remote host,
-
-     1. run ` + fmt.Sprintf("`tar -xvf %s`", filepath.Base(outputFile.Name())) + ` to extract archive into the working directory
-
-     2. run ` + "`./bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
-`
-				}(),
+				expectedStderr: expectedNextStepsForBootstrapArchive(outputFile.Name()),
 				verifyFunc: func(t *testing.T) {
 					verifyBootstrapOutputArchive(t, "testdata/sidecar-bootstrap/basic/output/single", outputFile.Name())
 				},
@@ -297,20 +301,7 @@ Next steps:
 				k8sResources:   parseK8sObjectsFromFile("testdata/sidecar-bootstrap/basic/input/k8s.yaml"),
 				shouldFail:     false,
 				expectedStdout: "",
-				expectedStderr: func() string {
-					return `Generated files have been saved into the TGZ archive ` + fmt.Sprintf("`%s`", outputFile) + `
-
-Next steps:
-
-  1. Copy the file ` + fmt.Sprintf("`%s`", outputFile) + ` to the remote host represented by the WorkloadEntry
-
-  2. Once on the remote host,
-
-     1. run ` + fmt.Sprintf("`tar -xvf %s`", filepath.Base(outputFile)) + ` to extract archive into the working directory
-
-     2. run ` + "`./bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
-`
-				}(),
+				expectedStderr: expectedNextStepsForBootstrapArchive(outputFile),
 				verifyFunc: func(t *testing.T) {
 					verifyBootstrapOutputArchive(t, "testdata/sidecar-bootstrap/basic/output/single", outputFile)
 				},
@@ -326,16 +317,7 @@ Next steps:
 				k8sResources:   parseK8sObjectsFromFile("testdata/sidecar-bootstrap/basic/input/k8s.yaml"),
 				shouldFail:     false,
 				expectedStdout: "",
-				expectedStderr: func() string {
-					return `Generated files have been saved to the directory ` + fmt.Sprintf("`%s`", outputDir) + `
-
-Next steps:
-
-  1. Copy the contents of ` + fmt.Sprintf("`%s`", outputDir) + ` directory to the remote host represented by the WorkloadEntry
-
-  2. Once on the remote host, run ` + "`<dir>/bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
-`
-				}(),
+				expectedStderr: expectedNextStepsForBootstrapDir(outputDir),
 				verifyFunc: func(t *testing.T) {
 					verifyBootstrapOutputDir(t, "testdata/sidecar-bootstrap/basic/output/multi", outputDir)
 				},
@@ -352,20 +334,7 @@ Next steps:
 				k8sResources:   parseK8sObjectsFromFile("testdata/sidecar-bootstrap/basic/input/k8s.yaml"),
 				shouldFail:     false,
 				expectedStdout: "",
-				expectedStderr: func() string {
-					return `Generated files have been saved into the TGZ archive ` + fmt.Sprintf("`%s`", outputFile.Name()) + `
-
-Next steps:
-
-  1. Copy the file ` + fmt.Sprintf("`%s`", outputFile.Name()) + ` to the remote host represented by the WorkloadEntry
-
-  2. Once on the remote host,
-
-     1. run ` + fmt.Sprintf("`tar -xvf %s`", filepath.Base(outputFile.Name())) + ` to extract archive into the working directory
-
-     2. run ` + "`./bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
-`
-				}(),
+				expectedStderr: expectedNextStepsForBootstrapArchive(outputFile.Name()),
 				verifyFunc: func(t *testing.T) {
 					verifyBootstrapOutputArchive(t, "testdata/sidecar-bootstrap/basic/output/multi", outputFile.Name())
 				},
@@ -384,26 +353,13 @@ Next steps:
 				k8sResources:   parseK8sObjectsFromFile("testdata/sidecar-bootstrap/basic/input/k8s.yaml"),
 				shouldFail:     false,
 				expectedStdout: "",
-				expectedStderr: func() string {
-					return `Generated files have been saved into the TGZ archive ` + fmt.Sprintf("`%s`", outputFile) + `
-
-Next steps:
-
-  1. Copy the file ` + fmt.Sprintf("`%s`", outputFile) + ` to the remote host represented by the WorkloadEntry
-
-  2. Once on the remote host,
-
-     1. run ` + fmt.Sprintf("`tar -xvf %s`", filepath.Base(outputFile)) + ` to extract archive into the working directory
-
-     2. run ` + "`./bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
-`
-				}(),
+				expectedStderr: expectedNextStepsForBootstrapArchive(outputFile),
 				verifyFunc: func(t *testing.T) {
 					verifyBootstrapOutputArchive(t, "testdata/sidecar-bootstrap/basic/output/multi", outputFile)
 				},
 			}
 		}(),
-		// save generated files into a dir
+		// save generated files into a dir (GKE-like config)
 		func() vmBootstrapTestcase {
 			outputDir, err := ioutil.TempDir(baseTempdir, "")
 			g.Expect(err).NotTo(HaveOccurred())
@@ -413,22 +369,13 @@ Next steps:
 				k8sResources:   parseK8sObjectsFromFile("testdata/sidecar-bootstrap/gke/input/k8s.yaml"),
 				shouldFail:     false,
 				expectedStdout: "",
-				expectedStderr: func() string {
-					return `Generated files have been saved to the directory ` + fmt.Sprintf("`%s`", outputDir) + `
-
-Next steps:
-
-  1. Copy the contents of ` + fmt.Sprintf("`%s`", outputDir) + ` directory to the remote host represented by the WorkloadEntry
-
-  2. Once on the remote host, run ` + "`<dir>/bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
-`
-				}(),
+				expectedStderr: expectedNextStepsForBootstrapDir(outputDir),
 				verifyFunc: func(t *testing.T) {
 					verifyBootstrapOutputDir(t, "testdata/sidecar-bootstrap/gke/output/single", outputDir)
 				},
 			}
 		}(),
-		// save generated files into a dir
+		// save generated files into a dir (EKS-like config)
 		func() vmBootstrapTestcase {
 			outputDir, err := ioutil.TempDir(baseTempdir, "")
 			g.Expect(err).NotTo(HaveOccurred())
@@ -438,16 +385,7 @@ Next steps:
 				k8sResources:   parseK8sObjectsFromFile("testdata/sidecar-bootstrap/eks/input/k8s.yaml"),
 				shouldFail:     false,
 				expectedStdout: "",
-				expectedStderr: func() string {
-					return `Generated files have been saved to the directory ` + fmt.Sprintf("`%s`", outputDir) + `
-
-Next steps:
-
-  1. Copy the contents of ` + fmt.Sprintf("`%s`", outputDir) + ` directory to the remote host represented by the WorkloadEntry
-
-  2. Once on the remote host, run ` + "`<dir>/bin/start-istio-proxy.sh`" + ` to start Istio Proxy in a Docker container
-`
-				}(),
+				expectedStderr: expectedNextStepsForBootstrapDir(outputDir),
 				verifyFunc: func(t *testing.T) {
 					verifyBootstrapOutputDir(t, "testdata/sidecar-bootstrap/eks/output/single", outputDir)
 				},
