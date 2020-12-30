@@ -1,0 +1,83 @@
+name: eks-e2e-test
+on:
+  push:
+    tags:
+    - '*'
+  
+  workflow_dispatch:
+
+jobs:
+  eks-e2e-test:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+
+    name: eks-e2e-test
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: aws-config
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION  }}
+
+      - name: set up go 1.15
+        uses: actions/setup-go@v1
+        with:
+          go-version: 1.15  
+
+      - name: eks-cluster-create
+        run: bash ./tetrateci/create_eks_cluster.sh
+
+      - name: operator-tests
+        run: go test -tags=integ ./tests/integration/operator/...  -istio.test.skipVM true -p 1  -test.v
+      
+      - name: helm-tests
+        run: go test -tags=integ ./tests/integration/helm/... -istio.test.skipVM true -p 1 -test.v
+
+      - name: pilot-tests
+        run: |
+          go test -tags=integ -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestRevisionedUpgrade|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v 
+          go test -tags=integ ./tests/integration/pilot/analysis/... -istio.test.skipVM true -p 1 -test.v
+          go test -tags=integ ./tests/integration/pilot/cni/... -istio.test.skipVM true -p 1 -test.v 
+          go test -tags=integ ./tests/integration/pilot/revisions/... -istio.test.skipVM true -p -test.v
+      
+      - name: telemetry-tests
+        run: go test -tags=integ -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics'  ./tests/integration/telemetry/stats/... -istio.test.skipVM true -p 1 -test.v
+
+      - name: security-tests
+        run: |
+          go test -tags=integ  ./tests/integration/security/ca_custom_root/... -istio.test.skipVM true -p 1 -test.v
+          go test -tags=integ  ./tests/integration/security/chiron/... -istio.test.skipVM true -p 1 -test.v
+          go test -tags=integ  ./tests/integration/security/file_mounted_certs/... -istio.test.skipVM true -p 1 -test.v
+          go test -tags=integ  ./tests/integration/security/filebased_tls_origination/... -istio.test.skipVM true -p 1 -test.v
+          go test -tags=integ  ./tests/integration/security/mtls_first_party_jwt/... -istio.test.skipVM true -p 1 -test.v
+          go test -tags=integ  ./tests/integration/security/mtlsk8sca/... -istio.test.skipVM true -p 1 -test.v
+          go test -tags=integ  ./tests/integration/security/sds_egress/... -istio.test.skipVM true -p 1 -test.v
+          go test -tags=integ  ./tests/integration/security/sds_tls_origination/... -istio.test.skipVM true -p 1 -test.v
+          go test -tags=integ  ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
+
+      - name: eks-cluster-delete
+        run: bash ./tetrateci/cleanup_eks_cluster.sh
+
+  make_release:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+    
+    needs: eks-e2e-test
+
+    name: release-builder-run
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v
+      
+      - name: run release builder
+        run: bash ./tetrateci/create_istio_release.sh
