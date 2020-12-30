@@ -1,0 +1,34 @@
+name: Sync fork
+
+on:
+  schedule:
+    - cron:  '0 0 * * *' 
+
+  workflow_dispatch: 
+
+jobs:
+  sync_with_upstream:
+    runs-on: ubuntu-latest
+    name: Sync master with upstream latest
+
+    steps:
+    - name: Checkout master
+      uses: actions/checkout@v2
+      with:
+        ref: master
+
+    - name: Pull (Fast-Forward) upstream changes
+      id: sync
+      uses: aormsby/Fork-Sync-With-Upstream-action@v2.1
+      with:
+        upstream_repository: istio/istio
+        upstream_branch: master
+        target_branch: master
+        git_pull_args: --rebase
+
+    - name: Check for new commits
+      if: steps.sync.outputs.has_new_commits
+      run: echo "There were new commits."
+
+    - name: Timestamp
+      run: date
