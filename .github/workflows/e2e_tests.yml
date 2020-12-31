@@ -1,4 +1,4 @@
-name: eks-e2e-test
+name: e2e-tests
 on:
   push:
     tags:
@@ -65,7 +65,7 @@ jobs:
       - name: eks-cluster-delete
         run: bash ./tetrateci/cleanup_eks_cluster.sh
   
-  gke_e2e_tests:
+  gke-e2e-test:
     strategy:
       matrix:
         os: [ ubuntu-latest ]
