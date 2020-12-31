@@ -24,7 +24,7 @@ jobs:
         upstream_repository: istio/istio
         upstream_branch: master
         target_branch: master
-        git_pull_args: --rebase
+        git_pull_args: --rebase --tags
 
     - name: Check for new commits
       if: steps.sync.outputs.has_new_commits
