@@ -1,2 +1,2 @@
 #!/bin/bash
-az aks delete --name $CLUSTER_NAME --resource-group getistio
+az group delete --name $RESOURCE_NAME --yes --no-wait
