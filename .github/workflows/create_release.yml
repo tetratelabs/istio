@@ -12,13 +12,25 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
         with:
-          tag_name: ${{ github.ref }}-tetrate-v1
+          tag_name: ${{ github.ref }}-tetrate-v0
           release_name: Tetrate Istio ${{ github.ref }}
           draft: false
           prerelease: false
+
+      - name: Get tag
+        id: tag
+        uses: dawidd6/action-get-tag@v1
+    
+      - name: Create Branch
+        uses: peterjgrainger/action-create-branch@v2.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          branch: release-${{ steps.tag.outputs.tag }}-tetrate
