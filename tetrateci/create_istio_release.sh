@@ -3,7 +3,7 @@
 mkdir /tmp/istio-release
 
 sudo gem install fpm
-sudo apt install gettext_base -y
+sudo apt-get install gettext-base go-bindata -y
 envsubst < ./tetrateci/manifest.yaml.in > manifest.yaml
 git clone https://github.com/istio/release-builder --depth=1
 cd release-builder
