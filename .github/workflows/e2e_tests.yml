@@ -184,7 +184,7 @@ jobs:
       matrix:
         os: [ ubuntu-latest ]
     
-    #needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
+    needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
 
     name: release-builder-run
     runs-on: ${{ matrix.os }}
@@ -199,8 +199,13 @@ jobs:
           registry: hellozee-docker-istio-temp.bintray.io
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
-      
+      - name: Get tag
+        id: tag
+        uses: dawidd6/action-get-tag@v
+
       - name: run release builder
         env:
-          TAG: 1.8.0-test
+          TAG: 1.8.0-test #need to replace this with ${{ steps.tag.outputs.tag }}
+          BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
+          API_KEY: ${{ secrets.BINTRAY_API_KEY }}
         run: bash ./tetrateci/create_istio_release.sh
