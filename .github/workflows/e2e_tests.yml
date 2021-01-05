@@ -2,12 +2,13 @@ name: e2e-tests
 on:
   push:
     tags:
-    - '*'
+    - '*tetrate*'
   
   workflow_dispatch:
 
 jobs:
   eks-e2e-test:
+    if: false
     strategy:
       matrix:
         os: [ ubuntu-latest ]
@@ -66,6 +67,7 @@ jobs:
         run: bash ./tetrateci/cleanup_eks_cluster.sh
   
   gke-e2e-test:
+    if: false
     strategy:
       matrix:
         os: [ ubuntu-latest ]
@@ -123,6 +125,7 @@ jobs:
         run: bash ./tetrateci/cleanup_gke_cluster.sh
 
   aks-e2e-test:
+    if: false
     strategy:
       matrix:
         os: [ ubuntu-latest ]
@@ -181,14 +184,23 @@ jobs:
       matrix:
         os: [ ubuntu-latest ]
     
-    needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
+    #needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
 
     name: release-builder-run
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: checkout
-        uses: actions/checkout@v
+        uses: actions/checkout@v2
+
+      - name: Login to Bintray
+        uses: docker/login-action@v1
+        with:
+          registry: hellozee-docker-istio-temp.bintray.io
+          username: ${{ secrets.BINTRAY_USER }}
+          password: ${{ secrets.BINTRAY_API_KEY }}
       
       - name: run release builder
+        env:
+          TAG: 1.8.0-test
         run: bash ./tetrateci/create_istio_release.sh
