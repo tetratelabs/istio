@@ -17,7 +17,7 @@ jobs:
       with:
         ref: master
 
-    - name: Pull (Fast-Forward) upstream changes
+    - name: Pull upstream changes
       id: sync
       uses: aormsby/Fork-Sync-With-Upstream-action@v2.1
       with:

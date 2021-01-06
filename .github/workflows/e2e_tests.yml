@@ -2,13 +2,13 @@ name: e2e-tests
 on:
   push:
     tags:
-    - '*tetrate*'
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '*tetrate*'
   
   workflow_dispatch:
 
 jobs:
   eks-e2e-test:
-    if: false
     strategy:
       matrix:
         os: [ ubuntu-latest ]
@@ -67,7 +67,6 @@ jobs:
         run: bash ./tetrateci/cleanup_eks_cluster.sh
   
   gke-e2e-test:
-    if: false
     strategy:
       matrix:
         os: [ ubuntu-latest ]
@@ -126,7 +125,6 @@ jobs:
         run: bash ./tetrateci/cleanup_gke_cluster.sh
 
   aks-e2e-test:
-    if: false
     strategy:
       matrix:
         os: [ ubuntu-latest ]
@@ -179,6 +177,24 @@ jobs:
 
       - name: aks-cluster-delete
         run: bash ./tetrateci/cleanup_aks_cluster.sh
+    
+  create_new_tag:
+    if: {{ !contains( github.ref, "tetrate" ) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+        with:
+          tag_name: ${{ github.ref }}-tetrate-v0
+          release_name: Tetrate Istio ${{ github.ref }}
+          draft: false
+          prerelease: false
 
   make_release:
     strategy:
@@ -191,8 +207,15 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: checkout
+      - name: checkout if tetrate branch
+        if: {{ contains( github.ref, "tetrate" ) }}
         uses: actions/checkout@v2
+      
+      - name: checkout if not tetrate branch
+        if: {{ !contains( github.ref, "tetrate" ) }}
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.ref }}-tetrate-v0
 
       - name: Login to Bintray
         uses: docker/login-action@v1
@@ -200,13 +223,14 @@ jobs:
           registry: hellozee-docker-istio-temp.bintray.io
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
+
       - name: Get tag
         id: tag
         uses: dawidd6/action-get-tag@v1
 
       - name: run release builder
         env:
-          TAG: 1.8.0-test #need to replace this with ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.tag.outputs.tag }}
           BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
         run: bash ./tetrateci/create_istio_release.sh
