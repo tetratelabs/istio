@@ -1,22 +1,24 @@
 name: Update the release branches
 on:
   push:
-    branches:
-      - release-[0-9]+.[0-9]+
+    tags:
+      - '[0-9]+.[0-9]+.[1-9]+'
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
 
-    - name: Extract branch name
+    - name: Extract tag
       shell: bash
-      run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
-      id: extract_branch
+      run: echo "##[set-output name=tag;]$(echo ${GITHUB_REF#refs/tag/} | rev | cut -d . -f2- | rev)"
+      id: extract_tag
 
     - name: pull-request
       uses: repo-sync/pull-request@v2
       with:
-        destination_branch: ${{ steps.extract_branch.outputs.branch }}.0-tetrate
+        source_branch: release-${{ steps.extract_tag.outputs.tag }}
+        destination_branch: tetrate-${{ steps.extract_tag.outputs.tag }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
 
