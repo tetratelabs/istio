@@ -8,6 +8,34 @@ on:
   workflow_dispatch:
 
 jobs:
+  create-test-images:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+    name: create-test-images
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: Get tag
+        id: tag
+        uses: dawidd6/action-get-tag@v1
+
+      - name: docker-login
+      - uses: docker/login-action@v1
+        with:
+          registry: hellozee-docker-istio-test.bintray.io #need to change this
+          username: ${{ secrets.BINTRAY_USER }}
+          password: ${{ secrets.BINTRAY_API_KEY }}
+
+      - name: build and push images
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          HUB: hellozee-docker-istio-test.bintray.io
+        run: make docker push
+
   eks-e2e-test:
     strategy:
       matrix:
@@ -220,7 +248,7 @@ jobs:
       - name: Login to Bintray
         uses: docker/login-action@v1
         with:
-          registry: hellozee-docker-istio-temp.bintray.io
+          registry: hellozee-docker-istio-temp.bintray.io # need to change this
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
 

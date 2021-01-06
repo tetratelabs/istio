@@ -26,9 +26,6 @@ jobs:
         target_branch: master
         git_pull_args: --rebase --tags
 
-    - name: Check for new commits
-      if: steps.sync.outputs.has_new_commits
-      run: echo "There were new commits."
-
-    - name: Timestamp
-      run: date
+    - name: Sync the tags
+      run: |
+        bash ./tetrateci/fetch_all_tags.sh
