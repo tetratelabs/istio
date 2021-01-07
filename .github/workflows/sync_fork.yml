@@ -12,27 +12,11 @@ jobs:
     name: Sync master with upstream latest
 
     steps:
-    - name: Checkout master
-      uses: actions/checkout@v2
-      with:
-        ref: master
-
-    - name: Pull upstream changes
-      id: sync
-      uses: aormsby/Fork-Sync-With-Upstream-action@v2.1
-      with:
-        upstream_repository: istio/istio
-        upstream_branch: master
-        target_branch: master
-        git_pull_args: --rebase --tags
-
     - name: Checkout tetrate
       uses: actions/checkout@v2
       with:
         ref: tetrate 
+        token: {{ secrets.PAT }}
 
     - name: Sync the tags
       run: bash ./tetrateci/fetch_all_tags.sh
-    
-    - name: Sync the tetrate release branches
-      run: bash ./tetrateci/update_release_branches.sh
