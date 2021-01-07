@@ -26,11 +26,13 @@ jobs:
         target_branch: master
         git_pull_args: --rebase --tags
 
-    - name: Checkout master
+    - name: Checkout tetrate
       uses: actions/checkout@v2
       with:
         ref: tetrate 
 
     - name: Sync the tags
-      run: |
-        bash ./tetrateci/fetch_all_tags.sh
+      run: bash ./tetrateci/fetch_all_tags.sh
+    
+    - name: Sync the tetrate release branches
+      run: bash ./tetrateci/update_release_branches.sh
