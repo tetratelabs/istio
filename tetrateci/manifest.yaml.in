@@ -1,6 +1,6 @@
-version: 1.8.0-test
+version: $TAG
 
-docker: hellozee-docker-istio-temp.bintray.io
+docker: $HUB
 
 directory: /tmp/istio-release
 
@@ -46,3 +46,4 @@ dashboards:
 
 outputs:
   - archive
+  - docker
