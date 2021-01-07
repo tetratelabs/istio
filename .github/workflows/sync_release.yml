@@ -3,22 +3,25 @@ on:
   push:
     tags:
       - '[0-9]+.[0-9]+.[1-9][0-9]*'
+  workflow_dispatch:
+    inputs:
+        tag:
+          description: Tag
+          default: 1.0.0
+          required: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-
-    - name: Extract tag
-      shell: bash
-      run: echo "##[set-output name=tag;]$(echo ${GITHUB_REF#refs/tag/} | rev | cut -d . -f2- | rev)"
-      id: extract_tag
+      with:
+        ref: "refs/tags/${{ github.event.inputs.tag }}"
 
     - name: pull-request
       uses: repo-sync/pull-request@v2
       with:
-        source_branch: release-${{ steps.extract_tag.outputs.tag }}
-        destination_branch: tetrate-${{ steps.extract_tag.outputs.tag }}
+        source_branch: release-${{ github.event.inputs.tag }}
+        destination_branch: tetrate-${{ github.event.inputs.tag }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
 

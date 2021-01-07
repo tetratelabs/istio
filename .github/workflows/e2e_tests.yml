@@ -1,13 +1,18 @@
 name: e2e-tests
+# this should run for any tag which respect [0-9]+.[0-9]+.[0-9]+ or *tetrate*
 on:
-  push:
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
-      - '*tetrate*'
-  
   workflow_dispatch:
+    inputs:
+        tag:
+          description: Tag
+          default: 1.0.0
+          required: true
 
 jobs:
+  env:
+    HUB: hellozee-docker-istio-test.bintray.io
+    TAG: ${{ github.event.inputs.tag }}
+
   create-test-images:
     strategy:
       matrix:
@@ -18,10 +23,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v2
-
-      - name: Get tag
-        id: tag
-        uses: dawidd6/action-get-tag@v1
+        with:
+          ref: "refs/tags/${{ github.event.inputs.tag }}"
 
       - name: docker-login
       - uses: docker/login-action@v1
@@ -31,9 +34,6 @@ jobs:
           password: ${{ secrets.BINTRAY_API_KEY }}
 
       - name: build and push images
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-          HUB: hellozee-docker-istio-test.bintray.io
         run: make docker push
 
   eks-e2e-test:
@@ -47,6 +47,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v2
+        with:
+          ref: "refs/tags/${{ github.event.inputs.tag }}"
 
       - name: aws-config
         uses: aws-actions/configure-aws-credentials@v1
@@ -105,6 +107,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v2
+        with:
+          ref: "refs/tags/${{ github.event.inputs.tag }}"
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@master
@@ -163,6 +167,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v2
+        with:
+          ref: "refs/tags/${{ github.event.inputs.tag }}"
 
       - name: Set up Cloud SDK
         uses: azure/login@v1
@@ -207,11 +213,13 @@ jobs:
         run: bash ./tetrateci/cleanup_aks_cluster.sh
     
   create_new_tag:
-    if: {{ !contains( github.ref, "tetrate" ) }}
+    if: {{ !contains( github.event.inputs.tag, "tetrate" ) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+        with:
+          ref: "refs/tags/${{ github.event.inputs.tag }}"
 
       - name: Create Release
         id: create_release
@@ -219,8 +227,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
         with:
-          tag_name: ${{ github.ref }}-tetrate-v0
-          release_name: Tetrate Istio ${{ github.ref }}
+          tag_name: ${{ github.event.inputs.tag }}-tetrate-v0
+          release_name: Tetrate Istio ${{ github.event.inputs.tag }}
           draft: false
           prerelease: false
 
@@ -236,14 +244,16 @@ jobs:
 
     steps:
       - name: checkout if tetrate branch
-        if: {{ contains( github.ref, "tetrate" ) }}
-        uses: actions/checkout@v2
-      
-      - name: checkout if not tetrate branch
-        if: {{ !contains( github.ref, "tetrate" ) }}
+        if: {{ contains( github.event.inputs.tag, "tetrate" ) }}
         uses: actions/checkout@v2
         with:
-          ref: ${{ github.ref }}-tetrate-v0
+          ref: "refs/tags/${{ github.event.inputs.tag }}"
+      
+      - name: checkout if not tetrate branch
+        if: {{ !contains( github.event.inputs.tag, "tetrate" ) }}
+        uses: actions/checkout@v2
+        with:
+          ref: "refs/tags/${{ github.event.inputs.tag }}"-tetrate-v0
 
       - name: Login to Bintray
         uses: docker/login-action@v1
@@ -252,13 +262,10 @@ jobs:
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
 
-      - name: Get tag
-        id: tag
-        uses: dawidd6/action-get-tag@v1
-
       - name: run release builder
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ github.event.inputs.tag }}
+          HUB: hellozee-docker-istio-temp.bintray.io
           BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
         run: bash ./tetrateci/create_istio_release.sh

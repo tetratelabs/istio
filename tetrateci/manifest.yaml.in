@@ -1,4 +1,4 @@
-version: $TAG
+version: 1.8.0-test
 
 docker: hellozee-docker-istio-temp.bintray.io
 
@@ -46,4 +46,3 @@ dashboards:
 
 outputs:
   - archive
-  - docker
