@@ -3,27 +3,21 @@ name: e2e-tests
 on:
   push:
     tags:
-      - 'tetrate-test-*'
+      - '*tetrate*'
 
 jobs:
-  env:
-    HUB: hellozee-docker-istio-test.bintray.io
-
   create-test-images:
     strategy:
       matrix:
         os: [ ubuntu-latest ]
     name: create-test-images
     runs-on: ${{ matrix.os }}
+    env:
+      HUB: hellozee-docker-istio-test.bintray.io
 
     steps:
       - name: checkout
         uses: actions/checkout@v2
-
-      - name: Extract tag name
-        shell: bash
-        run: echo "##[set-output name=tag;]$(echo ${GITHUB_REF#refs/tags/})"
-        id: extract_tag
 
       - name: docker-login
       - uses: docker/login-action@v1
@@ -33,9 +27,9 @@ jobs:
           password: ${{ secrets.BINTRAY_API_KEY }}
 
       - name: build and push images
-        run: make docker push
-        env:
-          TAG: {{ steps.extract_tag.output.tag }}
+        run: |
+          export TAG=$(git describe --tags)
+          make docker push
 
   eks-e2e-test:
     strategy:
@@ -44,6 +38,9 @@ jobs:
 
     name: eks-e2e-test
     runs-on: ${{ matrix.os }}
+    needs: [create-test-images]
+    env:
+      HUB: hellozee-docker-istio-test.bintray.io
 
     steps:
       - name: checkout
@@ -61,16 +58,12 @@ jobs:
         with:
           go-version: 1.15
 
-      - name: Extract tag name
-        shell: bash
-        run: echo "##[set-output name=tag;]$(echo ${GITHUB_REF#refs/tags/})"
-        id: extract_tag
-
       - name: eks-cluster-create
         run: bash ./tetrateci/create_eks_cluster.sh
 
       - name: integration-tests
         run: |
+          export TAG=$(git describe --tags)
           go test -tags=integ ./tests/integration/operator/...  -istio.test.skipVM true -p 1  -test.v
           go test -tags=integ ./tests/integration/helm/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestRevisionedUpgrade|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v 
@@ -100,6 +93,9 @@ jobs:
 
     name: gke-e2e-test
     runs-on: ${{ matrix.os }}
+    needs: [create-test-images]
+    env:
+      HUB: hellozee-docker-istio-test.bintray.io
 
     steps:
       - name: checkout
@@ -117,16 +113,12 @@ jobs:
         with:
           go-version: 1.15
 
-      - name: Extract tag name
-        shell: bash
-        run: echo "##[set-output name=tag;]$(echo ${GITHUB_REF#refs/tags/})"
-        id: extract_tag
-
       - name: gke-cluster-create
         run: bash ./tetrateci/create_gke_cluster.sh
 
       - name: integration-tests
         run: |
+          export TAG=$(git describe --tags)
           go test -tags=integ ./tests/integration/operator/...  -istio.test.skipVM true -p 1  -test.v
           go test -tags=integ ./tests/integration/helm/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestRevisionedUpgrade|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v 
@@ -143,9 +135,6 @@ jobs:
           go test -tags=integ  ./tests/integration/security/sds_egress/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/sds_tls_origination/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
-        
-        env:
-          TAG: {{ steps.extract_tag.output.tag }}
 
       - name: gke-cluster-delete
         run: bash ./tetrateci/cleanup_gke_cluster.sh
@@ -157,6 +146,9 @@ jobs:
 
     name: aks-e2e-test
     runs-on: ${{ matrix.os }}
+    needs: [create-test-images]
+    env:
+      HUB: hellozee-docker-istio-test.bintray.io
 
     steps:
       - name: checkout
@@ -172,16 +164,12 @@ jobs:
         with:
           go-version: 1.15
 
-      - name: Extract tag name
-        shell: bash
-        run: echo "##[set-output name=tag;]$(echo ${GITHUB_REF#refs/tags/})"
-        id: extract_tag
-
       - name: aks-cluster-create
         run: bash ./tetrateci/create_aks_cluster.sh
 
       - name: integration-tests
         run: |
+          export TAG=$(git describe --tags)
           go test -tags=integ ./tests/integration/operator/...  -istio.test.skipVM true -p 1  -test.v
           go test -tags=integ ./tests/integration/helm/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v 
@@ -196,9 +184,6 @@ jobs:
           go test -tags=integ  ./tests/integration/security/sds_egress/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/sds_tls_origination/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
-        
-        env:
-          TAG: {{ steps.extract_tag.output.tag }}
 
       - name: aks-cluster-delete
         run: bash ./tetrateci/cleanup_aks_cluster.sh
@@ -207,14 +192,15 @@ jobs:
     name: create-new-tag
     runs-on: ubuntu-latest
     needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
+    if: ${{ !contains(github.ref, 'tetrate-v') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Extract tag name
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/tetrate-test-/}
         shell: bash
-        run: echo "##[set-output name=tag;]$(echo ${GITHUB_REF#refs/tags/tetrate-test-})"
-        id: extract_tag
 
       - name: Create Release
         id: create_release
@@ -222,7 +208,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
         with:
-          tag_name: ${{ steps.extract_tag.output.tag }}-tetrate-v0
+          tag_name: ${{ steps.get_tag.outputs.TAG }}-tetrate-v0
           release_name: Tetrate Istio 
           draft: false
           prerelease: false
@@ -248,14 +234,37 @@ jobs:
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
 
-      - name: Extract tag name
-        shell: bash
-        run: echo "##[set-output name=tag;]$(echo ${GITHUB_REF#refs/tags/tetrate-test-}-tetrate-v0)"
-        id: extract_tag
+      - name: run release builder
+        env:
+          HUB: hellozee-docker-istio-temp.bintray.io
+          BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
+          API_KEY: ${{ secrets.BINTRAY_API_KEY }}
+        run: bash ./tetrateci/create_istio_release.sh
+
+  make_release_for_patch:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+    
+    needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
+
+    name: release-builder-run
+    runs-on: ${{ matrix.os }}
+    if: ${{ contains(github.ref, 'tetrate-v') }}
+
+    steps:
+      - name: Checkout tetrate branch
+        uses: actions/checkout@v2
+
+      - name: Login to Bintray
+        uses: docker/login-action@v1
+        with:
+          registry: hellozee-docker-istio-temp.bintray.io # need to change this
+          username: ${{ secrets.BINTRAY_USER }}
+          password: ${{ secrets.BINTRAY_API_KEY }}
 
       - name: run release builder
         env:
-          TAG: ${{ steps.extract_tag.output.tag }}
           HUB: hellozee-docker-istio-temp.bintray.io
           BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
