@@ -1,5 +1,6 @@
 #!/bin/bash
-
+set -o errexit
+set -o pipefail
 # we first fetch all the tags from origin and then from upstream
 # the tag should be in form of number.number.number
 git remote add upstream https://github.com/istio/istio
