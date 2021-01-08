@@ -13,7 +13,7 @@ jobs:
     name: create-test-images
     runs-on: ${{ matrix.os }}
     env:
-      HUB: hellozee-docker-istio-testing.bintray.io
+      HUB: hellozee-docker-istio-testing.bintray.io # change
 
     steps:
       - name: checkout
@@ -22,7 +22,7 @@ jobs:
       - name: docker-login
         uses: docker/login-action@v1
         with:
-          registry: hellozee-docker-istio-testing.bintray.io
+          registry: hellozee-docker-istio-testing.bintray.io # change
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
 
@@ -41,7 +41,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: [create-test-images]
     env:
-      HUB: hellozee-docker-istio-testing.bintray.io
+      HUB: hellozee-docker-istio-testing.bintray.io # change
 
     steps:
       - name: checkout
@@ -93,7 +93,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: [create-test-images]
     env:
-      HUB: hellozee-docker-istio-testing.bintray.io
+      HUB: hellozee-docker-istio-testing.bintray.io # change
 
     steps:
       - name: checkout
@@ -146,7 +146,7 @@ jobs:
     needs: [create-test-images]
 
     env:
-      HUB: hellozee-docker-istio-testing.bintray.io
+      HUB: hellozee-docker-istio-testing.bintray.io # change
 
     steps:
       - name: checkout
@@ -228,7 +228,7 @@ jobs:
       - name: Login to Bintray
         uses: docker/login-action@v1
         with:
-          registry: hellozee-docker-istio-temp.bintray.io # need to change this
+          registry: hellozee-docker-istio-temp.bintray.io # change
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
 
@@ -239,7 +239,7 @@ jobs:
 
       - name: run release builder
         env:
-          HUB: hellozee-docker-istio-temp.bintray.io
+          HUB: hellozee-docker-istio-temp.bintray.io # change
           BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ steps.get_tag.outputs.TAG }}-tetrate-v0
@@ -263,7 +263,7 @@ jobs:
       - name: Login to Bintray
         uses: docker/login-action@v1
         with:
-          registry: hellozee-docker-istio-temp.bintray.io # need to change this
+          registry: hellozee-docker-istio-temp.bintray.io # change
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
 
@@ -274,7 +274,7 @@ jobs:
 
       - name: run release builder
         env:
-          HUB: hellozee-docker-istio-temp.bintray.io
+          HUB: hellozee-docker-istio-temp.bintray.io # change
           BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ steps.get_tag.outputs.TAG }}
