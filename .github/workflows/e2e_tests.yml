@@ -127,7 +127,6 @@ jobs:
           go test -count=1 -tags=integ ./tests/integration/pilot/cni/...  -istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml  -test.v
           go test -tags=integ -timeout 30m -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics'  ./tests/integration/telemetry/stats/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/ca_custom_root/... -istio.test.skipVM true -p 1 -test.v
-          go test -tags=integ  ./tests/integration/security/chiron/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/file_mounted_certs/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/filebased_tls_origination/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/mtls_first_party_jwt/... -istio.test.skipVM true -p 1 -test.v
@@ -235,11 +234,17 @@ jobs:
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
 
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/tetrate-test-/}
+        shell: bash
+
       - name: run release builder
         env:
           HUB: hellozee-docker-istio-temp.bintray.io
           BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}-tetrate-v0
         run: bash ./tetrateci/create_istio_release.sh
 
   make_release_for_patch:
@@ -264,9 +269,15 @@ jobs:
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
 
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/}
+        shell: bash
+
       - name: run release builder
         env:
           HUB: hellozee-docker-istio-temp.bintray.io
           BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
         run: bash ./tetrateci/create_istio_release.sh

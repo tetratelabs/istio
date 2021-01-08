@@ -1,7 +1,6 @@
 #!/bin/bash
 
 mkdir /tmp/istio-release
-export TAG=$(git describe --tags)
 sudo gem install fpm
 sudo apt-get install go-bindata -y
 envsubst < ./tetrateci/manifest.yaml.in > manifest.yaml
