@@ -21,7 +21,7 @@ git config user.email github-actions@github.com
 
 for tag in $tags; do
     # the branch names are suffixed with the first 2 numbers in the version
-    branch=$( echo $tag | rev | cut -d. -f2- | rev )
+    branch=$( echo $tag | cut -d. -f1,2 )
     if [[ ! $(git rev-parse --verify --quiet origin/tetrate-release-$branch) ]]; then
         # create the tetrate release branch if it doesn't exist with the workflows
         git checkout tetrate-workflow
