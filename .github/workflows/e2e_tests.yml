@@ -37,8 +37,6 @@ jobs:
       matrix:
         os: [ ubuntu-latest ]
 
-    if: false
-
     name: eks-e2e-test
     runs-on: ${{ matrix.os }}
     needs: [create-test-images]
@@ -146,7 +144,7 @@ jobs:
     name: aks-e2e-test
     runs-on: ${{ matrix.os }}
     needs: [create-test-images]
-    if: false
+
     env:
       HUB: hellozee-docker-istio-testing.bintray.io
 
