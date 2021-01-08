@@ -27,6 +27,7 @@ jobs:
           password: ${{ secrets.BINTRAY_API_KEY }}
 
       - name: build and push images
+        shell: 'script -q -e -c "bash {0}"'
         run: |
           export TAG=$(git describe --tags)
           make docker push
