@@ -37,6 +37,8 @@ jobs:
       matrix:
         os: [ ubuntu-latest ]
 
+    if: false
+
     name: eks-e2e-test
     runs-on: ${{ matrix.os }}
     needs: [create-test-images]
@@ -119,7 +121,7 @@ jobs:
           export TAG=$(git describe --tags)
           go test -tags=integ ./tests/integration/operator/...  -istio.test.skipVM true -p 1  -test.v
           go test -tags=integ ./tests/integration/helm/... -istio.test.skipVM true -p 1 -test.v
-          go test -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestRevisionedUpgrade|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v 
+          go test -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v 
           go test -tags=integ ./tests/integration/pilot/analysis/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ ./tests/integration/pilot/revisions/... -istio.test.skipVM true -p 1 -test.v
           go test -count=1 -tags=integ ./tests/integration/pilot/cni/...  -istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml  -test.v
@@ -145,6 +147,7 @@ jobs:
     name: aks-e2e-test
     runs-on: ${{ matrix.os }}
     needs: [create-test-images]
+    if: false
     env:
       HUB: hellozee-docker-istio-testing.bintray.io
 
@@ -189,7 +192,7 @@ jobs:
   create-new-tag:
     name: create-new-tag
     runs-on: ubuntu-latest
-    needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
+    needs: [gke-e2e-test]
     if: ${{ !contains(github.ref, 'tetrate-v') }}
     steps:
       - name: Checkout code
