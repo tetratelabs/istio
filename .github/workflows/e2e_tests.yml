@@ -13,7 +13,7 @@ jobs:
     name: create-test-images
     runs-on: ${{ matrix.os }}
     env:
-      HUB: hellozee-docker-istio-test.bintray.io
+      HUB: hellozee-docker-istio-testing.bintray.io
 
     steps:
       - name: checkout
@@ -22,7 +22,7 @@ jobs:
       - name: docker-login
         uses: docker/login-action@v1
         with:
-          registry: hellozee-docker-istio-test.bintray.io
+          registry: hellozee-docker-istio-testing.bintray.io
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
 
@@ -40,7 +40,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: [create-test-images]
     env:
-      HUB: hellozee-docker-istio-test.bintray.io
+      HUB: hellozee-docker-istio-testing.bintray.io
 
     steps:
       - name: checkout
@@ -92,7 +92,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: [create-test-images]
     env:
-      HUB: hellozee-docker-istio-test.bintray.io
+      HUB: hellozee-docker-istio-testing.bintray.io
 
     steps:
       - name: checkout
@@ -145,7 +145,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: [create-test-images]
     env:
-      HUB: hellozee-docker-istio-test.bintray.io
+      HUB: hellozee-docker-istio-testing.bintray.io
 
     steps:
       - name: checkout
