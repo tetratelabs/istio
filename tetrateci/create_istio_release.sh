@@ -13,7 +13,7 @@ PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio*")
 for package in $PACKAGES; do
     NAME=$(cut -d '-' -f 1 <<< $package)
     echo "Publishing $package"
-    curl -T /tmp/istio-release/out/$package -u$BINTRY_USER:$API_KEY https://api.bintray.com/content/hellozee/istio-archives/$NAME/$TAG/$package
+    curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY https://api.bintray.com/content/hellozee/istio-archives/$NAME/$TAG/$package
 done
 
 curl -X POST -u$BINTRAY_USER:$API_KEY https://api.bintray.com/content/hellozee/istio-archives/istio/$TAG/publish 
