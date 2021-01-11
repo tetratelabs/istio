@@ -253,5 +253,5 @@ jobs:
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ steps.get_tag.outputs.TAG }}
           BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
-        shell: 'script -q -e -c "bash {0}"'
-        run: bash ./tetrateci/create_istio_release.sh
+        shell: 'script -e -c "bash {0}"'
+        run: ./tetrateci/create_istio_release.sh
