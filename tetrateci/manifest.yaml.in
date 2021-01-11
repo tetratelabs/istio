@@ -8,7 +8,7 @@ ignoreVulnerability: true
 
 dependencies:
   istio:
-    git: https://github.com/tetratelabs/istio
+    localpath: ./istio
     branch: $TAG
   api:
     git: https://github.com/istio/api
