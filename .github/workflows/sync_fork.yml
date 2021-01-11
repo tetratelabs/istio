@@ -12,10 +12,11 @@ jobs:
     name: Sync master with upstream latest
 
     steps:
+    # convenient way to setup the environment nothing much more tbh
     - name: Checkout tetrate
       uses: actions/checkout@v2
       with:
-        ref: tetrate 
+        ref: tetrate-workflow
         token: {{ secrets.PAT }}
 
     - name: Sync the tags
