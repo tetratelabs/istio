@@ -9,14 +9,14 @@ make shell
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
-go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+#go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
-PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio*")
-for package in $PACKAGES; do
-    NAME=$(cut -d '-' -f 1 <<< $package)
-    echo "Publishing $package"
-    curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$NAME/$TAG/$package 
-done
+#PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio*")
+#for package in $PACKAGES; do
+#    NAME=$(cut -d '-' -f 1 <<< $package)
+#    echo "Publishing $package"
+#    curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$NAME/$TAG/$package 
+#done
 
-curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/istio/$TAG/publish
-curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/istioctl/$TAG/publish
+#curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/istio/$TAG/publish
+#curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/istioctl/$TAG/publish
