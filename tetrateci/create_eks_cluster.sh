@@ -5,7 +5,7 @@ set -o pipefail
 
 if [[ ! -f ~/.aws/config && ! -f ~/.aws/credentials ]]
 then
-    echo "error: didn't find config and credentials in ~/.aws."
+    echo "warn: didn't find config and credentials in ~/.aws."
     echo "checking for environment varibles...."
     if [[ ! -v AWS_ACCESS_KEY_ID && ! -v AWS_SECRET_ACCESS_KEY ]]
     then
