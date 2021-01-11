@@ -1,0 +1,23 @@
+name: Sync fork
+
+on:
+  schedule:
+    - cron:  '0 0 * * *' 
+
+  workflow_dispatch: 
+
+jobs:
+  sync_with_upstream:
+    runs-on: ubuntu-latest
+    name: Sync master with upstream latest
+
+    steps:
+    # convenient way to setup the environment nothing much more tbh
+    - name: Checkout tetrate
+      uses: actions/checkout@v2
+      with:
+        ref: tetrate-workflow
+        token: ${{ secrets.PAT }}
+
+    - name: Sync the tags
+      run: bash ./tetrateci/fetch_all_tags.sh

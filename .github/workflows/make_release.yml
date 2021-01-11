@@ -1,0 +1,36 @@
+name: Make a release
+
+on:
+  workflow_dispatch: 
+    inputs:
+      tag:
+        description: Manual Tag
+        required: true
+
+jobs:
+  make_release:    
+    name: release-builder-run
+    runs-on: ubuntu-latest
+    env:
+      HUB: ${{ secrets.DEPLOY_HUB }}
+
+    steps:
+      - name: Checkout to choosen tag
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.inputs.tag }}
+          fetch-depth: 0
+
+      - name: Login to Bintray
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ env.HUB }}
+          username: ${{ secrets.BINTRAY_USER }}
+          password: ${{ secrets.BINTRAY_API_KEY }}
+
+      - name: Run release builder
+        env:
+          BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
+          API_KEY: ${{ secrets.BINTRAY_API_KEY }}
+          TAG: ${{ github.event.inputs.tag }}
+        run: bash ./tetrateci/create_istio_release.sh
