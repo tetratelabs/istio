@@ -22,7 +22,8 @@ then
 fi
 
 SHA8=$(git rev-parse --short $GITHUB_SHA)
-CLUSTER_NAME="test-istio-$SHA8-$VER"
+SUFFIX=$(sed 's/\.//g' <<< $VER)
+CLUSTER_NAME="test-istio-$SHA8-$SUFFIX"
 
 echo "creating a eks cluster with \"$CLUSTER_NAME\" name..."
 eksctl create cluster --name $CLUSTER_NAME --version $VER
