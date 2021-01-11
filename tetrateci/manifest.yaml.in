@@ -45,3 +45,4 @@ dashboards:
 
 outputs:
   - archive
+  - docker
