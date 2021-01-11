@@ -224,7 +224,7 @@ jobs:
           prerelease: false
 
   make_release:    
-    needs: [create-new-tag]
+    #needs: [create-new-tag]
 
     name: release-builder-run
     runs-on: ubuntu-latest
