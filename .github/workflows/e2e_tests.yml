@@ -33,7 +33,8 @@ jobs:
   eks-e2e-test:
     name: eks-e2e-test
     runs-on: ubuntu-latest
-    #needs: [create-test-images]
+    needs: [create-test-images]
+    if: false
 
     strategy:
       matrix:
@@ -89,7 +90,8 @@ jobs:
   gke-e2e-test:
     name: gke-e2e-test
     runs-on: ubuntu-latest
-    #needs: [create-test-images]
+    needs: [create-test-images]
+    if: false
 
     strategy:
       matrix:
@@ -144,7 +146,8 @@ jobs:
   aks-e2e-test:
     name: aks-e2e-test
     runs-on: ubuntu-latest
-    #needs: [create-test-images]
+    needs: [create-test-images]
+    if: false
 
     strategy:
       matrix:
@@ -199,6 +202,7 @@ jobs:
     name: create-new-tag
     runs-on: ubuntu-latest
     needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
+    if: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -249,4 +253,5 @@ jobs:
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ steps.get_tag.outputs.TAG }}
           BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
+        shell: 'script -q -e -c "bash {0}"'
         run: bash ./tetrateci/create_istio_release.sh
