@@ -20,7 +20,7 @@ jobs:
       - name: docker-login
         uses: docker/login-action@v1
         with:
-          registry: hellozee-docker-istio-testing.bintray.io # change
+          registry: ${{ env.HUB }}
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
 
@@ -199,6 +199,8 @@ jobs:
 
     name: release-builder-run
     runs-on: ubuntu-latest
+    env:
+      HUB: hellozee-docker-istio-temp.bintray.io # change
 
     steps:
       - name: Checkout tetrate branch
@@ -207,7 +209,7 @@ jobs:
       - name: Login to Bintray
         uses: docker/login-action@v1
         with:
-          registry: hellozee-docker-istio-temp.bintray.io # change
+          registry: ${{ env.HUB }}
           username: ${{ secrets.BINTRAY_USER }}
           password: ${{ secrets.BINTRAY_API_KEY }}
 
@@ -218,12 +220,12 @@ jobs:
 
       - name: run release builder
         env:
-          HUB: hellozee-docker-istio-temp.bintray.io # change
           BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ steps.get_tag.outputs.TAG }}-tetrate-v0
         run: bash ./tetrateci/create_istio_release.sh
 
+# this is going to be removed
   make_release_for_patch:
     strategy:
       matrix:
