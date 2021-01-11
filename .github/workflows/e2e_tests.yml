@@ -6,7 +6,7 @@ on:
       - 'test-*'
 
 env:
-  HUB: hellozee-docker-istio-testing.bintray.io # change
+  HUB: ${{ secrets.TEST_HUB }}
 
 jobs:
   create-test-images:
@@ -21,8 +21,8 @@ jobs:
         uses: docker/login-action@v1
         with:
           registry: ${{ env.HUB }}
-          username: ${{ secrets.BINTRAY_USER }}
-          password: ${{ secrets.BINTRAY_API_KEY }}
+          username: ${{ secrets.TEST_HUB_USER }}
+          password: ${{ secrets.TEST_HUB_PASS }}
 
       - name: build and push images
         shell: 'script -q -e -c "bash {0}"'
@@ -168,6 +168,7 @@ jobs:
         run: bash ./tetrateci/create_aks_cluster.sh
         env:
           VER: ${{ matrix.version }}
+          RESOURCE: ${{ secrets.AZURE_RESOURCE }}
 
       - name: integration-tests
         run: |
@@ -192,6 +193,7 @@ jobs:
         run: bash ./tetrateci/cleanup_aks_cluster.sh
         env:
           VER: ${{ matrix.version }}
+          RESOURCE: ${{ secrets.AZURE_RESOURCE }}
     
   create-new-tag:
     name: create-new-tag
@@ -223,7 +225,7 @@ jobs:
     name: release-builder-run
     runs-on: ubuntu-latest
     env:
-      HUB: hellozee-docker-istio-temp.bintray.io # change
+      HUB: ${{ secrets.DEPLOY_HUB }}
 
     steps:
       - name: Checkout tetrate branch
@@ -246,4 +248,5 @@ jobs:
           BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ steps.get_tag.outputs.TAG }}
+          BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
         run: bash ./tetrateci/create_istio_release.sh
