@@ -9,7 +9,6 @@ ignoreVulnerability: true
 dependencies:
   istio:
     localpath: ./istio
-    branch: $TAG
   api:
     git: https://github.com/istio/api
     auto: modules
