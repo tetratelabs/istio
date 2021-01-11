@@ -83,6 +83,8 @@ jobs:
       - name: eks-cluster-delete
         if: always()
         run: bash ./tetrateci/cleanup_eks_cluster.sh
+        env:
+          VER: ${{ matrix.version }}
   
   gke-e2e-test:
     name: gke-e2e-test
@@ -136,6 +138,8 @@ jobs:
       - name: gke-cluster-delete
         if: always()
         run: bash ./tetrateci/cleanup_gke_cluster.sh
+        env:
+          VER: ${{ matrix.version }}
 
   aks-e2e-test:
     name: aks-e2e-test
@@ -186,6 +190,8 @@ jobs:
       - name: aks-cluster-delete
         if: always()
         run: bash ./tetrateci/cleanup_aks_cluster.sh
+        env:
+          VER: ${{ matrix.version }}
     
   create-new-tag:
     name: create-new-tag
