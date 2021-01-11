@@ -76,6 +76,7 @@ jobs:
           go test -tags=integ  ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
 
       - name: eks-cluster-delete
+        if: always()
         run: bash ./tetrateci/cleanup_eks_cluster.sh
   
   gke-e2e-test:
@@ -124,6 +125,7 @@ jobs:
           go test -tags=integ  ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
 
       - name: gke-cluster-delete
+        if: always()
         run: bash ./tetrateci/cleanup_gke_cluster.sh
 
   aks-e2e-test:
@@ -170,6 +172,7 @@ jobs:
           go test -tags=integ  ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
 
       - name: aks-cluster-delete
+        if: always()
         run: bash ./tetrateci/cleanup_aks_cluster.sh
     
   create-new-tag:
