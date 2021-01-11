@@ -21,7 +21,8 @@ then
     sudo mv /tmp/eksctl /usr/local/bin
 fi
 
-CLUSTER_NAME="test-istio-$GITHUB_SHA"
+SHA8=$(git rev-parse --short $GITHUB_SHA)
+CLUSTER_NAME="test-istio-$SHA8"
 
 echo "creating a eks cluster with \"$CLUSTER_NAME\" name..."
 eksctl create cluster --name $CLUSTER_NAME --version 1.18 
