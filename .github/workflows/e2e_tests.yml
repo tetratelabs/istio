@@ -35,6 +35,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [create-test-images]
 
+    strategy:
+      matrix:
+        version: [1.18]
+
     steps:
       - name: checkout
         uses: actions/checkout@v2
@@ -53,6 +57,8 @@ jobs:
 
       - name: eks-cluster-create
         run: bash ./tetrateci/create_eks_cluster.sh
+        env:
+          VER: ${{ matrix.version }}
 
       - name: integration-tests
         run: |
@@ -82,6 +88,10 @@ jobs:
     name: gke-e2e-test
     runs-on: ubuntu-latest
     needs: [create-test-images]
+
+    strategy:
+      matrix:
+        version: ["1.17.13-gke.2600"]
     
     steps:
       - name: checkout
@@ -101,6 +111,8 @@ jobs:
 
       - name: gke-cluster-create
         run: bash ./tetrateci/create_gke_cluster.sh
+        env:
+          VER: ${{ matrix.version }}
 
       - name: integration-tests
         run: |
@@ -130,6 +142,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [create-test-images]
 
+    strategy:
+      matrix:
+        version: [1.18.10]
+
     steps:
       - name: checkout
         uses: actions/checkout@v2
@@ -146,6 +162,8 @@ jobs:
 
       - name: aks-cluster-create
         run: bash ./tetrateci/create_aks_cluster.sh
+        env:
+          VER: ${{ matrix.version }}
 
       - name: integration-tests
         run: |
