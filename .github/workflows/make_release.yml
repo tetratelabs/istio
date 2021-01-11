@@ -12,7 +12,7 @@ jobs:
     name: release-builder-run
     runs-on: ubuntu-latest
     env:
-      HUB: hellozee-docker-istio-temp.bintray.io # change
+      HUB: ${{ secrets.DEPLOY_HUB }}
 
     steps:
       - name: Checkout to choosen tag
