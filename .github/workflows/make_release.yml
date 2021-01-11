@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout to choosen tag
-        - uses: actions/checkout@v2
+        uses: actions/checkout@v2
         with:
           ref: ${{ github.event.inputs.tag }}
           fetch-depth: 0
