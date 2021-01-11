@@ -8,8 +8,8 @@ ignoreVulnerability: true
 
 dependencies:
   istio:
-    git: https://github.com/istio/istio
-    branch: master
+    git: https://github.com/tetratelabs/istio
+    branch: $TAG
   api:
     git: https://github.com/istio/api
     auto: modules
