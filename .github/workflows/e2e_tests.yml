@@ -5,12 +5,13 @@ on:
     tags:
       - '*tetrate*'
 
+env:
+  HUB: hellozee-docker-istio-testing.bintray.io # change
+
 jobs:
   create-test-images:
     name: create-test-images
     runs-on: ubuntu-latest
-    env:
-      HUB: hellozee-docker-istio-testing.bintray.io # change
 
     steps:
       - name: checkout
@@ -33,8 +34,6 @@ jobs:
     name: eks-e2e-test
     runs-on: ubuntu-latest
     needs: [create-test-images]
-    env:
-      HUB: hellozee-docker-istio-testing.bintray.io # change
 
     steps:
       - name: checkout
@@ -83,9 +82,7 @@ jobs:
     name: gke-e2e-test
     runs-on: ubuntu-latest
     needs: [create-test-images]
-    env:
-      HUB: hellozee-docker-istio-testing.bintray.io # change
-
+    
     steps:
       - name: checkout
         uses: actions/checkout@v2
@@ -132,9 +129,6 @@ jobs:
     name: aks-e2e-test
     runs-on: ubuntu-latest
     needs: [create-test-images]
-
-    env:
-      HUB: hellozee-docker-istio-testing.bintray.io # change
 
     steps:
       - name: checkout
