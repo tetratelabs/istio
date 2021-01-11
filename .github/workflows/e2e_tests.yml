@@ -7,11 +7,8 @@ on:
 
 jobs:
   create-test-images:
-    strategy:
-      matrix:
-        os: [ ubuntu-latest ]
     name: create-test-images
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     env:
       HUB: hellozee-docker-istio-testing.bintray.io # change
 
@@ -33,12 +30,8 @@ jobs:
           make docker push
 
   eks-e2e-test:
-    strategy:
-      matrix:
-        os: [ ubuntu-latest ]
-
     name: eks-e2e-test
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     needs: [create-test-images]
     env:
       HUB: hellozee-docker-istio-testing.bintray.io # change
@@ -86,12 +79,8 @@ jobs:
         run: bash ./tetrateci/cleanup_eks_cluster.sh
   
   gke-e2e-test:
-    strategy:
-      matrix:
-        os: [ ubuntu-latest ]
-
     name: gke-e2e-test
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     needs: [create-test-images]
     env:
       HUB: hellozee-docker-istio-testing.bintray.io # change
@@ -138,12 +127,8 @@ jobs:
         run: bash ./tetrateci/cleanup_gke_cluster.sh
 
   aks-e2e-test:
-    strategy:
-      matrix:
-        os: [ ubuntu-latest ]
-
     name: aks-e2e-test
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     needs: [create-test-images]
 
     env:
@@ -212,15 +197,11 @@ jobs:
           draft: false
           prerelease: false
 
-  make_release:
-    strategy:
-      matrix:
-        os: [ ubuntu-latest ]
-    
+  make_release:    
     needs: [create-new-tag]
 
     name: release-builder-run
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout tetrate branch
