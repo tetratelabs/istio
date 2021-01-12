@@ -16,6 +16,9 @@ cat /tmp/newtags
 
 # then compare the list and pick the ones unique to the second list
 tags=$(comm -13 /tmp/oldtags /tmp/newtags)
+echo "==================="
+echo "New issue tags to be created $tags"
+echo "==================="
 
 git config user.name github-actions
 git config user.email github-actions@github.com
@@ -25,12 +28,11 @@ for tag in $tags; do
     branch=$( echo $tag | cut -d. -f1,2 )
     if [[ ! $(git rev-parse --verify --quiet origin/tetrate-release-$branch) ]]; then
         # create the tetrate release branch if it doesn't exist with the workflows
-        git checkout tetrate-workflow
-        git checkout -b tetrate-release-$branch 
+        git checkout -b tetrate-release-$branch origin/tetrate-workflow
     else
         git checkout -b tetrate-release-$branch origin/tetrate-release-$branch
     fi
-    git merge $tag --no-edit
+    git merge $tag --no-edit --allow-unrelated-histories
     git tag test-$tag-tetrate-v0
     git push origin tetrate-release-$branch --tags
 done
