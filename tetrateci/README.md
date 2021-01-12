@@ -61,7 +61,7 @@ Workflows of this repo are dependent on the following github secrets:
 15. AZURE_RESOURCE : [ Note : The azure resource name corresponding to the creds ]
 
 #### Debugging
-If the workflow fails, the logs should be pretty clear why it failed. If still the problem cant't be debugged, the best suggestion would be to add the following workflow and ssh into the runner to run the steps manually.
+If the workflow fails, the logs should be pretty clear why it failed. If still the problem cant't be debugged, the best suggestion would be to add the following workflow and ssh into the runner to run the steps manually. Or the copy the debug job into the workflow that needs to be debugged.
 
 ```
 name: Debugging with SSH
@@ -78,3 +78,4 @@ jobs:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
           SSH_PASS: ${{ secrets.SSH_PASS }}
 ```
+More info can be found [here](https://github.com/luchihoratiu/debug-via-ssh).
