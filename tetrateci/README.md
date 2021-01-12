@@ -59,3 +59,22 @@ Workflows of this repo are dependent on the following github secrets:
 13. TEST_HUB_PASS
 14. BINTRAY_ARCHIVE_API : [ Note : The archive API url, example - https://api.bintray.com/content/hellozee/istio-archives ]
 15. AZURE_RESOURCE : [ Note : The azure resource name corresponding to the creds ]
+
+#### Debugging
+If the workflow fails, the logs should be pretty clear why it failed. If still the problem cant't be debugged, the best suggestion would be to add the following workflow and ssh into the runner to run the steps manually.
+
+```
+name: Debugging with SSH
+on: 
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start SSH session
+        uses: luchihoratiu/debug-via-ssh@main
+        with:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+          SSH_PASS: ${{ secrets.SSH_PASS }}
+```
