@@ -22,12 +22,19 @@ jobs:
           registry: ${{ env.HUB }}
           username: ${{ secrets.TEST_HUB_USER }}
           password: ${{ secrets.TEST_HUB_PASS }}
+      
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/}
+        shell: bash
 
       - name: build and push images
+        # TODO: Hack Alert https://github.com/actions/runner/issues/241
         shell: 'script -q -e -c "bash {0}"'
         run: |
-          export TAG=$(git describe --tags)
           make docker push
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
 
   eks-e2e-test:
     ## TODO: temporarily disabling it till credentials are set
@@ -56,6 +63,11 @@ jobs:
         with:
           go-version: 1.15
 
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/}
+        shell: bash
+
       - name: eks-cluster-create
         run: bash ./tetrateci/create_eks_cluster.sh
         env:
@@ -63,7 +75,6 @@ jobs:
 
       - name: integration-tests
         run: |
-          export TAG=$(git describe --tags)
           go test -tags=integ ./tests/integration/operator/...  -istio.test.skipVM true -p 1  -test.v
           go test -tags=integ ./tests/integration/helm/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestRevisionedUpgrade|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v 
@@ -80,6 +91,8 @@ jobs:
           go test -tags=integ  ./tests/integration/security/sds_egress/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/sds_tls_origination/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
 
       - name: eks-cluster-delete
         if: always()
@@ -112,6 +125,11 @@ jobs:
         with:
           go-version: 1.15
 
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/}
+        shell: bash
+
       - name: gke-cluster-create
         run: bash ./tetrateci/create_gke_cluster.sh
         env:
@@ -119,12 +137,13 @@ jobs:
 
       - name: integration-tests
         run: |
-          export TAG=$(git describe --tags)
           go test -tags=integ ./tests/integration/operator/...  -istio.test.skipVM true -p 1  -test.v
           go test -tags=integ ./tests/integration/helm/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v 
           go test -tags=integ ./tests/integration/pilot/analysis/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ ./tests/integration/pilot/revisions/... -istio.test.skipVM true -p 1 -test.v
+          # Hack Alert : https://github.com/tetratelabs/getistio/issues/76
+          pip install pyyaml --user && ./tetrateci/gen_iop.py
           go test -count=1 -tags=integ ./tests/integration/pilot/cni/...  -istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml  -test.v
           go test -tags=integ -timeout 30m -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics'  ./tests/integration/telemetry/stats/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/ca_custom_root/... -istio.test.skipVM true -p 1 -test.v
@@ -135,6 +154,8 @@ jobs:
           go test -tags=integ  ./tests/integration/security/sds_egress/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/sds_tls_origination/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
 
       - name: gke-cluster-delete
         if: always()
@@ -167,6 +188,11 @@ jobs:
         with:
           go-version: 1.15
 
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/}
+        shell: bash
+
       - name: aks-cluster-create
         run: bash ./tetrateci/create_aks_cluster.sh
         env:
@@ -175,7 +201,6 @@ jobs:
 
       - name: integration-tests
         run: |
-          export TAG=$(git describe --tags)
           go test -tags=integ ./tests/integration/operator/...  -istio.test.skipVM true -p 1  -test.v
           go test -tags=integ ./tests/integration/helm/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v 
@@ -190,6 +215,8 @@ jobs:
           go test -tags=integ  ./tests/integration/security/sds_egress/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/sds_tls_origination/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ  ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
 
       - name: aks-cluster-delete
         if: always()
@@ -253,4 +280,5 @@ jobs:
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ steps.get_tag.outputs.TAG }}
           BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
+        # not using the official build container 
         run: ./tetrateci/create_istio_release.sh
