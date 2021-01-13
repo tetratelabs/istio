@@ -24,6 +24,7 @@ jobs:
           password: ${{ secrets.TEST_HUB_PASS }}
 
       - name: build and push images
+        # TODO: Hack Alert https://github.com/actions/runner/issues/241
         shell: 'script -q -e -c "bash {0}"'
         run: |
           export TAG=$(git describe --tags)
@@ -251,4 +252,5 @@ jobs:
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ steps.get_tag.outputs.TAG }}
           BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
+        # not using the official build container 
         run: ./tetrateci/create_istio_release.sh
