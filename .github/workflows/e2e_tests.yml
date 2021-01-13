@@ -142,7 +142,7 @@ jobs:
           go test -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v 
           go test -tags=integ ./tests/integration/pilot/analysis/... -istio.test.skipVM true -p 1 -test.v
           go test -tags=integ ./tests/integration/pilot/revisions/... -istio.test.skipVM true -p 1 -test.v
-          # Overy CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
+          # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
           pip install pyyaml --user && ./tetrateci/gen_iop.py
           go test -count=1 -tags=integ ./tests/integration/pilot/cni/...  -istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml  -test.v
           go test -tags=integ -timeout 30m -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics'  ./tests/integration/telemetry/stats/... -istio.test.skipVM true -p 1 -test.v
