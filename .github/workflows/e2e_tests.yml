@@ -30,6 +30,8 @@ jobs:
           make docker push
 
   eks-e2e-test:
+    ## TODO: temporarily disabling it till credentials are set
+    if: ${{ false }}
     name: eks-e2e-test
     runs-on: ubuntu-latest
     needs: [create-test-images]
@@ -141,6 +143,8 @@ jobs:
           VER: ${{ matrix.version }}
 
   aks-e2e-test:
+    ## TODO: temporarily disabling it till credentials are set
+    if: ${{ false }}
     name: aks-e2e-test
     runs-on: ubuntu-latest
     needs: [create-test-images]

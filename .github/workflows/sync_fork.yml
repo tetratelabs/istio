@@ -17,7 +17,7 @@ jobs:
       uses: actions/checkout@v2
       with:
         ref: tetrate-workflow
-        token: ${{ secrets.PAT }}
+        ssh-key: ${{ secrets.GETISTIO_PUSH_KEY }}
 
     - name: Sync the tags
       run: bash ./tetrateci/fetch_all_tags.sh
