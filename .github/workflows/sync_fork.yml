@@ -13,7 +13,7 @@ jobs:
 
     steps:
     # convenient way to setup the environment nothing much more tbh
-    - name: Checkout tetrate
+    - name: Checkout tetrate-workflow
       uses: actions/checkout@v2
       with:
         ref: tetrate-workflow
