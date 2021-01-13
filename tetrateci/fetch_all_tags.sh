@@ -16,6 +16,9 @@ cat /tmp/newtags
 
 # then compare the list and pick the ones unique to the second list
 tags=$(comm -13 /tmp/oldtags /tmp/newtags)
+echo "==================="
+echo "New issue tags to be created $tags"
+echo "==================="
 
 git config user.name github-actions
 git config user.email github-actions@github.com
