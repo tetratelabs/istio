@@ -14,5 +14,5 @@
 11. TEST_HUB : [ Note : Link to docker registry for pushing test images ] 
 12. TEST_HUB_USER
 13. TEST_HUB_PASS
-14. BINTRAY_ARCHIVE_API : [ Note : The archive API url, example - https://api.bintray.com/content/hellozee/istio-archives ]
+14. BINTRAY_ARCHIVE_API : [ Note : The archive API url, example - https://api.bintray.com/content/hellozee/istio-archives/istio ]
 15. AZURE_RESOURCE : [ Note : The azure resource name corresponding to the creds ]
