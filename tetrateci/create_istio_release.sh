@@ -2,7 +2,7 @@
 
 # HACK : the github runner runs out of space sometimes so removing the 21 GB dotnet folder
 # Temporary thing, we should be moving to a custom runner instead.
-[ -d " /usr/share/dotnet" ] && sudo rm -rf /usr/share/dotnet
+[ -d "/usr/share/dotnet" ] && sudo rm -rf /usr/share/dotnet
 
 sudo gem install fpm
 sudo apt-get install go-bindata -y
@@ -20,10 +20,8 @@ go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
 PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio*")
 for package in $PACKAGES; do
-    NAME=$(cut -d '-' -f 1 <<< $package)
     echo "Publishing $package"
-    curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$NAME/$TAG/$package 
+    curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/$package
 done
 
-curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/istio/$TAG/publish
-curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/istioctl/$TAG/publish
+curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/publish
