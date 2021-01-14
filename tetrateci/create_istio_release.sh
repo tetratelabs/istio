@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# HACK : the github runner runs out of space sometimes so removing the 21 GB dotnet folder
+# Temporary thing, we should be moving to a custom runner instead.
+[ -d " /usr/share/dotnet" ] && sudo rm -rf /usr/share/dotnet
+
 sudo gem install fpm
 sudo apt-get install go-bindata -y
 cd ..
