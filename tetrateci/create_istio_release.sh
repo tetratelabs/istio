@@ -26,7 +26,13 @@ go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio*")
 for package in $PACKAGES; do
     echo "Publishing $package"
-    curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/$package
+    rm -f /tmp/curl.out
+    curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/$package -o /tmp/curl.out
+    cat /tmp/curl.out
+    grep "success" /tmp/curl.out
 done
 
-curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/publish
+rm -f /tmp/curl.out
+curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/publish -o /tmp/curl.out
+cat /tmp/curl.out
+grep "success" /tmp/curl.out
