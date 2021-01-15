@@ -49,7 +49,11 @@ GOBUILDFLAGS=${GOBUILDFLAGS:-""}
 IFS=' ' read -r -a GOBUILDFLAGS_ARRAY <<< "$GOBUILDFLAGS"
 
 GCFLAGS=${GCFLAGS:-}
-export CGO_ENABLED=0
+if [[ "${GOARCH}" == "amd64" ]]; then
+    export CGO_ENABLED=1
+else
+    export CGO_ENABLED=0
+fi
 
 if [[ "${STATIC}" !=  "1" ]];then
     LDFLAGS=""
