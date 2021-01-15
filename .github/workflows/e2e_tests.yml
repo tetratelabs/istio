@@ -126,7 +126,7 @@ jobs:
 
     strategy:
       matrix:
-        version: ["1.17.13-gke.2600"]
+        version: ["1.17.14-gke.2600"]
     
     steps:
       - name: checkout
