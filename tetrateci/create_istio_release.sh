@@ -1,5 +1,8 @@
 #!/bin/bash
 
+set -o errexit
+set -o pipefail
+
 # HACK : the github runner runs out of space sometimes so removing the 21 GB dotnet folder
 # Temporary thing, we should be moving to a custom runner instead.
 [ -d "/usr/share/dotnet" ] && sudo rm -rf /usr/share/dotnet
