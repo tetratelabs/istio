@@ -133,13 +133,14 @@ else
   ISTIO_ENVOY_NATIVE_PATH=${ISTIO_ENVOY_LINUX_RELEASE_PATH}
 fi
 
+ISTIO_ENVOY_WASM_BASE_URL=${ISTIO_ENVOY_WASM_BASE_URL:-${ISTIO_ENVOY_BASE_URL}}
 # Download WebAssembly plugin files
 WASM_RELEASE_DIR=${ISTIO_ENVOY_LINUX_RELEASE_DIR}
 for plugin in stats metadata_exchange
 do
-  FILTER_WASM_URL="${ISTIO_ENVOY_BASE_URL}/${plugin}-${ISTIO_ENVOY_VERSION}.wasm"
+  FILTER_WASM_URL="${ISTIO_ENVOY_WASM_BASE_URL}/${plugin}-${ISTIO_ENVOY_VERSION}.wasm"
   download_wasm_if_necessary "${FILTER_WASM_URL}" "${WASM_RELEASE_DIR}"/"${plugin//_/-}"-filter.wasm
-  FILTER_WASM_URL="${ISTIO_ENVOY_BASE_URL}/${plugin}-${ISTIO_ENVOY_VERSION}.compiled.wasm"
+  FILTER_WASM_URL="${ISTIO_ENVOY_WASM_BASE_URL}/${plugin}-${ISTIO_ENVOY_VERSION}.compiled.wasm"
   download_wasm_if_necessary "${FILTER_WASM_URL}" "${WASM_RELEASE_DIR}"/"${plugin//_/-}"-filter.compiled.wasm
 done
 
