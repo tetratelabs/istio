@@ -13,19 +13,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package istioctl
+package nullvm
 
 import (
 	"errors"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"istio.io/istio/pkg/test/framework"
-	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/components/istioctl"
-	"istio.io/istio/pkg/test/framework/label"
+	telemetrypkg "istio.io/istio/pkg/test/framework/components/telemetry"
 	"istio.io/istio/pkg/test/util/retry"
 	common "istio.io/istio/tests/integration/telemetry/stats/prometheus"
 )
@@ -37,24 +35,16 @@ func TestIstioctlMetrics(t *testing.T) {
 	framework.NewTest(t).
 		Features("observability.telemetry.istioctl").
 		Run(func(ctx framework.TestContext) {
+
 			retry.UntilSuccessOrFail(t, func() error {
-				if err := common.SendTraffic(t); err != nil {
+				if err := common.SendTraffic(t, common.GetClientInstances()[0]); err != nil {
 					return err
 				}
 				return validateDefaultOutput(t, ctx, "server")
-			}, retry.Delay(3*time.Second), retry.Timeout(80*time.Second))
-		})
-}
+			}, retry.Delay(telemetrypkg.RetryDelay), retry.Timeout(telemetrypkg.RetryTimeout))
 
-// We expect this suite to be more fully fleshed out as more functionality
-// is added to istioctl experimental metrics and support for non-default
-// output formats is added.
-func TestMain(m *testing.M) {
-	framework.NewSuite(m).
-		Label(label.CustomSetup).
-		Setup(istio.Setup(common.GetIstioInstance(), nil)).
-		Setup(common.TestSetup).
-		Run()
+		})
+
 }
 
 func validateDefaultOutput(t *testing.T, ctx framework.TestContext, workload string) error { // nolint:interfacer

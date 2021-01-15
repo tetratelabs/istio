@@ -29,6 +29,8 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubetypes "k8s.io/apimachinery/pkg/types"
 
 	"istio.io/istio/pkg/util/gogoprotomarshal"
 	"istio.io/istio/pkg/util/protomarshal"
@@ -41,6 +43,9 @@ type Meta struct {
 	// GroupVersionKind is a short configuration name that matches the content message type
 	// (e.g. "route-rule")
 	GroupVersionKind GroupVersionKind `json:"type,omitempty"`
+
+	// UID
+	UID string `json:"uid,omitempty"`
 
 	// Name is a unique immutable identifier in a namespace
 	Name string `json:"name,omitempty"`
@@ -77,6 +82,9 @@ type Meta struct {
 
 	// CreationTimestamp records the creation time
 	CreationTimestamp time.Time `json:"creationTimestamp,omitempty"`
+
+	// OwnerReferences allows specifying in-namespace owning objects.
+	OwnerReferences []metav1.OwnerReference `json:"ownerReferences,omitempty"`
 }
 
 // Config is a configuration unit consisting of the type of configuration, the
@@ -306,6 +314,14 @@ func (g GroupVersionKind) String() string {
 	return g.Group + "/" + g.Version + "/" + g.Kind
 }
 
+// GroupVersion returns the group/version similar to what would be found in the apiVersion field of a Kubernetes resource.
+func (g GroupVersionKind) GroupVersion() string {
+	if g.Group == "" {
+		return g.Version
+	}
+	return g.Group + "/" + g.Version
+}
+
 // PatchFunc provides the cached config as a base for modification. Only diff the between the cfg
 // parameter and the returned Config will be applied.
-type PatchFunc func(cfg Config) Config
+type PatchFunc func(cfg Config) (Config, kubetypes.PatchType)

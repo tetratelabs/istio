@@ -191,21 +191,6 @@ func TestInternalEvents(t *testing.T) {
 	if dr.Resources == nil || len(dr.Resources) == 0 {
 		t.Error("No data")
 	}
-
-	// Create a second connection - we should get an event.s
-	ads2 := s.Connect(nil, nil, nil)
-	defer ads2.Close()
-
-	dr, err = ads.WaitVersion(5*time.Second, xds.TypeURLConnections,
-		dr.VersionInfo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dr.Resources == nil || len(dr.Resources) == 0 {
-		t.Fatal("No data")
-	}
-	t.Log(dr.Resources[0])
-
 }
 
 func TestAdsReconnectAfterRestart(t *testing.T) {
@@ -494,8 +479,83 @@ func TestAdsPushScoping(t *testing.T) {
 		}
 	}
 	removeVirtualService := func(i int) {
-		s.Store().Delete(gvk.VirtualService, fmt.Sprintf("vs%d", i), model.IstioDefaultConfigNamespace)
+		s.Store().Delete(gvk.VirtualService, fmt.Sprintf("vs%d", i), model.IstioDefaultConfigNamespace, nil)
 	}
+
+	addDelegateVirtualService := func(i int, hosts []string, dest string) {
+		if _, err := s.Store().Create(config.Config{
+			Meta: config.Meta{
+				GroupVersionKind: gvk.VirtualService,
+				Name:             fmt.Sprintf("rootvs%d", i), Namespace: model.IstioDefaultConfigNamespace},
+			Spec: &networking.VirtualService{
+				Hosts: hosts,
+
+				Http: []*networking.HTTPRoute{{
+					Name: "dest-foo",
+					Delegate: &networking.Delegate{
+						Name:      fmt.Sprintf("delegatevs%d", i),
+						Namespace: model.IstioDefaultConfigNamespace,
+					},
+				}},
+				ExportTo: nil,
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := s.Store().Create(config.Config{
+			Meta: config.Meta{
+				GroupVersionKind: gvk.VirtualService,
+				Name:             fmt.Sprintf("delegatevs%d", i), Namespace: model.IstioDefaultConfigNamespace},
+			Spec: &networking.VirtualService{
+				Http: []*networking.HTTPRoute{{
+					Name: "dest-foo",
+					Route: []*networking.HTTPRouteDestination{{
+						Destination: &networking.Destination{
+							Host: dest,
+						},
+					}},
+				}},
+				ExportTo: nil,
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	updateDelegateVirtualService := func(i int, dest string) {
+		if _, err := s.Store().Update(config.Config{
+			Meta: config.Meta{
+				GroupVersionKind: gvk.VirtualService,
+				Name:             fmt.Sprintf("delegatevs%d", i), Namespace: model.IstioDefaultConfigNamespace},
+			Spec: &networking.VirtualService{
+				Http: []*networking.HTTPRoute{{
+					Name: "dest-foo",
+					Headers: &networking.Headers{
+						Request: &networking.Headers_HeaderOperations{
+							Remove: []string{"any-string"},
+						},
+					},
+					Route: []*networking.HTTPRouteDestination{
+						{
+							Destination: &networking.Destination{
+								Host: dest,
+							},
+						},
+					},
+				}},
+				ExportTo: nil,
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	removeDelegateVirtualService := func(i int) {
+		s.Store().Delete(gvk.VirtualService, fmt.Sprintf("rootvs%d", i), model.IstioDefaultConfigNamespace, nil)
+		s.Store().Delete(gvk.VirtualService, fmt.Sprintf("delegatevs%d", i), model.IstioDefaultConfigNamespace, nil)
+	}
+
 	addDestinationRule := func(i int, host string) {
 		if _, err := s.Store().Create(config.Config{
 			Meta: config.Meta{
@@ -510,7 +570,7 @@ func TestAdsPushScoping(t *testing.T) {
 		}
 	}
 	removeDestinationRule := func(i int) {
-		s.Store().Delete(gvk.DestinationRule, fmt.Sprintf("dr%d", i), model.IstioDefaultConfigNamespace)
+		s.Store().Delete(gvk.DestinationRule, fmt.Sprintf("dr%d", i), model.IstioDefaultConfigNamespace, nil)
 	}
 
 	sc := &networking.Sidecar{
@@ -544,6 +604,11 @@ func TestAdsPushScoping(t *testing.T) {
 			indexes []int
 		}
 		vsIndexes []struct {
+			index int
+			hosts []string
+			dest  string
+		}
+		delegatevsIndexes []struct {
 			index int
 			hosts []string
 			dest  string
@@ -705,6 +770,36 @@ func TestAdsPushScoping(t *testing.T) {
 			expectUpdates: []string{v3.ClusterType},
 		},
 		{
+			desc: "Add delegation virtual service for scoped service with transitively scoped dest svc",
+			ev:   model.EventAdd,
+			delegatevsIndexes: []struct {
+				index int
+				hosts []string
+				dest  string
+			}{{index: 4, hosts: []string{fmt.Sprintf("svc%d%s", 4, svcSuffix)}, dest: "foo.com"}},
+			expectUpdates: []string{v3.ListenerType, v3.RouteType, v3.ClusterType, v3.EndpointType},
+		},
+		{
+			desc: "Update delegate virtual service should trigger full push",
+			ev:   model.EventUpdate,
+			delegatevsIndexes: []struct {
+				index int
+				hosts []string
+				dest  string
+			}{{index: 4, hosts: []string{fmt.Sprintf("svc%d%s", 4, svcSuffix)}, dest: "foo.com"}},
+			expectUpdates: []string{v3.ListenerType, v3.RouteType, v3.ClusterType},
+		},
+		{
+			desc: "Delete delegate virtual service for scoped service with transitively scoped dest svc",
+			ev:   model.EventDelete,
+			delegatevsIndexes: []struct {
+				index int
+				hosts []string
+				dest  string
+			}{{index: 4}},
+			expectUpdates: []string{v3.ListenerType, v3.RouteType, v3.ClusterType},
+		},
+		{
 			desc:          "Remove a scoped service",
 			ev:            model.EventDelete,
 			svcIndexes:    []int{4},
@@ -754,9 +849,20 @@ func TestAdsPushScoping(t *testing.T) {
 						addVirtualService(vsIndex.index, vsIndex.hosts, vsIndex.dest)
 					}
 				}
+				if len(c.delegatevsIndexes) > 0 {
+					for _, vsIndex := range c.delegatevsIndexes {
+						addDelegateVirtualService(vsIndex.index, vsIndex.hosts, vsIndex.dest)
+					}
+				}
 				if len(c.drIndexes) > 0 {
 					for _, drIndex := range c.drIndexes {
 						addDestinationRule(drIndex.index, drIndex.host)
+					}
+				}
+			case model.EventUpdate:
+				if len(c.delegatevsIndexes) > 0 {
+					for _, vsIndex := range c.delegatevsIndexes {
+						updateDelegateVirtualService(vsIndex.index, vsIndex.dest)
 					}
 				}
 			case model.EventDelete:
@@ -769,6 +875,11 @@ func TestAdsPushScoping(t *testing.T) {
 				if len(c.vsIndexes) > 0 {
 					for _, vsIndex := range c.vsIndexes {
 						removeVirtualService(vsIndex.index)
+					}
+				}
+				if len(c.delegatevsIndexes) > 0 {
+					for _, vsIndex := range c.delegatevsIndexes {
+						removeDelegateVirtualService(vsIndex.index)
 					}
 				}
 				if len(c.drIndexes) > 0 {

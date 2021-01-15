@@ -101,6 +101,8 @@ type virtualServiceIndex struct {
 	privateByNamespaceAndGateway map[string]map[string][]config.Config
 	// This contains all virtual services whose exportTo is "*", keyed by gateway
 	publicByGateway map[string][]config.Config
+	// root vs namespace/name ->delegate vs virtualservice gvk/namespace/name
+	delegates map[ConfigKey][]ConfigKey
 }
 
 func newVirtualServiceIndex() virtualServiceIndex {
@@ -108,6 +110,7 @@ func newVirtualServiceIndex() virtualServiceIndex {
 		publicByGateway:              map[string][]config.Config{},
 		privateByNamespaceAndGateway: map[string]map[string][]config.Config{},
 		exportedToNamespaceByGateway: map[string]map[string][]config.Config{},
+		delegates:                    map[ConfigKey][]ConfigKey{},
 	}
 }
 
@@ -208,7 +211,8 @@ type PushContext struct {
 	// this is mainly used for kubernetes multi-cluster scenario
 	networkGateways map[string][]*Gateway
 
-	initDone atomic.Bool
+	initDone        atomic.Bool
+	initializeMutex sync.Mutex
 }
 
 // Gateway is the gateway of a network
@@ -674,7 +678,7 @@ func (ps *PushContext) ServiceForHostname(proxy *Proxy, hostname host.Name) *Ser
 	return nil
 }
 
-// VirtualServices lists all virtual services bound to the specified gateways
+// VirtualServicesForGateway lists all virtual services bound to the specified gateways
 // This replaces store.VirtualServices. Used only by the gateways
 // Sidecars use the egressListener.VirtualServices().
 func (ps *PushContext) VirtualServicesForGateway(proxy *Proxy, gateway string) []config.Config {
@@ -682,6 +686,16 @@ func (ps *PushContext) VirtualServicesForGateway(proxy *Proxy, gateway string) [
 	res = append(res, ps.virtualServiceIndex.exportedToNamespaceByGateway[proxy.ConfigNamespace][gateway]...)
 	res = append(res, ps.virtualServiceIndex.publicByGateway[gateway]...)
 	return res
+}
+
+// DelegateVirtualServicesConfigKey lists all the delegate virtual services configkeys associated with the provided virtual services
+func (ps *PushContext) DelegateVirtualServicesConfigKey(vses []config.Config) []ConfigKey {
+	var out []ConfigKey
+	for _, vs := range vses {
+		out = append(out, ps.virtualServiceIndex.delegates[ConfigKey{Kind: gvk.VirtualService, Namespace: vs.Namespace, Name: vs.Name}]...)
+	}
+
+	return out
 }
 
 // getSidecarScope returns a SidecarScope object associated with the
@@ -853,6 +867,10 @@ func (ps *PushContext) SubsetToLabels(proxy *Proxy, subsetName string, hostname 
 // This should be called before starting the push, from the thread creating
 // the push context.
 func (ps *PushContext) InitContext(env *Environment, oldPushContext *PushContext, pushReq *PushRequest) error {
+	// Acquire a lock to ensure we don't concurrently initialize the same PushContext.
+	// If this does happen, one thread will block then exit early from initDone=true
+	ps.initializeMutex.Lock()
+	defer ps.initializeMutex.Unlock()
 	if ps.initDone.Load() {
 		return nil
 	}
@@ -1164,7 +1182,7 @@ func (ps *PushContext) initVirtualServices(env *Environment) error {
 	// the RDS code. See separateVSHostsAndServices in route/route.go
 	sortConfigByCreationTime(vservices)
 
-	vservices = mergeVirtualServicesIfNeeded(vservices, ps.exportToDefaults.virtualService)
+	vservices, ps.virtualServiceIndex.delegates = mergeVirtualServicesIfNeeded(vservices, ps.exportToDefaults.virtualService)
 
 	// convert all shortnames in virtual services into FQDNs
 	for _, r := range vservices {

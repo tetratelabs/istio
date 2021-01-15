@@ -37,6 +37,7 @@ require (
 	github.com/docker/distribution v2.7.1+incompatible
 	github.com/envoyproxy/go-control-plane v0.9.8-0.20201019204000-12785f608982
 	github.com/evanphx/json-patch v4.9.0+incompatible
+	github.com/evanphx/json-patch/v5 v5.1.0
 	github.com/fatih/color v1.9.0
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/ghodss/yaml v1.0.0
@@ -102,7 +103,7 @@ require (
 	gopkg.in/yaml.v2 v2.3.0
 	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776
 	helm.sh/helm/v3 v3.2.4
-	istio.io/api v0.0.0-20201112235759-fa4ee46c5dc2
+	istio.io/api v0.0.0-20201228222031-821cd2dab7b5
 	istio.io/client-go v0.0.0-20200908160912-f99162621a1a
 	istio.io/gogo-genproto v0.0.0-20201112235858-7e611cb4d738
 	istio.io/pkg v0.0.0-20201112235759-c861803834b2
@@ -114,6 +115,6 @@ require (
 	k8s.io/kubectl v0.19.3
 	k8s.io/utils v0.0.0-20201015054608-420da100c033
 	sigs.k8s.io/controller-runtime v0.6.3
-	sigs.k8s.io/service-apis v0.1.0-rc2
+	sigs.k8s.io/service-apis v0.1.0-rc2.0.20201112213625-c0375b7fa81f
 	sigs.k8s.io/yaml v1.2.0
 )

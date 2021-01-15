@@ -472,7 +472,7 @@ func (configgen *ConfigGeneratorImpl) buildSidecarInboundHTTPListenerOptsForPort
 		// names here because the inbound clusters are not referred to anywhere in the API, unlike the outbound
 		// clusters and these are static endpoint clusters used only for sidecar (proxy -> app)
 		clusterName = util.BuildInboundSubsetKey(node, pluginParams.ServiceInstance.ServicePort.Name,
-			pluginParams.ServiceInstance.Service.Hostname, pluginParams.ServiceInstance.ServicePort.Port)
+			pluginParams.ServiceInstance.Service.Hostname, pluginParams.ServiceInstance.ServicePort.Port, int(pluginParams.ServiceInstance.Endpoint.EndpointPort))
 	}
 
 	httpOpts := &httpListenerOpts{
@@ -515,7 +515,7 @@ func (configgen *ConfigGeneratorImpl) buildSidecarThriftListenerOptsForPortOrUDS
 	// names here because the inbound clusters are not referred to anywhere in the API, unlike the outbound
 	// clusters and these are static endpoint clusters used only for sidecar (proxy -> app)
 	clusterName := util.BuildInboundSubsetKey(pluginParams.Node, pluginParams.ServiceInstance.ServicePort.Name,
-		pluginParams.ServiceInstance.Service.Hostname, int(pluginParams.ServiceInstance.Endpoint.EndpointPort))
+		pluginParams.ServiceInstance.Service.Hostname, pluginParams.ServiceInstance.ServicePort.Port, int(pluginParams.ServiceInstance.Endpoint.EndpointPort))
 
 	thriftOpts := &thriftListenerOpts{
 		transport:   thrift.TransportType_AUTO_TRANSPORT,
@@ -545,6 +545,7 @@ func (configgen *ConfigGeneratorImpl) buildSidecarInboundListenerForPortOrUDS(no
 		if old.instanceHostname != pluginParams.ServiceInstance.Service.Hostname {
 			// For sidecar specified listeners, the caller is expected to supply a dummy service instance
 			// with the right port and a hostname constructed from the sidecar config's name+namespace
+			// TODO everything in inbound listener is now workload oriented. We should no longer have listener conflicts.
 			pluginParams.Push.AddMetric(model.ProxyStatusConflictInboundListener, pluginParams.Node.ID, pluginParams.Node.ID,
 				fmt.Sprintf("Conflicting inbound listener:%d. existing: %s, incoming: %s", listenerOpts.port.Port,
 					old.instanceHostname, pluginParams.ServiceInstance.Service.Hostname))
@@ -597,6 +598,16 @@ allChainsLabel:
 			}
 		}
 		listenerOpts.needHTTPInspector = true
+	} else if pluginParams.ListenerProtocol == istionetworking.ListenerProtocolTCP {
+		// When we are in permissive mode, we need a third filter chain to handle how envoy treats filter
+		// chain matching
+		// There will be one mtls filter chain, then two identical filter chains with transport=raw and transport=tls.
+		// TODO(https://github.com/istio/istio/issues/29588) clean this up
+		if tlsInspectorEnabled {
+			allChains = append(allChains, istionetworking.FilterChain{
+				FilterChainMatch: &listener.FilterChainMatch{TransportProtocol: xdsfilters.TLSTransportProtocol},
+			})
+		}
 	}
 
 	// name all the filter chains
@@ -610,10 +621,12 @@ allChainsLabel:
 		if chain.FilterChainMatch == nil {
 			chain.FilterChainMatch = &listener.FilterChainMatch{}
 		}
-		if chain.TLSContext == nil {
-			chain.FilterChainMatch.TransportProtocol = xdsfilters.RawBufferTransportProtocol
-		} else {
-			chain.FilterChainMatch.TransportProtocol = xdsfilters.TLSTransportProtocol
+		if chain.FilterChainMatch.TransportProtocol == "" {
+			if chain.TLSContext == nil {
+				chain.FilterChainMatch.TransportProtocol = xdsfilters.RawBufferTransportProtocol
+			} else {
+				chain.FilterChainMatch.TransportProtocol = xdsfilters.TLSTransportProtocol
+			}
 		}
 		switch pluginParams.ListenerProtocol {
 		case istionetworking.ListenerProtocolHTTP:
