@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio
+  namespace: istio-system
+  labels:
+    istio.io/rev: default
+    release: istio
+data:
+
+  # Configuration file for the mesh networks to be used by the Split Horizon EDS.
+  meshNetworks: |-
+    networks: {}
+
+  mesh: |-
+    defaultConfig:
+      controlPlaneAuthPolicy: NONE
+      discoveryAddress: my-discovery:123
+      drainDuration: 12s
+      proxyMetadata:
+        DNS_AGENT: ""
+        TERMINATION_DRAIN_DURATION_SECONDS: "120"
+      tracing:
+        zipkin:
+          address: zipkin.istio-system:9411
+    disableMixerHttpReports: true
+    enablePrometheusMerge: true
+    mixerCheckServer: foo:1234
+    outboundTrafficPolicy:
+      mode: REGISTRY_ONLY
+    rootNamespace: istio-control
+    trustDomain: cluster.local
+---
