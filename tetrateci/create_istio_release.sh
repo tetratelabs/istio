@@ -1,8 +1,13 @@
 #!/bin/bash
 
+set -o errexit
+set -o pipefail
+
 # HACK : the github runner runs out of space sometimes so removing the 21 GB dotnet folder
 # Temporary thing, we should be moving to a custom runner instead.
 [ -d "/usr/share/dotnet" ] && sudo rm -rf /usr/share/dotnet
+
+export ISTIO_VERSION=$TAG
 
 sudo gem install fpm
 sudo apt-get install go-bindata -y
@@ -11,7 +16,7 @@ git clone https://github.com/istio/release-builder --depth=1
 envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.yaml
 cd release-builder
 cp -r ../istio .
-export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
+#export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
 # make shell TODO: https://github.com/tetratelabs/getistio/issues/82
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.yaml
