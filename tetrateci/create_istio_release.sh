@@ -29,4 +29,6 @@ for package in $PACKAGES; do
     curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/$package
 done
 
-curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/publish
+rm -f /tmp/curl.out
+curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/publish -o /tmp/curl.out
+cat /tmp/curl.out
