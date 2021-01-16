@@ -27,18 +27,15 @@ import (
 	"istio.io/istio/istioctl/pkg/install/k8sversion"
 	v1alpha12 "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
 	"istio.io/istio/operator/pkg/cache"
+	"istio.io/istio/operator/pkg/controller/istiocontrolplane"
 	"istio.io/istio/operator/pkg/helmreconciler"
 	"istio.io/istio/operator/pkg/manifest"
+	"istio.io/istio/operator/pkg/name"
+	"istio.io/istio/operator/pkg/translate"
 	"istio.io/istio/operator/pkg/util"
 	"istio.io/istio/operator/pkg/util/clog"
 	"istio.io/istio/operator/pkg/util/progress"
 	"istio.io/pkg/log"
-)
-
-const (
-	// installedSpecCRPrefix is the prefix of any IstioOperator CR stored in the cluster that is a copy of the CR used
-	// in the last install operation.
-	installedSpecCRPrefix = "installed-state"
 )
 
 type installArgs struct {
@@ -120,9 +117,18 @@ func InstallCmd(logOpts *log.Options) *cobra.Command {
 
 func runApplyCmd(cmd *cobra.Command, rootArgs *rootArgs, iArgs *installArgs, logOpts *log.Options) error {
 	l := clog.NewConsoleLogger(cmd.OutOrStdout(), cmd.ErrOrStderr(), installerScope)
+	setFlags := applyFlagAliases(iArgs.set, iArgs.manifestsPath, iArgs.revision)
 	// Warn users if they use `istioctl install` without any config args.
 	if !rootArgs.dryRun && !iArgs.skipConfirmation {
-		if !confirm("This will install the Istio profile into the cluster. Proceed? (y/N)", cmd.OutOrStdout()) {
+		profile, enabledComponents, err := getProfileAndEnabledComponents(setFlags, iArgs.inFilenames, iArgs.force, l)
+		if err != nil {
+			return fmt.Errorf("failed to get profile and enabled components: %v", err)
+		}
+		prompt := fmt.Sprintf("This will install the Istio %s profile with %q components into the cluster. Proceed? (y/N)", profile, enabledComponents)
+		if profile == "empty" {
+			prompt = fmt.Sprintf("This will install the Istio %s profile into the cluster. Proceed? (y/N)", profile)
+		}
+		if !confirm(prompt, cmd.OutOrStdout()) {
 			cmd.Print("Cancelled.\n")
 			os.Exit(1)
 		}
@@ -130,7 +136,7 @@ func runApplyCmd(cmd *cobra.Command, rootArgs *rootArgs, iArgs *installArgs, log
 	if err := configLogs(logOpts); err != nil {
 		return fmt.Errorf("could not configure logs: %s", err)
 	}
-	if err := InstallManifests(applyFlagAliases(iArgs.set, iArgs.manifestsPath, iArgs.revision), iArgs.inFilenames, iArgs.force, rootArgs.dryRun,
+	if err := InstallManifests(setFlags, iArgs.inFilenames, iArgs.force, rootArgs.dryRun,
 		iArgs.kubeConfigPath, iArgs.context, iArgs.readinessTimeout, l); err != nil {
 		return fmt.Errorf("failed to install manifests: %v", err)
 	}
@@ -181,6 +187,10 @@ func InstallManifests(setOverlay []string, inFilenames []string, force bool, dry
 
 	// Save a copy of what was installed as a CR in the cluster under an internal name.
 	iop.Name = savedIOPName(iop)
+	if iop.Annotations == nil {
+		iop.Annotations = make(map[string]string)
+	}
+	iop.Annotations[istiocontrolplane.IgnoreReconcileAnnotation] = "true"
 	iopStr, err := util.MarshalWithJSONPB(iop)
 	if err != nil {
 		return err
@@ -190,7 +200,7 @@ func InstallManifests(setOverlay []string, inFilenames []string, force bool, dry
 }
 
 func savedIOPName(iop *v1alpha12.IstioOperator) string {
-	ret := installedSpecCRPrefix
+	ret := name.InstalledSpecCRPrefix
 	if iop.Name != "" {
 		ret += "-" + iop.Name
 	}
@@ -198,4 +208,43 @@ func savedIOPName(iop *v1alpha12.IstioOperator) string {
 		ret += "-" + iop.Spec.Revision
 	}
 	return ret
+}
+
+// GetProfileAndEnabledComponents get the profile and all the enabled components
+// from the given input files and --set flag overlays.
+func getProfileAndEnabledComponents(setOverlay []string, inFilenames []string, force bool, l clog.Logger) (string, []string, error) {
+	overlayYAML, profile, err := manifest.ReadYamlProfile(inFilenames, setOverlay, force, l)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to read profile: %v", err)
+	}
+	_, iop, err := manifest.GenIOPFromProfile(profile, overlayYAML, setOverlay, force, false, nil, l)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to generate IOP from profile %s: %v", profile, err)
+	}
+
+	var enabledComponents []string
+	if iop.Spec.Components != nil {
+		for _, c := range name.AllCoreComponentNames {
+			enabled, err := translate.IsComponentEnabledInSpec(c, iop.Spec)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to check if component: %s is enabled or not: %v", string(c), err)
+			}
+			if enabled {
+				enabledComponents = append(enabledComponents, name.UserFacingComponentName(c))
+			}
+		}
+		for _, c := range iop.Spec.Components.IngressGateways {
+			if c.Enabled.Value {
+				enabledComponents = append(enabledComponents, name.UserFacingComponentName(name.IngressComponentName))
+				break
+			}
+		}
+		for _, c := range iop.Spec.Components.EgressGateways {
+			if c.Enabled.Value {
+				enabledComponents = append(enabledComponents, name.UserFacingComponentName(name.EgressComponentName))
+				break
+			}
+		}
+	}
+	return profile, enabledComponents, nil
 }
