@@ -42,6 +42,7 @@ import (
 	authn_model "istio.io/istio/pilot/pkg/security/model"
 	"istio.io/istio/pilot/pkg/serviceregistry"
 	"istio.io/istio/pilot/pkg/util/sets"
+	xdsv2 "istio.io/istio/pilot/pkg/xds/v2"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/protocol"
@@ -457,19 +458,12 @@ func conditionallyConvertToIstioMtls(
 	proxy *model.Proxy,
 	autoMTLSEnabled bool,
 	meshExternal bool,
-	serviceMTLSMode model.MutualTLSMode,
-	clusterDiscoveryType cluster.Cluster_DiscoveryType) (*networking.ClientTLSSettings, mtlsContextType) {
+	serviceMTLSMode model.MutualTLSMode) (*networking.ClientTLSSettings, mtlsContextType) {
 	mtlsCtx := userSupplied
 	if tls == nil {
 		if meshExternal || !autoMTLSEnabled || serviceMTLSMode == model.MTLSUnknown || serviceMTLSMode == model.MTLSDisable {
 			return nil, mtlsCtx
 		}
-		// Do not enable auto mtls when cluster type is `Cluster_ORIGINAL_DST`
-		// We don't know whether headless service instance has sidecar injected or not.
-		if clusterDiscoveryType == cluster.Cluster_ORIGINAL_DST {
-			return nil, mtlsCtx
-		}
-
 		mtlsCtx = autoDetected
 		// we will setup transport sockets later
 		tls = &networking.ClientTLSSettings{
@@ -646,7 +640,7 @@ func applyTrafficPolicy(opts buildClusterOpts) {
 		autoMTLSEnabled := opts.push.Mesh.GetEnableAutoMtls().Value
 		var mtlsCtxType mtlsContextType
 		tls, mtlsCtxType = conditionallyConvertToIstioMtls(tls, opts.serviceAccounts, opts.istioMtlsSni, opts.proxy,
-			autoMTLSEnabled, opts.meshExternal, opts.serviceMTLSMode, opts.cluster.GetType())
+			autoMTLSEnabled, opts.meshExternal, opts.serviceMTLSMode)
 		applyUpstreamTLSSettings(&opts, tls, mtlsCtxType, opts.proxy)
 	}
 }
@@ -908,9 +902,19 @@ func applyUpstreamTLSSettings(opts *buildClusterOpts, tls *networking.ClientTLSS
 	}
 
 	if tlsContext != nil {
+		tc := util.MessageToAny(tlsContext)
+		// Moving from v2 tls <-> v3 tls seems to cause downtime: https://github.com/envoyproxy/envoy/issues/13864
+		// Instead, we should tie this to the cluster version, which is fixed, so we do not switch at runtime during
+		// an in place upgrade of the control plane only
+		// However, there is an edge case: users with 1.6 proxy, connecting to 1.7.x control plane without this code, then updating
+		// to 1.7.y control plane with this code. This would cause this code to cause another downtime by downgrading from v3 to v2.
+		// To workaround this, we will have a flag to disable this behavior
+		if features.EnableTLSXDSDynamicTypes && node.RequestedTypes.CDS == xdsv2.ClusterType {
+			tc.TypeUrl = "type.googleapis.com/envoy.api.v2.auth.UpstreamTlsContext"
+		}
 		c.TransportSocket = &core.TransportSocket{
 			Name:       util.EnvoyTLSSocketName,
-			ConfigType: &core.TransportSocket_TypedConfig{TypedConfig: util.MessageToAny(tlsContext)},
+			ConfigType: &core.TransportSocket_TypedConfig{TypedConfig: tc},
 		}
 	}
 
