@@ -1,0 +1,7 @@
+rootNamespace: istio-config
+defaultServiceExportTo:
+  - "*"
+defaultVirtualServiceExportTo:
+  - "*"
+defaultDestinationRuleExportTo:
+  - "*"
