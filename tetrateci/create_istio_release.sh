@@ -35,4 +35,3 @@ done
 rm -f /tmp/curl.out
 curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/publish -o /tmp/curl.out
 cat /tmp/curl.out
-grep "success" /tmp/curl.out
