@@ -16,17 +16,18 @@
 package stackdriver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"cloud.google.com/go/compute/metadata"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
+	"golang.org/x/sync/errgroup"
 	loggingpb "google.golang.org/genproto/googleapis/logging/v2"
 	monitoring "google.golang.org/genproto/googleapis/monitoring/v3"
 
@@ -38,11 +39,13 @@ import (
 	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/components/stackdriver"
 	edgespb "istio.io/istio/pkg/test/framework/components/stackdriver/edges"
+	telemetrypkg "istio.io/istio/pkg/test/framework/components/telemetry"
 	"istio.io/istio/pkg/test/framework/label"
 	"istio.io/istio/pkg/test/framework/resource"
 	"istio.io/istio/pkg/test/scopes"
 	"istio.io/istio/pkg/test/util/retry"
 	"istio.io/istio/pkg/test/util/tmpl"
+	"istio.io/istio/tests/integration/telemetry"
 )
 
 const (
@@ -54,9 +57,6 @@ const (
 	sdBootstrapConfigMap         = "stackdriver-bootstrap-config"
 
 	projectsPrefix = "projects/test-project"
-	// For multicluster tests we multiply the number of requests with a
-	// constant multiplier to make sure we have cross cluster traffic.
-	requestCountMultipler = 3
 )
 
 var (
@@ -91,35 +91,52 @@ func unmarshalFromTemplateFile(file string, out proto.Message, clName string) er
 	return jsonpb.UnmarshalString(resource, out)
 }
 
-// TODO: add test for log, trace and edge.
 // TestStackdriverMonitoring verifies that stackdriver WASM filter exports metrics with expected labels.
 func TestStackdriverMonitoring(t *testing.T) {
 	framework.NewTest(t).
+		Features("observability.telemetry.stackdriver").
 		Run(func(ctx framework.TestContext) {
-			if err := sendTraffic(t); err != nil {
-				t.Fatalf("could not generate traffic: %v", err)
-			}
+			g, _ := errgroup.WithContext(context.Background())
+			for _, cltInstance := range clt {
+				g.Go(func() error {
+					err := retry.UntilSuccess(func() error {
+						if err := sendTraffic(t, cltInstance); err != nil {
+							return err
+						}
+						clName := cltInstance.Config().Cluster.Name()
+						scopes.Framework.Infof("Validating for cluster %s", clName)
 
-			for _, cl := range ctx.Clusters() {
-				scopes.Framework.Infof("Validating Telemetry for Cluster %v", cl)
-				retry.UntilSuccessOrFail(t, func() error {
-					clName := cl.Name()
-					//Validate cluster names in telemetry below once https://github.com/istio/istio/issues/28125 is fixed.
-					if err := validateMetrics(t, serverRequestCount, clientRequestCount, clName); err != nil {
-						return err
-					}
-					if err := validateLogs(t, serverLogEntry, clName); err != nil {
-						return err
-					}
-					if err := validateTraces(t, clName); err != nil {
-						return err
-					}
-					if err := validateEdges(t, clName); err != nil {
+						//Validate cluster names in telemetry below once https://github.com/istio/istio/issues/28125 is fixed.
+						if err := validateMetrics(t, serverRequestCount, clientRequestCount, clName); err != nil {
+							return err
+						}
+						t.Logf("Metrics validated")
+						if err := validateLogs(t, serverLogEntry, clName, stackdriver.ServerAccessLog); err != nil {
+							return err
+						}
+						t.Logf("logs validated")
+
+						if err := validateTraces(t, clName); err != nil {
+							return err
+						}
+						t.Logf("Traces validated")
+						if err := validateEdges(t, clName); err != nil {
+							return err
+						}
+						t.Logf("Edges validated")
+
+						return nil
+
+					}, retry.Delay(telemetrypkg.RetryDelay), retry.Timeout(telemetrypkg.RetryTimeout))
+
+					if err != nil {
 						return err
 					}
 					return nil
-
-				}, retry.Delay(10*time.Second), retry.Timeout(2*time.Minute))
+				})
+			}
+			if err := g.Wait(); err != nil {
+				t.Fatalf("test failed: %v", err)
 			}
 		})
 }
@@ -151,6 +168,7 @@ values:
 	cfg.Values["telemetry.v2.stackdriver.enabled"] = "true"
 	cfg.Values["telemetry.v2.stackdriver.logging"] = "true"
 	cfg.Values["telemetry.v2.stackdriver.topology"] = "true"
+	cfg.Values["telemetry.v2.stackdriver.configOverride.enable_audit_log"] = "true"
 	cfg.Values["global.proxy.tracer"] = "stackdriver"
 	cfg.Values["pilot.traceSampling"] = "100"
 	cfg.Values["telemetry.v2.accessLogPolicy.enabled"] = "true"
@@ -248,14 +266,14 @@ func testSetup(ctx resource.Context) (err error) {
 }
 
 // send both a grpc and http requests (http with forced tracing).
-func sendTraffic(t *testing.T) error {
+func sendTraffic(t *testing.T, cltInstance echo.Instance) error {
 	t.Helper()
 	//  All server instance have same names, so setting target as srv[0].
 	// Sending the number of total request same as number of servers, so that load balancing gets a chance to send request to all the clusters.
 	grpcOpts := echo.CallOptions{
 		Target:   srv[0],
 		PortName: "grpc",
-		Count:    requestCountMultipler * len(srv),
+		Count:    telemetry.RequestCountMultipler * len(srv),
 	}
 	// an HTTP request with forced tracing
 	hdr := http.Header{}
@@ -263,18 +281,13 @@ func sendTraffic(t *testing.T) error {
 		Target:   srv[0],
 		PortName: "http",
 		Headers:  hdr,
-		Count:    requestCountMultipler * len(srv),
+		Count:    telemetry.RequestCountMultipler * len(srv),
 	}
-	for _, cltInstance := range clt {
-		retry.UntilSuccessOrFail(t, func() error {
-			if _, err := cltInstance.Call(grpcOpts); err != nil {
-				return err
-			}
-			if _, err := cltInstance.Call(httpOpts); err != nil {
-				return err
-			}
-			return nil
-		}, retry.Delay(10*time.Second), retry.Timeout(40*time.Second))
+	if _, err := cltInstance.Call(grpcOpts); err != nil {
+		return err
+	}
+	if _, err := cltInstance.Call(httpOpts); err != nil {
+		return err
 	}
 	return nil
 }
@@ -315,18 +328,19 @@ func validateMetrics(t *testing.T, serverReqCount, clientReqCount, clName string
 	return nil
 }
 
-func validateLogs(t *testing.T, srvLogEntry, clName string) error {
+func validateLogs(t *testing.T, srvLogEntry, clName string, filter stackdriver.LogType) error {
 	t.Helper()
-
 	var wantLog loggingpb.LogEntry
 	if err := unmarshalFromTemplateFile(srvLogEntry, &wantLog, clName); err != nil {
 		return fmt.Errorf("logs: failed to parse wanted log entry: %v", err)
 	}
+
 	// Traverse all log entries received and compare with expected server log entry.
-	entries, err := sdInst.ListLogEntries()
+	entries, err := sdInst.ListLogEntries(filter)
 	if err != nil {
 		return fmt.Errorf("logs: failed to get received log entries: %v", err)
 	}
+
 	for _, l := range entries {
 		if proto.Equal(l, &wantLog) {
 			return nil
@@ -354,6 +368,7 @@ func validateEdges(t *testing.T, clName string) error {
 		edge.Source.Uid = ""
 		edge.Source.ClusterName = ""
 		edge.Source.Location = ""
+		edge.Protocol = 0
 		t.Logf("edge: %v", edge)
 		if proto.Equal(edge, &wantEdge) {
 			return nil

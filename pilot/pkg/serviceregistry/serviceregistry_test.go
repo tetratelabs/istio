@@ -227,6 +227,10 @@ func TestWorkloadInstances(t *testing.T) {
 			Name:     "http",
 			Port:     80,
 			Protocol: "http",
+		}, {
+			Name:     "http2",
+			Port:     90,
+			Protocol: "http",
 		}},
 		Attributes: model.ServiceAttributes{
 			Namespace:      namespace,
@@ -509,23 +513,29 @@ func TestWorkloadInstances(t *testing.T) {
 	})
 
 	t.Run("Service selects WorkloadEntry with targetPort number", func(t *testing.T) {
-		kc, _, store, kube, _ := setupTest(t)
-		makeService(t, kube, &v1.Service{
+		s := xds.NewFakeDiscoveryServer(t, xds.FakeOptions{})
+		makeService(t, s.KubeClient(), &v1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "service",
 				Namespace: namespace,
 			},
 			Spec: v1.ServiceSpec{
-				Ports: []v1.ServicePort{{
-					Name:       "http",
-					Port:       80,
-					TargetPort: intstr.FromInt(8080),
-				}},
+				Ports: []v1.ServicePort{
+					{
+						Name:       "http",
+						Port:       80,
+						TargetPort: intstr.FromInt(8080),
+					},
+					{
+						Name:       "http2",
+						Port:       90,
+						TargetPort: intstr.FromInt(9090),
+					}},
 				Selector:  labels,
 				ClusterIP: "9.9.9.9",
 			},
 		})
-		makeIstioObject(t, store, config.Config{
+		makeIstioObject(t, s.Store(), config.Config{
 			Meta: config.Meta{
 				Name:             "workload",
 				Namespace:        namespace,
@@ -544,7 +554,16 @@ func TestWorkloadInstances(t *testing.T) {
 			Address:    workloadEntry.Spec.(*networking.WorkloadEntry).Address,
 			Port:       8080,
 		}}
-		expectServiceInstances(t, kc, expectedSvc, 80, instances)
+		expectServiceInstances(t, s.KubeRegistry, expectedSvc, 80, instances)
+		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"2.3.4.5:8080"})
+		instances = []ServiceInstanceResponse{{
+			Hostname:   expectedSvc.Hostname,
+			Namestring: expectedSvc.Attributes.Namespace,
+			Address:    workloadEntry.Spec.(*networking.WorkloadEntry).Address,
+			Port:       9090,
+		}}
+		expectServiceInstances(t, s.KubeRegistry, expectedSvc, 90, instances)
+		expectEndpoints(t, s, "outbound|90||service.namespace.svc.cluster.local", []string{"2.3.4.5:9090"})
 	})
 
 	t.Run("ServiceEntry selects Pod", func(t *testing.T) {
@@ -650,7 +669,7 @@ func TestWorkloadInstances(t *testing.T) {
 
 		_ = kube.CoreV1().Pods(pod.Namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
 		_ = kube.CoreV1().Endpoints(pod.Namespace).Delete(context.TODO(), "service", metav1.DeleteOptions{})
-		_ = store.Delete(gvk.WorkloadEntry, workloadEntry.Name, workloadEntry.Namespace)
+		_ = store.Delete(gvk.WorkloadEntry, workloadEntry.Name, workloadEntry.Namespace, nil)
 		expectServiceInstances(t, wc, expectedSvc, 80, []ServiceInstanceResponse{})
 		expectServiceInstances(t, kc, expectedSvc, 80, []ServiceInstanceResponse{})
 	})
@@ -689,7 +708,7 @@ func TestWorkloadInstances(t *testing.T) {
 		makeIstioObject(t, s.Store(), newWE)
 		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"3.4.5.6:80"})
 
-		if err := s.Store().Delete(gvk.WorkloadEntry, newWE.Name, newWE.Namespace); err != nil {
+		if err := s.Store().Delete(gvk.WorkloadEntry, newWE.Name, newWE.Namespace, nil); err != nil {
 			t.Fatal(err)
 		}
 		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
@@ -722,7 +741,7 @@ func TestWorkloadInstances(t *testing.T) {
 		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
 		expectEndpoints(t, s, "outbound|9090||service.namespace.svc.cluster.local", []string{"1.2.3.4:9091"})
 
-		if err := s.Store().Delete(gvk.ServiceEntry, newSE.Name, newSE.Namespace); err != nil {
+		if err := s.Store().Delete(gvk.ServiceEntry, newSE.Name, newSE.Namespace, nil); err != nil {
 			t.Fatal(err)
 		}
 		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
