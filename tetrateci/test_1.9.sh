@@ -1,3 +1,4 @@
+#!env bash
 set -e
 
 if [[ ${CLUSTER} == "gke" ]]; then
@@ -11,7 +12,6 @@ go test -tags=integ ./tests/integration/operator/...  -istio.test.skipVM true -p
 go test -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v
 go test -tags=integ ./tests/integration/pilot/analysis/... -istio.test.skipVM true -p 1 -test.v
 go test -tags=integ ./tests/integration/pilot/revisions/... -istio.test.skipVM true -p 1 -test.v
-go test -tags=integ ./tests/integration/pilot/cni/...  ${CLUSTERFLAGS} -istio.test.skipVM true -p 1  -test.v
 go test -tags=integ -timeout 30m -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics' ./tests/integration/telemetry/stats/... -istio.test.skipVM true -p 1 -test.v
 go test -tags=integ ./tests/integration/tracing/... -istio.test.skipVM true -p 1 -test.v
 go test -tags=integ ./tests/integration/requestclassification/... -istio.test.skipVM true -p 1 -test.v
@@ -25,3 +25,11 @@ go test -tags=integ ./tests/integration/security/mtlsk8sca/... -istio.test.skipV
 go test -tags=integ ./tests/integration/security/sds_egress/... -istio.test.skipVM true -p 1 -test.v
 go test -tags=integ ./tests/integration/security/sds_tls_origination/... -istio.test.skipVM true -p 1 -test.v
 go test -tags=integ ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
+
+if [[ ${CLUSTER} == "eks" ]]; then
+  go test -tags=integ ./tests/integration/security/chiron/... -istio.test.skipVM true -p 1 -test.v
+fi
+
+if [[ $CLUSTER != "aks" ]]; then
+  go test -tags=integ ./tests/integration/pilot/cni/... ${CLUSTERFLAGS} -istio.test.skipVM true -p 1 -test.v
+fi
