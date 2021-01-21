@@ -115,7 +115,13 @@ jobs:
 
     strategy:
       matrix:
-        version: ["1.17.14-gke.2600"]
+        include:
+          - version: "1.17.14-gke.2600"
+            channel: "regular"
+          - version: "1.16.15-gke.6000"
+            channel: "stable"
+          - version: "1.18.12-gke.1201"
+            channel: "rapid"
     
     steps:
       - name: checkout
@@ -149,6 +155,7 @@ jobs:
         run: bash ./tetrateci/create_gke_cluster.sh
         env:
           VER: ${{ matrix.version }}
+          CHAN: ${{ matrix.channel  }}
 
       - name: integration-tests
         run: bash ./tetrateci/test_${MINORVER}.sh
