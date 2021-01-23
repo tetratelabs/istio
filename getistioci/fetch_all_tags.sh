@@ -28,7 +28,7 @@ for tag in $tags; do
     branch=$( echo $tag | cut -d. -f1,2 )
     if [[ ! $(git rev-parse --verify --quiet origin/getistio-release-$branch) ]]; then
         # create the getistio release branch if it doesn't exist with the workflows
-        git checkout -b getistio-release-$branch origin/tetrate-workflow
+        git checkout -b getistio-release-$branch origin/getistio-workflow
     else
         git checkout -b getistio-release-$branch origin/getistio-release-$branch
     fi
