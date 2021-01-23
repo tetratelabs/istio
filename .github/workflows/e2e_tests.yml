@@ -60,7 +60,7 @@ jobs:
 
     strategy:
       matrix:
-        version: [1.18]
+        version: [1.18, 1.17, 1.16]
 
     steps:
       - name: checkout
@@ -111,17 +111,18 @@ jobs:
   gke-e2e-test:
     name: gke-e2e-test
     runs-on: ubuntu-latest
-    needs: [create-test-images]
+    # TODO gke test modify iop yaml so we need to run it at the end to not interfere in eks and aks test
+    needs: [create-test-images, eks-e2e-test, aks-e2e-test]
 
     strategy:
       matrix:
         include:
+          - version: "1.18.12-gke.1201"
+            channel: "rapid"
           - version: "1.17.14-gke.2600"
             channel: "regular"
           - version: "1.16.15-gke.6000"
             channel: "stable"
-          - version: "1.18.12-gke.1201"
-            channel: "rapid"
     
     steps:
       - name: checkout
@@ -179,7 +180,7 @@ jobs:
 
     strategy:
       matrix:
-        version: [1.18.10]
+        version: [1.18.14, 1.17.16, 1.16.15]
 
     steps:
       - name: checkout
@@ -248,7 +249,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
         with:
           tag_name: ${{ steps.get_tag.outputs.TAG }}
-          release_name: Get Istio 
+          release_name: GetIstio 
           draft: false
           prerelease: false
 
