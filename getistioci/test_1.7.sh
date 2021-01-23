@@ -3,8 +3,8 @@ set -e
 
 if [[ ${CLUSTER} == "gke" ]]; then
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
-  pip install pyyaml --user && ./tetrateci/gen_iop.py
-  CLUSTERFLAGS="-istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml"
+  pip install pyyaml --user && ./getistioci/gen_iop.py
+  CLUSTERFLAGS="-istio.test.kube.helm.iopFile $(pwd)/getistioci/iop-gke-integration.yml"
 fi
 
 go test -tags=integ ./tests/integration/operator/...  -p 1  -test.v

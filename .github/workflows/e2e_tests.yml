@@ -91,12 +91,12 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
 
       - name: eks-cluster-create
-        run: bash ./tetrateci/create_eks_cluster.sh
+        run: bash ./getistioci/create_eks_cluster.sh
         env:
           VER: ${{ matrix.version }}
 
       - name: integration-tests
-        run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
+        run: bash ./getistioci/test_${REL_BRANCH_VER}.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
@@ -104,7 +104,7 @@ jobs:
 
       - name: eks-cluster-delete
         if: always()
-        run: bash ./tetrateci/cleanup_eks_cluster.sh
+        run: bash ./getistioci/cleanup_eks_cluster.sh
         env:
           VER: ${{ matrix.version }}
   
@@ -152,13 +152,13 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
 
       - name: gke-cluster-create
-        run: bash ./tetrateci/create_gke_cluster.sh
+        run: bash ./getistioci/create_gke_cluster.sh
         env:
           VER: ${{ matrix.version }}
           CHAN: ${{ matrix.channel  }}
 
       - name: integration-tests
-        run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
+        run: bash ./getistioci/test_${REL_BRANCH_VER}.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
@@ -166,7 +166,7 @@ jobs:
 
       - name: gke-cluster-delete
         if: always()
-        run: bash ./tetrateci/cleanup_gke_cluster.sh
+        run: bash ./getistioci/cleanup_gke_cluster.sh
         env:
           VER: ${{ matrix.version }}
 
@@ -208,13 +208,13 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
 
       - name: aks-cluster-create
-        run: bash ./tetrateci/create_aks_cluster.sh
+        run: bash ./getistioci/create_aks_cluster.sh
         env:
           VER: ${{ matrix.version }}
           RESOURCE: ${{ secrets.AZURE_RESOURCE }}
 
       - name: integration-tests
-        run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
+        run: bash ./getistioci/test_${REL_BRANCH_VER}.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
@@ -222,7 +222,7 @@ jobs:
 
       - name: aks-cluster-delete
         if: always()
-        run: bash ./tetrateci/cleanup_aks_cluster.sh
+        run: bash ./getistioci/cleanup_aks_cluster.sh
         env:
           VER: ${{ matrix.version }}
           RESOURCE: ${{ secrets.AZURE_RESOURCE }}
@@ -248,7 +248,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
         with:
           tag_name: ${{ steps.get_tag.outputs.TAG }}
-          release_name: Tetrate Istio 
+          release_name: Get Istio 
           draft: false
           prerelease: false
 
@@ -262,7 +262,7 @@ jobs:
       HUB: ${{ secrets.DEPLOY_HUB }}
 
     steps:
-      - name: Checkout tetrate branch
+      - name: Checkout getistio branch
         uses: actions/checkout@v2
 
       - name: Login to Bintray
@@ -284,4 +284,4 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
         # not using the official build container 
-        run: ./tetrateci/create_istio_release.sh
+        run: ./getistioci/create_istio_release.sh
