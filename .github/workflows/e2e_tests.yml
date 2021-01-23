@@ -180,7 +180,7 @@ jobs:
 
     strategy:
       matrix:
-        version: [1.18.14, 1.17.16, 1.16.15]
+        version: [1.18.14, 1.17.13, 1.16.15]
 
     steps:
       - name: checkout
