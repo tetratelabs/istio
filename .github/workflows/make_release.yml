@@ -34,4 +34,4 @@ jobs:
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ github.event.inputs.tag }}
           BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
-        run: bash ./getistioci/create_istio_release.sh
+        run: bash ./tetrateci/create_istio_release.sh

@@ -26,15 +26,15 @@ git config user.email github-actions@github.com
 for tag in $tags; do
     # the branch names are suffixed with the first 2 numbers in the version
     branch=$( echo $tag | cut -d. -f1,2 )
-    if [[ ! $(git rev-parse --verify --quiet origin/getistio-release-$branch) ]]; then
-        # create the getistio release branch if it doesn't exist with the workflows
-        git checkout -b getistio-release-$branch origin/getistio-workflow
+    if [[ ! $(git rev-parse --verify --quiet origin/tetrate-release-$branch) ]]; then
+        # create the tetrate release branch if it doesn't exist with the workflows
+        git checkout -b tetrate-release-$branch origin/tetrate-workflow
     else
-        git checkout -b getistio-release-$branch origin/getistio-release-$branch
+        git checkout -b tetrate-release-$branch origin/tetrate-release-$branch
     fi
     git merge $tag --no-edit --allow-unrelated-histories
-    git tag test-$tag-getistio-v0
-    git push origin getistio-release-$branch --tags
+    git tag test-$tag-tetrate-v0
+    git push origin tetrate-release-$branch --tags
 done
 
 # finally push all the tags
