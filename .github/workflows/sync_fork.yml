@@ -13,11 +13,11 @@ jobs:
 
     steps:
     # convenient way to setup the environment nothing much more tbh
-    - name: Checkout tetrate-workflow
+    - name: Checkout getistio-workflow
       uses: actions/checkout@v2
       with:
-        ref: tetrate-workflow
+        ref: getistio-workflow
         ssh-key: ${{ secrets.GETISTIO_PUSH_KEY }}
 
     - name: Sync the tags
-      run: bash ./tetrateci/fetch_all_tags.sh
+      run: bash ./getistioci/fetch_all_tags.sh
