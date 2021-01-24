@@ -16,7 +16,7 @@ jobs:
     - name: Checkout tetrate-workflow
       uses: actions/checkout@v2
       with:
-        ref: getistio-workflow
+        ref: tetrate-workflow
         ssh-key: ${{ secrets.GETISTIO_PUSH_KEY }}
 
     - name: Sync the tags
