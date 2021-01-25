@@ -24,7 +24,7 @@ go test -count=1 -tags=integ ./tests/integration/security/sds_egress/... -istio.
 go test -count=1 -tags=integ ./tests/integration/security/sds_tls_origination/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
 
-if [[ ${CLUSTER} == "eks" ]]; then
+if [[ ${CLUSTER} != "gke" ]]; then
   go test -count=1 -tags=integ ./tests/integration/security/chiron/... -istio.test.skipVM true -p 1 -test.v
 fi
 
