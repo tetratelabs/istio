@@ -20,9 +20,11 @@ go test -count=1 -tags=integ ./tests/integration/security/sds_egress/... -p 1 -t
 go test -count=1 -tags=integ ./tests/integration/security/sds_tls_origination/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/webhook/... -p 1 -test.v
 
-if [[ ${CLUSTER} == "eks" ]]; then
-  go test -count=1 -tags=integ ./tests/integration/security/chiron/... -p 1 -test.v
+if [[ ${CLUSTER} == "gke" ]]; then
+  git apply tetrateci/chiron.1.7.patch
 fi
+
+go test -count=1 -tags=integ ./tests/integration/security/chiron/... -p 1 -test.v
 
 if [[ $CLUSTER != "aks" ]]; then
   go test -count=1 -tags=integ ./tests/integration/pilot/cni/... ${CLUSTERFLAGS} -p 1 -test.v
