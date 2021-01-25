@@ -26,9 +26,11 @@ go test -count=1 -tags=integ ./tests/integration/security/sds_tls_origination/..
 go test -count=1 -tags=integ ./tests/integration/security/webhook/... -p 1 -test.v
 go test -count=1 -tags=integ -run 'TestAuthorization_mTLS|TestAuthorization_JWT|TestAuthorization_WorkloadSelector|TestAuthorization_Deny|TestAuthorization_NegativeMatch|TestAuthorization_EgressGateway|TestAuthorization_TCP|TestAuthorization_Conditions|TestAuthorization_GRPC|TestAuthorization_Path|TestRequestAuthentication|TestMain|TestMtlsHealthCheck|TestPassThroughFilterChain' ./tests/integration/security/.  -p 1 -test.v
 
-if [[ ${CLUSTER} != "gke" ]]; then
-  go test -count=1 -tags=integ ./tests/integration/security/chiron/... -p 1 -test.v
+if [[ ${CLUSTER} == "gke" ]]; then
+  git apply tetrateci/chiron.1.7.patch
 fi
+
+go test -count=1 -tags=integ ./tests/integration/security/chiron/... -p 1 -test.v
 
 if [[ $CLUSTER != "aks" ]]; then
   go test -count=1 -tags=integ ./tests/integration/pilot/cni/... ${CLUSTERFLAGS} -p 1 -test.v
