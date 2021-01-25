@@ -8,19 +8,25 @@ if [[ ${CLUSTER} == "gke" ]]; then
 fi
 
 go test -count=1 -tags=integ ./tests/integration/operator/...  -p 1  -test.v
-go test -count=1 -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -p 1 -test.v 
+go test -count=1 -tags=integ ./tests/integration/galley/...  -p 1  -test.v
+go test -count=1 -tags=integ -timeout 30m -run='TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestMain|TestMirroring|TestMirroringExternalSerivce|TestTraffic' ./tests/integration/pilot/ -p 1 -test.v 
 go test -count=1 -tags=integ ./tests/integration/pilot/analysis/... -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/pilot/locality/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/pilot/revisions/... -p 1 -test.v
-go test -count=1 -tags=integ -timeout 30m -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics' ./tests/integration/telemetry/stats/... -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/mixer/outboundtrafficpolicy  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/telemetry/outboundtrafficpolicy -p 1 -test.v
+go test -count=1 -tags=integ -timeout 30m -run='TestStatsFilter|TestSetup|TestIstioctlMetrics|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics' ./tests/integration/telemetry/stats/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/ca_custom_root/... -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/cert_provision_prometheus/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/filebased_tls_origination/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/mtls_first_party_jwt/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/mtlsk8sca/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/sds_egress/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/sds_tls_origination/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/webhook/... -p 1 -test.v
+go test -count=1 -tags=integ -run 'TestAuthorization_mTLS|TestAuthorization_JWT|TestAuthorization_WorkloadSelector|TestAuthorization_Deny|TestAuthorization_NegativeMatch|TestAuthorization_EgressGateway|TestAuthorization_TCP|TestAuthorization_Conditions|TestAuthorization_GRPC|TestAuthorization_Path|TestRequestAuthentication|TestMain|TestMtlsHealthCheck|TestPassThroughFilterChain' ./tests/integration/security/.  -p 1 -test.v
 
-if [[ ${CLUSTER} == "eks" ]]; then
+if [[ ${CLUSTER} != "gke" ]]; then
   go test -count=1 -tags=integ ./tests/integration/security/chiron/... -p 1 -test.v
 fi
 
