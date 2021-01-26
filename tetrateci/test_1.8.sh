@@ -13,7 +13,10 @@ go test -count=1 -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|Te
 go test -count=1 -tags=integ ./tests/integration/pilot/analysis/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/pilot/revisions/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ -timeout 30m -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics' ./tests/integration/telemetry/stats/... -istio.test.skipVM true -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/telemetry/requestclassification/... -istio.test.skipVM true -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/telemetry/outboundtrafficpolicy/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/ca_custom_root/... -istio.test.skipVM true -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/ecc_signature_algorithm/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/filebased_tls_origination/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/mtls_first_party_jwt/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/mtlsk8sca/... -istio.test.skipVM true -p 1 -test.v
@@ -21,7 +24,7 @@ go test -count=1 -tags=integ ./tests/integration/security/sds_egress/... -istio.
 go test -count=1 -tags=integ ./tests/integration/security/sds_tls_origination/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
 
-if [[ ${CLUSTER} == "eks" ]]; then
+if [[ ${CLUSTER} != "gke" ]]; then
   go test -count=1 -tags=integ ./tests/integration/security/chiron/... -istio.test.skipVM true -p 1 -test.v
 fi
 
