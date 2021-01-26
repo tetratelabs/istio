@@ -5,6 +5,7 @@ if [[ ${CLUSTER} == "gke" ]]; then
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
   pip install pyyaml --user && ./tetrateci/gen_iop.py
   CLUSTERFLAGS="-istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml"
+  git apply tetrateci/chiron-gke.patch
 fi
 
 go test -count=1 -tags=integ ./tests/integration/operator/...  -p 1  -test.v
@@ -18,6 +19,7 @@ go test -count=1 -tags=integ ./tests/integration/telemetry/outboundtrafficpolicy
 go test -count=1 -tags=integ -timeout 30m -run='TestStatsFilter|TestSetup|TestIstioctlMetrics|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics' ./tests/integration/telemetry/stats/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/ca_custom_root/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/cert_provision_prometheus/... -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/chiron/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/filebased_tls_origination/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/mtls_first_party_jwt/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/mtlsk8sca/... -p 1 -test.v
@@ -25,12 +27,6 @@ go test -count=1 -tags=integ ./tests/integration/security/sds_egress/... -p 1 -t
 go test -count=1 -tags=integ ./tests/integration/security/sds_tls_origination/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/webhook/... -p 1 -test.v
 go test -count=1 -tags=integ -run 'TestAuthorization_mTLS|TestAuthorization_JWT|TestAuthorization_WorkloadSelector|TestAuthorization_Deny|TestAuthorization_NegativeMatch|TestAuthorization_EgressGateway|TestAuthorization_TCP|TestAuthorization_Conditions|TestAuthorization_GRPC|TestAuthorization_Path|TestRequestAuthentication|TestMain|TestMtlsHealthCheck|TestPassThroughFilterChain' ./tests/integration/security/.  -p 1 -test.v
-
-if [[ ${CLUSTER} == "gke" ]]; then
-  git apply tetrateci/chiron.1.7.patch
-fi
-
-go test -count=1 -tags=integ ./tests/integration/security/chiron/... -p 1 -test.v
 
 if [[ $CLUSTER != "aks" ]]; then
   go test -count=1 -tags=integ ./tests/integration/pilot/cni/... ${CLUSTERFLAGS} -p 1 -test.v
