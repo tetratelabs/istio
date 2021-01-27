@@ -5,6 +5,7 @@ if [[ ${CLUSTER} == "gke" ]]; then
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
   pip install pyyaml --user && ./tetrateci/gen_iop.py
   CLUSTERFLAGS="-istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml"
+  git apply tetrateci/chiron-gke.patch
 fi
 
 go test -count=1 -tags=integ ./tests/integration/helm/... -istio.test.skipVM true -p 1 -test.v
@@ -15,6 +16,7 @@ go test -count=1 -tags=integ ./tests/integration/telemetry/requestclassification
 go test -count=1 -tags=integ ./tests/integration/telemetry/outboundtrafficpolicy/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/ca_custom_root/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/ecc_signature_algorithm/... -istio.test.skipVM true -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/chiron/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/filebased_tls_origination/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/mtls_first_party_jwt/... -istio.test.skipVM true -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/mtlsk8sca/... -istio.test.skipVM true -p 1 -test.v
@@ -38,10 +40,6 @@ else
     go test -count=1 -tags=integ ./tests/integration/telemetry/stackdriver/... -run='TestStackdriverHTTPAuditLogging|TestVMTelemetry' -istio.test.skipVM true -p 1 -test.v
     go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/... -istio.test.skipVM true -p 1 -test.v
   fi
-fi
-
-if [[ ${CLUSTER} != "gke" ]]; then
-  go test -count=1 -tags=integ ./tests/integration/security/chiron/... -istio.test.skipVM true -p 1 -test.v
 fi
 
 if [[ ${CLUSTER} != "aks" ]]; then
