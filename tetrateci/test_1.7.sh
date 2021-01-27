@@ -44,7 +44,6 @@ else
   go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/... -p 1 -test.v
 fi
 
-
 if [[ $CLUSTER != "aks" ]]; then
   go test -count=1 -tags=integ ./tests/integration/pilot/cni/... ${CLUSTERFLAGS} -p 1 -test.v
 fi
