@@ -30,9 +30,14 @@ else
   go test -count=1 -tags=integ ./tests/integration/security/sds_ingress/. -istio.test.skipVM true -p 1 -test.v
   go test -count=1 -tags=integ ./tests/integration/security/sds_ingress_gateway/. -istio.test.skipVM true -p 1 -test.v
   go test -count=1 -tags=integ ./tests/integration/security/sds_ingress_k8sca/. -istio.test.skipVM true -p 1 -test.v
-  go test -count=1 -tags=integ ./tests/integration/telemetry/stackdriver/... -run='TestStackdriverHTTPAuditLogging|TestVMTelemetry' -istio.test.skipVM true -p 1 -test.v
-  go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/... -istio.test.skipVM true -p 1 -test.v
-  go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/ -run='TestAddToAndRemoveFromMesh|TestAllNamespaces|TestAuthZCheck|TestDescribe|TestDirectoryWithRecursion|TestDirectoryWithoutRecursion|TestEmptyCluster|TestEnsureNoMissingCRDs|TestErrorLine|TestFileAndKubeCombined|TestFileOnly|TestGateway|TestIngress|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestLocality|TestMirroring|TestMirroringExternalService|TestProxyConfig|TestProxyStatus|TestTraffic|TestVMRegistrationLifecycle|TestValidation|TestVersion|TestWait|TestWebhook' -istio.test.skipVM true -p 1 -test.v
+  go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/ -run='TestAddToAndRemoveFromMesh|TestAllNamespaces|TestAuthZCheck|TestDescribe|TestDirectoryWithRecursion|TestDirectoryWithoutRecursion|TestEmptyCluster|TestEnsureNoMissingCRDs|TestErrorLine|TestFileAndKubeCombined|TestFileOnly|TestGateway|TestIngress|TestInvalidFileError|TestIstioctlMetrics|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestLocality|TestMirroring|TestMirroringExternalService|TestProxyConfig|TestProxyStatus|TestStatsFilter|TestTcpMetric|TestTraffic|TestValidation|TestVersion|TestWASMTcpMetric|TestWait|TestWasmStatsFilter|TestWebhook' -istio.test.skipVM true -p 1 -test.v
+
+  if [[ ${CLUSTER} == "aks" ]]; then
+    go test -count=1 -tags=integ -timeout 30m -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics' ./tests/integration/telemetry/stats/... -istio.test.skipVM true -p 1 -test.v
+  else
+    go test -count=1 -tags=integ ./tests/integration/telemetry/stackdriver/... -run='TestStackdriverHTTPAuditLogging|TestVMTelemetry' -istio.test.skipVM true -p 1 -test.v
+    go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/... -istio.test.skipVM true -p 1 -test.v
+  fi
 fi
 
 if [[ ${CLUSTER} != "gke" ]]; then

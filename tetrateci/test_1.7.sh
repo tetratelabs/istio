@@ -30,8 +30,8 @@ if [[ ${CLUSTER} == "eks" ]]; then
 else
   go test -count=1 -tags=integ ./tests/integration/mixer/. -p 1 -test.v
   go test -count=1 -tags=integ ./tests/integration/mixer/envoy/...  -p 1 -test.v
-  go test -count=1 -tags=integ ./tests/integration/mixer/policy/. -p 1 -test.v
-  go test -count=1 -tags=integ ./tests/integration/mixer/telemetry/... -p 1 -test.v
+  go test -count=1 -tags=integ -timeout 30m ./tests/integration/mixer/policy/. -p 1 -test.v
+  go test -count=1 -tags=integ -timeout 30m ./tests/integration/mixer/telemetry/... -p 1 -test.v
   go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/. -p 1 -test.v
   go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/vm/. -run='TestTrafficShifting|TestVmOS' -p 1 -test.v
   go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/ingress/. -p 1 -test.v
