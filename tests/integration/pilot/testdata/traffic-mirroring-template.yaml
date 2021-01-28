@@ -1,0 +1,18 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  hosts:
+    - b
+  http:
+    - route:
+        - destination:
+            host: b
+      mirror:
+        host: {{.MirrorHost}}
+{{- if not .Absent }}
+      mirrorPercentage:
+        value: {{.Percent}}
+{{- end }}
