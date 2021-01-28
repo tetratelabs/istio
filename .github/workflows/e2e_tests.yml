@@ -52,8 +52,6 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
 
   eks-e2e-test:
-    ## TODO: temporarily disabling it till credentials are set
-    if: ${{ false }}
     name: eks-e2e-test
     runs-on: ubuntu-latest
     needs: [create-test-images]
@@ -112,7 +110,8 @@ jobs:
     name: gke-e2e-test
     runs-on: ubuntu-latest
     # TODO gke test modify iop yaml so we need to run it at the end to not interfere in eks and aks test
-    needs: [create-test-images, eks-e2e-test, aks-e2e-test]
+    # removing aks-e2e-test as the credentials are not set up
+    needs: [create-test-images, eks-e2e-test]
 
     strategy:
       matrix:
