@@ -1,0 +1,18 @@
+diff --git a/pkg/test/framework/components/istio/util.go b/pkg/test/framework/components/istio/util.go
+index 4828990f13..305783982c 100644
+--- a/pkg/test/framework/components/istio/util.go
++++ b/pkg/test/framework/components/istio/util.go
+@@ -152,6 +152,13 @@ func getRemoteServiceAddress(s *kube.Settings, cluster resource.Cluster, ns, lab
+ 	}
+ 
+ 	if len(svc.Status.LoadBalancer.Ingress) == 0 || svc.Status.LoadBalancer.Ingress[0].IP == "" {
++		if svc.Status.LoadBalancer.Ingress[0].IP == "" && svc.Status.LoadBalancer.Ingress[0].Hostname != "" {
++			ip, err := net.LookupIP(svc.Status.LoadBalancer.Ingress[0].Hostname)
++			if err != nil {
++				return nil, false, err
++			}
++			return net.TCPAddr{IP: ip[0], Port: port}, true, nil
++		}
+ 		return nil, false, fmt.Errorf("service %s is not available yet: %s/%s", svcName, svc.Namespace, svc.Name)
+ 	}
+ 

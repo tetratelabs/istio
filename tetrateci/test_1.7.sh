@@ -26,7 +26,7 @@ go test -count=1 -tags=integ ./tests/integration/security/sds_tls_origination/..
 go test -count=1 -tags=integ ./tests/integration/security/webhook/... -p 1 -test.v
 
 if [[ ${CLUSTER} == "eks" ]]; then
-  git apply tetrateci/eks-ingress.patch   
+  git apply tetrateci/eks-ingress.1.7.patch   
   go test -count=1 -tags=integ -timeout 30m -run='TestStatsFilter|TestSetup|TestIstioctlMetrics|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics' ./tests/integration/telemetry/stats/... -p 1 -test.v
 else
   go test -count=1 -tags=integ ./tests/integration/mixer/. -p 1 -test.v
@@ -34,11 +34,11 @@ else
   go test -count=1 -tags=integ -timeout 30m ./tests/integration/mixer/policy/. -p 1 -test.v
   go test -count=1 -tags=integ -timeout 30m ./tests/integration/mixer/telemetry/... -p 1 -test.v
   go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/... -p 1 -test.v
-  go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/ingress/. -p 1 -test.v
 fi
 
+go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/ingress/. -p 1 -test.v
 go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/. -p 1 -test.v
-go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/vm/. -run='TestTrafficShifting|TestVmOS' -p 1 -test.v
+go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/vm/. -p 1 -test.v
 go test -count=1 -tags=integ -timeout 30m ./tests/integration/security/.  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/sds_ingress/.  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/sds_ingress_k8sca/.  -p 1 -test.v
