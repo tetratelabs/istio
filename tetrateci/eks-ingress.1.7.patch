@@ -56,25 +56,3 @@ index 6ff9f57d0b..cf72e0a238 100644
  		return net.TCPAddr{}, fmt.Errorf("service ingress is not available yet: %s/%s", svc.Namespace, svc.Name)
  	}
  
-diff --git a/tests/integration/pilot/istioctl_test.go b/tests/integration/pilot/istioctl_test.go
-index ee3c8ea6a5..793245f342 100644
---- a/tests/integration/pilot/istioctl_test.go
-+++ b/tests/integration/pilot/istioctl_test.go
-@@ -373,7 +373,7 @@ func TestProxyStatus(t *testing.T) {
- 				"proxy-status", fmt.Sprintf("%s.%s", podID, echoNamespace.Name())}
- 			output, _ = istioCtl.InvokeOrFail(t, args)
- 			g.Expect(output).To(gomega.ContainSubstring("Clusters Match"))
--			g.Expect(output).To(gomega.ContainSubstring("Listeners Match"))
-+			// HACK for eks: g.Expect(output).To(gomega.ContainSubstring("Listeners Match"))
- 			g.Expect(output).To(gomega.ContainSubstring("Routes Match"))
- 
- 			// test the --file param
-@@ -387,7 +387,7 @@ func TestProxyStatus(t *testing.T) {
- 				"proxy-status", fmt.Sprintf("%s.%s", podID, echoNamespace.Name()), "--file", filename}
- 			output, _ = istioCtl.InvokeOrFail(t, args)
- 			g.Expect(output).To(gomega.ContainSubstring("Clusters Match"))
--			g.Expect(output).To(gomega.ContainSubstring("Listeners Match"))
-+			// HACK for eks: g.Expect(output).To(gomega.ContainSubstring("Listeners Match"))
- 			g.Expect(output).To(gomega.ContainSubstring("Routes Match"))
- 		})
- }
