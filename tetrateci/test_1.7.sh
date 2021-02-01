@@ -32,7 +32,7 @@ go test -count=1 -timeout 30m ./tests/integration/mixer/telemetry/... -p 1 -test
 
 go test -count=1 ./tests/integration/telemetry/outboundtrafficpolicy -p 1 -test.v
 go test -count=1 -timeout 30m ./tests/integration/telemetry/. -p 1 -test.v
-go test -count=1 -timeout 30m -run='TestStatsFilter|TestStatsFilter|TestSetup|TestWasmStatsFilter|TestTcpMetric|TestIstioctlMetrics' ./tests/integration/telemetry/stats/... -p 1 -test.v
+go test -count=1 -timeout 30m ./tests/integration/telemetry/stats/... -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/telemetry/tracing/...  -p 1 -test.v
 
 go test -count=1 ./tests/integration/security/ca_custom_root/... -p 1 -test.v
