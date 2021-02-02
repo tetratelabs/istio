@@ -7,6 +7,16 @@ set -o pipefail
 # Temporary thing, we should be moving to a custom runner instead.
 [ -d "/usr/share/dotnet" ] && sudo rm -rf /usr/share/dotnet
 
+if [[ ${BUILD} == "fips" ]]
+    url="https://go-boringcrypto.storage.googleapis.com/go1.15.7b5.linux-amd64.tar.gz"
+    wget -O go.tgz "$url"
+    echo "cb08962897e3802cda96f4ee915ed20fbde7d5d85e688759ef523d2e6ae44851 go.tgz" | sha256sum -c -
+    tar -C /usr/local -xzf go.tgz
+    rm go.tgz
+    export PATH="/usr/local/go/bin:$PATH"
+    go version
+fi
+
 export ISTIO_VERSION=$TAG
 
 sudo gem install fpm
@@ -16,7 +26,7 @@ git clone https://github.com/istio/release-builder --depth=1
 envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.yaml
 cd release-builder
 cp -r ../istio .
-#export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
+# export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
 # make shell TODO: https://github.com/tetratelabs/getistio/issues/82
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.yaml
