@@ -27,18 +27,20 @@ for tag in $tags; do
     # the branch names are suffixed with the first 2 numbers in the version
     branch=$( echo $tag | cut -d. -f1,2 )
     if [[ ! $(git rev-parse --verify --quiet origin/tetrate-release-$branch) ]]; then
-        # create the tetrate release branch if it doesn't exist with the workflows
-        git checkout -b tetrate-release-$branch origin/tetrate-workflow
+        echo "Sending an email for new branch to be created"
         ./tetrateci/send_email.py << EOF
 Subject: New tag on tetrate/istio
 A new release branch was created for $tag.
 EOF
+        # create the tetrate release branch if it doesn't exist with the workflows
+        git checkout -b tetrate-release-$branch origin/tetrate-workflow
     else
-        git checkout -b tetrate-release-$branch origin/tetrate-release-$branch
+        echo "Sending an email for new tag to be merged"
         ./tetrateci/send_email.py << EOF
 Subject: New tag on tetrate/istio
 $tag was merged onto existing tetrate-release-$branch.
 EOF
+        git checkout -b tetrate-release-$branch origin/tetrate-release-$branch
     fi
     git merge $tag --no-edit --allow-unrelated-histories
     git tag test-$tag-tetrate-v0
