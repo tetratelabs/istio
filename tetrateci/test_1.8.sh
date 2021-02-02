@@ -23,6 +23,7 @@ go test -count=1 -tags=integ ./tests/integration/pilot/endpointslice/. -istio.te
 
 go test -count=1 -tags=integ ./tests/integration/telemetry/requestclassification/...  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/telemetry/outboundtrafficpolicy/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/telemetry/policy/. -test.v
 
 go test -count=1 -tags=integ ./tests/integration/security/ca_custom_root/...  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/ecc_signature_algorithm/...  -p 1 -test.v
