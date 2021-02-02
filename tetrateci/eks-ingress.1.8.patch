@@ -1,3 +1,21 @@
+diff --git a/pkg/test/framework/components/echo/kube/instance.go b/pkg/test/framework/components/echo/kube/instance.go
+index 9b320a8e32..b2d9098218 100644
+--- a/pkg/test/framework/components/echo/kube/instance.go
++++ b/pkg/test/framework/components/echo/kube/instance.go
+@@ -220,10 +220,9 @@ func createVMConfig(ctx resource.Context, c *instance, cfg echo.Config) error {
+ 		if cfg.AutoRegisterVM {
+ 			cmd = append(cmd, "--autoregister")
+ 		}
+-		if !ctx.Environment().(*kube.Environment).Settings().LoadBalancerSupported {
+-			// LoadBalancer may not be suppported and the command doesn't have NodePort fallback logic that the tests do
+-			cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
+-		}
++
++		cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
++
+ 		// make sure namespace controller has time to create root-cert ConfigMap
+ 		if err := retry.UntilSuccess(func() error {
+ 			_, _, err = istioCtl.Invoke(cmd)
 diff --git a/pkg/test/framework/components/istio/util.go b/pkg/test/framework/components/istio/util.go
 index 4828990f13..305783982c 100644
 --- a/pkg/test/framework/components/istio/util.go
