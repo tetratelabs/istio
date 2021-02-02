@@ -29,8 +29,16 @@ for tag in $tags; do
     if [[ ! $(git rev-parse --verify --quiet origin/tetrate-release-$branch) ]]; then
         # create the tetrate release branch if it doesn't exist with the workflows
         git checkout -b tetrate-release-$branch origin/tetrate-workflow
+        ./send_email.py << EOF
+Subject: New tag on tetrate/istio
+A new release branch was created for $tag.
+EOF
     else
         git checkout -b tetrate-release-$branch origin/tetrate-release-$branch
+        ./send_email.py << EOF
+Subject: New tag on tetrate/istio
+$tag was merged onto existing tetrate-release-$branch.
+EOF
     fi
     git merge $tag --no-edit --allow-unrelated-histories
     git tag test-$tag-tetrate-v0
