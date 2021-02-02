@@ -24,6 +24,7 @@ go test -count=1 -tags=integ ./tests/integration/pilot/endpointslice/. -istio.te
 go test -count=1 -tags=integ ./tests/integration/telemetry/requestclassification/...  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/telemetry/outboundtrafficpolicy/...  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/telemetry/policy/. -test.v
+go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/... -p 1 -test.v
 
 go test -count=1 -tags=integ ./tests/integration/security/ca_custom_root/...  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/ecc_signature_algorithm/...  -p 1 -test.v
@@ -40,8 +41,6 @@ go test -count=1 -tags=integ ./tests/integration/security/sds_ingress_k8sca/.  -
 
 if [[ ${CLUSTER} == "eks" ]]; then
   go test -count=1 -tags=integ ./tests/integration/pilot/cni/... -p 1 -test.v
-
-  go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/... -run='TestStatsFilter|TestSetup|TestIstioctlMetrics|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics'  -p 1 -test.v
 fi
 
 if [[ ${CLUSTER} == "gke" ]]; then
@@ -50,11 +49,8 @@ if [[ ${CLUSTER} == "gke" ]]; then
   go test -count=1 -tags=integ -timeout 30m ./tests/integration/security/.  -p 1 -test.v
 
   go test -count=1 -tags=integ ./tests/integration/telemetry/stackdriver/... -run='TestStackdriverHTTPAuditLogging|TestVMTelemetry'  -p 1 -test.v
-  go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/...  -p 1 -test.v
 fi
 
 if [[ ${CLUSTER} == "aks" ]]; then
   go test -count=1 -tags=integ -timeout 30m ./tests/integration/security/.  -p 1 -test.v
-  
-  go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/...  -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics' -p 1 -test.v
 fi
