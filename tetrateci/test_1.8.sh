@@ -8,10 +8,15 @@ if [[ ${CLUSTER} == "gke" ]]; then
   git apply tetrateci/chiron-gke.patch
 fi
 
+if [[ ${CLUSTER} == "eks" ]]; then
+  git apply tetrateci/eks-ingress.1.8.patch
+fi
+
 go test -count=1 -tags=integ ./tests/integration/helm/...  -p 1 -test.v
 
 go test -count=1 -tags=integ ./tests/integration/operator/...   -p 1  -test.v
 
+go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/ -run='TestAddToAndRemoveFromMesh|TestAllNamespaces|TestAuthZCheck|TestDescribe|TestDirectoryWithRecursion|TestDirectoryWithoutRecursion|TestEmptyCluster|TestEnsureNoMissingCRDs|TestErrorLine|TestFileAndKubeCombined|TestFileOnly|TestGateway|TestIngress|TestInvalidFileError|TestIstioctlMetrics|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestLocality|TestMirroring|TestMirroringExternalService|TestProxyConfig|TestProxyStatus|TestStatsFilter|TestTcpMetric|TestTraffic|TestValidation|TestVersion|TestWASMTcpMetric|TestWait|TestWasmStatsFilter|TestWebhook' -istio.test.skipVM true  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/pilot/analysis/...  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/pilot/revisions/...  -p 1 -test.v
 
@@ -27,28 +32,28 @@ go test -count=1 -tags=integ ./tests/integration/security/mtlsk8sca/...  -p 1 -t
 go test -count=1 -tags=integ ./tests/integration/security/sds_egress/...  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/sds_tls_origination/...  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/webhook/...  -p 1 -test.v
-
-if [[ ${CLUSTER} == "eks" ]]; then
-  git apply tetrateci/eks-ingress.1.8.patch
-  go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/... -run='TestStatsFilter|TestSetup|TestIstioctlMetrics|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics'  -p 1 -test.v
-  go test -count=1 -tags=integ ./tests/integration/pilot/endpointslice/. -istio.test.skipVM true  -p 1 -test.v
-else
-  go test -count=1 -tags=integ -timeout 30m ./tests/integration/security/.  -p 1 -test.v
-
-  if [[ ${CLUSTER} == "aks" ]]; then
-    go test -count=1 -tags=integ -timeout 30m -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics' ./tests/integration/telemetry/stats/...  -p 1 -test.v
-  else
-    go test -count=1 -tags=integ ./tests/integration/telemetry/stackdriver/... -run='TestStackdriverHTTPAuditLogging|TestVMTelemetry'  -p 1 -test.v
-    go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/...  -p 1 -test.v
-  fi
-fi
-
 go test -count=1 -tags=integ ./tests/integration/security/sds_ingress/.  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/sds_ingress_gateway/.  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/sds_ingress_k8sca/.  -p 1 -test.v
-go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/ -run='TestAddToAndRemoveFromMesh|TestAllNamespaces|TestAuthZCheck|TestDescribe|TestDirectoryWithRecursion|TestDirectoryWithoutRecursion|TestEmptyCluster|TestEnsureNoMissingCRDs|TestErrorLine|TestFileAndKubeCombined|TestFileOnly|TestGateway|TestIngress|TestInvalidFileError|TestIstioctlMetrics|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestLocality|TestMirroring|TestMirroringExternalService|TestProxyConfig|TestProxyStatus|TestStatsFilter|TestTcpMetric|TestTraffic|TestValidation|TestVersion|TestWASMTcpMetric|TestWait|TestWasmStatsFilter|TestWebhook' -istio.test.skipVM true  -p 1 -test.v
 
+if [[ ${CLUSTER} == "eks" ]]; then
+  go test -count=1 -tags=integ ./tests/integration/pilot/endpointslice/. -istio.test.skipVM true  -p 1 -test.v
+  go test -count=1 -tags=integ ./tests/integration/pilot/cni/... -p 1 -test.v
 
-if [[ ${CLUSTER} != "aks" ]]; then
+  go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/... -run='TestStatsFilter|TestSetup|TestIstioctlMetrics|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics'  -p 1 -test.v
+fi
+
+if [[ ${CLUSTER} == "gke" ]]; then
   go test -count=1 -tags=integ ./tests/integration/pilot/cni/... ${CLUSTERFLAGS}  -p 1 -test.v
+
+  go test -count=1 -tags=integ -timeout 30m ./tests/integration/security/.  -p 1 -test.v
+
+  go test -count=1 -tags=integ ./tests/integration/telemetry/stackdriver/... -run='TestStackdriverHTTPAuditLogging|TestVMTelemetry'  -p 1 -test.v
+  go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/...  -p 1 -test.v
+fi
+
+if [[ ${CLUSTER} == "aks" ]]; then
+  go test -count=1 -tags=integ -timeout 30m ./tests/integration/security/.  -p 1 -test.v
+  
+  go test -count=1 -tags=integ -timeout 30m -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics' ./tests/integration/telemetry/stats/...  -p 1 -test.v
 fi
