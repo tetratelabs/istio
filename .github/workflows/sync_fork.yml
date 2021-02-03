@@ -21,3 +21,8 @@ jobs:
 
     - name: Sync the tags
       run: bash ./tetrateci/fetch_all_tags.sh
+      env:
+        SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+        SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+        RECIEVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+        SENDER_EMAIL_PASSWORD: ${{ secrets.SENDER_EMAIL_PASSWORD }}
