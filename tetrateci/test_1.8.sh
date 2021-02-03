@@ -12,6 +12,10 @@ if [[ ${CLUSTER} == "eks" ]]; then
   git apply tetrateci/eks-ingress.1.8.patch
 fi
 
+if [[ ${CLUSTER} == "aks" ]]; then
+  git apply tetrateci/aks-pilot.1.8.patch
+fi
+
 go test -count=1 -tags=integ ./tests/integration/helm/...  -p 1 -test.v
 
 go test -count=1 -tags=integ ./tests/integration/operator/...   -p 1  -test.v
@@ -20,6 +24,7 @@ go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/ -run='TestA
 go test -count=1 -tags=integ ./tests/integration/pilot/analysis/...  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/pilot/revisions/...  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/pilot/endpointslice/. -istio.test.skipVM true  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/pilot/cni/... ${CLUSTERFLAGS} -p 1 -test.v
 
 go test -count=1 -tags=integ ./tests/integration/telemetry/requestclassification/...  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/telemetry/outboundtrafficpolicy/...  -p 1 -test.v
@@ -39,7 +44,3 @@ go test -count=1 -tags=integ ./tests/integration/security/webhook/...  -p 1 -tes
 go test -count=1 -tags=integ ./tests/integration/security/sds_ingress/.  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/sds_ingress_gateway/.  -p 1 -test.v
 go test -count=1 -tags=integ ./tests/integration/security/sds_ingress_k8sca/.  -p 1 -test.v
-
-if [[ $CLUSTER != "aks" ]]; then
-  go test -count=1 -tags=integ ./tests/integration/pilot/cni/... ${CLUSTERFLAGS} -p 1 -test.v
-fi
