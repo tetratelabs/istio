@@ -21,6 +21,9 @@ if [[ ${BUILD} == "fips" ]]; then
     export PATH="$GOROOT/bin:$PATH"
     echo "FIPS compliant Go installed"
     go version
+    envsubst < ./istio/tetrateci/manifest.fips.yaml.in > ./release-builder/manifest.yaml
+else
+    envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.yaml
 fi
 
 export ISTIO_VERSION=$TAG
@@ -29,7 +32,6 @@ sudo gem install fpm
 sudo apt-get install go-bindata -y
 cd ..
 git clone https://github.com/istio/release-builder --depth=1
-envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.yaml
 cd release-builder
 cp -r ../istio .
 # export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
@@ -37,9 +39,13 @@ cp -r ../istio .
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
-go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+if [[ ${BUILD} != "fips" ]]; then
+    go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+    PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
+else
+    PACKAGES=$(ls /tmp/istio-release/out/ | grep "istioctl" | grep "linux-amd64")
+fi
 
-PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio*")
 for package in $PACKAGES; do
     echo "Publishing $package"
     rm -f /tmp/curl.out
