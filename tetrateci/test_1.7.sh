@@ -1,6 +1,9 @@
 #!env bash
 set -e
 
+# need this variable to run the tests outside GOPATH
+export REPO_ROOT=$(pwd)
+
 if [[ ${CLUSTER} == "gke" ]]; then
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
   pip install pyyaml --user && ./tetrateci/gen_iop.py
