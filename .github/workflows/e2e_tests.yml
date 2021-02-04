@@ -76,6 +76,13 @@ jobs:
         with:
           go-version: 1.15
 
+      - uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
       - name: Get the tag
         id: get_tag
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/}
@@ -139,6 +146,13 @@ jobs:
         with:
           go-version: 1.15
 
+      - uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
       - name: Get the tag
         id: get_tag
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/}
@@ -194,6 +208,13 @@ jobs:
         uses: actions/setup-go@v1
         with:
           go-version: 1.15
+
+      - uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
       - name: Get the tag
         id: get_tag
