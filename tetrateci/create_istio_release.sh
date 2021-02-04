@@ -21,15 +21,16 @@ if [[ ${BUILD} == "fips" ]]; then
     export PATH="$GOROOT/bin:$PATH"
     echo "FIPS compliant Go installed"
     go version
-    envsubst < ./istio/tetrateci/manifest.fips.yaml.in > ./release-builder/manifest.yaml
 else
-    envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.yaml
+    echo "Build docker images since it is not a fips build" 
+    echo "  - docker" >> tetrateci/manifest.yaml.in 
 fi
 
 export ISTIO_VERSION=$TAG
 
 sudo gem install fpm
 sudo apt-get install go-bindata -y
+envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.yaml
 cd ..
 git clone https://github.com/istio/release-builder --depth=1
 cd release-builder
