@@ -23,6 +23,7 @@ go test -count=1 -timeout 30m ./tests/integration/pilot/. -p 1 -test.v
 go test -count=1 -timeout 30m ./tests/integration/pilot/vm/. -p 1 -test.v
 # Note: if this compains about unknown field namespaceSelector, clean the x-k8s crds
 go test -count=1 -timeout 30m ./tests/integration/pilot/ingress/. -p 1 -test.v
+go test -count=1 ./tests/integration/pilot/cni/... ${CLUSTERFLAGS} -p 1 -test.v
 
 go test -count=1 ./tests/integration/mixer/outboundtrafficpolicy  -p 1 -test.v
 go test -count=1 -timeout 30m ./tests/integration/mixer/. -p 1 -test.v
@@ -47,7 +48,3 @@ go test -count=1 ./tests/integration/security/webhook/... -p 1 -test.v
 go test -count=1 -timeout 30m ./tests/integration/security/.  -p 1 -test.v
 go test -count=1 ./tests/integration/security/sds_ingress/.  -p 1 -test.v
 go test -count=1 ./tests/integration/security/sds_ingress_k8sca/.  -p 1 -test.v
-
-if [[ $CLUSTER != "aks" ]]; then
-  go test -count=1 ./tests/integration/pilot/cni/... ${CLUSTERFLAGS} -p 1 -test.v
-fi
