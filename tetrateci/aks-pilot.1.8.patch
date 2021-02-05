@@ -1,0 +1,13 @@
+diff --git a/tests/integration/pilot/vm_test.go b/tests/integration/pilot/vm_test.go
+index a022216bcf..8b57b81c97 100644
+--- a/tests/integration/pilot/vm_test.go
++++ b/tests/integration/pilot/vm_test.go
+@@ -102,7 +102,7 @@ func TestVMRegistrationLifecycle(t *testing.T) {
+ 						return err
+ 					}
+ 					return res.CheckOK()
+-				}, retry.Timeout(15*time.Second))
++				}, retry.Timeout(5*time.Minute))
+ 			})
+ 			ctx.NewSubTest("reconnect reuses WorkloadEntry").Run(func(ctx framework.TestContext) {
+ 				// ensure we have two pilot instances, other tests can pass before the second one comes up
