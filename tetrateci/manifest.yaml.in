@@ -44,4 +44,4 @@ dashboards:
   pilot-dashboard: 7645
 
 outputs:
-  - archive
+  - docker

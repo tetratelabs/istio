@@ -10,20 +10,13 @@ echo "Deleting /usr/share/dotnet to reclaim space"
 echo "Deletetion complete"
 
 if [[ ${BUILD} == "fips" ]]; then
-    export GOLANG_VERSION=1.15.7b5
-    echo "Fetching FIPS compliant Go"
-    url="https://go-boringcrypto.storage.googleapis.com/go1.15.7b5.linux-amd64.tar.gz"
-    wget -O go.tgz "$url"
-    echo "cb08962897e3802cda96f4ee915ed20fbde7d5d85e688759ef523d2e6ae44851 go.tgz" | sha256sum -c -
-    sudo tar -C /usr/local -xzf go.tgz
-    rm go.tgz
-    export GOROOT=/usr/local/go
-    export PATH="$GOROOT/bin:$PATH"
-    echo "FIPS compliant Go installed"
-    go version
-else
-    echo "Build docker images since it is not a fips build" 
-    echo "  - docker" >> tetrateci/manifest.yaml.in 
+    ./tetrateci/setup_boring_go.sh
+fi
+
+# if length $TEST is zero we are making a release
+if [[ -z TEST ]]; then
+    # since we are building the final release
+    echo "  - archive" >> tetrateci/manifest.yaml.in
 fi
 
 export ISTIO_VERSION=$TAG
@@ -40,21 +33,24 @@ cp -r ../istio .
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
+go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+
 if [[ ${BUILD} != "fips" ]]; then
-    go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
     PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
 else
-    PACKAGES=$(ls /tmp/istio-release/out/ | grep "istioctl" | grep "linux-amd64")
+    PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio" | grep "linux-amd64")
 fi
 
-for package in $PACKAGES; do
-    echo "Publishing $package"
-    rm -f /tmp/curl.out
-    curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/$package -o /tmp/curl.out
-    cat /tmp/curl.out
-    grep "success" /tmp/curl.out
-done
+if [[ -z TEST ]]; then
+    for package in $PACKAGES; do
+        echo "Publishing $package"
+        rm -f /tmp/curl.out
+        curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/$package -o /tmp/curl.out
+        cat /tmp/curl.out
+        grep "success" /tmp/curl.out
+    done
 
-rm -f /tmp/curl.out
-curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/publish -o /tmp/curl.out
-cat /tmp/curl.out
+    rm -f /tmp/curl.out
+    curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/publish -o /tmp/curl.out
+    cat /tmp/curl.out
+fi
