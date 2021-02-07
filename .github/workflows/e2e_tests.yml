@@ -117,12 +117,8 @@ jobs:
     name: gke-e2e-test
     runs-on: ubuntu-latest
     # TODO gke test modify iop yaml so we need to run it at the end to not interfere in eks and aks test
-<<<<<<< HEAD
-    needs: [create-test-images, eks-e2e-test, aks-e2e-test]
-=======
     # removing aks-e2e-test as the credentials are not set up
     needs: [create-test-images, eks-e2e-test]
->>>>>>> tetratelabs/tetrate-workflow
 
     strategy:
       matrix:
