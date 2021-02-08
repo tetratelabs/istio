@@ -12,20 +12,10 @@ echo "Deletetion complete"
 export OLDGOROOT=$GOROOT
 export OLDPATH=$PATH
 
-echo "TEST flag is \'$TEST\'"
+echo "TEST flag is '$TEST'"
 
 if [[ ${BUILD} == "fips" ]]; then
-    export GOLANG_VERSION=1.15.7b5
-    echo "Fetching FIPS compliant Go"
-    url="https://go-boringcrypto.storage.googleapis.com/go1.15.7b5.linux-amd64.tar.gz"
-    wget -O go.tgz "$url"
-    echo "cb08962897e3802cda96f4ee915ed20fbde7d5d85e688759ef523d2e6ae44851 go.tgz" | sha256sum -c -
-    sudo tar -C /usr/local -xzf go.tgz
-    rm go.tgz
-    export GOROOT=/usr/local/go
-    export PATH="$GOROOT/bin:$PATH"
-    echo "FIPS compliant Go installed"
-    go version
+    sudo ./tetrateci/setup_boring_go.sh
     export ISTIO_ENVOY_WASM_BASE_URL=https://storage.googleapis.com/istio-build/proxy 
     export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
 fi
@@ -70,7 +60,7 @@ if [[ -z $TEST ]]; then
 
     mkdir /tmp/istio-release
 
-    echo "Resetting variables PATH=$PATH GOROOT=$GOROOT"
+    echo "Resetting variables PATH=$OLDPATH GOROOT=$OLDGOROOT"
     export PATH=$OLDPATH
     export GOROOT=$OLDGOROOT
 
