@@ -48,9 +48,9 @@ cp -r ../istio .
 # export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
 # make shell TODO: https://github.com/tetratelabs/getistio/issues/82
 mkdir /tmp/istio-release
-#go run main.go build --manifest manifest.docker.yaml
+go run main.go build --manifest manifest.docker.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
-#go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
 if [[ -z $TEST ]]; then
     echo "Starting archive build"
