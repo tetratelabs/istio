@@ -6,6 +6,10 @@ on:
       tag:
         description: Manual Tag
         required: true
+      type:
+        description: Build Type [fips or leave empty]
+        required: true
+        default: ""
 
 jobs:
   make_release:    
@@ -34,4 +38,5 @@ jobs:
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ github.event.inputs.tag }}
           BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
+          BUILD: ${{ github.event.inputs.type }}
         run: bash ./tetrateci/create_istio_release.sh
