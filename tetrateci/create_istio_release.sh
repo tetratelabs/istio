@@ -11,6 +11,8 @@ echo "Deletetion complete"
 
 if [[ ${BUILD} == "fips" ]]; then
     ./tetrateci/setup_boring_go.sh
+    export ISTIO_ENVOY_WASM_BASE_URL=https://storage.googleapis.com/istio-build/proxy 
+    export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
 fi
 
 # if length $TEST is zero we are making a release
