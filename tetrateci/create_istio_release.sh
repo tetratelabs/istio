@@ -9,23 +9,28 @@ echo "Deleting /usr/share/dotnet to reclaim space"
 [ -d "/usr/share/dotnet" ] && sudo rm -rf /usr/share/dotnet
 echo "Deletetion complete"
 
+export OLDGOROOT=$GOROOT
+export OLDPATH=$PATH
+
 if [[ ${BUILD} == "fips" ]]; then
     ./tetrateci/setup_boring_go.sh
     export ISTIO_ENVOY_WASM_BASE_URL=https://storage.googleapis.com/istio-build/proxy 
     export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
 fi
 
-# if length $TEST is zero we are making a release
-if [[ -z TEST ]]; then
-    # since we are building the final release
-    echo "  - archive" >> tetrateci/manifest.yaml.in
-fi
-
 export ISTIO_VERSION=$TAG
 
 sudo gem install fpm
 sudo apt-get install go-bindata -y
-envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.yaml
+envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.docker.yaml
+
+# if length $TEST is zero we are making a release
+if [[ -z TEST ]]; then
+    # since we are building the final release
+    echo "  - archive" >> tetrateci/manifest.yaml.in
+    envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.archive.yaml
+fi
+
 cd ..
 git clone https://github.com/istio/release-builder --depth=1
 cd release-builder
@@ -33,17 +38,26 @@ cp -r ../istio .
 # export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
 # make shell TODO: https://github.com/tetratelabs/getistio/issues/82
 mkdir /tmp/istio-release
-go run main.go build --manifest manifest.yaml
+go run main.go build --manifest manifest.docker.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
-if [[ ${BUILD} != "fips" ]]; then
-    PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
-else
-    PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio" | grep "linux-amd64")
-fi
-
 if [[ -z TEST ]]; then
+    echo "Cleaning up the docker build...."
+
+    [ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
+
+    mkdir /tmp/istio-release
+
+    echo "Resetting variables PATH=$PATH GOROOT=$GOROOT"
+    export PATH=$OLDPATH
+    export GOROOT=$OLDGOROOT
+
+    echo "Building archives..."
+    go run main.go build --manifest manifest.archive.yaml
+
+    PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
+
     for package in $PACKAGES; do
         echo "Publishing $package"
         rm -f /tmp/curl.out
