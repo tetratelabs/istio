@@ -37,19 +37,27 @@ jobs:
         with:
           username: ${{ secrets.TEST_HUB_USER }}
           password: ${{ secrets.TEST_HUB_PASS }}
-      
+
       - name: Get the tag
         id: get_tag
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/}
         shell: bash
 
+      - name: set up go 1.15
+        uses: actions/setup-go@v1
+        if: ${{ !contains(github.event.ref, 'fips') }}
+        with:
+          go-version: 1.15
+
+      - name: setup fips compliant go
+        if: ${{ contains(github.event.ref, 'fips') }}
+        run: bash ./tetrateci/setup_boring_go.sh
+
       - name: build and push images
-        # TODO: Hack Alert https://github.com/actions/runner/issues/241
-        shell: 'script -q -e -c "bash {0}"'
-        run: |
-          make docker push
+        run: bash ./tetrateci/create_istio_release.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
+          TEST: "true"
 
   eks-e2e-test:
     name: eks-e2e-test
@@ -73,8 +81,13 @@ jobs:
 
       - name: set up go 1.15
         uses: actions/setup-go@v1
+        if: ${{ !contains(github.event.ref, 'fips') }}
         with:
           go-version: 1.15
+
+      - name: setup fips compliant go
+        if: ${{ contains(github.event.ref, 'fips') }}
+        run: bash ./tetrateci/setup_boring_go.sh
 
       - uses: actions/cache@v2
         with:
@@ -116,9 +129,7 @@ jobs:
   gke-e2e-test:
     name: gke-e2e-test
     runs-on: ubuntu-latest
-    # TODO gke test modify iop yaml so we need to run it at the end to not interfere in eks and aks test
-    # removing aks-e2e-test as the credentials are not set up
-    needs: [create-test-images, eks-e2e-test]
+    needs: [create-test-images]
 
     strategy:
       matrix:
@@ -143,8 +154,13 @@ jobs:
 
       - name: set up go 1.15
         uses: actions/setup-go@v1
+        if: ${{ !contains(github.event.ref, 'fips') }}
         with:
           go-version: 1.15
+
+      - name: setup fips compliant go
+        if: ${{ contains(github.event.ref, 'fips') }}
+        run: bash ./tetrateci/setup_boring_go.sh
 
       - uses: actions/cache@v2
         with:
@@ -157,7 +173,7 @@ jobs:
         id: get_tag
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/}
         shell: bash
-      
+
       - name: Get minor version
         id: get_minor_ver
         run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
@@ -206,8 +222,13 @@ jobs:
 
       - name: set up go 1.15
         uses: actions/setup-go@v1
+        if: ${{ !contains(github.event.ref, 'fips') }}
         with:
           go-version: 1.15
+
+      - name: setup fips compliant go
+        if: ${{ contains(github.event.ref, 'fips') }}
+        run: bash ./tetrateci/setup_boring_go.sh
 
       - uses: actions/cache@v2
         with:
@@ -304,5 +325,7 @@ jobs:
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ steps.get_tag.outputs.TAG }}
           BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
+          # if the tag contains fips we are doing a fips build
+          BUILD: ${{ contains(github.event.ref, 'fips') && "fips" }}
         # not using the official build container 
         run: ./tetrateci/create_istio_release.sh
