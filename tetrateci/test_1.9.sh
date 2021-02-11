@@ -8,26 +8,43 @@ if [[ ${CLUSTER} == "gke" ]]; then
   git apply tetrateci/chiron-gke.patch
 fi
 
-go test -count=1 -tags=integ ./tests/integration/helm/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/operator/...  -istio.test.skipVM true -p 1  -test.v
-go test -count=1 -tags=integ -timeout 30m -run='TestEmptyCluster|TestFileOnly|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestFileAndKubeCombined|TestAllNamespaces|TestTimeout|TestErrorLine|TestWait|TestVersion|TestDescribe|TestAddToAndRemoveFromMesh|TestProxyConfig|TestProxyStatus|TestAuthZCheck|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestTproxy|TestValidation|TestEnsureNoMissingCRDs|TestWebhook' ./tests/integration/pilot/ -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/pilot/analysis/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/pilot/revisions/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ -timeout 30m -run='TestStatsFilter|TestStatsTCPFilter|TestSetup|TestIstioctlMetrics|TestTcpMetric|TestStatsFilter|TestWASMTcpMetric|TestWasmStatsFilter|TestMain|TestCustomizeMetrics' ./tests/integration/telemetry/stats/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/tracing/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/requestclassification/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/policy/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/outboundtrafficpolicy/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/security/ca_custom_root/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/security/chiron/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/security/file_mounted_certs/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/security/filebased_tls_origination/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/security/mtls_first_party_jwt/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/security/mtlsk8sca/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/security/sds_egress/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/security/sds_tls_origination/... -istio.test.skipVM true -p 1 -test.v
-go test -count=1 -tags=integ ./tests/integration/security/webhook/... -istio.test.skipVM true -p 1 -test.v
-
-if [[ $CLUSTER != "aks" ]]; then
-  go test -count=1 -tags=integ ./tests/integration/pilot/cni/... ${CLUSTERFLAGS} -istio.test.skipVM true -p 1 -test.v
+if [[ ${CLUSTER} == "eks" ]]; then
+  git apply tetrateci/eks-ingress.1.8.patch
 fi
+
+if [[ ${CLUSTER} == "aks" ]]; then
+  # Just increasing the timeout though the test is disabled for now
+  git apply tetrateci/aks-pilot.1.8.patch
+fi
+
+go test -count=1 -tags=integ ./tests/integration/helm/...  -p 1 -test.v
+
+go test -count=1 -tags=integ ./tests/integration/operator/...   -p 1  -test.v
+# TestVmOSPost fails in gke
+go test -count=1 -tags=integ -timeout 30m ./tests/integration/pilot/ -run='TestAddToAndRemoveFromMesh|TestAllNamespaces|TestAuthZCheck|TestDescribe|TestDirectoryWithoutRecursion|TestDirectoryWithRecursion|TestEmptyCluster|TestEnsureNoMissingCRDs|TestErrorLine|TestFileAndKubeCombined|TestFileOnly|TestGateway|TestIngress|TestInvalidFileError|TestJsonInputFile|TestJsonOutput|TestKubeOnly|TestLocality|TestMain|TestMirroring|TestMirroringExternalService|TestProxyConfig|TestProxyStatus|TestTimeout|TestTraffic|TestValidation|TestVersion|TestWait|TestWebhook' -istio.test.skipVM true  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/pilot/analysis/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/pilot/revisions/...  -p 1 -test.v
+# endpointslice fails in 1.17 k8s distros, skipping it for now
+# go test -count=1 -tags=integ ./tests/integration/pilot/endpointslice/. -istio.test.skipVM true  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/pilot/cni/... ${CLUSTERFLAGS} -p 1 -test.v
+
+go test -count=1 -tags=integ ./tests/integration/telemetry/requestclassification/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/telemetry/outboundtrafficpolicy/...  -p 1 -test.v
+# go test -count=1 -tags=integ ./tests/integration/telemetry/policy/. -test.v
+# TestDashboard is flaky sometimes passes, sometimes not
+go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/stats/... -p 1 -test.v -run "TestIstioCtlMetrics|TestSetup|TestStatsFilter|TestStatsTCPFilter|TestTcpMetric|TestWasmStatsFilter|TestWASMTcpMetric"
+go test -count=1 -tags=integ -timeout 30m ./tests/integration/telemetry/tracing/... -p 1 -test.v
+
+go test -count=1 -tags=integ -timeout 30m ./tests/integration/security/.  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/ca_custom_root/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/ecc_signature_algorithm/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/chiron/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/filebased_tls_origination/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/mtls_first_party_jwt/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/mtlsk8sca/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/sds_egress/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/sds_tls_origination/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/webhook/...  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/sds_ingress/.  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/sds_ingress_gateway/.  -p 1 -test.v
+go test -count=1 -tags=integ ./tests/integration/security/sds_ingress_k8sca/.  -p 1 -test.v
