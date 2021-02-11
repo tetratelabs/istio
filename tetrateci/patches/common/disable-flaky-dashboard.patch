@@ -1,0 +1,13 @@
+diff --git a/tests/integration/telemetry/dashboard_test.go b/tests/integration/telemetry/dashboard_test.go
+index 6d71c40d72..d87465b226 100644
+--- a/tests/integration/telemetry/dashboard_test.go
++++ b/tests/integration/telemetry/dashboard_test.go
+@@ -118,6 +118,8 @@ var (
+ )
+ 
+ func TestDashboard(t *testing.T) {
++	// Flaky test sometimes passes sometimes not
++	t.Skip()
+ 	framework.NewTest(t).
+ 		Features("observability.telemetry.dashboard").
+ 		Run(func(ctx framework.TestContext) {
