@@ -1,0 +1,37 @@
+diff --git a/pkg/test/framework/components/echo/kube/instance.go b/pkg/test/framework/components/echo/kube/instance.go
+index 9b320a8e32..373f8f6a64 100644
+--- a/pkg/test/framework/components/echo/kube/instance.go
++++ b/pkg/test/framework/components/echo/kube/instance.go
+@@ -220,10 +220,14 @@ func createVMConfig(ctx resource.Context, c *instance, cfg echo.Config) error {
+ 		if cfg.AutoRegisterVM {
+ 			cmd = append(cmd, "--autoregister")
+ 		}
++
+ 		if !ctx.Environment().(*kube.Environment).Settings().LoadBalancerSupported {
+ 			// LoadBalancer may not be suppported and the command doesn't have NodePort fallback logic that the tests do
+ 			cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
+ 		}
++
++		cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
++
+ 		// make sure namespace controller has time to create root-cert ConfigMap
+ 		if err := retry.UntilSuccess(func() error {
+ 			_, _, err = istioCtl.Invoke(cmd)
+diff --git a/pkg/test/framework/components/istio/util.go b/pkg/test/framework/components/istio/util.go
+index 4828990f13..305783982c 100644
+--- a/pkg/test/framework/components/istio/util.go
++++ b/pkg/test/framework/components/istio/util.go
+@@ -152,6 +152,13 @@ func getRemoteServiceAddress(s *kube.Settings, cluster resource.Cluster, ns, lab
+ 	}
+ 
+ 	if len(svc.Status.LoadBalancer.Ingress) == 0 || svc.Status.LoadBalancer.Ingress[0].IP == "" {
++		if svc.Status.LoadBalancer.Ingress[0].IP == "" && svc.Status.LoadBalancer.Ingress[0].Hostname != "" {
++			ip, err := net.LookupIP(svc.Status.LoadBalancer.Ingress[0].Hostname)
++			if err != nil {
++				return nil, false, err
++			}
++			return net.TCPAddr{IP: ip[0], Port: port}, true, nil
++		}
+ 		return nil, false, fmt.Errorf("service %s is not available yet: %s/%s", svcName, svc.Namespace, svc.Name)
+ 	}
+ 

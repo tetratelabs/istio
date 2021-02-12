@@ -8,8 +8,10 @@ git apply tetrateci/common/disable-dashboard.1.8.patch
 git apply tetrateci/common/disable-multicluster.1.8.patch
 git apply tetrateci/common/disable-ratelimiting.1.8.patch
 git apply tetrateci/common/disable-vmospost.1.8.patch
-# the code only gets triggered for 1.17 k8s so no explicit version checking required from our side
-git apply tetrateci/common/disable-endpointslice.1.8.patch
+
+if $(grep -q "1.17" <<< ${VERSION} ); then
+  git apply tetrateci/common/disable-endpointslice.1.8.patch
+fi
 
 if [[ ${CLUSTER} == "gke" ]]; then
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
@@ -23,7 +25,6 @@ if [[ ${CLUSTER} == "eks" ]]; then
 fi
 
 if [[ ${CLUSTER} == "aks" ]]; then
-  # Just increasing the timeout though the test is disabled for now
   git apply tetrateci/aks/aks-pilot.1.8.patch
 fi
 
@@ -31,4 +32,4 @@ if $(go version | grep "1.15"); then
   export GODEBUG=x509ignoreCN=0
 fi
 
-go test -count=1 ./tests/integration/... ${CLUSTERFLAGS} -p 1 -test.v
+go test -count=1 ./tests/integration/... ${CLUSTERFLAGS} -p 1 -test.v -tags="integ" -timeout 30m

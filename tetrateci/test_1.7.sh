@@ -23,4 +23,4 @@ if $(go version | grep "1.15"); then
   export GODEBUG=x509ignoreCN=0
 fi
 
-go test -count=1 ./tests/integration/... ${CLUSTERFLAGS} -p 1 -test.v
+go test -count=1 ./tests/integration/... ${CLUSTERFLAGS} -p 1 -test.v -timeout 30m

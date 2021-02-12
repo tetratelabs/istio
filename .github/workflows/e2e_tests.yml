@@ -72,6 +72,11 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION  }}
 
+      - name: set up go 1.15
+        uses: actions/setup-go@v1
+        with:
+          go-version: 1.15
+
       - uses: actions/cache@v2
         with:
           path: ~/go/pkg/mod
@@ -102,6 +107,7 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: eks
+          VERSION: ${{ matrix.version }}
 
       - name: eks-cluster-delete
         if: always()
@@ -135,6 +141,11 @@ jobs:
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
 
+      - name: set up go 1.15
+        uses: actions/setup-go@v1
+        with:
+          go-version: 1.15
+
       - uses: actions/cache@v2
         with:
           path: ~/go/pkg/mod
@@ -166,6 +177,7 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: gke
+          VERSION: ${{ matrix.version }}
 
       - name: gke-cluster-delete
         if: always()
@@ -191,7 +203,12 @@ jobs:
       - name: Set up Cloud SDK
         uses: azure/login@v1
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }} 
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: set up go 1.15
+        uses: actions/setup-go@v1
+        with:
+          go-version: 1.15
 
       - uses: actions/cache@v2
         with:
@@ -224,6 +241,7 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: aks
+          VERSION: ${{ matrix.version }}
 
       - name: aks-cluster-delete
         if: always()
@@ -284,6 +302,13 @@ jobs:
         id: get_tag
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
         shell: bash
+
+      - name: set up go 1.15
+        uses: actions/setup-go@v1
+        # cause we setup go ourselves otherwise
+        if: ${{ !contains(github.event.ref, 'fips') }}
+        with:
+          go-version: 1.15
 
       - name: run release builder
         env:
