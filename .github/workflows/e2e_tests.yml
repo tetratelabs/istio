@@ -123,11 +123,11 @@ jobs:
     strategy:
       matrix:
         include:
-          - version: "1.18.12-gke.1205"
+          - version: "1.18"
             channel: "rapid"
-          - version: "1.17.14-gke.1600"
+          - version: "1.17"
             channel: "regular"
-          - version: "1.16.15-gke.6000"
+          - version: "1.16"
             channel: "stable"
     
     steps:
@@ -194,7 +194,7 @@ jobs:
 
     strategy:
       matrix:
-        version: [1.18.14, 1.17.13, 1.16.15]
+        version: [1.18, 1.17]
 
     steps:
       - name: checkout
