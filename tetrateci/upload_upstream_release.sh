@@ -40,8 +40,6 @@ done
 
 PACKAGES=$(ls | grep "istio")
 
-TAG=$TAG-istio-v0
-
 for package in $PACKAGES; do
     echo "Publishing $package"
     rm -f /tmp/curl.out
@@ -51,7 +49,7 @@ for package in $PACKAGES; do
 done
 
 rm -f /tmp/curl.out
-curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/publish -o /tmp/curl.out
+curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$NEWTAG/publish -o /tmp/curl.out
 cat /tmp/curl.out
 
 echo "Cleaning up the the downloaded artifacts"
