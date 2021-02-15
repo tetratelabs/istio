@@ -3,6 +3,11 @@
 set -o errexit
 set -o pipefail
 
+NEWTAG=$TAG-istio-v0
+
+# exit if the tag already exist
+curl $( sed "s/content/packages/g" <<< $BINTRAY_API )| jq ".versions[]" | grep -q "$NEWTAG" && exit
+
 echo "Creating a temporary directory to download $TAG release assets"
 mkdir /tmp/release
 cd /tmp/release
@@ -40,7 +45,7 @@ TAG=$TAG-istio-v0
 for package in $PACKAGES; do
     echo "Publishing $package"
     rm -f /tmp/curl.out
-    curl -T ./$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/$package -o /tmp/curl.out
+    curl -T ./$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$NEWTAG/$package -o /tmp/curl.out
     cat /tmp/curl.out
     grep "success" /tmp/curl.out
 done
