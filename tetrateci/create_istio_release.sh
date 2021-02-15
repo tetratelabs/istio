@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# If fips build is enabled then we switch to boring go for the docker images but use the default 
+# go for building the istioctl binary
+
 set -o errexit
 set -o pipefail
 
@@ -9,9 +12,12 @@ echo "Deleting /usr/share/dotnet to reclaim space"
 [ -d "/usr/share/dotnet" ] && sudo rm -rf /usr/share/dotnet
 echo "Deletetion complete"
 
+# Saving the old path cause we switch them in case of fips build for the boring go.
 export OLDGOROOT=$GOROOT
 export OLDPATH=$PATH
 
+# The test flag is to check whether we are building images for testing or release
+# in case of release we build the istioctl too which we don't need in case of testing.
 echo "TEST flag is '$TEST'"
 
 if [[ ${BUILD} == "fips" ]]; then
