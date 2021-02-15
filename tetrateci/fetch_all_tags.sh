@@ -31,20 +31,25 @@ for tag in $tags; do
         git checkout -b tetrate-release-$branch origin/tetrate-workflow
         git merge $tag --no-edit --allow-unrelated-histories
         git tag test-$tag-tetrate-v0
-
-        git checkout -b tetratefips-release-$branch origin/tetrate-workflow
-        git merge $tag --no-edit --allow-unrelated-histories
-        # no tag created since you need to backport the corresponding patch for fips compliant build manually
     else
         git checkout -b tetrate-release-$branch origin/tetrate-release-$branch
         git merge $tag --no-edit --allow-unrelated-histories
         git tag test-$tag-tetrate-v0
+    fi
 
+    git push origin tetrate-release-$branch --tags
+
+    # Now for FIPS
+    if [[ ! $(git rev-parse --verify --quiet origin/tetratefips-release-$branch) ]]; then
+        git checkout -b tetratefips-release-$branch origin/tetrate-workflow
+        git merge $tag --no-edit --allow-unrelated-histories
+        # no tag created since we need to backport the corresponding patch for fips compliant build manually
+    else
         git checkout -b tetratefips-release-$branch origin/tetratefips-release-$branch
         git merge $tag --no-edit --allow-unrelated-histories
         git tag test-$tag-tetratefips-v0
     fi
-    git push origin tetrate-release-$branch --tags
+
     git push origin tetratefips-release-$branch --tags
 done
 
