@@ -11,7 +11,7 @@ git apply tetrateci/patches/common/disable-vmospost.1.8.patch
 git apply tetrateci/patches/common/disable-stackdriver.1.8.patch
 
 if $(grep -q "1.17" <<< ${VERSION} ); then
-  git apply tetrateci/common/disable-endpointslice.1.8.patch
+  git apply tetrateci/patches/common/disable-endpointslice.1.8.patch
 fi
 
 if [[ ${CLUSTER} == "gke" ]]; then
