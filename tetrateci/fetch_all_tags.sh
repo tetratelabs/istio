@@ -51,6 +51,9 @@ for tag in $tags; do
     fi
 
     git push origin tetratefips-release-$branch --tags
+
+    export TAG=$tag
+    ./tetrateci/upload_upstream_release.sh
 done
 
 # finally push all the tags
