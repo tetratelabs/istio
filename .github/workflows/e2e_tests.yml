@@ -12,6 +12,7 @@ jobs:
   create-test-images:
     name: create-test-images
     runs-on: ubuntu-latest
+
     steps:
       - name: checkout
         uses: actions/checkout@v2
@@ -37,19 +38,19 @@ jobs:
         with:
           username: ${{ secrets.TEST_HUB_USER }}
           password: ${{ secrets.TEST_HUB_PASS }}
-      
+
       - name: Get the tag
         id: get_tag
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/}
         shell: bash
 
       - name: build and push images
-        # TODO: Hack Alert https://github.com/actions/runner/issues/241
-        shell: 'script -q -e -c "bash {0}"'
-        run: |
-          make docker push
+        run: bash ./tetrateci/create_istio_release.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
+          TEST: "true"
+          # if the tag contains fips we are doing a fips build
+          BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
 
   eks-e2e-test:
     name: eks-e2e-test
@@ -106,6 +107,7 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: eks
+          VERSION: ${{ matrix.version }}
 
       - name: eks-cluster-delete
         if: always()
@@ -116,16 +118,14 @@ jobs:
   gke-e2e-test:
     name: gke-e2e-test
     runs-on: ubuntu-latest
-    # TODO gke test modify iop yaml so we need to run it at the end to not interfere in eks and aks test
-    # removing aks-e2e-test as the credentials are not set up
-    needs: [create-test-images, eks-e2e-test]
+    needs: [create-test-images]
 
     strategy:
       matrix:
         include:
-          - version: "1.18.12-gke.1201"
+          - version: "1.18.12-gke.1205"
             channel: "rapid"
-          - version: "1.17.14-gke.2600"
+          - version: "1.17.14-gke.1600"
             channel: "regular"
           - version: "1.16.15-gke.6000"
             channel: "stable"
@@ -157,7 +157,7 @@ jobs:
         id: get_tag
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/}
         shell: bash
-      
+
       - name: Get minor version
         id: get_minor_ver
         run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
@@ -177,6 +177,7 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: gke
+          VERSION: ${{ matrix.version }}
 
       - name: gke-cluster-delete
         if: always()
@@ -186,7 +187,7 @@ jobs:
 
   aks-e2e-test:
     ## TODO: temporarily disabling it till credentials are set
-    if: ${{ false }}
+    if: false
     name: aks-e2e-test
     runs-on: ubuntu-latest
     needs: [create-test-images]
@@ -202,7 +203,7 @@ jobs:
       - name: Set up Cloud SDK
         uses: azure/login@v1
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }} 
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: set up go 1.15
         uses: actions/setup-go@v1
@@ -240,6 +241,7 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: aks
+          VERSION: ${{ matrix.version }}
 
       - name: aks-cluster-delete
         if: always()
@@ -251,7 +253,9 @@ jobs:
   create-new-tag:
     name: create-new-tag
     runs-on: ubuntu-latest
-    needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
+    # since aks tests are disabled
+    # needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
+    needs: [eks-e2e-test, gke-e2e-test]
 
     steps:
       - name: Checkout code
@@ -275,6 +279,7 @@ jobs:
 
   make_release:    
     needs: [create-new-tag]
+    if: false
 
     name: release-builder-run
     runs-on: ubuntu-latest
@@ -298,11 +303,20 @@ jobs:
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
         shell: bash
 
+      - name: set up go 1.15
+        uses: actions/setup-go@v1
+        # cause we setup go ourselves otherwise
+        if: ${{ !contains(github.event.ref, 'fips') }}
+        with:
+          go-version: 1.15
+
       - name: run release builder
         env:
           BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
           API_KEY: ${{ secrets.BINTRAY_API_KEY }}
           TAG: ${{ steps.get_tag.outputs.TAG }}
           BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
+          # if the tag contains fips we are doing a fips build
+          BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
         # not using the official build container 
         run: ./tetrateci/create_istio_release.sh

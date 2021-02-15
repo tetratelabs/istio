@@ -1,0 +1,13 @@
+diff --git a/istioctl/cmd/dashboard_test.go b/istioctl/cmd/dashboard_test.go
+index 5d73328223..bc2066d1a0 100644
+--- a/istioctl/cmd/dashboard_test.go
++++ b/istioctl/cmd/dashboard_test.go
+@@ -24,6 +24,8 @@ import (
+ )
+ 
+ func TestDashboard(t *testing.T) {
++	//flaky test
++	t.Skip()
+ 	kubeClientWithRevision = mockExecClientDashboard
+ 	kubeClient = mockEnvoyClientDashboard
+ 

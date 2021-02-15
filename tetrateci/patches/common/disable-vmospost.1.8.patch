@@ -1,0 +1,12 @@
+diff --git a/tests/integration/pilot/vm_test.go b/tests/integration/pilot/vm_test.go
+index 5aa5af8855..6fb7618985 100644
+--- a/tests/integration/pilot/vm_test.go
++++ b/tests/integration/pilot/vm_test.go
+@@ -44,6 +44,7 @@ func GetAdditionVMImages() []string {
+ }
+ 
+ func TestVmOSPost(t *testing.T) {
++	t.Skip()
+ 	framework.
+ 		NewTest(t).
+ 		RequiresSingleCluster(). // TODO(landow) fix DNS issues with multicluster/VMs/headless
