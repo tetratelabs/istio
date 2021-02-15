@@ -1,6 +1,8 @@
 #!env bash
 set -e
 
+export GOLANG_VERSION=1.15.7
+./tetrateci/setup_go.sh
 git apply tetrateci/patches/common/disable-dashboard.1.9.patch
 git apply tetrateci/patches/common/disable-ratelimiting.1.9.patch
 git apply tetrateci/patches/common/disable-stackdriver.1.9.patch
