@@ -45,7 +45,7 @@ jobs:
         shell: bash
 
       - name: build and push images
-       ## TODO: temporarily disabling it 
+        ## TODO: temporarily disabling it 
         run: exit; bash ./tetrateci/create_istio_release.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
