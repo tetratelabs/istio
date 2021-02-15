@@ -21,3 +21,7 @@ jobs:
 
     - name: Sync the tags
       run: bash ./tetrateci/fetch_all_tags.sh
+      env:
+          BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
+          API_KEY: ${{ secrets.BINTRAY_API_KEY }}
+          BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
