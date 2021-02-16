@@ -7,6 +7,10 @@ git apply tetrateci/patches/common/disable-ratelimiting.1.9.patch
 git apply tetrateci/patches/common/disable-vmospost.1.9.patch
 git apply tetrateci/patches/common/disable-stackdriver.1.9.patch
 
+if $(grep -q "1.17" <<< ${VERSION} ); then
+  git apply tetrateci/patches/common/disable-endpointslice.1.8.patch
+fi
+
 if [[ ${CLUSTER} == "gke" ]]; then
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
   pip install pyyaml --user && ./tetrateci/gen_iop.py
