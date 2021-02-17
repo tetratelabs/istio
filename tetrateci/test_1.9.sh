@@ -3,7 +3,6 @@ set -e
 
 git apply tetrateci/patches/common/disable-dashboard.1.9.patch
 git apply tetrateci/patches/common/disable-ratelimiting.1.9.patch
-git apply tetrateci/patches/common/disable-vmospost.1.9.patch
 git apply tetrateci/patches/common/disable-stackdriver.1.9.patch
 
 if $(grep -q "1.17" <<< ${VERSION} ); then
