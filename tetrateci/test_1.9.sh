@@ -20,4 +20,15 @@ if [[ ${CLUSTER} == "eks" ]]; then
   git apply tetrateci/patches/eks/eks-ingress.1.9.patch
 fi
 
-go test -p 1 -test.v -tags=integ $(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples) -timeout 30m --istio.test.select=-postsubmit,-flaky,-multicluster ${CLUSTERFLAGS}
+PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
+
+for package in $PACKAGES; do
+  n=0
+  until [ "$n" -ge 3 ]
+  do
+    n=$((n+1))
+    sleep 15
+    echo "========================================================TRY $n========================================================"
+    go test -count=1 -p 1 -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky,-multicluster ${CLUSTERFLAGS} && break
+  done
+done
