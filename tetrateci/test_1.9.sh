@@ -2,7 +2,6 @@
 set -e
 
 git apply tetrateci/patches/common/disable-dashboard.1.9.patch
-git apply tetrateci/patches/common/disable-multicluster.1.9.patch
 git apply tetrateci/patches/common/disable-ratelimiting.1.9.patch
 git apply tetrateci/patches/common/disable-vmospost.1.9.patch
 git apply tetrateci/patches/common/disable-stackdriver.1.9.patch
@@ -22,4 +21,4 @@ if [[ ${CLUSTER} == "eks" ]]; then
   git apply tetrateci/patches/eks/eks-ingress.1.9.patch
 fi
 
-go test -count=1 ./tests/integration/... ${CLUSTERFLAGS} -p 1 -test.v -tags="integ" -timeout 30m
+go test -p 1 -test.v -tags=integ $(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples) -timeout 30m --istio.test.select=-postsubmit,-flaky,-multicluster
