@@ -5,7 +5,6 @@ set -e
 export REPO_ROOT=$(pwd)
 
 git apply tetrateci/patches/common/disable-dashboard.1.7.patch
-git apply tetrateci/patches/common/disable-multicluster.1.7.patch
 git apply tetrateci/patches/common/disable-stackdriver.1.7.patch
 
 if [[ ${CLUSTER} == "gke" ]]; then
