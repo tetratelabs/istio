@@ -73,13 +73,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION  }}
 
-      - uses: actions/cache@v2
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
       - name: Get the tag
         id: get_tag
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
@@ -91,6 +84,13 @@ jobs:
         shell: bash
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}-go-
 
       - name: eks-cluster-create
         run: bash ./tetrateci/create_eks_cluster.sh
@@ -138,13 +138,6 @@ jobs:
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
 
-      - uses: actions/cache@v2
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
       - name: Get the tag
         id: get_tag
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
@@ -156,6 +149,13 @@ jobs:
         shell: bash
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}-go-
 
       - name: gke-cluster-create
         run: bash ./tetrateci/create_gke_cluster.sh
@@ -198,13 +198,6 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - uses: actions/cache@v2
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
       - name: Get the tag
         id: get_tag
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
@@ -216,6 +209,13 @@ jobs:
         shell: bash
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}-go-
 
       - name: aks-cluster-create
         run: bash ./tetrateci/create_aks_cluster.sh
