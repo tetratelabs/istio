@@ -24,4 +24,19 @@ if $(go version | grep "1.15"); then
   export GODEBUG=x509ignoreCN=0
 fi
 
-go test -count=1 ./tests/integration/... ${CLUSTERFLAGS} -p 1 -test.v -timeout 30m
+PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
+
+for package in $PACKAGES; do
+  n=0
+  until [ "$n" -ge 3 ]
+  do
+    n=$((n+1))
+    sleep 15
+    echo "========================================================TRY $n========================================================"
+    go test -count=1 -p 1 -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky ${CLUSTERFLAGS} && break || echo "Test Failed: $package"
+    sudo rm -rf $(ls /tmp | grep istio)
+  done
+
+  [ "$n" -ge 3 ] && exit 1
+  
+done

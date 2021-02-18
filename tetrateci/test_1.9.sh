@@ -6,7 +6,7 @@ git apply tetrateci/patches/common/disable-ratelimiting.1.9.patch
 git apply tetrateci/patches/common/disable-stackdriver.1.9.patch
 
 if $(grep -q "1.17" <<< ${VERSION} ); then
-  git apply tetrateci/patches/common/disable-endpointslice.1.8.patch
+  git apply tetrateci/patches/common/disable-endpointslice.1.9.patch
 fi
 
 if [[ ${CLUSTER} == "gke" ]]; then
@@ -32,4 +32,7 @@ for package in $PACKAGES; do
     go test -count=1 -p 1 -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky ${CLUSTERFLAGS} && break || echo "Test Failed: $package"
     sudo rm -rf $(ls /tmp | grep istio)
   done
+
+  [ "$n" -ge 3 ] && exit 1
+
 done
