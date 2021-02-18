@@ -5,7 +5,6 @@ set -e
 export REPO_ROOT=$(pwd)
 
 git apply tetrateci/patches/common/disable-dashboard.1.8.patch
-git apply tetrateci/patches/common/disable-multicluster.1.8.patch
 git apply tetrateci/patches/common/disable-ratelimiting.1.8.patch
 git apply tetrateci/patches/common/disable-vmospost.1.8.patch
 git apply tetrateci/patches/common/disable-stackdriver.1.8.patch
@@ -29,8 +28,16 @@ if [[ ${CLUSTER} == "aks" ]]; then
   git apply tetrateci/patches/aks/aks-pilot.1.8.patch
 fi
 
-if $(go version | grep "1.15"); then
-  export GODEBUG=x509ignoreCN=0
-fi
+PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
 
-go test -count=1 ./tests/integration/... ${CLUSTERFLAGS} -p 1 -test.v -tags="integ" -timeout 30m
+for package in $PACKAGES; do
+  n=0
+  until [ "$n" -ge 3 ]
+  do
+    echo "========================================================TRY $n========================================================"
+    go test -count=1 -p 1 -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky ${CLUSTERFLAGS} && break || echo "Test Failed: $package"
+    sudo rm -rf $(ls /tmp | grep istio)
+    n=$((n+1))
+  done
+  [ "$n" -ge 3 ] && exit 1
+done
