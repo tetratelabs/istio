@@ -29,6 +29,7 @@ for package in $PACKAGES; do
     n=$((n+1))
     sleep 15
     echo "========================================================TRY $n========================================================"
-    go test -count=1 -p 1 -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky,-multicluster ${CLUSTERFLAGS} && break
+    go test -count=1 -p 1 -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky ${CLUSTERFLAGS} && break || echo "Test Failed: $package"
+    sudo rm -rf $(ls /tmp | grep istio)
   done
 done
