@@ -7,6 +7,8 @@ git apply tetrateci/patches/common/disable-stackdriver.1.9.patch
 
 if $(grep -q "1.17" <<< ${VERSION} ); then
   git apply tetrateci/patches/common/disable-endpointslice.1.9.patch
+  # somehow the code still runs even though this is not suppossed to be run for anything less than 1.18
+  git apply tetrateci/patches/common/disable-ingress.1.9.patch
 fi
 
 if [[ ${CLUSTER} == "gke" ]]; then
