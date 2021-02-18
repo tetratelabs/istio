@@ -1,8 +1,8 @@
 diff --git a/pkg/test/framework/components/echo/kube/instance.go b/pkg/test/framework/components/echo/kube/instance.go
-index 9b320a8e32..373f8f6a64 100644
+index 4ec208e775..9975b62ba2 100644
 --- a/pkg/test/framework/components/echo/kube/instance.go
 +++ b/pkg/test/framework/components/echo/kube/instance.go
-@@ -220,10 +220,14 @@ func createVMConfig(ctx resource.Context, c *instance, cfg echo.Config) error {
+@@ -238,10 +238,14 @@ spec:
  		if cfg.AutoRegisterVM {
  			cmd = append(cmd, "--autoregister")
  		}
@@ -18,10 +18,10 @@ index 9b320a8e32..373f8f6a64 100644
  		if err := retry.UntilSuccess(func() error {
  			_, _, err = istioCtl.Invoke(cmd)
 diff --git a/pkg/test/framework/components/istio/util.go b/pkg/test/framework/components/istio/util.go
-index 4828990f13..305783982c 100644
+index 0852219fee..120508da1b 100644
 --- a/pkg/test/framework/components/istio/util.go
 +++ b/pkg/test/framework/components/istio/util.go
-@@ -152,6 +152,13 @@ func getRemoteServiceAddress(s *kube.Settings, cluster resource.Cluster, ns, lab
+@@ -153,6 +153,13 @@ func getRemoteServiceAddress(s *kube.Settings, cluster cluster.Cluster, ns, labe
  	}
  
  	if len(svc.Status.LoadBalancer.Ingress) == 0 || svc.Status.LoadBalancer.Ingress[0].IP == "" {
@@ -35,3 +35,28 @@ index 4828990f13..305783982c 100644
  		return nil, false, fmt.Errorf("service %s is not available yet: %s/%s", svcName, svc.Namespace, svc.Name)
  	}
  
+diff --git a/tests/integration/pilot/ingress_test.go b/tests/integration/pilot/ingress_test.go
+index ed81a5eb29..376ed8b20f 100644
+--- a/tests/integration/pilot/ingress_test.go
++++ b/tests/integration/pilot/ingress_test.go
+@@ -18,6 +18,7 @@ package pilot
+ import (
+ 	"context"
+ 	"fmt"
++	"net"
+ 	"testing"
+ 	"time"
+ 
+@@ -269,6 +270,12 @@ spec:
+ 					if err != nil {
+ 						return err
+ 					}
++
++					if len(ing.Status.LoadBalancer.Ingress) == 1 {
++						ip, _ := net.LookupIP(ing.Status.LoadBalancer.Ingress[0].Hostname)
++						ing.Status.LoadBalancer.Ingress[0].IP = ip[0].String()
++					}
++
+ 					if len(ing.Status.LoadBalancer.Ingress) != 1 || ing.Status.LoadBalancer.Ingress[0].IP != ip {
+ 						return fmt.Errorf("unexpected ingress status, got %+v want %v", ing.Status.LoadBalancer, ip)
+ 					}
