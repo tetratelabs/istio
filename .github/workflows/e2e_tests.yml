@@ -58,6 +58,7 @@ jobs:
     needs: [create-test-images]
 
     strategy:
+      fail-fast: false
       matrix:
         version: [1.18, 1.17, 1.16]
 
@@ -121,6 +122,7 @@ jobs:
     needs: [create-test-images]
 
     strategy:
+      fail-fast: false
       matrix:
         include:
           - version: "1.18"
@@ -193,6 +195,7 @@ jobs:
     needs: [create-test-images]
 
     strategy:
+      fail-fast: false
       matrix:
         version: [1.18, 1.17]
 
