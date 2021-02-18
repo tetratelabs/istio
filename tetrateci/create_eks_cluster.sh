@@ -3,6 +3,9 @@
 set -o errexit
 set -o pipefail
 
+# istio 1.9 is not supported for k8s 1.16
+[ $MINOR_VER == "1.9" ] && grep -q "1.16" <<< ${VER} && exit
+
 if [[ ! -f ~/.aws/config && ! -f ~/.aws/credentials ]]
 then
     echo "warn: didn't find config and credentials in ~/.aws."

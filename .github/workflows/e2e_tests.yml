@@ -104,6 +104,7 @@ jobs:
         run: bash ./tetrateci/create_eks_cluster.sh
         env:
           VER: ${{ matrix.version }}
+          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: integration-tests
         run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
@@ -170,6 +171,7 @@ jobs:
         env:
           VER: ${{ matrix.version }}
           CHAN: ${{ matrix.channel  }}
+          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: integration-tests
         run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
@@ -230,6 +232,7 @@ jobs:
         env:
           VER: ${{ matrix.version }}
           RESOURCE: ${{ secrets.AZURE_RESOURCE }}
+          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: integration-tests
         run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
