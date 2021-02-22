@@ -33,15 +33,9 @@ for package in $PACKAGES; do
   n=0
   until [ "$n" -ge 3 ]
   do
-<<<<<<< HEAD
-    echo "========================================================TRY $n========================================================"
-    go test -count=1 -p 1 -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky ${CLUSTERFLAGS} && break || echo "Test Failed: $package"
-    sudo rm -rf $(ls /tmp | grep istio)
-=======
     echo "========================================================TESTING $package | TRY $n========================================================"
     go test -count=1 -p 1 -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky ${CLUSTERFLAGS} && break || echo "Test Failed: $package"
     for folder in $(ls -d /tmp/* | grep istio); do sudo rm -rf -- $folder; done
->>>>>>> tetratelabs/tetrate-workflow
     n=$((n+1))
   done
   [ "$n" -ge 3 ] && exit 1
