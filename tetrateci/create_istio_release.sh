@@ -21,20 +21,7 @@ if [[ ${BUILD} == "fips" ]]; then
     export ISTIO_ENVOY_WASM_BASE_URL=https://storage.googleapis.com/istio-build/proxy 
     export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
 else
-
-    if $(grep "1.7" <<< $TAG ); then
-        export GOLANG_VERSION=1.14.12
-    fi
-
-    if $(grep "1.8" <<< $TAG ); then
-        export GOLANG_VERSION=1.15.5
-    fi
-
-    if $(grep "1.9" <<< $TAG ); then
-        export GOLANG_VERSION=1.15.7
-    fi
-
-    sudo ./tetrateci.setup_go.sh
+    sudo ./tetrateci/setup_go.sh
 fi
 
 export ISTIO_VERSION=$TAG

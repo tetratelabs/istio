@@ -1,16 +1,12 @@
 #!env bash
 set -e
 
-if $(grep "1.7" <<< $TAG ); then
+if $(grep "1.7" <<< $TAG); then
   export GOLANG_VERSION=1.14.12b4
 fi
 
-if $(grep "1.8" <<< $TAG ); then
-  export GOLANG_VERSION=1.15.5b5
-fi
-
-if $(grep "1.9" <<< $TAG ); then
-  export GOLANG_VERSION=1.15.7b5
+if $(grep -q "1.8" <<< $TAG || grep -q "1.9" <<< $TAG); then
+    export GOLANG_VERSION=1.15.8b5
 fi
 
 echo "Fetching FIPS compliant Go"

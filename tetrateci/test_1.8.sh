@@ -3,7 +3,6 @@ set -e
 
 # need this variable to run the tests outside GOPATH
 export REPO_ROOT=$(pwd)
-export GOLANG_VERSION=1.15.5
 ./tetrateci/setup_go.sh
 git apply tetrateci/patches/common/disable-dashboard.1.8.patch
 git apply tetrateci/patches/common/disable-ratelimiting.1.8.patch
