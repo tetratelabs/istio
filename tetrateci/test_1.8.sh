@@ -36,7 +36,7 @@ for package in $PACKAGES; do
   do
     echo "========================================================TRY $n========================================================"
     go test -count=1 -p 1 -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky ${CLUSTERFLAGS} && break || echo "Test Failed: $package"
-    sudo rm -rf -- $(ls /tmp | grep istio)
+    for folder in $(ls -d /tmp/* | grep istio); do sudo rm -rf -- $folder; done
     n=$((n+1))
   done
   [ "$n" -ge 3 ] && exit 1
