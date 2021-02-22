@@ -3,7 +3,7 @@ set -e
 
 # need this variable to run the tests outside GOPATH
 export REPO_ROOT=$(pwd)
-
+./tetrateci/setup_go.sh
 git apply tetrateci/patches/common/disable-dashboard.1.8.patch
 git apply tetrateci/patches/common/disable-ratelimiting.1.8.patch
 git apply tetrateci/patches/common/disable-vmospost.1.8.patch
@@ -29,7 +29,6 @@ if [[ ${CLUSTER} == "aks" ]]; then
 fi
 
 PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
-
 for package in $PACKAGES; do
   n=0
   until [ "$n" -ge 3 ]

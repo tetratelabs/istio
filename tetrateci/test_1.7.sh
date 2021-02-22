@@ -3,7 +3,7 @@ set -e
 
 # need this variable to run the tests outside GOPATH
 export REPO_ROOT=$(pwd)
-
+./tetrateci/setup_go.sh
 git apply tetrateci/patches/common/disable-dashboard.1.7.patch
 git apply tetrateci/patches/common/disable-stackdriver.1.7.patch
 
@@ -17,10 +17,6 @@ fi
 
 if [[ ${CLUSTER} == "eks" ]]; then
   git apply tetrateci/patches/eks/eks-ingress.1.7.patch
-fi
-
-if $(go version | grep "1.15"); then
-  export GODEBUG=x509ignoreCN=0
 fi
 
 PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
