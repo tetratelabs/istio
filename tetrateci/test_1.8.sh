@@ -3,7 +3,7 @@ set -e
 
 # need this variable to run the tests outside GOPATH
 export REPO_ROOT=$(pwd)
-
+./tetrateci/setup_go.sh
 git apply tetrateci/patches/common/disable-dashboard.1.8.patch
 git apply tetrateci/patches/common/disable-ratelimiting.1.8.patch
 git apply tetrateci/patches/common/disable-vmospost.1.8.patch
@@ -29,14 +29,13 @@ if [[ ${CLUSTER} == "aks" ]]; then
 fi
 
 PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
-
 for package in $PACKAGES; do
   n=0
   until [ "$n" -ge 3 ]
   do
-    echo "========================================================TRY $n========================================================"
+    echo "========================================================TESTING $package | TRY $n========================================================"
     go test -count=1 -p 1 -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky ${CLUSTERFLAGS} && break || echo "Test Failed: $package"
-    sudo rm -rf $(ls /tmp | grep istio)
+    for folder in $(ls -d /tmp/* | grep istio); do sudo rm -rf -- $folder; done
     n=$((n+1))
   done
   [ "$n" -ge 3 ] && exit 1
