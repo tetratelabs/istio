@@ -121,9 +121,9 @@ jobs:
       matrix:
         include:
           - version: "1.18"
-            channel: "rapid"
-          - version: "1.17"
             channel: "regular"
+          - version: "1.17"
+            channel: "stable"
           - version: "1.16"
             channel: "stable"
     
