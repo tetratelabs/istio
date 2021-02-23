@@ -3,6 +3,7 @@ set -e
 
 # need this variable to run the tests outside GOPATH
 export REPO_ROOT=$(pwd)
+
 echo "Set REPO_ROOT=$REPO_ROOT"
 ./tetrateci/setup_go.sh
 
@@ -38,7 +39,6 @@ fi
 PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
 
 echo "Starting Testing"
-
 for package in $PACKAGES; do
   n=0
   until [ "$n" -ge 3 ]
@@ -50,5 +50,6 @@ for package in $PACKAGES; do
   done
   [ "$n" -ge 3 ] && exit 1
 done
+
 
 echo "Testing Done"
