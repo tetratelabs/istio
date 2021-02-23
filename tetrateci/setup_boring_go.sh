@@ -1,4 +1,4 @@
-#!env bash
+#!/usr/bin/env bash
 set -e
 
 if $(grep "1.7" <<< $TAG); then

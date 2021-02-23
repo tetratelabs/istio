@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -o errexit
 set -o pipefail
 SHA8=$(git rev-parse --short $GITHUB_SHA)

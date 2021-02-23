@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # If fips build is enabled then we switch to boring go for the docker images but use the default 
 # go for building the istioctl binary
