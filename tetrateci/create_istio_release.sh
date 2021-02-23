@@ -30,7 +30,7 @@ sudo gem install fpm
 sudo apt-get install go-bindata -y
 
 cd ..
-git clone https://github.com/istio/release-builder --depth=1
+git clone https://github.com/istio/release-builder --branch release-${REL_BRANCH_VER}
 
 echo "Generating the docker manifest"
 envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.docker.yaml
