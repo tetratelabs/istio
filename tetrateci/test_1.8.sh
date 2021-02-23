@@ -38,7 +38,6 @@ fi
 PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
 
 echo "Starting Testing"
-
 for package in $PACKAGES; do
   n=0
   until [ "$n" -ge 3 ]
