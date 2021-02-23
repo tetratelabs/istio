@@ -1,0 +1,24 @@
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  profile: empty
+  hub: docker.io/istio
+  tag: 1.1.4
+  meshConfig:
+    enablePrometheusMerge: true
+    rootNamespace: istio-control
+    outboundTrafficPolicy:
+      mode: REGISTRY_ONLY
+    defaultConfig:
+      discoveryAddress: my-discovery:123
+      drainDuration: 12s
+      controlPlaneAuthPolicy: NONE
+      proxyMetadata:
+        TERMINATION_DRAIN_DURATION_SECONDS: "120"
+    accessLogFormat: |
+      {
+        "key": "val"
+      }
+  components:
+    pilot:
+      enabled: true
