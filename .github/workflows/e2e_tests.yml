@@ -44,6 +44,13 @@ jobs:
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
         shell: bash
 
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
       - name: build and push images
         run: bash ./tetrateci/create_istio_release.sh
         env:
@@ -51,6 +58,7 @@ jobs:
           TEST: "true"
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
   eks-e2e-test:
     name: eks-e2e-test
@@ -291,6 +299,13 @@ jobs:
         run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
         shell: bash
 
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
       - name: run release builder
         env:
           BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
@@ -299,5 +314,6 @@ jobs:
           BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
         # not using the official build container 
         run: ./tetrateci/create_istio_release.sh

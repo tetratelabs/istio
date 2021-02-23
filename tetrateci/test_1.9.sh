@@ -1,4 +1,4 @@
-#!env bash
+#!/usr/bin/env bash
 set -e
 
 ./tetrateci/setup_go.sh
