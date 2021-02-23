@@ -20,17 +20,17 @@ dependencies:
     auto: modules
   client-go:
     git: https://github.com/istio/client-go
-    branch: master
+    branch: $BRANCH
     goversionenabled: true
   gogo-genproto:
     git: https://github.com/istio/gogo-genproto
-    branch: master
+    branch: $BRANCH
   test-infra:
     git: https://github.com/istio/test-infra
     branch: master
   tools:
     git: https://github.com/istio/tools
-    branch: master
+    branch: $BRANCH
   envoy:
     git: https://github.com/istio/envoy
     auto: proxy_workspace
