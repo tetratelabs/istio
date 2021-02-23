@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # If fips build is enabled then we switch to boring go for the docker images but use the default 
 # go for building the istioctl binary
@@ -28,9 +28,9 @@ export ISTIO_VERSION=$TAG
 
 sudo gem install fpm
 sudo apt-get install go-bindata -y
-
+export BRANCH=release-${REL_BRANCH_VER}
 cd ..
-git clone https://github.com/istio/release-builder --depth=1
+git clone https://github.com/istio/release-builder --branch ${BRANCH}
 
 echo "Generating the docker manifest"
 envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.docker.yaml
