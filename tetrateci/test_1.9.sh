@@ -36,6 +36,8 @@ fi
 
 echo "Starting Testing"
 
+echo "Starting Testing"
+
 for package in $PACKAGES; do
   n=0
   until [ "$n" -ge 3 ]
