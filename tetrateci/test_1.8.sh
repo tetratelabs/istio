@@ -35,7 +35,11 @@ if [[ ${CLUSTER} == "aks" ]]; then
   git apply tetrateci/patches/aks/aks-pilot.1.8.patch
 fi
 
-PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
+if $(grep -q "1.17" <<< ${VERSION} ); then
+  PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /endpointslice)
+else
+  PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
+fi
 
 echo "Starting Testing"
 for package in $PACKAGES; do
