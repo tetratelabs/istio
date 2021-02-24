@@ -10,7 +10,6 @@ git apply tetrateci/patches/common/disable-stackdriver.1.9.patch
 git apply tetrateci/patches/common/increase-vm-timeout.1.9.patch
 
 if $(grep -q "1.17" <<< ${VERSION} || grep -q "1.16" <<< ${VERSION}); then
-  git apply tetrateci/patches/common/disable-endpointslice.1.9.patch
   # somehow the code still runs even though this is not suppossed to be run for anything less than 1.18
   git apply tetrateci/patches/common/disable-ingress.1.9.patch
 fi
@@ -29,7 +28,13 @@ if [[ ${CLUSTER} == "eks" ]]; then
   git apply tetrateci/patches/eks/eks-ingress.1.9.patch
 fi
 
-PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
+if $(grep -q "1.17" <<< ${VERSION} ); then
+  PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /endpointslice)
+else
+  PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
+fi
+
+echo "Starting Testing"
 
 echo "Starting Testing"
 
@@ -38,7 +43,7 @@ for package in $PACKAGES; do
   until [ "$n" -ge 3 ]
   do
     echo "========================================================TESTING $package | TRY $n========================================================"
-    go test -p 1 -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky ${CLUSTERFLAGS} && break || echo "Test Failed: $package"
+    go test -test.v -tags=integ $package -timeout 30m --istio.test.select=-postsubmit,-flaky --istio.test.ci --istio.test.pullpolicy IfNotPresent ${CLUSTERFLAGS} && break || echo "Test Failed: $package"
     for folder in $(ls -d /tmp/* | grep istio); do sudo rm -rf -- $folder; done
     n=$((n+1))
   done
