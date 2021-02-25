@@ -119,6 +119,7 @@ jobs:
         run: bash ./tetrateci/cleanup_eks_cluster.sh
         env:
           VER: ${{ matrix.version }}
+          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
   
   gke-e2e-test:
     name: gke-e2e-test
@@ -186,6 +187,7 @@ jobs:
         run: bash ./tetrateci/cleanup_gke_cluster.sh
         env:
           VER: ${{ matrix.version }}
+          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
   aks-e2e-test:
     ## TODO: temporarily disabling it till credentials are set
@@ -248,6 +250,7 @@ jobs:
         env:
           VER: ${{ matrix.version }}
           RESOURCE: ${{ secrets.AZURE_RESOURCE }}
+          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
     
   create-new-tag:
     name: create-new-tag

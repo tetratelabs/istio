@@ -18,7 +18,7 @@ if [[ ${CLUSTER} == "gke" ]]; then
 
   echo "Applying GKE specific patches...."
   git apply tetrateci/patches/gke/chiron-gke.patch
-  git apply tetrateci/patches/gke/disable-vmospost-gke.1.7,patch
+  git apply tetrateci/patches/gke/disable-vmospost-gke.1.7.patch
 fi
 
 if [[ ${CLUSTER} == "eks" ]]; then
