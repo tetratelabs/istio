@@ -68,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: [1.18, 1.17, 1.16]
+        version: [1.19, 1.18, 1.17, 1.16]
 
     steps:
       - name: checkout
@@ -130,6 +130,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - version: "1.19"
+            channel: "rapid"
           - version: "1.18"
             channel: "regular"
           - version: "1.17"
@@ -199,7 +201,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: [1.18, 1.17]
+        version: [1.20, 1.19, 1.18, 1.17]
 
     steps:
       - name: checkout
