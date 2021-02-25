@@ -17,7 +17,7 @@ print("Kubernetes Version : ", k8s_ver)
 if istio_ver in version_matrix:
     if k8s_ver in version_matrix[istio_ver]:
         print("Version matched!!")
-        sys.exit(0)
+        sys.exit(1)
 
 print("Version not matched!!")
-sys.exit(1)
+sys.exit(0)
