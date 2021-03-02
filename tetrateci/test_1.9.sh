@@ -6,7 +6,6 @@ set -e
 echo "Applying patches...."
 git apply tetrateci/patches/common/disable-dashboard.1.9.patch
 git apply tetrateci/patches/common/disable-ratelimiting.1.9.patch
-git apply tetrateci/patches/common/disable-stackdriver.1.9.patch
 git apply tetrateci/patches/common/increase-vm-timeout.1.9.patch
 
 if $(grep -q "1.17" <<< ${VERSION} || grep -q "1.16" <<< ${VERSION}); then
@@ -29,9 +28,9 @@ if [[ ${CLUSTER} == "eks" ]]; then
 fi
 
 if $(grep -q "1.17" <<< ${VERSION} ); then
-  PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /endpointslice)
+  PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /endpointslice | grep -v /stackdriver)
 else
-  PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
+  PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /stackdriver)
 fi
 
 echo "Starting Testing"
