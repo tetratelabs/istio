@@ -20,26 +20,25 @@ SUFFIX=$(sed 's/\.//g' <<< $K8S_VERSION)
 ## Cluster name has to end with k8s.local
 CLUSTER_NAME="test-istio-$SHA8-$SUFFIX.k8s.local"
 
-## TODO: Change to appropriate directory
+CURRENT_DIR=$(pwd)
+
 git clone https://github.com/aws/eks-distro.git
 cd eks-distro/development/kops
 
-export KOPS_STATE_STORE=s3://getistio-eksd-state-store
+export KOPS_STATE_STORE=s3://${S3_BUCKET}
 export KOPS_CLUSTER_NAME=${CLUSTER_NAME}
 
-##TODO: make sure template file is copied from tetrateci
-cp ../../../../eks-d.tpl .
+cp $CURRENT_DIR/tetrateci/eks-d.tpl
 
 ##TODO: use AWS REGION from secret
 
-##TODO: set RELEASE_BRANCH to the kubernetes version being used
-export RELEASE_BRANCH=1.19
-
+# possible versions: 1-18, 1-19
+export RELEASE_BRANCH=${VER}
 
 echo "creating a eksd cluster with \"$CLUSTER_NAME\" name..."
 ./run_cluster.sh
 
 #Wait for the cluster to be created
-#TODO - wait of 6minutes may not be enough. Loop this call twice.
 ./cluster_wait.sh
 
+cd $CURRENT_DIR

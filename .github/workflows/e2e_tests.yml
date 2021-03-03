@@ -253,6 +253,71 @@ jobs:
           K8S_VERSION: ${{ matrix.version }}
           ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           RESOURCE: ${{ secrets.AZURE_RESOURCE }}
+
+  eks-e2e-test:
+    name: eks-e2e-test
+    runs-on: ubuntu-latest
+    needs: [create-test-images]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["1-19", "1-18"]
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: aws-config
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION  }}
+
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
+        shell: bash
+
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}-go-
+
+      - name: eksd-cluster-create
+        run: bash ./tetrateci/create_eksd_cluster.sh
+        env:
+          VER: ${{ matrix.version }}
+          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          AWS_REGION: ${{ secrets.AWS_REGION  }}
+
+      - name: integration-tests
+        run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          CLUSTER: eks # patches for eks and eksd should be same
+          VERSION: ${{ matrix.version }}
+
+      - name: eksd-cluster-delete
+        if: always()
+        run: bash ./tetrateci/cleanup_eksd_cluster.sh
+        env:
+          VER: ${{ matrix.version }}
+          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          AWS_REGION: ${{ secrets.AWS_REGION  }}
     
   create-new-tag:
     name: create-new-tag
