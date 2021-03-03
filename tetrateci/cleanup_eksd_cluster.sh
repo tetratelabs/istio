@@ -20,7 +20,6 @@ SUFFIX=$(sed 's/\.//g' <<< $K8S_VERSION)
 ## Cluster name has to end with k8s.local
 CLUSTER_NAME="test-istio-$SHA8-$SUFFIX.k8s.local"
 
-git clone https://github.com/aws/eks-distro.git
 cd eks-distro/development/kops
 
 export KOPS_STATE_STORE=s3://${S3_BUCKET}
