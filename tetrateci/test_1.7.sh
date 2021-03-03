@@ -26,7 +26,7 @@ if [[ ${CLUSTER} == "eks" ]]; then
   git apply tetrateci/patches/eks/eks-ingress.1.7.patch
 fi
 
-PACKAGES=$(go list ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster)
+PACKAGES=$(go list ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /stackdriver)
 
 echo "Starting Testing"
 
