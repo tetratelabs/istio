@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-./tetrateci/setup_go.sh
+source ./tetrateci/setup_go.sh
 
 echo "Applying patches...."
 git apply tetrateci/patches/common/disable-dashboard.1.9.patch

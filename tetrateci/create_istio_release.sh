@@ -17,11 +17,11 @@ echo "Deletetion complete"
 echo "TEST flag is '$TEST'"
 
 if [[ ${BUILD} == "fips" ]]; then
-    sudo -E ./tetrateci/setup_boring_go.sh
+    source ./tetrateci/setup_boring_go.sh
     export ISTIO_ENVOY_WASM_BASE_URL=https://storage.googleapis.com/istio-build/proxy 
     export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
 else
-    sudo -E ./tetrateci/setup_go.sh
+    source ./tetrateci/setup_go.sh
 fi
 
 # HACK : This is needed during istio build for istiod to serve version command
