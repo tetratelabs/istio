@@ -44,6 +44,7 @@ if [[ ${BUILD} == "fips" ]]; then
 fi
 
 # HACK : default manifest from release builder is modified
+export BUILD_WITH_CONTAINER=0
 echo "Generating the docker manifest"
 envsubst < ${BASEDIR}/tetrateci/manifest.yaml.in > ${BASEDIR}/../release-builder/manifest.docker.yaml
 echo "  - docker" >> ${BASEDIR}/../release-builder/manifest.docker.yaml
@@ -68,6 +69,11 @@ cp -r ../istio .
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.docker.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
+
+CONTAINER_ID=$(docker create $HUB/pilot:$TAG)
+docker cp $CONTAINER_ID:/usr/local/bin/pilot-discovery pilot-bin
+echo "Images are built with: $(go version pilot-bin)"
+
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 echo "Cleaning up the docker build...."
 [ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
