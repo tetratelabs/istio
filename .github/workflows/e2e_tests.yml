@@ -130,11 +130,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-<<<<<<< HEAD
-=======
           - version: "1.19"
             channel: "rapid"
->>>>>>> tetratelabs/tetrate-workflow
           - version: "1.18"
             channel: "regular"
           - version: "1.17"
