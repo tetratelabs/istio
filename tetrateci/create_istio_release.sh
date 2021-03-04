@@ -33,11 +33,11 @@ export ISTIO_VERSION=$TAG
 # We would use the same distroless base image as istio-proxy for pilot and operator
 # HACK : change envoy/wasm base URL to point to FIPS compliant one
 if [[ ${BUILD} == "fips" ]]; then
-	PROXY_DISTROLESS_BASE=$(grep 'as distroless' pilot/docker/Dockerfile.proxyv2)
+	PROXY_DISTROLESS_BASE=$(grep 'as distroless' ${BASEDIR}/pilot/docker/Dockerfile.proxyv2)
 	# Escape '/'
 	PROXY_DISTROLESS_BASE_ESCAPED=$(sed 's/\//\\\//g' <<< ${PROXY_DISTROLESS_BASE})
 	sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/pilot/docker/Dockerfile.pilot
-	sed "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/operator/docker/Dockerfile.operator
+	sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/operator/docker/Dockerfile.operator
 
     export ISTIO_ENVOY_WASM_BASE_URL=https://storage.googleapis.com/istio-build/proxy 
     export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
