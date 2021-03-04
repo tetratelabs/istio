@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+./tetrateci/version_check.py && exit
+
 set -o errexit
 set -o pipefail
 
@@ -14,5 +17,5 @@ version=$(az aks get-versions -l $location | jq '.orchestrators[] | .orchestrato
 
 echo "Kubernetes version selected: $version"
 
-az aks create --resource-group $RESOURCE --name $CLUSTER_NAME --node-count 3 --generate-ssh-keys --kubernetes-version $version -s standard_d8s_v3 --network-plugin azure
+az aks create --resource-group $RESOURCE --name $CLUSTER_NAME --node-count 3 --generate-ssh-keys --kubernetes-version $version -s standard_ds3_v2 --network-plugin azure
 az aks get-credentials --resource-group $RESOURCE --name $CLUSTER_NAME
