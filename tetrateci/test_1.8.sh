@@ -4,7 +4,7 @@ set -e
 # need this variable to run the tests outside GOPATH
 export REPO_ROOT=$(pwd)
 echo "Set REPO_ROOT=$REPO_ROOT"
-./tetrateci/setup_go.sh
+source ./tetrateci/setup_go.sh
 
 echo "Applying patches...."
 git apply tetrateci/patches/common/disable-dashboard.1.8.patch
