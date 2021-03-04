@@ -65,6 +65,11 @@ if [[ -z $TEST ]]; then
 
     mkdir /tmp/istio-release
 
+    if [[ ${BUILD} == "fips" ]]; then
+        sudo rm -rf /usr/local/go
+        source ./tetrateci/setup_go.sh
+    fi
+
     echo "Building archives..."
     go run main.go build --manifest manifest.archive.yaml
 
