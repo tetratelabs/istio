@@ -24,6 +24,17 @@ else
     sudo -E ./tetrateci/setup_go.sh
 fi
 
+# HACK : change the distroless base image to include glibc
+# We would use the same distroless base image as istio-proxy
+# for pilot and operator
+if [[ ${BUILD} == "fips" ]]; then
+	PROXY_DISTROLESS_BASE=$(grep 'as distroless' pilot/docker/Dockerfile.proxyv2)
+	# Escape '/'
+	PROXY_DISTROLESS_BASE_ESCAPED=$(sed 's/\//\\\//g' <<< ${PROXY_DISTROLESS_BASE})
+	sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" pilot/docker/Dockerfile.pilot
+	sed "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" operator/docker/Dockerfile.operator
+fi
+
 # HACK : This is needed during istio build for istiod to serve version command
 export ISTIO_VERSION=$TAG
 
@@ -33,6 +44,7 @@ export BRANCH=release-${REL_BRANCH_VER}
 cd ..
 git clone https://github.com/istio/release-builder --branch ${BRANCH}
 
+# HACK : default manifest from release builder is modified
 echo "Generating the docker manifest"
 envsubst < ./istio/tetrateci/manifest.yaml.in > ./release-builder/manifest.docker.yaml
 echo "  - docker" >> ./release-builder/manifest.docker.yaml
