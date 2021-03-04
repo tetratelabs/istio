@@ -45,6 +45,8 @@ fi
 
 # HACK : default manifest from release builder is modified
 export BUILD_WITH_CONTAINER=0
+OLD_GOVER=$GOLANG_VERSION
+
 echo "Generating the docker manifest"
 envsubst < ${BASEDIR}/tetrateci/manifest.yaml.in > ${BASEDIR}/../release-builder/manifest.docker.yaml
 echo "  - docker" >> ${BASEDIR}/../release-builder/manifest.docker.yaml
@@ -72,7 +74,13 @@ go run main.go build --manifest manifest.docker.yaml
 
 CONTAINER_ID=$(docker create $HUB/pilot:$TAG)
 docker cp $CONTAINER_ID:/usr/local/bin/pilot-discovery pilot-bin
-echo "Images are built with: $(go version pilot-bin)"
+BUILD_GO=$(go version pilot-bin | cut -f2 -d" ")
+echo "Images are built with: $BUILD_GO"
+
+[ $BUILD_GO == go$GOLANG_VERSION ] || exit 1
+
+# fips go versions are like 1.14.12b5, extra checking to not miss anything
+[ $BUILD == "fips" ] && [[ $VER =~ 1.[0-9]+.[0-9]+[a-z][0-9]$ ]] && [ $BUILD_GO != go$OLD_GOVER ] || exit 1
 
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 echo "Cleaning up the docker build...."
