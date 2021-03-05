@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-export MINOR_VER=$REL_BRANCH_VER
-export VER=$VERSION
 ./tetrateci/version_check.py && exit
 set -e
 
