@@ -44,13 +44,8 @@ if [[ ${BUILD} == "fips" ]]; then
 fi
 
 # HACK : default manifest from release builder is modified
-echo "Generating the docker manifest"
-envsubst < ${BASEDIR}/tetrateci/manifest.yaml.in > ${BASEDIR}/../release-builder/manifest.docker.yaml
-echo "  - docker" >> ${BASEDIR}/../release-builder/manifest.docker.yaml
-echo "Generating the archive manifest"
-envsubst < ${BASEDIR}/tetrateci/manifest.yaml.in > ${BASEDIR}/../release-builder/manifest.archive.yaml
-echo "  - archive" >> ${BASEDIR}/../release-builder/manifest.archive.yaml
-
+echo "Generating the manifests"
+${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/example/manifest.yaml ${BASEDIR}/../release-builder/
 
 # if length $TEST is zero we are making a RELEASE. It should have both images and archives
 # The test flag is to check whether we are building images for testing or release
