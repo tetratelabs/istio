@@ -257,7 +257,7 @@ jobs:
   eksd-e2e-test:
     name: eks-e2e-test
     runs-on: ubuntu-latest
-    needs: [create-test-images]
+    needs: [create-test-images, eks-e2e-test]
 
     strategy:
       fail-fast: false
@@ -324,7 +324,7 @@ jobs:
     runs-on: ubuntu-latest
     # since aks tests are disabled
     # needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
-    needs: [eks-e2e-test, gke-e2e-test]
+    needs: [eksd-e2e-test, gke-e2e-test]
 
     steps:
       - name: Checkout code
