@@ -12,6 +12,10 @@ else
     source ${BASEDIR}/tetrateci/setup_go.sh
 fi
 
+# the go we just installed
+CUSTOM_GO_VERSION=$GOLANG_VERSION
+echo "Go version installed: $CUSTOM_GO_VERSION"
+
 ## Set up release-builder
 sudo gem install fpm
 sudo apt-get install go-bindata -y
@@ -28,6 +32,9 @@ echo "Deletetion complete"
 
 # HACK : This is needed during istio build for istiod to serve version command
 export ISTIO_VERSION=$TAG
+
+# We are not using a docker container to build the istioctl binary and images, so we make it explicit
+export BUILD_WITH_CONTAINER=0
 
 # HACK : For FIPS change the distroless base image to include glibc
 # We would use the same distroless base image as istio-proxy for pilot and operator
@@ -68,6 +75,18 @@ cp -r ../istio .
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.docker.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
+
+CONTAINER_ID=$(docker create $HUB/pilot:$TAG)
+docker cp $CONTAINER_ID:/usr/local/bin/pilot-discovery pilot-bin
+# go version with which the binaries for the docker images wi
+BUILD_GO_VERSION=$(go version pilot-bin | cut -f2 -d" ")
+echo "Images are built with: $BUILD_GO_VERSION"
+
+[ $BUILD_GO_VERSION == go$CUSTOM_GO_VERSION ] || exit 1
+
+# fips go versions are like 1.14.12b5, extra checking to not miss anything
+[ $BUILD == "fips" ] && [[ $BUILD_GO_VERSION =~ 1.[0-9]+.[0-9]+[a-z][0-9]$ ]] || exit 1
+
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 echo "Cleaning up the docker build...."
 [ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
