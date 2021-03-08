@@ -297,25 +297,25 @@ jobs:
       - name: eksd-cluster-create
         run: bash ./tetrateci/create_eksd_cluster.sh
         env:
-          VER: ${{ matrix.version }}
-          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          K8S_VERSION: ${{ matrix.version }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           AWS_REGION: ${{ secrets.AWS_REGION  }}
 
       - name: integration-tests
-        run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
+        run: bash ./tetrateci/test_${ISTIO_MINOR_VER}.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
-          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: eks # patches for eks and eksd should be same
-          VERSION: ${{ matrix.version }}
+          K8S_VERSION: ${{ matrix.version }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: eksd-cluster-delete
         if: always()
         run: bash ./tetrateci/cleanup_eksd_cluster.sh
         env:
-          VER: ${{ matrix.version }}
-          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          K8S_VERSION: ${{ matrix.version }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           AWS_REGION: ${{ secrets.AWS_REGION  }}
     

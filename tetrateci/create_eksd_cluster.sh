@@ -35,7 +35,7 @@ cp $BASEDIR/tetrateci/eks-d.tpl .
 ##TODO: use AWS REGION from secret
 
 # possible versions: 1-18, 1-19
-export RELEASE_BRANCH=$(sed 's/\./-/g' <<< $VER)
+export RELEASE_BRANCH=$(sed 's/\./-/g' <<< $K8S_VERSION)
 
 echo "creating a eksd cluster with \"$CLUSTER_NAME\" name..."
 ./run_cluster.sh
