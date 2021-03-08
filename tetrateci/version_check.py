@@ -8,8 +8,8 @@ version_matrix = {
     "1.9" : {"1.17", "1.18", "1.19", "1.20"},
 }
 
-istio_ver = os.environ.get("MINOR_VER")
-k8s_ver = os.environ.get("VER")
+istio_ver = os.environ.get("ISTIO_MINOR_VER")
+k8s_ver = os.environ.get("K8S_VERSION")
 
 print("Istio Version : ", istio_ver)
 print("Kubernetes Version : ", k8s_ver)

@@ -15,7 +15,7 @@ then
 fi
 
 SHA8=$(git rev-parse --short $GITHUB_SHA)
-SUFFIX=$(sed 's/\.//g' <<< $VER)
+SUFFIX=$(sed 's/\.//g' <<< $K8S_VERSION)
 
 ## Cluster name has to end with k8s.local
 CLUSTER_NAME="test-istio-$SHA8-$SUFFIX.k8s.local"

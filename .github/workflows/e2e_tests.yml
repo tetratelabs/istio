@@ -103,23 +103,23 @@ jobs:
       - name: eks-cluster-create
         run: bash ./tetrateci/create_eks_cluster.sh
         env:
-          VER: ${{ matrix.version }}
-          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          K8S_VERSION: ${{ matrix.version }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: integration-tests
-        run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
+        run: bash ./tetrateci/test_${ISTIO_MINOR_VER}.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
-          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: eks
-          VERSION: ${{ matrix.version }}
+          K8S_VERSION: ${{ matrix.version }}
 
       - name: eks-cluster-delete
         if: always()
         run: bash ./tetrateci/cleanup_eks_cluster.sh
         env:
-          VER: ${{ matrix.version }}
-          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          K8S_VERSION: ${{ matrix.version }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
   
   gke-e2e-test:
     name: gke-e2e-test
@@ -172,24 +172,24 @@ jobs:
       - name: gke-cluster-create
         run: bash ./tetrateci/create_gke_cluster.sh
         env:
-          VER: ${{ matrix.version }}
+          K8S_VERSION: ${{ matrix.version }}
           CHAN: ${{ matrix.channel  }}
-          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: integration-tests
-        run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
+        run: bash ./tetrateci/test_${ISTIO_MINOR_VER}.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
-          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: gke
-          VERSION: ${{ matrix.version }}
+          K8S_VERSION: ${{ matrix.version }}
 
       - name: gke-cluster-delete
         if: always()
         run: bash ./tetrateci/cleanup_gke_cluster.sh
         env:
-          VER: ${{ matrix.version }}
-          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          K8S_VERSION: ${{ matrix.version }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
   aks-e2e-test:
     ## TODO: temporarily disabling it till credentials are set
@@ -234,25 +234,25 @@ jobs:
       - name: aks-cluster-create
         run: bash ./tetrateci/create_aks_cluster.sh
         env:
-          VER: ${{ matrix.version }}
           RESOURCE: ${{ secrets.AZURE_RESOURCE }}
-          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          K8S_VERSION: ${{ matrix.version }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: integration-tests
-        run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
+        run: bash ./tetrateci/test_${ISTIO_MINOR_VER}.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
-          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          ISTIO_MINOR_VERSION: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: aks
-          VERSION: ${{ matrix.version }}
+          K8S_VERSION: ${{ matrix.version }}
 
       - name: aks-cluster-delete
         if: always()
         run: bash ./tetrateci/cleanup_aks_cluster.sh
         env:
-          VER: ${{ matrix.version }}
+          K8S_VERSION: ${{ matrix.version }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           RESOURCE: ${{ secrets.AZURE_RESOURCE }}
-          MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
     
   create-new-tag:
     name: create-new-tag
