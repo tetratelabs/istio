@@ -262,7 +262,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ["1-19", "1-18"]
+        version: ["1.19", "1.18"]
 
     steps:
       - name: checkout
