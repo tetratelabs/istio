@@ -107,7 +107,7 @@ jobs:
           ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: integration-tests
-        run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
+        run: bash ./tetrateci/test_${ISTIO_MINOR_VER}.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
@@ -239,7 +239,7 @@ jobs:
           ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: integration-tests
-        run: bash ./tetrateci/test_${REL_BRANCH_VER}.sh
+        run: bash ./tetrateci/test_${ISTIO_MINOR_VER}.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           ISTIO_MINOR_VERSION: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
