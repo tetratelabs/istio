@@ -22,7 +22,6 @@ SUFFIX=$(sed 's/\.//g' <<< $K8S_VERSION)
 ## Cluster name has to end with k8s.local
 CLUSTER_NAME="test-istio-$SHA8-$SUFFIX.k8s.local"
 
-
 cd $BASEDIR/..
 git clone https://github.com/aws/eks-distro.git
 cd eks-distro/development/kops
@@ -31,8 +30,6 @@ export KOPS_STATE_STORE=s3://${S3_BUCKET}
 export KOPS_CLUSTER_NAME=${CLUSTER_NAME}
 
 cp $BASEDIR/tetrateci/eks-d.tpl .
-
-##TODO: use AWS REGION from secret
 
 # possible versions: 1-18, 1-19
 export RELEASE_BRANCH=$(sed 's/\./-/g' <<< $K8S_VERSION)
@@ -43,4 +40,4 @@ echo "creating a eksd cluster with \"$CLUSTER_NAME\" name..."
 #Wait for the cluster to be created
 ./cluster_wait.sh
 
-cd $CURRENT_DIR
+cd $BASEDIR
