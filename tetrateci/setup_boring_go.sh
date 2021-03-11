@@ -6,7 +6,7 @@ if $(grep "1.7" <<< $TAG); then
 fi
 
 if $(grep -q "1.8" <<< $TAG || grep -q "1.9" <<< $TAG); then
-    export GOLANG_VERSION=1.15.8b5
+  export GOLANG_VERSION=1.15.8b5
 fi
 
 echo "Fetching FIPS compliant Go"
