@@ -10,8 +10,6 @@ source ./tetrateci/setup_go.sh
 echo "Applying patches...."
 git apply tetrateci/patches/common/disable-dashboard.1.8.patch
 git apply tetrateci/patches/common/disable-ratelimiting.1.8.patch
-git apply tetrateci/patches/common/disable-vmospost.1.8.patch
-git apply tetrateci/patches/common/disable-stackdriver.1.8.patch
 
 if $(grep -q "1.17" <<< ${VERSION} ); then
   git apply tetrateci/patches/common/disable-endpointslice.1.8.patch
