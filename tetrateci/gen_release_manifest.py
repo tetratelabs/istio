@@ -29,11 +29,12 @@ with open(source_yaml, "r") as file :
     manifest["dependencies"]["client-go"]["branch"] = branch
     manifest["dependencies"]["gogo-genproto"]["branch"] = branch
     manifest["dependencies"]["tools"]["branch"] = branch
+    manifest["dependencies"]["envoy"]["git"] = "https://github.com/istio/envoy"
     manifest['outputs'] = ["docker"]
     f = open(os.path.join(destination_folder, "manifest.docker.yaml"), 'w')
     yaml.dump(manifest, f)
     print(manifest)
-    manifest['outputs'] = ["archives"]
+    manifest['outputs'] = ["archive"]
     print(manifest)
     f = open(os.path.join(destination_folder, "manifest.archive.yaml"), 'w')
     yaml.dump(manifest, f)
