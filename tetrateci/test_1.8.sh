@@ -11,10 +11,6 @@ echo "Applying patches...."
 git apply tetrateci/patches/common/disable-dashboard.1.8.patch
 git apply tetrateci/patches/common/disable-ratelimiting.1.8.patch
 
-if $(grep -q "1.17" <<< ${VERSION} ); then
-  git apply tetrateci/patches/common/disable-endpointslice.1.8.patch
-fi
-
 if [[ ${CLUSTER} == "gke" ]]; then
   echo "Generating operator config for GKE"
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
@@ -34,7 +30,7 @@ if [[ ${CLUSTER} == "aks" ]]; then
   git apply tetrateci/patches/aks/aks-pilot.1.8.patch
 fi
 
-if $(grep -q "1.17" <<< ${VERSION} ); then
+if $(grep -q "1.17" <<< ${K8S_VERSION} ); then
   PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /endpointslice | grep -v /stackdriver)
 else
   PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /stackdriver)

@@ -29,7 +29,7 @@ if [[ ${CLUSTER} == "eks" ]]; then
   git apply tetrateci/patches/eks/eks-ingress.1.9.patch
 fi
 
-if $(grep -q "1.17" <<< ${VERSION} ); then
+if $(grep -q "1.17" <<< ${K8S_VERSION} ); then
   PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /endpointslice | grep -v /stackdriver)
 else
   PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /stackdriver)
