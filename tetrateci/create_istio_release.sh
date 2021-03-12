@@ -85,7 +85,9 @@ echo "Images are built with: $BUILD_GO_VERSION"
 [ $BUILD_GO_VERSION == go$CUSTOM_GO_VERSION ] || exit 1
 
 # fips go versions are like 1.14.12b5, extra checking to not miss anything
-[ $BUILD == "fips" ] && [[ $BUILD_GO_VERSION =~ 1.[0-9]+.[0-9]+[a-z][0-9]$ ]] || exit 1
+if [ $BUILD == "fips" ]; then 
+    [[ $BUILD_GO_VERSION =~ 1.[0-9]+.[0-9]+[a-z][0-9]$ ]] || exit 1
+fi
 
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 echo "Cleaning up the docker build...."
