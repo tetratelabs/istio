@@ -31,6 +31,11 @@ echo "Creating PRs"
 for branch in $TARGETS; do
     echo "Getting branch name for $branch"
     branch_name=$(cut -f2 -d"/" <<< $branch)
+
+    echo "Creating a temporary branch"
+    git checkout -b temp-$branch_name $branch_name
+    git merge tetrate-workflow -X theirs
+
     echo "Creating PR for $branch_name"
     hub pull-request -b $branch_name -m "AUTO: Backporting patches to $branch_name"
 done
@@ -42,6 +47,11 @@ FIPS_TARGETS=$(git branch -r| grep origin/tetratefips-release | xargs)
 for branch in $FIPS_TARGETS; do
     echo "Getting branch name for $branch"
     branch_name=$(cut -f2 -d"/" <<< $branch)
+
+    echo "Creating a temporary branch"
+    git checkout -b temp-$branch_name $branch_name
+    git merge tetrate-workflow -X theirs
+
     echo "Creating PR for $branch_name"
     hub pull-request -b $branch_name -m "AUTO: Backporting patches to $branch_name"
 done
