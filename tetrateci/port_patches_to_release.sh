@@ -37,6 +37,7 @@ for branch in $TARGETS; do
     git checkout -b temp-$branch_name $branch
     git merge tetrate-workflow -X theirs
 
+    echo  "Pushing temporary branch to origin"
     git push origin temp-$branch_name
 
     echo "Creating PR for $branch_name"
@@ -55,6 +56,7 @@ for branch in $FIPS_TARGETS; do
     git checkout -b temp-$branch_name $branch
     git merge tetrate-workflow -X theirs
 
+    echo  "Pushing temporary branch to origin"
     git push origin temp-$branch_name
 
     echo "Creating PR for $branch_name"
