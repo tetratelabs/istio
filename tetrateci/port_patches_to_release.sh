@@ -24,6 +24,7 @@ git config user.email github-actions@github.com
 
 echo "Fetching target branches"
 
+git fetch --all
 TARGETS=$(git branch -r| grep origin/tetrate-release | xargs)
 
 echo "Creating PRs"
@@ -33,7 +34,7 @@ for branch in $TARGETS; do
     branch_name=$(cut -f2 -d"/" <<< $branch)
 
     echo "Creating a temporary branch"
-    git checkout -b temp-$branch_name $branch_name
+    git checkout -b temp-$branch_name $branch
     git merge tetrate-workflow -X theirs
 
     echo "Creating PR for $branch_name"
@@ -49,7 +50,7 @@ for branch in $FIPS_TARGETS; do
     branch_name=$(cut -f2 -d"/" <<< $branch)
 
     echo "Creating a temporary branch"
-    git checkout -b temp-$branch_name $branch_name
+    git checkout -b temp-$branch_name $branch
     git merge tetrate-workflow -X theirs
 
     echo "Creating PR for $branch_name"
