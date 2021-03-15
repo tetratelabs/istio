@@ -37,6 +37,8 @@ for branch in $TARGETS; do
     git checkout -b temp-$branch_name $branch
     git merge tetrate-workflow -X theirs
 
+    git push origin temp-$branch_name
+
     echo "Creating PR for $branch_name"
     hub pull-request -b $branch_name -m "AUTO: Backporting patches to $branch_name"
 done
@@ -52,6 +54,8 @@ for branch in $FIPS_TARGETS; do
     echo "Creating a temporary branch"
     git checkout -b temp-$branch_name $branch
     git merge tetrate-workflow -X theirs
+
+    git push origin temp-$branch_name
 
     echo "Creating PR for $branch_name"
     hub pull-request -b $branch_name -m "AUTO: Backporting patches to $branch_name"
