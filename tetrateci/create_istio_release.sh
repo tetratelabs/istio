@@ -12,6 +12,10 @@ else
     source ${BASEDIR}/tetrateci/setup_go.sh
 fi
 
+# the go we just installed
+CUSTOM_GO_VERSION=$GOLANG_VERSION
+echo "Go version installed: $CUSTOM_GO_VERSION"
+
 ## Set up release-builder
 sudo gem install fpm
 sudo apt-get install go-bindata -y
@@ -29,6 +33,9 @@ echo "Deletetion complete"
 # HACK : This is needed during istio build for istiod to serve version command
 export ISTIO_VERSION=$TAG
 
+# We are not using a docker container to build the istioctl binary and images, so we make it explicit
+export BUILD_WITH_CONTAINER=0
+
 # HACK : For FIPS change the distroless base image to include glibc
 # We would use the same distroless base image as istio-proxy for pilot and operator
 # HACK : change envoy/wasm base URL to point to FIPS compliant one
@@ -44,13 +51,9 @@ if [[ ${BUILD} == "fips" ]]; then
 fi
 
 # HACK : default manifest from release builder is modified
-echo "Generating the docker manifest"
-envsubst < ${BASEDIR}/tetrateci/manifest.yaml.in > ${BASEDIR}/../release-builder/manifest.docker.yaml
-echo "  - docker" >> ${BASEDIR}/../release-builder/manifest.docker.yaml
-echo "Generating the archive manifest"
-envsubst < ${BASEDIR}/tetrateci/manifest.yaml.in > ${BASEDIR}/../release-builder/manifest.archive.yaml
-echo "  - archive" >> ${BASEDIR}/../release-builder/manifest.archive.yaml
-
+echo "Generating the manifests"
+# we are generating the different yamls for both the archive & docker image builds which are saved to release-builder folder
+${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/example/manifest.yaml ${BASEDIR}/../release-builder/
 
 # if length $TEST is zero we are making a RELEASE. It should have both images and archives
 # The test flag is to check whether we are building images for testing or release
@@ -68,6 +71,20 @@ cp -r ../istio .
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.docker.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
+
+CONTAINER_ID=$(docker create $HUB/pilot:$TAG)
+docker cp $CONTAINER_ID:/usr/local/bin/pilot-discovery pilot-bin
+# go version with which the binaries for the docker images wi
+BUILD_GO_VERSION=$(go version pilot-bin | cut -f2 -d" ")
+echo "Images are built with: $BUILD_GO_VERSION"
+
+[ $BUILD_GO_VERSION == go$CUSTOM_GO_VERSION ] || exit 1
+
+# fips go versions are like 1.14.12b5, extra checking to not miss anything
+if [ $BUILD == "fips" ]; then 
+    [[ $BUILD_GO_VERSION =~ 1.[0-9]+.[0-9]+[a-z][0-9]$ ]] || exit 1
+fi
+
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 echo "Cleaning up the docker build...."
 [ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
