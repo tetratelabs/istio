@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+./tetrateci/version_check.py && exit
 set -e
 
 # need this variable to run the tests outside GOPATH
