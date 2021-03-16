@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+./tetrateci/version_check.py && exit
 set -e
 
 source ./tetrateci/setup_go.sh
