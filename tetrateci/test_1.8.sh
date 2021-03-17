@@ -8,7 +8,6 @@ echo "Set REPO_ROOT=$REPO_ROOT"
 source ./tetrateci/setup_go.sh
 
 echo "Applying patches...."
-git apply tetrateci/patches/common/disable-dashboard.1.8.patch
 
 if [[ ${CLUSTER} == "gke" ]]; then
   echo "Generating operator config for GKE"

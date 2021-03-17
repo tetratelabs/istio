@@ -8,7 +8,6 @@ echo "Set REPO_ROOT=$REPO_ROOT"
 source ./tetrateci/setup_go.sh
 
 echo "Applying patches...."
-git apply tetrateci/patches/common/disable-dashboard.1.7.patch
 
 if [[ ${CLUSTER} == "gke" ]]; then
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio-old/issues/76

@@ -5,7 +5,6 @@ set -e
 source ./tetrateci/setup_go.sh
 
 echo "Applying patches...."
-git apply tetrateci/patches/common/disable-dashboard.1.9.patch
 
 git apply tetrateci/patches/common/increase-vm-timeout.1.9.patch
 git apply tetrateci/patches/common/increase-sniffing-timeout.1.9.patch
