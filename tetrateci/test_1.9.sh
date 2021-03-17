@@ -5,14 +5,13 @@ set -e
 source ./tetrateci/setup_go.sh
 
 echo "Applying patches...."
-git apply tetrateci/patches/common/disable-dashboard.1.9.patch
-git apply tetrateci/patches/common/disable-ratelimiting.1.9.patch
-git apply tetrateci/patches/common/increase-vm-timeout.1.9.patch
 
-if $(grep -q "1.17" <<< ${VERSION} || grep -q "1.16" <<< ${VERSION}); then
-  # somehow the code still runs even though this is not suppossed to be run for anything less than 1.18
-  git apply tetrateci/patches/common/disable-ingress.1.9.patch
-fi
+git apply tetrateci/patches/common/increase-vm-timeout.1.9.patch
+git apply tetrateci/patches/common/increase-sniffing-timeout.1.9.patch
+git apply tetrateci/patches/common/retry-calls-revision-upgrade.1.9.patch
+
+# the code fails whenever there is something other than 2 digits
+git apply tetrateci/patches/common/fix-version-check.1.9.patch
 
 if [[ ${CLUSTER} == "gke" ]]; then
   echo "Generating operator config for GKE"
@@ -28,7 +27,7 @@ if [[ ${CLUSTER} == "eks" ]]; then
   git apply tetrateci/patches/eks/eks-ingress.1.9.patch
 fi
 
-if $(grep -q "1.17" <<< ${VERSION} ); then
+if $(grep -q "1.17" <<< ${K8S_VERSION} ); then
   PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /endpointslice | grep -v /stackdriver)
 else
   PACKAGES=$(go list -tags=integ ./tests/integration/... | grep -v /qualification | grep -v /examples | grep -v /multicluster | grep -v /stackdriver)

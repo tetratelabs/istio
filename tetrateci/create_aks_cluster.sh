@@ -13,7 +13,7 @@ echo "Fetching location of the resource"
 location=$(az group show -g $RESOURCE | jq '.location')
 
 echo "Fetching available kubernetes patch version for $K8S_VERSION"
-version=$(az aks get-versions -l $location | jq '.orchestrators[] | .orchestratorVersion' | grep $K8S_VERSION | tail -n 1)
+version=$(az aks get-versions -l $location | jq '.orchestrators[] | .orchestratorVersion' | grep $K8S_VERSION | tail -n 1 | tr -d '"')
 
 echo "Kubernetes version selected: $version"
 
