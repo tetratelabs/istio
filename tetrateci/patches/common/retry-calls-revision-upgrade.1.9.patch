@@ -1,0 +1,59 @@
+diff --git a/tests/integration/pilot/revisioned_upgrade_test.go b/tests/integration/pilot/revisioned_upgrade_test.go
+index 780cc1ddbe..93b581d1c4 100644
+--- a/tests/integration/pilot/revisioned_upgrade_test.go
++++ b/tests/integration/pilot/revisioned_upgrade_test.go
+@@ -19,6 +19,7 @@ import (
+ 	"fmt"
+ 	"strings"
+ 	"testing"
++	"time"
+ 
+ 	"github.com/hashicorp/go-multierror"
+ 
+@@ -28,6 +29,7 @@ import (
+ 	"istio.io/istio/pkg/test/framework/components/echo/echoboot"
+ 	"istio.io/istio/pkg/test/framework/components/namespace"
+ 	kubetest "istio.io/istio/pkg/test/kube"
++	"istio.io/istio/pkg/test/util/retry"
+ 	"istio.io/pkg/log"
+ )
+ 
+@@ -82,7 +84,9 @@ func testUpgradeFromVersion(ctx framework.TestContext, t *testing.T, fromVersion
+ 		},
+ 	})
+ 	builder.BuildOrFail(t)
+-	sendSimpleTrafficOrFail(t, revisionedInstance)
++	if err := sendSimpleTrafficOrFail(t, revisionedInstance); err != nil {
++		t.Fatal(err.Error())
++	}
+ 
+ 	if err := enableDefaultInjection(revisionedNamespace); err != nil {
+ 		ctx.Fatalf("could not relabel namespace to enable default injection: %v", err)
+@@ -105,19 +109,24 @@ func testUpgradeFromVersion(ctx framework.TestContext, t *testing.T, fromVersion
+ 		}
+ 	}
+ 
+-	sendSimpleTrafficOrFail(t, revisionedInstance)
++	retry.UntilSuccessOrFail(ctx, func() error {
++		return sendSimpleTrafficOrFail(t, revisionedInstance)
++	}, retry.Timeout(1*time.Minute), retry.Delay(5*time.Second))
+ }
+ 
+ // sendSimpleTrafficOrFail sends an echo call to the upgrading echo instance
+-func sendSimpleTrafficOrFail(ctx *testing.T, i echo.Instance) {
++func sendSimpleTrafficOrFail(ctx *testing.T, i echo.Instance) error {
+ 	ctx.Helper()
+ 	resp, err := apps.PodA[0].Call(echo.CallOptions{
+ 		Target:   i,
+ 		PortName: "http",
+ 	})
++
+ 	if resp.CheckOK() != nil {
+-		ctx.Fatalf("error in call: %v", err)
++		return fmt.Errorf("error in call: %v", err)
+ 	}
++
++	return err
+ }
+ 
+ // enableDefaultInjection takes a namespaces and relabels it such that it will have a default sidecar injected
