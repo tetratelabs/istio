@@ -1,0 +1,13 @@
+diff --git a/tests/integration/pilot/common/routing.go b/tests/integration/pilot/common/routing.go
+index 22fd8b39ce..0a1ff24513 100644
+--- a/tests/integration/pilot/common/routing.go
++++ b/tests/integration/pilot/common/routing.go
+@@ -882,7 +882,7 @@ func protocolSniffingCases(apps *EchoDeployments) []TrafficTestCase {
+ 							PortName: call.port,
+ 							Scheme:   call.scheme,
+ 							Count:    callCount,
+-							Timeout:  time.Second * 5,
++							Timeout:  time.Second * 30,
+ 							Validator: echo.And(
+ 								echo.ExpectOK(),
+ 								echo.ExpectHost(destination.Config().HostHeader())),
