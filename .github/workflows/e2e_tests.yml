@@ -255,7 +255,7 @@ jobs:
           RESOURCE: ${{ secrets.AZURE_RESOURCE }}
 
   eksd-e2e-test:
-    name: eks-e2e-test
+    name: eksd-e2e-test
     runs-on: ubuntu-latest
     needs: [create-test-images, eks-e2e-test]
 
