@@ -1,0 +1,17 @@
+diff --git a/tests/integration/telemetry/stats/prometheus/nullvm/dashboard_test.go b/tests/integration/telemetry/stats/prometheus/nullvm/dashboard_test.go
+index f93c640be0..3cb5e255ef 100644
+--- a/tests/integration/telemetry/stats/prometheus/nullvm/dashboard_test.go
++++ b/tests/integration/telemetry/stats/prometheus/nullvm/dashboard_test.go
+@@ -163,9 +163,9 @@ func TestDashboard(t *testing.T) {
+ 						}
+ 
+ 						for _, query := range queries {
+-							if err := checkMetric(cl, p, query, d.excluded); err != nil {
+-								t.Errorf("Check query failed for cluster %s: %v", cl.Name(), err)
+-							}
++							retry.UntilSuccessOrFail(t, func() error {
++								return checkMetric(cl, p, query, d.excluded)
++							}, retry.Timeout(5 * time.Minute))
+ 						}
+ 					}
+ 				})
