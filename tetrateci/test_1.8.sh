@@ -10,6 +10,7 @@ source ./tetrateci/setup_go.sh
 echo "Applying patches...."
 git apply tetrateci/patches/common/increase-dashboard-timeout.1.8.patch
 git apply tetrateci/patches/common/wait-for-envoy.1.8.patch
+git apply tetrateci/patches/common/increase-vm-timeout.1.8.patch
 
 if [[ ${CLUSTER} == "gke" ]]; then
   echo "Generating operator config for GKE"
@@ -26,10 +27,6 @@ fi
 if [[ ${CLUSTER} == "eks" ]]; then
   echo "Applying Ingress patch for EKS...."
   git apply tetrateci/patches/eks/eks-ingress.1.8.patch
-fi
-
-if [[ ${CLUSTER} == "aks" ]]; then
-  git apply tetrateci/patches/aks/aks-pilot.1.8.patch
 fi
 
 if $(grep -q "1.17" <<< ${K8S_VERSION} ); then
