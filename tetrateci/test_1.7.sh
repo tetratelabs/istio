@@ -28,8 +28,6 @@ PACKAGES=$(go list ./tests/integration/... | grep -v /qualification | grep -v /e
 
 echo "Starting Testing"
 
-export GODEBUG=x509ignoreCN=0
-
 for package in $PACKAGES; do
   n=0
   until [ "$n" -ge 3 ]
