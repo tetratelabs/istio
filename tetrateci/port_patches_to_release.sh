@@ -31,16 +31,18 @@ function create_pr_using_temp() {
     echo "Getting branch name for $1"
     local branch_name=$(cut -f2 -d"/" <<< $1)
 
+    temp_branch=temp-github-actions-$branch_name
+
     echo "Creating a temporary branch"
-    git checkout -b temp-$branch_name $1
+    git checkout -b $temp_branch $1
 
     echo "Checking out the changes"
     git checkout origin/tetrate-workflow -- tetrateci
     git checkout origin/tetrate-workflow -- .github/workflows
     git commit -m "Merging tetrate-workflow with $branch_name"
 
-    echo  "Pushing temporary branch to origin"
-    git push origin temp-github-actions-$branch_name --force
+    echo "Pushing temporary branch to origin"
+    git push origin $temp_branch --force
 
     echo "Creating PR for $branch_name"
     hub pull-request -b $branch_name -m "AUTO: Backporting patches to $branch_name"
