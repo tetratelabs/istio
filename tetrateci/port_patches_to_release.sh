@@ -40,7 +40,7 @@ function create_pr_using_temp() {
     git commit -m "Merging tetrate-workflow with $branch_name"
 
     echo  "Pushing temporary branch to origin"
-    git push origin temp-$branch_name
+    git push origin temp-github-actions-$branch_name --force
 
     echo "Creating PR for $branch_name"
     hub pull-request -b $branch_name -m "AUTO: Backporting patches to $branch_name"
