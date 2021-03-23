@@ -17,11 +17,9 @@ if [[ ${CLUSTER} == "gke" ]]; then
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
   pip install pyyaml --user && ./tetrateci/gen_iop.py
   CLUSTERFLAGS="-istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml"
-  
-  if $(grep -q "1.17" <<< ${K8S_VERSION} || grep -q "1.16" <<< ${K8S_VERSION}); then
-    echo "Applying GKE specific patches...."
-    git apply tetrateci/patches/gke/chiron-gke.patch
-  fi
+
+  echo "Applying GKE specific patches...."
+  git apply tetrateci/patches/gke/chiron-gke.patch
 fi
 
 if [[ ${CLUSTER} == "eks" ]]; then
