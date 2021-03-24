@@ -1,0 +1,13 @@
+diff --git a/tests/integration/pilot/common/traffic.go b/tests/integration/pilot/common/traffic.go
+index d71d18ad8f..9e7a1e1eb4 100644
+--- a/tests/integration/pilot/common/traffic.go
++++ b/tests/integration/pilot/common/traffic.go
+@@ -32,7 +32,7 @@ const callsPerCluster = 5
+ 
+ var (
+ 	// Slow down retries to allow for delayed_close_timeout. Also require 3 successive successes.
+-	retryOptions = []retry.Option{retry.Delay(1000 * time.Millisecond), retry.Converge(3)}
++	retryOptions = []retry.Option{retry.Delay(1000 * time.Millisecond), retry.Converge(3), retry.Timeout(5 * time.Minute)}
+ )
+ 
+ type TrafficCall struct {
