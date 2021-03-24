@@ -37,7 +37,15 @@ export RELEASE_BRANCH=$(sed 's/\./-/g' <<< $K8S_VERSION)
 echo "creating a eksd cluster with \"$CLUSTER_NAME\" name..."
 ./run_cluster.sh
 
-#Wait for the cluster to be created
-./cluster_wait.sh
+# Wait for the cluster to be created
+# Chaining 3 waits cause sometimes 10 minutes is just not enough
+n=0
+until [ "$n" -ge 3 ]
+do
+    ./cluster_wait.sh && break
+    n=$((n+1))
+done
+
+[ "$n" -ge 3 ] && exit 1
 
 cd $BASEDIR
