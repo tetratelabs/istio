@@ -22,7 +22,7 @@ SHELL := /bin/bash -o pipefail
 export VERSION ?= 1.9-dev
 
 # Base version of Istio image to use
-BASE_VERSION ?= 1.9-dev.4
+BASE_VERSION ?= 1.9-dev.5
 
 export GO111MODULE ?= on
 export GOPROXY ?= https://proxy.golang.org
@@ -184,6 +184,9 @@ HUB ?=istio
 ifeq ($(HUB),)
   $(error "HUB cannot be empty")
 endif
+
+# For dockerx builds, allow HUBS which is a space seperated list of hubs. Default to HUB.
+HUBS ?= $(HUB)
 
 # If tag not explicitly set in users' .istiorc.mk or command line, default to the git sha.
 TAG ?= $(shell git rev-parse --verify HEAD)
@@ -357,6 +360,7 @@ gen-check: check-no-modify gen check-clean-repo
 # Copy the injection template file and configmap from istiod chart to istiod-remote chart
 sync-configs-from-istiod:
 	cp manifests/charts/istio-control/istio-discovery/files/injection-template.yaml manifests/charts/istiod-remote/files/
+	cp manifests/charts/istio-control/istio-discovery/files/gateway-injection-template.yaml manifests/charts/istiod-remote/files/
 
 	# Copy over values, but apply some local customizations
 	cp manifests/charts/istio-control/istio-discovery/values.yaml manifests/charts/istiod-remote/
@@ -368,6 +372,13 @@ sync-configs-from-istiod:
 	cp manifests/charts/istio-control/istio-discovery/templates/telemetryv2_1.9.yaml manifests/charts/istiod-remote/templates/
 	cp manifests/charts/istio-control/istio-discovery/templates/configmap.yaml manifests/charts/istiod-remote/templates
 	cp manifests/charts/istio-control/istio-discovery/templates/mutatingwebhook.yaml manifests/charts/istiod-remote/templates
+
+	rm -r manifests/charts/gateways/istio-egress/templates
+	mkdir manifests/charts/gateways/istio-egress/templates
+	cp -r manifests/charts/gateways/istio-ingress/templates/* manifests/charts/gateways/istio-egress/templates
+	find ./manifests/charts/gateways/istio-egress/templates -type f -exec sed -i -e 's/ingress/egress/g' {} \;
+	find ./manifests/charts/gateways/istio-egress/templates -type f -exec sed -i -e 's/Ingress/Egress/g' {} \;
+
 
 # Generate kustomize templates.
 gen-kustomize:
