@@ -11,17 +11,16 @@ echo "Applying patches...."
 git apply tetrateci/patches/common/increase-dashboard-timeout.1.8.patch
 git apply tetrateci/patches/common/wait-for-envoy.1.8.patch
 git apply tetrateci/patches/common/increase-vm-timeout.1.8.patch
+git apply tetrateci/patches/common/disable-autoscaling-on-cpu.1.8.patch
 
 if [[ ${CLUSTER} == "gke" ]]; then
   echo "Generating operator config for GKE"
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
   pip install pyyaml --user && ./tetrateci/gen_iop.py
   CLUSTERFLAGS="-istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml"
-  
-  if $(grep -q "1.17" <<< ${K8S_VERSION} || grep -q "1.16" <<< ${K8S_VERSION}); then
-    echo "Applying GKE specific patches...."
-    git apply tetrateci/patches/gke/chiron-gke.patch
-  fi
+
+  echo "Applying GKE specific patches...."
+  git apply tetrateci/patches/gke/chiron-gke.patch
 fi
 
 if [[ ${CLUSTER} == "eks" ]]; then
