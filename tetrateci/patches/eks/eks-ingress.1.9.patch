@@ -1,13 +1,8 @@
-diff --git a/pkg/test/framework/components/echo/kube/instance.go b/pkg/test/framework/components/echo/kube/instance.go
-index 4ec208e775..9975b62ba2 100644
---- a/pkg/test/framework/components/echo/kube/instance.go
-+++ b/pkg/test/framework/components/echo/kube/instance.go
-@@ -238,10 +238,14 @@ spec:
- 		if cfg.AutoRegisterVM {
- 			cmd = append(cmd, "--autoregister")
- 		}
-+
- 		if !ctx.Environment().(*kube.Environment).Settings().LoadBalancerSupported {
+diff --git a/pkg/test/framework/components/echo/kube/deployment.go b/pkg/test/framework/components/echo/kube/deployment.go
+index 9a0f7282cc..e9203dee2b 100644
+--- a/pkg/test/framework/components/echo/kube/deployment.go
++++ b/pkg/test/framework/components/echo/kube/deployment.go
+@@ -735,6 +735,9 @@ spec:
  			// LoadBalancer may not be suppported and the command doesn't have NodePort fallback logic that the tests do
  			cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
  		}
@@ -18,10 +13,10 @@ index 4ec208e775..9975b62ba2 100644
  		if err := retry.UntilSuccess(func() error {
  			_, _, err = istioCtl.Invoke(cmd)
 diff --git a/pkg/test/framework/components/istio/util.go b/pkg/test/framework/components/istio/util.go
-index 0852219fee..120508da1b 100644
+index d9de316906..abe6165113 100644
 --- a/pkg/test/framework/components/istio/util.go
 +++ b/pkg/test/framework/components/istio/util.go
-@@ -153,6 +153,13 @@ func getRemoteServiceAddress(s *kube.Settings, cluster cluster.Cluster, ns, labe
+@@ -153,6 +153,14 @@ func getRemoteServiceAddress(s *kube.Settings, cluster cluster.Cluster, ns, labe
  	}
  
  	if len(svc.Status.LoadBalancer.Ingress) == 0 || svc.Status.LoadBalancer.Ingress[0].IP == "" {
@@ -32,22 +27,23 @@ index 0852219fee..120508da1b 100644
 +			}
 +			return net.TCPAddr{IP: ip[0], Port: port}, true, nil
 +		}
++
  		return nil, false, fmt.Errorf("service %s is not available yet: %s/%s", svcName, svc.Namespace, svc.Name)
  	}
  
 diff --git a/tests/integration/pilot/ingress_test.go b/tests/integration/pilot/ingress_test.go
-index ed81a5eb29..376ed8b20f 100644
+index 3e0ab9f184..874503fd6f 100644
 --- a/tests/integration/pilot/ingress_test.go
 +++ b/tests/integration/pilot/ingress_test.go
-@@ -18,6 +18,7 @@ package pilot
- import (
+@@ -19,6 +19,7 @@ import (
  	"context"
  	"fmt"
+ 	"io/ioutil"
 +	"net"
+ 	"path/filepath"
  	"testing"
  	"time"
- 
-@@ -269,6 +270,12 @@ spec:
+@@ -278,6 +279,12 @@ spec:
  					if err != nil {
  						return err
  					}

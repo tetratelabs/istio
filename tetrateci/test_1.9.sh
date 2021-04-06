@@ -8,7 +8,6 @@ echo "Applying patches...."
 
 git apply tetrateci/patches/common/increase-vm-timeout.1.9.patch
 git apply tetrateci/patches/common/increase-sniffing-timeout.1.9.patch
-git apply tetrateci/patches/common/retry-calls-revision-upgrade.1.9.patch
 git apply tetrateci/patches/common/increase-dashboard-timeout.1.9.patch
 
 # the code fails whenever there is something other than digits in the k8s minor version
