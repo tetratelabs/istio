@@ -11,6 +11,7 @@ echo "Applying patches...."
 git apply tetrateci/patches/common/increase-dashboard-timeout.1.8.patch
 git apply tetrateci/patches/common/wait-for-envoy.1.8.patch
 git apply tetrateci/patches/common/increase-vm-timeout.1.8.patch
+git apply tetrateci/patches/common/disable-autoscaling-on-cpu.1.8.patch
 
 if [[ ${CLUSTER} == "gke" ]]; then
   echo "Generating operator config for GKE"
