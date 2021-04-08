@@ -46,8 +46,17 @@ message ForwardEchoRequest {
   bool http2 = 7;
 
   // If non-empty, make the request with the corresponding cert and key.
-  string cert = 8;
-  string key = 9;
+  string cert = 10;
+  string key = 11;
+
+  // List of ALPNs to present. If not set, this will be automatically be set based on the protocol
+  Alpn alpn = 13;
+  // Server name (SNI) to present in TLS connections. If not set, Host will be used for http requests.
+  string serverName = 20;
+}
+
+message Alpn {
+  repeated string value = 1;
 }
 
 message ForwardEchoResponse {

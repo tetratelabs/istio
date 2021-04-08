@@ -44,6 +44,8 @@ var (
 	headers    string
 	msg        string
 	http2      bool
+	alpn       []string
+	serverName string
 	clientCert string
 	clientKey  string
 
@@ -126,6 +128,8 @@ func init() {
 		"send http requests as HTTP with prior knowledge")
 	rootCmd.PersistentFlags().StringVar(&clientCert, "client-cert", "", "client certificate file to use for request")
 	rootCmd.PersistentFlags().StringVar(&clientKey, "client-key", "", "client certificate key file to use for request")
+	rootCmd.PersistentFlags().StringSliceVarP(&alpn, "alpn", "", nil, "alpn to set")
+	rootCmd.PersistentFlags().StringVarP(&serverName, "server-name", "", serverName, "server name to set")
 
 	loggingOptions.AttachCobraFlags(rootCmd)
 
@@ -140,6 +144,11 @@ func getRequest() (*proto.ForwardEchoRequest, error) {
 		Qps:           int32(qps),
 		Message:       msg,
 		Http2:         http2,
+		ServerName:    serverName,
+	}
+
+	if alpn != nil {
+		request.Alpn = &proto.Alpn{Value: alpn}
 	}
 
 	// Old http add header - deprecated
