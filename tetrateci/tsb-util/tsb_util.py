@@ -31,15 +31,50 @@ command = "/tmp/" + folder_name + "/bin/istioctl install -y"
 print("Installing istio with :" + command)
 os.system("/tmp/" + folder_name + "/bin/istioctl install -y")
 
-bookinfo_instances = 2
+bookinfo_instances = 6
 
-print("Installing BookInfo")
+services = ["productpage", "ratings", "details", "reviews"]
+base_cmd = "kubectl apply -f /tmp/" + folder_name + "/samples/bookinfo/platform/kube/bookinfo.yaml -n "
+i = 0
+while i < bookinfo_instances:
 
-for i in range(bookinfo_instances):
+    if services[i%4] == "reviews":
+
+        j = 1
+
+        while i < bookinfo_instances and j <= 3:
+            print("Installing Bookinfo")
+            ver = str(j)
+
+            ns = "bookinfo" + str(i)
+            print("Create Namespace : " + ns)
+            os.system("kubectl create ns " + ns)
+            os.system("kubectl label namespace " + ns + " istio-injection=enabled")
+
+            print("Installing reviews-v" + ver)
+            os.system(base_cmd + ns + " -l account=reviews")
+            os.system(base_cmd + ns + " -l app=reviews,version=v" + ver)
+            os.system(base_cmd + ns + " -l service=reviews")
+            
+            j += 1
+            i += 1
+
+            print("Bookinfo installed\n")
+
+        continue
+
+
+    print("Installing Bookinfo")
+
     ns = "bookinfo" + str(i)
     print("Create Namespace : " + ns)
     os.system("kubectl create ns " + ns)
+    os.system("kubectl label namespace " + ns + " istio-injection=enabled")
 
-    print("Installing bookinfo")
-    os.system("kubectl apply -f /tmp/" + folder_name + "/samples/bookinfo/platform/kube/bookinfo.yaml -n " + ns)
-    print("Bookinfo installed")
+    print("Installing " + services[i%4])
+    os.system(base_cmd + ns + " -l account=" + services[i%4])
+    os.system(base_cmd + ns + " -l app=" + services[i%4])
+
+    i += 1
+
+    print("Bookinfo installed\n")
