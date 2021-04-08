@@ -1,37 +1,52 @@
 import urllib.request
 import os, sys, shutil, platform
 
-tag = "1.9.2-tetrate-v0"
+import argparse
 
-client_os = "linux"
+parser = argparse.ArgumentParser(description="Spin up bookinfo instances")
 
-if platform.system() == "Darwin":
-    os = "osx"
-elif platform.system() == "Windows":
-    print("Try Mac OS or Linux.")
-    sys.exit()
+parser.add_argument("--instances", help="number of bookinfo instances", type=int, required=True)
+parser.add_argument("--tag", help="the istio version tag to be installed")
+parser.add_argument("--noistio", help="do not install istio on the cluster", action="store_true")
 
-print("Arch is set to amd64 no other architectures are supported for now.")
+args = parser.parse_args()
 
-arch = "amd64"
-archive_type = ".tar.gz"
+if not args.noistio: 
+    if not args.tag :
+        print("Please pass on the istio tag using `--tag`.")
+        sys.exit(1)
 
-base_url = "https://bintray.com/api/ui/download/tetrate/getistio/istio"
-download_url = base_url + "-" + tag + "-" + client_os + "-" + arch + archive_type
+    tag = args.tag
 
-print("Fetching istio from " + download_url)
-temp_path = "/tmp/istio"
-urllib.request.urlretrieve(download_url, temp_path + archive_type)
+    client_os = "linux"
 
-print("Upacking archive : " + temp_path + archive_type)
-shutil.unpack_archive(temp_path + archive_type, "/tmp")
+    if platform.system() == "Darwin":
+        os = "osx"
+    elif platform.system() == "Windows":
+        print("Try Mac OS or Linux.")
+        sys.exit()
 
-folder_name = "istio-" + tag
-command = "/tmp/" + folder_name + "/bin/istioctl install -y"
-print("Installing istio with :" + command)
-os.system("/tmp/" + folder_name + "/bin/istioctl install -y")
+    print("Arch is set to amd64 no other architectures are supported for now.")
 
-bookinfo_instances = 6
+    arch = "amd64"
+    archive_type = ".tar.gz"
+
+    base_url = "https://bintray.com/api/ui/download/tetrate/getistio/istio"
+    download_url = base_url + "-" + tag + "-" + client_os + "-" + arch + archive_type
+
+    print("Fetching istio from " + download_url)
+    temp_path = "/tmp/istio"
+    urllib.request.urlretrieve(download_url, temp_path + archive_type)
+
+    print("Upacking archive : " + temp_path + archive_type)
+    shutil.unpack_archive(temp_path + archive_type, "/tmp")
+
+    folder_name = "istio-" + tag
+    command = "/tmp/" + folder_name + "/bin/istioctl install -y"
+    print("Installing istio with :" + command)
+    os.system("/tmp/" + folder_name + "/bin/istioctl install -y")
+
+bookinfo_instances = args.instances
 
 services = ["productpage", "ratings", "details", "reviews"]
 base_cmd = "kubectl apply -f /tmp/" + folder_name + "/samples/bookinfo/platform/kube/bookinfo.yaml -n "
