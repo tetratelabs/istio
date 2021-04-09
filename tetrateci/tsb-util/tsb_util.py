@@ -44,7 +44,12 @@ def install_bookinfo(bookinfo_instances, istio_tag):
     folder_name = "istio-" + istio_tag
     services = ["ratings", "details", "reviews", "productpage"]
     base_cmd = "kubectl apply -f /tmp/" + folder_name + "/samples/bookinfo/platform/kube/bookinfo.yaml -n "
+
+    virtual_service = "/tmp/" + folder_name + "/samples/bookinfo/networking/virtual-service-reviews-50-v3.yaml"
+    config.modify_virtual_service(virtual_service)
+
     i = 0
+
     while i < bookinfo_instances:
         print("Installing Bookinfo")
 
@@ -69,6 +74,12 @@ def install_bookinfo(bookinfo_instances, istio_tag):
             hostname = ns + ".k8s.local"
             config.modify_gateway(gateway_file, hostname)
             cmd = "kubectl apply -f " + gateway_file + " -n " + ns
+            os.system(cmd)
+
+        if services[i%4] == "reviews":
+            cmd = "kubectl apply -f " + virtual_service + " -n " + ns
+            os.system(cmd)
+            cmd = "kubectl apply -f /tmp/" + folder_name + "/samples/bookinfo/networking/destination-rule-reviews.yaml -n " + ns
             os.system(cmd)
 
         i += 1
