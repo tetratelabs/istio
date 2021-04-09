@@ -40,7 +40,7 @@ def install_istio(tag) :
 
 def install_bookinfo(bookinfo_instances, istio_tag):
     global cleanup_script
-
+    bookinfo_instances *= 4
     folder_name = "istio-" + istio_tag
     services = ["ratings", "details", "reviews", "productpage"]
     base_cmd = "kubectl apply -f /tmp/" + folder_name + "/samples/bookinfo/platform/kube/bookinfo.yaml -n "
@@ -64,6 +64,11 @@ def install_bookinfo(bookinfo_instances, istio_tag):
             details_env = "DETAILS_HOSTNAME=details.bookinfo"+ str(i-2) + svc_domain
             reviews_env = "REVIEWS_HOSTNAME=reviews.bookinfo"+ str(i-1) + svc_domain
             cmd = "kubectl set env deployments productpage-v1 -n " + ns + " " + ratings_env + " " + details_env + " " + reviews_env
+            os.system(cmd)
+            gateway_file = "/tmp/"+ folder_name +"/samples/bookinfo/networking/bookinfo-gateway.yaml"
+            hostname = ns + ".k8s.local"
+            config.modify_gateway(gateway_file, hostname)
+            cmd = "kubectl apply -f " + gateway_file + " -n " + ns
             os.system(cmd)
 
         i += 1
@@ -94,8 +99,6 @@ def main():
             install_istio(conf.istio_tag)
 
         install_bookinfo(conf.instances, conf.istio_tag)
-
-    
 
 if __name__ == "__main__":
     main()
