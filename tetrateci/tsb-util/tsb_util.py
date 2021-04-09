@@ -3,7 +3,11 @@ import os, sys, shutil, platform
 import argparse
 import config
 
+cleanup_script = ""
+
 def install_istio(tag) :
+    global cleanup_script
+
     client_os = "linux"
 
     if platform.system() == "Darwin":
@@ -30,51 +34,37 @@ def install_istio(tag) :
     folder_name = "istio-" + tag
     command = "/tmp/" + folder_name + "/bin/istioctl install -y"
     print("Installing istio with :" + command)
-    os.system("/tmp/" + folder_name + "/bin/istioctl install -y")
+    os.system(command)
+    uninstall_command = "/tmp/" + folder_name + "/bin/istioctl x uinstall --purge -y"
+    cleanup_script += uninstall_command
 
 def install_bookinfo(bookinfo_instances, istio_tag):
+    global cleanup_script
+
     folder_name = "istio-" + istio_tag
-    services = ["productpage", "ratings", "details", "reviews"]
+    services = ["ratings", "details", "reviews", "productpage"]
     base_cmd = "kubectl apply -f /tmp/" + folder_name + "/samples/bookinfo/platform/kube/bookinfo.yaml -n "
     i = 0
     while i < bookinfo_instances:
-
-        if services[i%4] == "reviews":
-
-            j = 1
-
-            while i < bookinfo_instances and j <= 3:
-                print("Installing Bookinfo")
-                ver = str(j)
-
-                ns = "bookinfo" + str(i)
-                print("Create Namespace : " + ns)
-                os.system("kubectl create ns " + ns)
-                os.system("kubectl label namespace " + ns + " istio-injection=enabled")
-
-                print("Installing reviews-v" + ver)
-                os.system(base_cmd + ns + " -l account=reviews")
-                os.system(base_cmd + ns + " -l app=reviews,version=v" + ver)
-                os.system(base_cmd + ns + " -l service=reviews")
-                
-                j += 1
-                i += 1
-
-                print("Bookinfo installed\n")
-
-            continue
-
-
         print("Installing Bookinfo")
 
         ns = "bookinfo" + str(i)
         print("Create Namespace : " + ns)
         os.system("kubectl create ns " + ns)
         os.system("kubectl label namespace " + ns + " istio-injection=enabled")
+        cleanup_script += "kubectl delete ns " + ns
 
         print("Installing " + services[i%4])
         os.system(base_cmd + ns + " -l account=" + services[i%4])
         os.system(base_cmd + ns + " -l app=" + services[i%4])
+
+        if services[i%4] == "productpage":
+            svc_domain = ".svc.cluster.local"
+            ratings_env = "RATINGS_HOSTNAME=ratings.bookinfo" + str(i-3) + svc_domain
+            details_env = "DETAILS_HOSTNAME=details.bookinfo"+ str(i-2) + svc_domain
+            reviews_env = "REVIEWS_HOSTNAME=reviews.bookinfo"+ str(i-1) + svc_domain
+            cmd = "kubectl set env deployments productpage-v1 -n " + ns + " " + ratings_env + " " + details_env + " " + reviews_env
+            os.system(cmd)
 
         i += 1
 
@@ -98,11 +88,14 @@ def main():
             cmd = "kubectl config use-context " + conf.context
             print("Switching Context | Running: " + cmd)
             os.system(cmd)
+            cleanup_script += cmd
 
         if not args.noistio:
             install_istio(conf.istio_tag)
 
         install_bookinfo(conf.instances, conf.istio_tag)
+
+    
 
 if __name__ == "__main__":
     main()
