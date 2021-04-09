@@ -35,8 +35,8 @@ def install_istio(tag) :
     command = "/tmp/" + folder_name + "/bin/istioctl install -y"
     print("Installing istio with :" + command)
     os.system(command)
-    uninstall_command = "/tmp/" + folder_name + "/bin/istioctl x uinstall --purge -y"
-    cleanup_script += uninstall_command
+    uninstall_command = "/tmp/" + folder_name + "/bin/istioctl x uninstall --purge -y"
+    cleanup_script += uninstall_command + "\n"
 
 def install_bookinfo(bookinfo_instances, istio_tag):
     global cleanup_script
@@ -57,7 +57,7 @@ def install_bookinfo(bookinfo_instances, istio_tag):
         print("Create Namespace : " + ns)
         os.system("kubectl create ns " + ns)
         os.system("kubectl label namespace " + ns + " istio-injection=enabled")
-        cleanup_script += "kubectl delete ns " + ns
+        cleanup_script += "kubectl delete ns " + ns + "\n"
 
         print("Installing " + services[i%4])
         os.system(base_cmd + ns + " -l account=" + services[i%4])
@@ -87,6 +87,8 @@ def install_bookinfo(bookinfo_instances, istio_tag):
         print("Bookinfo installed\n")
 
 def main():
+    global cleanup_script
+
     parser = argparse.ArgumentParser(description="Spin up bookinfo instances")
 
     parser.add_argument("--noistio", help="do not install istio on the cluster", action="store_true")
@@ -104,12 +106,18 @@ def main():
             cmd = "kubectl config use-context " + conf.context
             print("Switching Context | Running: " + cmd)
             os.system(cmd)
-            cleanup_script += cmd
+            cleanup_script += cmd + "\n"
 
         if not args.noistio:
             install_istio(conf.istio_tag)
 
         install_bookinfo(conf.instances, conf.istio_tag)
+
+    f = open("./cleanup.sh", "w")
+    f.write(cleanup_script)
+    f.close()
+
+    print("Run `bash cleanup.sh` for cleaning up all the resources including istio.")
 
 if __name__ == "__main__":
     main()
