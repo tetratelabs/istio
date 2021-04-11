@@ -369,15 +369,28 @@ func deploy(ctx resource.Context, env *kube.Environment, cfg Config) (Instance, 
 		return i, err
 	}
 
-	if ctx.Clusters().IsMulticluster() && !i.isExternalControlPlane() {
-		// For multicluster, configure direct access so each control plane can get endpoints from all API servers.
-		// TODO: this should be done after installing the remote clusters, but needs to be done before for now,
-		// because in non-external control plane MC, remote clusters are not really istiodless and they install
-		// the gateways right away as part of default profile, which hangs if the control plane isn't responding.
-		if err := i.configureDirectAPIServerAccess(ctx, cfg); err != nil {
-			return nil, err
-		}
-	}
+	//NOTE(vikas): We are commenting following lines because we do not want istiods
+	// to watch all the k8s apis servers in the multicluster environment.
+	// Following logic creates secrets for each of the remote cluster's kubeconfig
+	// Each istiod then starts watching these remote apiservers.
+	// We need to comment out this because:
+	// 1. our multicluster model does not expect istiod watching remote apiservers and
+	//    lead unexpected configs in the test cases
+	// 2. In xcp e2e, this leads to flakes where istiod fails to become ready.
+	//    apiserver endpoint in the secrets uses localhost and thus not not reachable from within
+	//    istiod. istiod readiness probe is enabled only after remote apiserver cache has got syched,
+	//    which keeps failing because of non-reachable apiserver endpoint. Sometimes if istiod
+	//    starts fast enough that kubeconfig secrets are not created by the the istiod does
+	//    first cache sync, istiod luckily does not get stuck at bootstrap and becomes ready.
+	//if ctx.Clusters().IsMulticluster() && !i.isExternalControlPlane() {
+	//	// For multicluster, configure direct access so each control plane can get endpoints from all API servers.
+	//	// TODO: this should be done after installing the remote clusters, but needs to be done before for now,
+	//	// because in non-external control plane MC, remote clusters are not really istiodless and they install
+	//	// the gateways right away as part of default profile, which hangs if the control plane isn't responding.
+	//	if err := i.configureDirectAPIServerAccess(ctx, cfg); err != nil {
+	//		return nil, err
+	//	}
+	//}
 
 	// Install (non-config) remote clusters.
 	errG = multierror.Group{}
