@@ -5,39 +5,6 @@ import config
 
 cleanup_script = ""
 
-def install_istio(tag) :
-    global cleanup_script
-
-    client_os = "linux"
-
-    if platform.system() == "Darwin":
-        client_os = "osx"
-    elif platform.system() == "Windows":
-        print("Try Mac OS or Linux.")
-        sys.exit()
-
-    print("Arch is set to amd64 no other architectures are supported for now.")
-
-    arch = "amd64"
-    archive_type = ".tar.gz"
-
-    base_url = "https://bintray.com/api/ui/download/tetrate/getistio/istio"
-    download_url = base_url + "-" + tag + "-" + client_os + "-" + arch + archive_type
-
-    print("Fetching istio from " + download_url)
-    temp_path = "/tmp/istio"
-    urllib.request.urlretrieve(download_url, temp_path + archive_type)
-
-    print("Upacking archive : " + temp_path + archive_type)
-    shutil.unpack_archive(temp_path + archive_type, "/tmp")
-
-    folder_name = "istio-" + tag
-    command = "/tmp/" + folder_name + "/bin/istioctl install -y"
-    print("Installing istio with :" + command)
-    os.system(command)
-    uninstall_command = "/tmp/" + folder_name + "/bin/istioctl x uninstall --purge -y"
-    cleanup_script += uninstall_command + "\n"
-
 def install_bookinfo(bookinfo_instances, istio_tag):
     global cleanup_script
     bookinfo_instances *= 4
@@ -91,7 +58,6 @@ def main():
 
     parser = argparse.ArgumentParser(description="Spin up bookinfo instances")
 
-    parser.add_argument("--noistio", help="do not install istio on the cluster", action="store_true")
     parser.add_argument("--config", help="the istio version tag to be installed")
     args = parser.parse_args()
 
@@ -107,9 +73,6 @@ def main():
             print("Switching Context | Running: " + cmd)
             os.system(cmd)
             cleanup_script += cmd + "\n"
-
-        if not args.noistio:
-            install_istio(conf.istio_tag)
 
         install_bookinfo(conf.instances, conf.istio_tag)
 
