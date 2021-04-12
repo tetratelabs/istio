@@ -1,4 +1,3 @@
 config:
-  - istioTag: "1.9.2-tetrate-v0"
-    instances: 2
-    # context: <k8s context> optional, helpful for multiple clusters
+  - instances: 2
+  # context: <k8s context> optional, helpful for multiple clusters
