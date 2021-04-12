@@ -1,3 +1,8 @@
 config:
-  - instances: 2
-  # context: <k8s context> optional, helpful for multiple clusters
+  - replicas: 2
+    product:
+      gatewayYaml: "./manifests/gateway.yaml"
+    reviews:
+      virtualServiceYaml : "./manifests/virtual-service.yaml"
+      destinationRulesYaml: "./manifests/destination-rules.yaml"
+    details:
