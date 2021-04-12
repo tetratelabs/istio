@@ -11,10 +11,12 @@ class reviewspage:
     context: str
     virtualservice_yaml: str
     destinationrules_yaml: str
+    cluster_hostname: str
 
 @dataclass
 class detailspage:
     context: str
+    cluster_hostname: str
 
 @dataclass
 class bookinfo:
@@ -29,16 +31,21 @@ def parse_config(yaml_dict):
     for config in yaml_dict["config"]:
         # context is not necessary, we can always fallback to current context
         product = productpage(
-            config["product"].get("context"), config["product"]["gatewayYaml"]
+            config["product"].get("context"),
+            config["product"]["gatewayYaml"],
         )
         reviews = reviewspage(
             config["reviews"].get("context"),
             config["reviews"]["virtualServiceYaml"],
             config["reviews"]["destinationRulesYaml"],
+            config["reviews"].get("clusterHostName"),
         )
         details = config.get("details")
         if details is not None:
-            details = detailspage(config["details"].get("context"))
+            details = detailspage(
+                config["details"].get("context"),
+                config["details"].get("clusterHostName"),
+            )
         conf = bookinfo(
             config["replicas"], config.get("context"), product, reviews, details
         )

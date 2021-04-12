@@ -14,7 +14,7 @@ def print_cmdline(command):
 
 cleanup_script = ""
 
-def install_bookinfo(conf):
+def install_bookinfo(conf, default_context):
     global cleanup_script
 
     download_url = "https://raw.githubusercontent.com/istio/istio/master/samples/bookinfo/platform/kube/bookinfo.yaml"
@@ -29,6 +29,11 @@ def install_bookinfo(conf):
     while i < conf.replicas * 3:
         print("Installing Bookinfo")
 
+        if conf.details is not None and conf.details.context is not None:
+            switch_context(conf.details.context)
+        else:
+            switch_context(default_context)
+
         ns = "bookinfo" + str(i)
         print("Create Namespace : " + ns)
         print_cmdline("kubectl create ns " + ns)
@@ -40,6 +45,11 @@ def install_bookinfo(conf):
         print_cmdline(base_cmd + ns + " -l app=details")
 
         i += 1
+
+        if conf.reviews.context is not None:
+            switch_context(conf.reviews.context)
+        else:
+            switch_context(default_context)
 
         ns = "bookinfo" + str(i)
         print("Create Namespace : " + ns)
@@ -61,6 +71,11 @@ def install_bookinfo(conf):
 
         i += 1
 
+        if conf.product.context is not None:
+            switch_context(conf.product.context)
+        else:
+            switch_context(default_context)
+
         ns = "bookinfo" + str(i)
         print("Create Namespace : " + ns)
         print_cmdline("kubectl create ns " + ns)
@@ -71,9 +86,20 @@ def install_bookinfo(conf):
         print_cmdline(base_cmd + ns + " -l app=productpage")
 
         svc_domain = ".svc.cluster.local"
-        details_env = "DETAILS_HOSTNAME=details.bookinfo" + str(i - 2) + svc_domain
-        reviews_env = "REVIEWS_HOSTNAME=reviews.bookinfo" + str(i - 1) + svc_domain
-        ratings_env = "RATINGS_HOSTNAME=ratings.bookinfo" + str(i - 1) + svc_domain
+        reviews_domain = (
+            svc_domain
+            if conf.reviews.cluster_hostname is None
+            else conf.reviews.cluster_hostname
+        )
+        details_domain = (
+            svc_domain
+            if conf.details is None or conf.details.cluster_hostname is None
+            else conf.details.cluster_hostname
+        )
+        details_env = "DETAILS_HOSTNAME=details.bookinfo" + str(i - 2) + details_domain
+        reviews_env = "REVIEWS_HOSTNAME=reviews.bookinfo" + str(i - 1) + reviews_domain
+        ratings_env = "RATINGS_HOSTNAME=ratings.bookinfo" + str(i - 1) + reviews_domain
+
         cmd = (
             "kubectl set env deployments productpage-v1 -n "
             + ns
@@ -96,6 +122,13 @@ def install_bookinfo(conf):
 
         print("Bookinfo installed\n")
 
+def switch_context(context):
+    global cleanup_script
+    cmd = "kubectl config use-context " + context
+    print("Switching Context | Running: " + cmd)
+    print_cmdline(cmd)
+    cleanup_script += cmd + "\n"
+
 def main():
     global cleanup_script
 
@@ -110,14 +143,14 @@ def main():
 
     configs = config.read_config_yaml(args.config)
 
+    default_context = str(cmdline("kubectl config current-context"), "utf-8")
+
     for conf in configs:
         if conf.context is not None:
-            cmd = "kubectl config use-context " + conf.context
-            print("Switching Context | Running: " + cmd)
-            print_cmdline(cmd)
-            cleanup_script += cmd + "\n"
-
-        install_bookinfo(conf)
+            switch_context(conf.context)
+        else:
+            switch_context(default_context)
+        install_bookinfo(conf, default_context)
 
     f = open("./cleanup.sh", "w")
     f.write(cleanup_script)
