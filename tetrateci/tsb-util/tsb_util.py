@@ -2,6 +2,19 @@ import urllib.request
 import os, sys, shutil, platform
 import argparse
 import config
+from subprocess import PIPE, Popen
+
+# https://stackoverflow.com/a/23796709
+def cmdline(command):
+    process = Popen(
+        args=command,
+        stdout=PIPE,
+        shell=True
+    )
+    return process.communicate()[0]
+
+def print_cmdline(command):
+    print(str(cmdline(command), "utf-8"), end="")
 
 cleanup_script = ""
 
@@ -23,13 +36,13 @@ def install_bookinfo(bookinfo_instances):
 
         ns = "bookinfo" + str(i)
         print("Create Namespace : " + ns)
-        os.system("kubectl create ns " + ns)
-        os.system("kubectl label namespace " + ns + " istio-injection=enabled")
+        print_cmdline("kubectl create ns " + ns)
+        print_cmdline("kubectl label namespace " + ns + " istio-injection=enabled")
         cleanup_script += "kubectl delete ns " + ns + "\n"
 
         print("Installing " + services[i%4])
-        os.system(base_cmd + ns + " -l account=" + services[i%4])
-        os.system(base_cmd + ns + " -l app=" + services[i%4])
+        print_cmdline(base_cmd + ns + " -l account=" + services[i%4])
+        print_cmdline(base_cmd + ns + " -l app=" + services[i%4])
 
         if services[i%4] == "productpage":
             svc_domain = ".svc.cluster.local"
@@ -37,7 +50,7 @@ def install_bookinfo(bookinfo_instances):
             details_env = "DETAILS_HOSTNAME=details.bookinfo"+ str(i-2) + svc_domain
             reviews_env = "REVIEWS_HOSTNAME=reviews.bookinfo"+ str(i-1) + svc_domain
             cmd = "kubectl set env deployments productpage-v1 -n " + ns + " " + ratings_env + " " + details_env + " " + reviews_env
-            os.system(cmd)
+            print_cmdline(cmd)
             #gateway_file = "/tmp/"+ folder_name +"/samples/bookinfo/networking/bookinfo-gateway.yaml"
             #hostname = ns + ".k8s.local"
             #config.modify_gateway(gateway_file, hostname)
@@ -73,7 +86,7 @@ def main():
         if conf.context is not None:
             cmd = "kubectl config use-context " + conf.context
             print("Switching Context | Running: " + cmd)
-            os.system(cmd)
+            print_cmdline(cmd)
             cleanup_script += cmd + "\n"
 
         install_bookinfo(conf.instances)
