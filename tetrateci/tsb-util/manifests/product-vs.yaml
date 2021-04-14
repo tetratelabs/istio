@@ -4,9 +4,9 @@ metadata:
   name: bookinfo
 spec:
   gateways:
-  - bookinfo5-gateway
+  - {{ gatewayName }}
   hosts:
-  - bookinfo5.k8s.local
+  - {{ hostname }}
   http:
   - match:
     - uri:

@@ -1,4 +1,5 @@
 import yaml
+from jinja2 import Template
 from dataclasses import dataclass
 from typing import List
 @dataclass
@@ -61,16 +62,9 @@ def read_config_yaml(filename):
 
 def modify_gateway(filename, key):
     with open(filename) as file:
-        networking_config = yaml.load(file, Loader=yaml.FullLoader)
-        networking_config["spec"]["servers"][0]["hosts"][0] = key + ".k8s.local"
-        networking_config["metadata"]["name"] = key + "-gateway"
-        f = open(filename, "w")
-        yaml.dump(networking_config, f)
-
-def modify_product_vs(filename, key):
-    with open(filename) as file:
-        networking_config = yaml.load(file, Loader=yaml.FullLoader)
-        networking_config["spec"]["hosts"][0] = key + ".k8s.local"
-        networking_config["spec"]["gateways"][0] = key + "-gateway"
-        f = open(filename, "w")
-        yaml.dump(networking_config, f)
+        template = Template(file.read())
+        complete_yaml = template.render(
+            gatewayName=key + "-gateway",
+            hostname=key + ".k8s.local"
+        )
+        return complete_yaml

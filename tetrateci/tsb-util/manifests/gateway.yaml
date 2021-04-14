@@ -1,13 +1,13 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
 metadata:
-  name: bookinfo5-gateway
+  name: {{ gatewayName }}
 spec:
   selector:
     istio: ingressgateway
   servers:
   - hosts:
-    - bookinfo5.k8s.local
+    - {{ hostname }}
     port:
       name: http
       number: 80

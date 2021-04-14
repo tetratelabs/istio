@@ -6,4 +6,4 @@ config:
     reviews:
       virtualServiceYaml : "./manifests/virtual-service.yaml"
       destinationRulesYaml: "./manifests/destination-rules.yaml"
-    details:
+    details: {}
