@@ -2,6 +2,7 @@ config:
   - replicas: 2
     product:
       gatewayYaml: "./manifests/gateway.yaml"
+      virtualServiceYaml: "./manifests/product-vs.yaml"
     reviews:
       virtualServiceYaml : "./manifests/virtual-service.yaml"
       destinationRulesYaml: "./manifests/destination-rules.yaml"

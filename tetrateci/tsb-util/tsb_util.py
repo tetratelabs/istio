@@ -14,15 +14,21 @@ def print_cmdline(command):
 
 cleanup_script = ""
 
+def create_namespace(index):
+    global cleanup_script
+    ns = "bookinfo" + str(index)
+    print("Create Namespace : " + ns)
+    print_cmdline("kubectl create ns " + ns)
+    print_cmdline("kubectl label namespace " + ns + " istio-injection=enabled")
+    cleanup_script += "kubectl delete ns " + ns + "\n"
+    return ns
+
 def install_bookinfo(conf, default_context):
     global cleanup_script
 
     download_url = "https://raw.githubusercontent.com/istio/istio/master/samples/bookinfo/platform/kube/bookinfo.yaml"
     urllib.request.urlretrieve(download_url, "/tmp/bookinfo.yaml")
     base_cmd = "kubectl apply -f /tmp/bookinfo.yaml -n "
-
-    # virtual_service = "/tmp/" + folder_name + "/samples/bookinfo/networking/virtual-service-reviews-50-v3.yaml"
-    # config.modify_virtual_service(virtual_service)
 
     i = 0
 
@@ -34,11 +40,7 @@ def install_bookinfo(conf, default_context):
         else:
             switch_context(default_context)
 
-        ns = "bookinfo" + str(i)
-        print("Create Namespace : " + ns)
-        print_cmdline("kubectl create ns " + ns)
-        print_cmdline("kubectl label namespace " + ns + " istio-injection=enabled")
-        cleanup_script += "kubectl delete ns " + ns + "\n"
+        ns = create_namespace(i)
 
         print("Installing details")
         print_cmdline(base_cmd + ns + " -l account=details")
@@ -51,11 +53,7 @@ def install_bookinfo(conf, default_context):
         else:
             switch_context(default_context)
 
-        ns = "bookinfo" + str(i)
-        print("Create Namespace : " + ns)
-        print_cmdline("kubectl create ns " + ns)
-        print_cmdline("kubectl label namespace " + ns + " istio-injection=enabled")
-        cleanup_script += "kubectl delete ns " + ns + "\n"
+        ns = create_namespace(i)
 
         print("Installing reviews and ratings")
         print_cmdline(base_cmd + ns + " -l account=reviews")
@@ -76,11 +74,8 @@ def install_bookinfo(conf, default_context):
         else:
             switch_context(default_context)
 
-        ns = "bookinfo" + str(i)
-        print("Create Namespace : " + ns)
-        print_cmdline("kubectl create ns " + ns)
-        print_cmdline("kubectl label namespace " + ns + " istio-injection=enabled")
-        cleanup_script += "kubectl delete ns " + ns + "\n"
+        ns = create_namespace(i)
+
         print("Installing productpage")
         print_cmdline(base_cmd + ns + " -l account=productpage")
         print_cmdline(base_cmd + ns + " -l app=productpage")
@@ -113,9 +108,13 @@ def install_bookinfo(conf, default_context):
         print_cmdline(cmd)
 
         gateway_file = conf.product.gateway_yaml
-        hostname = ns + ".k8s.local"
-        config.modify_gateway(gateway_file, hostname)
+        config.modify_gateway(gateway_file, ns)
         cmd = "kubectl apply -f " + gateway_file + " -n " + ns
+        print_cmdline(cmd)
+
+        product_vs = conf.product.virtualservice_yaml
+        config.modify_product_vs(product_vs, ns)
+        cmd = "kubectl apply -f " + product_vs + " -n " + ns
         print_cmdline(cmd)
 
         i += 1
