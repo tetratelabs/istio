@@ -2,6 +2,7 @@ import urllib.request
 import os, sys, shutil, platform
 import argparse
 import config
+import certs
 from subprocess import PIPE, Popen
 
 # https://stackoverflow.com/a/23796709
@@ -107,6 +108,10 @@ def install_bookinfo(conf, default_context):
         )
         print_cmdline(cmd)
 
+        certs.create_private_key(ns)
+        certs.create_cert(ns)
+        certs.create_secret(ns)
+
         gateway_file = conf.product.gateway_yaml
         gateway = config.modify_gateway(gateway_file, ns)
         cmd = (
@@ -157,6 +162,8 @@ def main():
     configs = config.read_config_yaml(args.config)
 
     default_context = str(cmdline("kubectl config current-context"), "utf-8")
+
+    certs.create_root_cert()
 
     for conf in configs:
         if conf.context is not None:
