@@ -64,7 +64,6 @@ def modify_gateway(filename, key):
     with open(filename) as file:
         template = Template(file.read())
         complete_yaml = template.render(
-            gatewayName=key + "-gateway",
-            hostname=key + ".k8s.local"
+            gatewayName=key + "-gateway", hostname=key + ".k8s.local"
         )
         return complete_yaml

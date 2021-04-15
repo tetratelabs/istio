@@ -109,12 +109,26 @@ def install_bookinfo(conf, default_context):
 
         gateway_file = conf.product.gateway_yaml
         gateway = config.modify_gateway(gateway_file, ns)
-        cmd = "cat << EOF | kubectl apply " + " -n " + ns + " -f - \n" + gateway + "\nEOF\n"
+        cmd = (
+            "cat << EOF | kubectl apply "
+            + " -n "
+            + ns
+            + " -f - \n"
+            + gateway
+            + "\nEOF\n"
+        )
         print_cmdline(cmd)
 
         product_vs = conf.product.virtualservice_yaml
         virtual_service = config.modify_gateway(product_vs, ns)
-        cmd = "cat << EOF | kubectl apply " + " -n " + ns + " -f - \n" + virtual_service + "\nEOF\n"
+        cmd = (
+            "cat << EOF | kubectl apply "
+            + " -n "
+            + ns
+            + " -f - \n"
+            + virtual_service
+            + "\nEOF\n"
+        )
         print_cmdline(cmd)
 
         i += 1
