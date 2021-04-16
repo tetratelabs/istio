@@ -1,0 +1,12 @@
+apiVersion: security.tsb.tetrate.io/v2
+kind: SecuritySetting
+metadata:
+  organization: tetrate
+  name: bookinfo-security-settings
+  group: bookinfo-security
+  workspace: bookinfo-ws
+  tenant: tetrate
+spec:
+  authentication: REQUIRED
+  authorization:
+    mode: WORKSPACE
