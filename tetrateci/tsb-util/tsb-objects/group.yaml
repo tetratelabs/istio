@@ -1,0 +1,38 @@
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: {{ orgName }}
+  name: {{ gatewayGroupName }}
+  workspace: {{ workspaceName }}
+  tenant: {{ tenantName }}
+spec:
+  namespaceSelector:
+    names:
+      - "demo/bookinfo"
+  configMode: BRIDGED
+---
+apiVersion: traffic.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: {{ orgName }}
+  name: {{ trafficGroupName }}
+  workspace: {{ workspaceName }}
+  tenant: {{ tenantName }}
+spec:
+  namespaceSelector:
+    names:
+      - "demo/bookinfo"
+  configMode: BRIDGED
+---
+apiVersion: security.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: {{ orgName }}
+  name: {{ securityGroupName }}
+  workspace: {{ workspaceName }}
+  tenant: {{ tenantName }}
+spec:
+  namespaceSelector:
+    names:
+      - "demo/bookinfo"
+  configMode: BRIDGED

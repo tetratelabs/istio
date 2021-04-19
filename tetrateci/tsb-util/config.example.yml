@@ -1,9 +1,15 @@
 config:
   - replicas: 2
     product:
-      gatewayYaml: "./manifests/gateway.yaml"
+      gatewayYaml: "./tsb-objects/gateway.yaml"
       virtualServiceYaml: "./manifests/product-vs.yaml"
     reviews:
-      virtualServiceYaml : "./manifests/virtual-service.yaml"
+      virtualServiceYaml : "./tsb-objects/reviews.yaml"
       destinationRulesYaml: "./manifests/destination-rules.yaml"
     details: {}
+    tenantYaml: "./tsb-objects/tenant.yaml"
+    workspaceYaml: "./tsb-objects/workspace.yaml"
+    groupsYaml: "./tsb-objects/group.yaml"
+    permYaml: "./tsb-objects/perm.yaml"
+    securityYaml: "./tsb-objects/security.yaml"
+    organisation: "tetrate"

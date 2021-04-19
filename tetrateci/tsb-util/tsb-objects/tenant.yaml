@@ -1,0 +1,7 @@
+apiVersion: api.tsb.tetrate.io/v2
+kind: Tenant
+metadata:
+  organization: {{ orgName }}
+  name: {{ tenantName }}
+spec:
+  displayName: Tetrate

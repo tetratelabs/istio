@@ -1,0 +1,12 @@
+apiVersion: security.tsb.tetrate.io/v2
+kind: SecuritySetting
+metadata:
+  organization: {{ orgName }}
+  name: {{ securitySettingName }}
+  workspace: {{ workspaceName }}
+  group: {{ securityGroupName }}
+  tenant: {{ tenantName }}
+spec:
+  authentication: REQUIRED
+  authorization:
+    mode: WORKSPACE

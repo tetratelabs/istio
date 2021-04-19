@@ -27,6 +27,12 @@ class bookinfo:
     product: productpage
     reviews: reviewspage
     details: detailspage
+    tenant_yaml: str
+    workspace_yaml: str
+    groups_yaml: str
+    perm_yaml: str
+    security_yaml: str
+    org: str
 
 def parse_config(yaml_dict):
     parsed_conf = []
@@ -50,7 +56,17 @@ def parse_config(yaml_dict):
                 config["details"].get("clusterHostName"),
             )
         conf = bookinfo(
-            config["replicas"], config.get("context"), product, reviews, details
+            config["replicas"],
+            config.get("context"),
+            product,
+            reviews,
+            details,
+            config["tenantYaml"],
+            config["workspaceYaml"],
+            config["groupsYaml"],
+            config["permYaml"],
+            config["securityYaml"],
+            config["organisation"]
         )
         parsed_conf.append(conf)
     return parsed_conf
@@ -64,6 +80,8 @@ def modify_gateway(filename, key):
     with open(filename) as file:
         template = Template(file.read())
         complete_yaml = template.render(
-            gatewayName=key + "-gateway", hostname=key + ".k8s.local", secretName=key+"-credential"
+            gatewayName=key + "-gateway",
+            hostname=key + ".k8s.local",
+            secretName=key + "-credential",
         )
         return complete_yaml

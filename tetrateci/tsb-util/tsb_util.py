@@ -4,6 +4,7 @@ import argparse
 import config
 import certs
 from subprocess import PIPE, Popen
+from jinja2 import Template
 
 # https://stackoverflow.com/a/23796709
 def cmdline(command):
@@ -12,6 +13,17 @@ def cmdline(command):
 
 def print_cmdline(command):
     print(str(cmdline(command), "utf-8"), end="")
+
+def apply_from_stdin(ns, yaml):
+    cmd = (
+            "cat << EOF | kubectl apply "
+            + " -n "
+            + ns
+            + " -f - \n"
+            + yaml
+            + "\nEOF\n"
+        )
+    print_cmdline(cmd)
 
 cleanup_script = ""
 
@@ -26,6 +38,70 @@ def create_namespace(index):
 
 def install_bookinfo(conf, default_context):
     global cleanup_script
+
+    # tenants
+    print_cmdline("kubectl create ns tetrate") # need an for multiple
+    t = open(conf.tenant_yaml)
+    template = Template(t.read())
+    r = template.render(
+            orgName=conf.org,
+            tenantName="bookinfo", # need to change this
+        )
+    t.close()
+    apply_from_stdin("tetrate", r) # namespaces
+
+    # workspace
+    t = open(conf.workspace_yaml)
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenantName="bookinfo", # need to change this
+        workspaceName="bookinfo-ws", # need to change this
+    )
+    t.close()
+    apply_from_stdin("tetrate", r)
+
+    # groups
+    gateway_group = "bookinfo-gateway" # need to change
+    traffic_group = "bookinfo-traffic" # need to change
+    security_group = "bookinfo-security" # need to change
+    t = open(conf.groups_yaml)
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenantName="bookinfo", # need to change this
+        workspaceName="bookinfo-ws", # need to change this
+        gatewayGroupName=gateway_group,
+        trafficGroupName=traffic_group,
+        securityGroupName=security_group
+    )
+    t.close()
+    apply_from_stdin("tetrate", r)
+
+    # perm
+    t = open(conf.perm_yaml)
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenantName="bookinfo", # need to change this
+        workspaceName="bookinfo-ws", # need to change this,
+        trafficGroupName=traffic_group
+    )
+    t.close()
+    apply_from_stdin("tetrate", r)
+
+    # security
+    t = open(conf.security_yaml)
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenantName="bookinfo", # need to change this
+        workspaceName="bookinfo-ws", # need to change this
+        securitySettingName="bookinfo-security-setting", # need to change
+        securityGroupName=security_group
+    )
+    t.close()
+    apply_from_stdin("tetrate", r)
 
     download_url = "https://raw.githubusercontent.com/istio/istio/master/samples/bookinfo/platform/kube/bookinfo.yaml"
     urllib.request.urlretrieve(download_url, "/tmp/bookinfo.yaml")
@@ -61,9 +137,22 @@ def install_bookinfo(conf, default_context):
         print_cmdline(base_cmd + ns + " -l app=reviews")
         print_cmdline(base_cmd + ns + " -l account=ratings")
         print_cmdline(base_cmd + ns + " -l app=ratings")
-        print_cmdline(
-            "kubectl apply -f " + conf.reviews.virtualservice_yaml + " -n " + ns
+
+        # gateway
+        t = open(conf.reviews.virtualservice_yaml)
+        template = Template(t.read())
+        r = template.render(
+            orgName=conf.org,
+            tenantName="bookinfo", # need to change this
+            workspaceName="bookinfo-ws", # need to change this
+            groupName=traffic_group,
+            hostFQDN="reviews" + ns + ".svc.cluster.local" if conf.reviews.cluster_hostname is None else conf.reviews.cluster_hostname,
+            serviceRouteName="bookinfo-serviceroute", # need to change
         )
+        t.close()
+        apply_from_stdin(ns, r)
+
+
         print_cmdline(
             "kubectl apply -f " + conf.reviews.destinationrules_yaml + " -n " + ns
         )
@@ -112,17 +201,22 @@ def install_bookinfo(conf, default_context):
         certs.create_cert(ns)
         certs.create_secret(ns)
 
-        gateway_file = conf.product.gateway_yaml
-        gateway = config.modify_gateway(gateway_file, ns)
-        cmd = (
-            "cat << EOF | kubectl apply "
-            + " -n "
-            + ns
-            + " -f - \n"
-            + gateway
-            + "\nEOF\n"
+        # gateway
+        t = open(conf.product.gateway_yaml)
+        template = Template(t.read())
+        r = template.render(
+            orgName=conf.org,
+            tenantName="bookinfo", # need to change this
+            workspaceName="bookinfo-ws", # need to change this
+            gatewayName=ns+ "-gateway",
+            hostname=ns + ".k8s.local",
+            secretName=ns + "-credential",
+            groupName=gateway_group,
+            ns=ns,
+            hostFQDN="productpage." + ns + ".svc.cluster.local" if conf.product.cluster_hostname is None else conf.product.cluster_hostname,
         )
-        print_cmdline(cmd)
+        t.close()
+        apply_from_stdin(ns, r)
 
         product_vs = conf.product.virtualservice_yaml
         virtual_service = config.modify_gateway(product_vs, ns)
