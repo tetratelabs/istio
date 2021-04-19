@@ -26,14 +26,12 @@ def save_file(fname, content):
 
 cleanup_script = ""
 
-def create_namespace(index):
+def create_namespace(ns):
     global cleanup_script
-    ns = "bookinfo" + str(index)
     print("Create Namespace : " + ns)
     print_cmdline("kubectl create ns " + ns)
     print_cmdline("kubectl label namespace " + ns + " istio-injection=enabled")
     cleanup_script += "kubectl delete ns " + ns + "\n"
-    return ns
 
 def install_bookinfo(conf, default_context, tenant_name):
     global cleanup_script
@@ -49,6 +47,12 @@ def install_bookinfo(conf, default_context, tenant_name):
         key = str(int(i/3))
         workspace_name = "bookinfo-ws-" + key
         os.mkdir("genned/" + key)
+        os.mkdir("genned/" + key + "/k8s-objects")
+        os.mkdir("genned/" + key + "/tsb-objects")
+
+        productns = "bookinfo-" + key + "-front"
+        detailsns = "bookinfo-" + key + "-mid"
+        reviewsns = "bookinfo-" + key + "-back"
 
         # workspace
         t = open(conf.workspace_yaml)
@@ -57,13 +61,13 @@ def install_bookinfo(conf, default_context, tenant_name):
             orgName=conf.org,
             tenantName=tenant_name,
             workspaceName=workspace_name,
-            ns1="bookinfo"+str(i),
-            ns2="bookinfo"+str(i+1),
-            ns3="bookinfo"+str(i+1),
+            ns1=reviewsns,
+            ns2=detailsns,
+            ns3=productns,
             clusterName=conf.cluster_name
         )
         t.close()
-        save_file("genned/"+key+"/workspaces.yaml", r)
+        save_file("genned/"+key+"/tsb-objects/workspaces.yaml", r)
         apply_from_stdin("tetrate", r)
 
         # groups
@@ -79,13 +83,13 @@ def install_bookinfo(conf, default_context, tenant_name):
             gatewayGroupName=gateway_group,
             trafficGroupName=traffic_group,
             securityGroupName=security_group,
-            productNs="bookinfo"+str(i+2),
-            reviewsNs="bookinfo"+str(i+1),
-            detailsNs="bookinfo"+str(i),
+            productNs=productns,
+            reviewsNs=reviewsns,
+            detailsNs=detailsns,
             clusterName=conf.cluster_name
         )
         t.close()
-        save_file("genned/"+key+"/groups.yaml", r)
+        save_file("genned/"+key+"/tsb-objects/groups.yaml", r)
         apply_from_stdin("tetrate", r)
 
         # perm
@@ -98,7 +102,7 @@ def install_bookinfo(conf, default_context, tenant_name):
             trafficGroupName=traffic_group,
         )
         t.close()
-        save_file("genned/"+key+"/perm.yaml", r)
+        save_file("genned/"+key+"/tsb-objects/perm.yaml", r)
         apply_from_stdin("tetrate", r)
 
         # security
@@ -112,7 +116,7 @@ def install_bookinfo(conf, default_context, tenant_name):
             securityGroupName=security_group,
         )
         t.close()
-        save_file("genned/"+key+"/security.yaml", r)
+        save_file("genned/"+key+"/tsb-objects/security.yaml", r)
         apply_from_stdin("tetrate", r)
 
         if conf.details is not None and conf.details.context is not None:
@@ -120,11 +124,11 @@ def install_bookinfo(conf, default_context, tenant_name):
         else:
             switch_context(default_context)
 
-        ns = create_namespace(i)
+        create_namespace(detailsns)
 
         print("Installing details")
-        print_cmdline(base_cmd + ns + " -l account=details")
-        print_cmdline(base_cmd + ns + " -l app=details")
+        print_cmdline(base_cmd + detailsns + " -l account=details")
+        print_cmdline(base_cmd + detailsns + " -l app=details")
 
         i += 1
 
@@ -133,13 +137,13 @@ def install_bookinfo(conf, default_context, tenant_name):
         else:
             switch_context(default_context)
 
-        ns = create_namespace(i)
+        create_namespace(reviewsns)
 
         print("Installing reviews and ratings")
-        print_cmdline(base_cmd + ns + " -l account=reviews")
-        print_cmdline(base_cmd + ns + " -l app=reviews")
-        print_cmdline(base_cmd + ns + " -l account=ratings")
-        print_cmdline(base_cmd + ns + " -l app=ratings")
+        print_cmdline(base_cmd + reviewsns + " -l account=reviews")
+        print_cmdline(base_cmd + reviewsns + " -l app=reviews")
+        print_cmdline(base_cmd + reviewsns + " -l account=ratings")
+        print_cmdline(base_cmd + reviewsns + " -l app=ratings")
 
         # gateway
         t = open(conf.reviews.virtualservice_yaml)
@@ -149,17 +153,17 @@ def install_bookinfo(conf, default_context, tenant_name):
             tenantName=tenant_name,
             workspaceName=workspace_name,
             groupName=traffic_group,
-            hostFQDN="reviews." + ns + ".svc.cluster.local"
+            hostFQDN="reviews." + reviewsns + ".svc.cluster.local"
             if conf.reviews.cluster_hostname is None
             else conf.reviews.cluster_hostname,
             serviceRouteName="bookinfo-serviceroute",  # need to change
         )
-        save_file("genned/"+key+"/reviews.yaml", r)
+        save_file("genned/"+key+"/tsb-objects/serviceroute.yaml", r)
         t.close()
-        apply_from_stdin(ns, r)
+        apply_from_stdin(reviewsns, r)
 
         print_cmdline(
-            "kubectl apply -f " + conf.reviews.destinationrules_yaml + " -n " + ns
+            "kubectl apply -f " + conf.reviews.destinationrules_yaml + " -n " + reviewsns
         )
 
         i += 1
@@ -169,11 +173,11 @@ def install_bookinfo(conf, default_context, tenant_name):
         else:
             switch_context(default_context)
 
-        ns = create_namespace(i)
+        create_namespace(productns)
 
         print("Installing productpage")
-        print_cmdline(base_cmd + ns + " -l account=productpage")
-        print_cmdline(base_cmd + ns + " -l app=productpage")
+        print_cmdline(base_cmd + productns + " -l account=productpage")
+        print_cmdline(base_cmd + productns + " -l app=productpage")
 
         svc_domain = ".svc.cluster.local"
         reviews_domain = (
@@ -186,13 +190,13 @@ def install_bookinfo(conf, default_context, tenant_name):
             if conf.details is None or conf.details.cluster_hostname is None
             else conf.details.cluster_hostname
         )
-        details_env = "DETAILS_HOSTNAME=details.bookinfo" + str(i - 2) + details_domain
-        reviews_env = "REVIEWS_HOSTNAME=reviews.bookinfo" + str(i - 1) + reviews_domain
-        ratings_env = "RATINGS_HOSTNAME=ratings.bookinfo" + str(i - 1) + reviews_domain
+        details_env = "DETAILS_HOSTNAME=details." + detailsns + details_domain
+        reviews_env = "REVIEWS_HOSTNAME=reviews." + reviewsns + reviews_domain
+        ratings_env = "RATINGS_HOSTNAME=ratings." + reviewsns + reviews_domain
 
         cmd = (
             "kubectl set env deployments productpage-v1 -n "
-            + ns
+            + productns
             + " "
             + ratings_env
             + " "
@@ -202,9 +206,9 @@ def install_bookinfo(conf, default_context, tenant_name):
         )
         print_cmdline(cmd)
 
-        certs.create_private_key(ns)
-        certs.create_cert(ns)
-        certs.create_secret(ns)
+        certs.create_private_key(productns)
+        certs.create_cert(productns)
+        certs.create_secret(productns)
 
         # gateway
         t = open(conf.product.gateway_yaml)
@@ -213,25 +217,25 @@ def install_bookinfo(conf, default_context, tenant_name):
             orgName=conf.org,
             tenantName=tenant_name,
             workspaceName=workspace_name,
-            gatewayName=ns + "-gateway",
-            hostname=ns + ".k8s.local",
-            caSecretName=ns + "-credential",
+            gatewayName=productns + "-gateway",
+            hostname=productns + ".k8s.local",
+            caSecretName=productns + "-credential",
             gatewayGroupName=gateway_group,
-            ns=ns,
-            hostFQDN="productpage." + ns + ".svc.cluster.local"
+            ns=productns,
+            hostFQDN="productpage." + productns + ".svc.cluster.local"
             if conf.product.cluster_hostname is None
             else conf.product.cluster_hostname,
         )
         t.close()
-        apply_from_stdin(ns, r)
-        save_file("genned/"+key+"/gateway.yaml", r)
+        apply_from_stdin(productns, r)
+        save_file("genned/"+key+"/tsb-objects/gateway.yaml", r)
 
         product_vs = conf.product.virtualservice_yaml
-        virtual_service = config.modify_gateway(product_vs, ns)
+        virtual_service = config.modify_gateway(product_vs, productns)
         cmd = (
             "cat << EOF | kubectl apply "
             + " -n "
-            + ns
+            + productns
             + " -f - \n"
             + virtual_service
             + "\nEOF\n"
@@ -242,22 +246,22 @@ def install_bookinfo(conf, default_context, tenant_name):
         t = open("./k8s-objects/ingress.yaml")
         template = Template(t.read())
         r = template.render(
-            ns=ns,
+            ns=productns,
         )
         t.close()
-        apply_from_stdin(ns, r)
-        save_file("genned/"+key+"/ingress.yaml", r)
+        apply_from_stdin(productns, r)
+        save_file("genned/"+key+"/k8s-objects/ingress.yaml", r)
 
         # trafficgen
         t = open("./k8s-objects/traffic-gen.yaml")
         template = Template(t.read())
         r = template.render(
-            ns=ns,
-            hostname=ns+".k8s.local"
+            ns=productns,
+            hostname=productns+".k8s.local"
         )
         t.close()
-        apply_from_stdin(ns, r)
-        save_file("genned/"+key+"/traffic-gen.yaml", r)
+        apply_from_stdin(productns, r)
+        save_file("genned/"+key+"/k8s-objects/traffic-gen.yaml", r)
 
         i += 1
 

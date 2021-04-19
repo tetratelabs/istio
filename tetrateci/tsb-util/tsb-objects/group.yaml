@@ -8,7 +8,7 @@ metadata:
 spec:
   namespaceSelector:
     names:
-      - {{ clusterName }}/{{ productNs }}
+    - {{ clusterName }}/{{ productNs }}
   configMode: BRIDGED
 ---
 apiVersion: traffic.tsb.tetrate.io/v2
@@ -21,7 +21,7 @@ metadata:
 spec:
   namespaceSelector:
     names:
-      - {{ clusterName }}/{{ reviewsNs }}
+    - {{ clusterName }}/{{ reviewsNs }}
   configMode: BRIDGED
 ---
 apiVersion: security.tsb.tetrate.io/v2
@@ -34,8 +34,8 @@ metadata:
 spec:
   namespaceSelector:
     names:
-      - {{ clusterName }}/{{ productNs }}
-      - {{ clusterName }}/{{ reviewsNs }}
-      - {{ clusterName }}/{{ detailsNs }}
+    - {{ clusterName }}/{{ productNs }}
+    - {{ clusterName }}/{{ reviewsNs }}
+    - {{ clusterName }}/{{ detailsNs }}
       
   configMode: BRIDGED

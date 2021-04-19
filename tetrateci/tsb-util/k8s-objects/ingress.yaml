@@ -1,7 +1,7 @@
 apiVersion: install.tetrate.io/v1alpha1
 kind: IngressGateway
 metadata:
-  name: tsb-gateway-bookinfo
+  name: tsb-gateway-{{ ns }}
   namespace: {{ ns }}
 spec:
   kubeSpec:

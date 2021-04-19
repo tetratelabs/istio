@@ -4,4 +4,4 @@ metadata:
   organization: {{ orgName }}
   name: {{ tenantName }}
 spec:
-  displayName: Tetrate
+  displayName: {{ tenantName }}

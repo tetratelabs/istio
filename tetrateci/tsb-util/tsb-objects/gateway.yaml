@@ -10,15 +10,15 @@ spec:
   workloadSelector:
     namespace: tsb-gateway-{{ ns }}
     labels:
-      app: tsb-gateway-bookinfo
+      app: tsb-gateway-{{ ns }}
   http:
-    - name: bookinfo
-      port: 8443
-      hostname: {{ hostname }}
-      tls:
-        mode: SIMPLE
-        secretName: {{ caSecretName }}
-      routing:
-        rules:
-          - route:
-              host: {{ hostFQDN }}
+  - name: bookinfo
+    port: 8443
+    hostname: {{ hostname }}
+    tls:
+      mode: SIMPLE
+      secretName: {{ caSecretName }}
+    routing:
+      rules:
+      - route:
+          host: {{ hostFQDN }}

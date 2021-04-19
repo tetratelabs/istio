@@ -7,6 +7,6 @@ metadata:
 spec:
   namespaceSelector:
     names:
-      - {{ clusterName }}/{{ ns1 }}
-      - {{ clusterName }}/{{ ns2 }}
-      - {{ clusterName }}/{{ ns3 }}
+    - {{ clusterName }}/{{ ns1 }}
+    - {{ clusterName }}/{{ ns2 }}
+    - {{ clusterName }}/{{ ns3 }}

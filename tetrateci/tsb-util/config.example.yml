@@ -4,7 +4,7 @@ config:
       gatewayYaml: "./tsb-objects/gateway.yaml"
       virtualServiceYaml: "./manifests/product-vs.yaml"
     reviews:
-      virtualServiceYaml : "./tsb-objects/reviews.yaml"
+      virtualServiceYaml : "./tsb-objects/serviceroute.yaml"
       destinationRulesYaml: "./manifests/destination-rules.yaml"
     details: {}
     tenantYaml: "./tsb-objects/tenant.yaml"
