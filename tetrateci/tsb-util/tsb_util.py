@@ -50,6 +50,8 @@ def install_bookinfo(conf, default_context):
         orgName=conf.org,
         tenantName="bookinfo",  # need to change this
         workspaceName="bookinfo-ws",  # need to change this
+        ns="tetrate",
+        clusterName=""
     )
     t.close()
     apply_from_stdin("tetrate", r)
@@ -67,6 +69,8 @@ def install_bookinfo(conf, default_context):
         gatewayGroupName=gateway_group,
         trafficGroupName=traffic_group,
         securityGroupName=security_group,
+        ns="tetrate",
+        clusterName=""
     )
     t.close()
     apply_from_stdin("tetrate", r)
@@ -204,8 +208,8 @@ def install_bookinfo(conf, default_context):
             workspaceName="bookinfo-ws",  # need to change this
             gatewayName=ns + "-gateway",
             hostname=ns + ".k8s.local",
-            secretName=ns + "-credential",
-            groupName=gateway_group,
+            caSecretName=ns + "-credential",
+            gatewayGroupName=gateway_group,
             ns=ns,
             hostFQDN="productpage." + ns + ".svc.cluster.local"
             if conf.product.cluster_hostname is None

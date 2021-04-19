@@ -3,12 +3,12 @@ kind: IngressGateway
 Metadata:
   organization: {{ orgName }}
   name: {{ gatewayName }}
-  group: {{ groupName }}
+  group: {{ gatewayGroupName }}
   workspace: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
   workloadSelector:
-    namespace: {{ ns }}
+    namespace: tsb-gateway-{{ ns }}
     labels:
       app: tsb-gateway-bookinfo
   http:
@@ -17,7 +17,7 @@ spec:
       hostname: {{ hostname }}
       tls:
         mode: SIMPLE
-        secretName: {{ secretName }}
+        secretName: {{ caSecretName }}
       routing:
         rules:
           - route:

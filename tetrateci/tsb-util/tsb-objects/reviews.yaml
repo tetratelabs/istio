@@ -12,12 +12,12 @@ spec:
     - name: v1
       labels:
         version: v1
-      weight: 50
+      weight: 60
     - name: v2
       labels:
         version: v2
-      weight: 25
+      weight: 30
     - name: v3
       labels:
-        version: v2
-      weight: 25
+        version: v3
+      weight: 20
