@@ -66,7 +66,7 @@ def parse_config(yaml_dict):
             config["groupsYaml"],
             config["permYaml"],
             config["securityYaml"],
-            config["organisation"]
+            config["organisation"],
         )
         parsed_conf.append(conf)
     return parsed_conf

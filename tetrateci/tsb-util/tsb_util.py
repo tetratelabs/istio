@@ -15,14 +15,7 @@ def print_cmdline(command):
     print(str(cmdline(command), "utf-8"), end="")
 
 def apply_from_stdin(ns, yaml):
-    cmd = (
-            "cat << EOF | kubectl apply "
-            + " -n "
-            + ns
-            + " -f - \n"
-            + yaml
-            + "\nEOF\n"
-        )
+    cmd = "cat << EOF | kubectl apply " + " -n " + ns + " -f - \n" + yaml + "\nEOF\n"
     print_cmdline(cmd)
 
 cleanup_script = ""
@@ -40,40 +33,40 @@ def install_bookinfo(conf, default_context):
     global cleanup_script
 
     # tenants
-    print_cmdline("kubectl create ns tetrate") # need an for multiple
+    print_cmdline("kubectl create ns tetrate")  # need an for multiple
     t = open(conf.tenant_yaml)
     template = Template(t.read())
     r = template.render(
-            orgName=conf.org,
-            tenantName="bookinfo", # need to change this
-        )
+        orgName=conf.org,
+        tenantName="bookinfo",  # need to change this
+    )
     t.close()
-    apply_from_stdin("tetrate", r) # namespaces
+    apply_from_stdin("tetrate", r)  # namespaces
 
     # workspace
     t = open(conf.workspace_yaml)
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName="bookinfo", # need to change this
-        workspaceName="bookinfo-ws", # need to change this
+        tenantName="bookinfo",  # need to change this
+        workspaceName="bookinfo-ws",  # need to change this
     )
     t.close()
     apply_from_stdin("tetrate", r)
 
     # groups
-    gateway_group = "bookinfo-gateway" # need to change
-    traffic_group = "bookinfo-traffic" # need to change
-    security_group = "bookinfo-security" # need to change
+    gateway_group = "bookinfo-gateway"  # need to change
+    traffic_group = "bookinfo-traffic"  # need to change
+    security_group = "bookinfo-security"  # need to change
     t = open(conf.groups_yaml)
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName="bookinfo", # need to change this
-        workspaceName="bookinfo-ws", # need to change this
+        tenantName="bookinfo",  # need to change this
+        workspaceName="bookinfo-ws",  # need to change this
         gatewayGroupName=gateway_group,
         trafficGroupName=traffic_group,
-        securityGroupName=security_group
+        securityGroupName=security_group,
     )
     t.close()
     apply_from_stdin("tetrate", r)
@@ -83,9 +76,9 @@ def install_bookinfo(conf, default_context):
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName="bookinfo", # need to change this
-        workspaceName="bookinfo-ws", # need to change this,
-        trafficGroupName=traffic_group
+        tenantName="bookinfo",  # need to change this
+        workspaceName="bookinfo-ws",  # need to change this,
+        trafficGroupName=traffic_group,
     )
     t.close()
     apply_from_stdin("tetrate", r)
@@ -95,10 +88,10 @@ def install_bookinfo(conf, default_context):
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName="bookinfo", # need to change this
-        workspaceName="bookinfo-ws", # need to change this
-        securitySettingName="bookinfo-security-setting", # need to change
-        securityGroupName=security_group
+        tenantName="bookinfo",  # need to change this
+        workspaceName="bookinfo-ws",  # need to change this
+        securitySettingName="bookinfo-security-setting",  # need to change
+        securityGroupName=security_group,
     )
     t.close()
     apply_from_stdin("tetrate", r)
@@ -143,15 +136,16 @@ def install_bookinfo(conf, default_context):
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
-            tenantName="bookinfo", # need to change this
-            workspaceName="bookinfo-ws", # need to change this
+            tenantName="bookinfo",  # need to change this
+            workspaceName="bookinfo-ws",  # need to change this
             groupName=traffic_group,
-            hostFQDN="reviews" + ns + ".svc.cluster.local" if conf.reviews.cluster_hostname is None else conf.reviews.cluster_hostname,
-            serviceRouteName="bookinfo-serviceroute", # need to change
+            hostFQDN="reviews" + ns + ".svc.cluster.local"
+            if conf.reviews.cluster_hostname is None
+            else conf.reviews.cluster_hostname,
+            serviceRouteName="bookinfo-serviceroute",  # need to change
         )
         t.close()
         apply_from_stdin(ns, r)
-
 
         print_cmdline(
             "kubectl apply -f " + conf.reviews.destinationrules_yaml + " -n " + ns
@@ -206,14 +200,16 @@ def install_bookinfo(conf, default_context):
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
-            tenantName="bookinfo", # need to change this
-            workspaceName="bookinfo-ws", # need to change this
-            gatewayName=ns+ "-gateway",
+            tenantName="bookinfo",  # need to change this
+            workspaceName="bookinfo-ws",  # need to change this
+            gatewayName=ns + "-gateway",
             hostname=ns + ".k8s.local",
             secretName=ns + "-credential",
             groupName=gateway_group,
             ns=ns,
-            hostFQDN="productpage." + ns + ".svc.cluster.local" if conf.product.cluster_hostname is None else conf.product.cluster_hostname,
+            hostFQDN="productpage." + ns + ".svc.cluster.local"
+            if conf.product.cluster_hostname is None
+            else conf.product.cluster_hostname,
         )
         t.close()
         apply_from_stdin(ns, r)
