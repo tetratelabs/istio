@@ -7,6 +7,7 @@ class productpage:
     context: str
     gateway_yaml: str
     virtualservice_yaml: str
+    cluster_hostname: str
 
 @dataclass
 class reviewspage:
@@ -33,6 +34,7 @@ class bookinfo:
     perm_yaml: str
     security_yaml: str
     org: str
+    cluster_name: str
 
 def parse_config(yaml_dict):
     parsed_conf = []
@@ -42,6 +44,7 @@ def parse_config(yaml_dict):
             config["product"].get("context"),
             config["product"]["gatewayYaml"],
             config["product"]["virtualServiceYaml"],
+            config["product"].get("clusterHostName")
         )
         reviews = reviewspage(
             config["reviews"].get("context"),
@@ -67,6 +70,7 @@ def parse_config(yaml_dict):
             config["permYaml"],
             config["securityYaml"],
             config["organisation"],
+            config["clusterName"]
         )
         parsed_conf.append(conf)
     return parsed_conf

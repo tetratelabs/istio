@@ -31,6 +31,8 @@ def create_cert(ns):
     )
 
 def create_secret(ns):
+    print("avoiding secret creationg")
+    """
     secret_name = ns + "-credential"
     hostname = ns + ".k8s.local"
     os.system(
@@ -42,3 +44,4 @@ def create_secret(ns):
         + hostname
         + ".crt"
     )
+    """

@@ -4,7 +4,7 @@ metadata:
   labels:
     app: trafficgenerator
   name: trafficgenerator
-  namespace: bookinfo
+  namespace: {{ ns }}
 spec:
   replicas: 1
   selector:
@@ -28,7 +28,7 @@ spec:
         - -c
         - |
           while :; do
-            curl "https://bookinfo.tetrate.com/productpage" --resolve "bookinfo.tetrate.com:443:34.93.184.210" --cacert /etc/bookinfo/bookinfo-ca.crt #>/dev/null 2>&1
+            curl "https://{{ hostname }}/productpage" --resolve "{{ hostname }}:{{ ip }}" --cacert /etc/bookinfo/bookinfo-ca.crt #>/dev/null 2>&1
             sleep 10
           done
         image: appropriate/curl

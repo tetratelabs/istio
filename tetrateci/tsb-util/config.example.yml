@@ -13,3 +13,4 @@ config:
     permYaml: "./tsb-objects/perm.yaml"
     securityYaml: "./tsb-objects/security.yaml"
     organisation: "tetrate"
+    clusterName: "demo"

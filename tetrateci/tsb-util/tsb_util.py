@@ -12,11 +12,17 @@ def cmdline(command):
     return process.communicate()[0]
 
 def print_cmdline(command):
-    print(str(cmdline(command), "utf-8"), end="")
+    #print(str(cmdline(command), "utf-8"), end="")
+    pass
 
 def apply_from_stdin(ns, yaml):
     cmd = "cat << EOF | kubectl apply " + " -n " + ns + " -f - \n" + yaml + "\nEOF\n"
     print_cmdline(cmd)
+
+def save_file(fname, content):
+    f = open(fname, "w")
+    f.write(content)
+    f.close()
 
 cleanup_script = ""
 
@@ -29,76 +35,8 @@ def create_namespace(index):
     cleanup_script += "kubectl delete ns " + ns + "\n"
     return ns
 
-def install_bookinfo(conf, default_context):
+def install_bookinfo(conf, default_context, tenant_name):
     global cleanup_script
-
-    # tenants
-    print_cmdline("kubectl create ns tetrate")  # need an for multiple
-    t = open(conf.tenant_yaml)
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName="bookinfo",  # need to change this
-    )
-    t.close()
-    apply_from_stdin("tetrate", r)  # namespaces
-
-    # workspace
-    t = open(conf.workspace_yaml)
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName="bookinfo",  # need to change this
-        workspaceName="bookinfo-ws",  # need to change this
-        ns="tetrate",
-        clusterName=""
-    )
-    t.close()
-    apply_from_stdin("tetrate", r)
-
-    # groups
-    gateway_group = "bookinfo-gateway"  # need to change
-    traffic_group = "bookinfo-traffic"  # need to change
-    security_group = "bookinfo-security"  # need to change
-    t = open(conf.groups_yaml)
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName="bookinfo",  # need to change this
-        workspaceName="bookinfo-ws",  # need to change this
-        gatewayGroupName=gateway_group,
-        trafficGroupName=traffic_group,
-        securityGroupName=security_group,
-        ns="tetrate",
-        clusterName=""
-    )
-    t.close()
-    apply_from_stdin("tetrate", r)
-
-    # perm
-    t = open(conf.perm_yaml)
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName="bookinfo",  # need to change this
-        workspaceName="bookinfo-ws",  # need to change this,
-        trafficGroupName=traffic_group,
-    )
-    t.close()
-    apply_from_stdin("tetrate", r)
-
-    # security
-    t = open(conf.security_yaml)
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName="bookinfo",  # need to change this
-        workspaceName="bookinfo-ws",  # need to change this
-        securitySettingName="bookinfo-security-setting",  # need to change
-        securityGroupName=security_group,
-    )
-    t.close()
-    apply_from_stdin("tetrate", r)
 
     download_url = "https://raw.githubusercontent.com/istio/istio/master/samples/bookinfo/platform/kube/bookinfo.yaml"
     urllib.request.urlretrieve(download_url, "/tmp/bookinfo.yaml")
@@ -108,6 +46,74 @@ def install_bookinfo(conf, default_context):
 
     while i < conf.replicas * 3:
         print("Installing Bookinfo")
+        key = str(int(i/3))
+        workspace_name = "bookinfo-ws-" + key
+        os.mkdir("genned/" + key)
+
+        # workspace
+        t = open(conf.workspace_yaml)
+        template = Template(t.read())
+        r = template.render(
+            orgName=conf.org,
+            tenantName=tenant_name,
+            workspaceName=workspace_name,
+            ns1="bookinfo"+str(i),
+            ns2="bookinfo"+str(i+1),
+            ns3="bookinfo"+str(i+1),
+            clusterName=conf.cluster_name
+        )
+        t.close()
+        save_file("genned/"+key+"/workspaces.yaml", r)
+        apply_from_stdin("tetrate", r)
+
+        # groups
+        gateway_group = "bookinfo-gateway-" + key
+        traffic_group = "bookinfo-traffic-" + key
+        security_group = "bookinfo-security-" + key
+        t = open(conf.groups_yaml)
+        template = Template(t.read())
+        r = template.render(
+            orgName=conf.org,
+            tenantName=tenant_name,
+            workspaceName=workspace_name, 
+            gatewayGroupName=gateway_group,
+            trafficGroupName=traffic_group,
+            securityGroupName=security_group,
+            productNs="bookinfo"+str(i+2),
+            reviewsNs="bookinfo"+str(i+1),
+            detailsNs="bookinfo"+str(i),
+            clusterName=conf.cluster_name
+        )
+        t.close()
+        save_file("genned/"+key+"/groups.yaml", r)
+        apply_from_stdin("tetrate", r)
+
+        # perm
+        t = open(conf.perm_yaml)
+        template = Template(t.read())
+        r = template.render(
+            orgName=conf.org,
+            tenantName=tenant_name,
+            workspaceName=workspace_name,
+            trafficGroupName=traffic_group,
+        )
+        t.close()
+        save_file("genned/"+key+"/perm.yaml", r)
+        apply_from_stdin("tetrate", r)
+
+        # security
+        t = open(conf.security_yaml)
+        template = Template(t.read())
+        r = template.render(
+            orgName=conf.org,
+            tenantName=tenant_name,
+            workspaceName=workspace_name,
+            securitySettingName="bookinfo-security-setting",  # need to change
+            securityGroupName=security_group,
+        )
+        t.close()
+        save_file("genned/"+key+"/security.yaml", r)
+        apply_from_stdin("tetrate", r)
 
         if conf.details is not None and conf.details.context is not None:
             switch_context(conf.details.context)
@@ -140,14 +146,15 @@ def install_bookinfo(conf, default_context):
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
-            tenantName="bookinfo",  # need to change this
-            workspaceName="bookinfo-ws",  # need to change this
+            tenantName=tenant_name,
+            workspaceName=workspace_name,
             groupName=traffic_group,
-            hostFQDN="reviews" + ns + ".svc.cluster.local"
+            hostFQDN="reviews." + ns + ".svc.cluster.local"
             if conf.reviews.cluster_hostname is None
             else conf.reviews.cluster_hostname,
             serviceRouteName="bookinfo-serviceroute",  # need to change
         )
+        save_file("genned/"+key+"/reviews.yaml", r)
         t.close()
         apply_from_stdin(ns, r)
 
@@ -204,8 +211,8 @@ def install_bookinfo(conf, default_context):
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
-            tenantName="bookinfo",  # need to change this
-            workspaceName="bookinfo-ws",  # need to change this
+            tenantName=tenant_name,
+            workspaceName=workspace_name,
             gatewayName=ns + "-gateway",
             hostname=ns + ".k8s.local",
             caSecretName=ns + "-credential",
@@ -217,6 +224,7 @@ def install_bookinfo(conf, default_context):
         )
         t.close()
         apply_from_stdin(ns, r)
+        save_file("genned/"+key+"/gateway.yaml", r)
 
         product_vs = conf.product.virtualservice_yaml
         virtual_service = config.modify_gateway(product_vs, ns)
@@ -229,6 +237,27 @@ def install_bookinfo(conf, default_context):
             + "\nEOF\n"
         )
         print_cmdline(cmd)
+
+        # ingress
+        t = open("./k8s-objects/ingress.yaml")
+        template = Template(t.read())
+        r = template.render(
+            ns=ns,
+        )
+        t.close()
+        apply_from_stdin(ns, r)
+        save_file("genned/"+key+"/ingress.yaml", r)
+
+        # trafficgen
+        t = open("./k8s-objects/traffic-gen.yaml")
+        template = Template(t.read())
+        r = template.render(
+            ns=ns,
+            hostname=ns+".k8s.local"
+        )
+        t.close()
+        apply_from_stdin(ns, r)
+        save_file("genned/"+key+"/traffic-gen.yaml", r)
 
         i += 1
 
@@ -259,15 +288,30 @@ def main():
 
     certs.create_root_cert()
 
+    index = 0
+
     for conf in configs:
         if conf.context is not None:
             switch_context(conf.context)
         else:
             switch_context(default_context)
-        install_bookinfo(conf, default_context)
+
+        tenant_name = "bookinfo-tenant-" + str(index)
+        t = open(conf.tenant_yaml)
+        template = Template(t.read())
+        r = template.render(
+            orgName=conf.org,
+            tenantName=tenant_name,
+        )
+        t.close()
+        os.mkdir("genned")
+        save_file("genned/tenant.yaml", r)
+        apply_from_stdin("tetrate", r)  # namespaces
+        install_bookinfo(conf, default_context, tenant_name)
+    index += 1
 
     f = open("./cleanup.sh", "w")
-    f.write(cleanup_script)
+    #f.write(cleanup_script)
     f.close()
 
     print("Run `bash cleanup.sh` for cleaning up all the resources including istio.")
