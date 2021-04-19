@@ -1,0 +1,23 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  annotations:
+    tsb.tetrate.io/gatewayGroup: bookinfo-direct-gw
+    tsb.tetrate.io/tenant: tetrate
+    tsb.tetrate.io/organization: tetrate
+    tsb.tetrate.io/workspace: bookinfo-direct-ws
+  name: bookinfo-direct-gw-ingress-bookinfo-direct
+  namespace: bookinfo-direct
+spec:
+  exportTo:
+  - .
+  gateways:
+  - bookinfo-direct/bookinfo-direct-gw-ingress
+  hosts:
+  - bookinfo-direct.tetrate.com
+  http:
+  - name: bookinfo-direct-gw-ingress-bookinfo-direct-0
+    route:
+    - destination:
+        host: productpage.bookinfo-direct.svc.cluster.local
+      weight: 100

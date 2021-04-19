@@ -1,0 +1,38 @@
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: tetrate
+  tenant: tetrate
+  workspace: bookinfo-direct-ws
+  name: bookinfo-direct-gw
+spec:
+  namespaceSelector:
+    names:
+      - "demo/bookinfo-direct"
+  configMode: DIRECT
+---
+apiVersion: traffic.tsb.tetrate.io/v2
+kind: Group
+Metadata:
+  organization: tetrate
+  tenant: tetrate
+  workspace: bookinfo-direct-ws
+  name: bookinfo-direct-traffic
+spec:
+  namespaceSelector:
+    names:
+      - "demo/bookinfo-direct"
+  configMode: DIRECT
+---
+apiVersion: security.tsb.tetrate.io/v2
+kind: Group
+Metadata:
+  organization: tetrate
+  tenant: tetrate
+  workspace: bookinfo-direct-ws
+  name: bookinfo-direct-security
+spec:
+  namespaceSelector:
+    names:
+      - "demo/bookinfo-direct"
+  configMode: DIRECT

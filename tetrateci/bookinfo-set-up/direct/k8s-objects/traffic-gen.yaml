@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: trafficgenerator
+  name: trafficgenerator
+  namespace: bookinfo-direct
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trafficgenerator
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        app: trafficgenerator
+    spec:
+      containers:
+      - args:
+        - /bin/sh
+        - -c
+        - |
+          while :; do
+            curl "https://bookinfo-direct.tetrate.com/productpage" --resolve "bookinfo-direct.tetrate.com:443:35.244.41.161" --cacert /etc/bookinfo/bookinfo-direct-ca.crt #>/dev/null 2>&1
+            sleep 10
+          done
+        image: appropriate/curl
+        imagePullPolicy: IfNotPresent
+        name: trafficgenerator
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/bookinfo
+          name: bookinfo
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: bookinfo
+        secret:
+          defaultMode: 420
+          secretName: bookinfo-direct-ca-certs

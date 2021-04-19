@@ -1,0 +1,29 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  annotations:
+    tsb.tetrate.io/tenant: tetrate
+    tsb.tetrate.io/organization: tetrate
+    tsb.tetrate.io/trafficGroup: bookinfo-direct-traffic
+    tsb.tetrate.io/workspace: bookinfo-direct-ws
+  name: bookinfo-direct-traffic-reviews
+  namespace: bookinfo-direct
+spec:
+  gateways:
+  - mesh
+  hosts:
+  - reviews.bookinfo-direct.svc.cluster.local
+  http:
+  - route:
+    - destination:
+        host: reviews.bookinfo-direct.svc.cluster.local
+        subset: v1
+      weight: 60
+    - destination:
+        host: reviews.bookinfo-direct.svc.cluster.local
+        subset: v2
+      weight: 30
+    - destination:
+        host: reviews.bookinfo-direct.svc.cluster.local
+        subset: v3
+      weight: 10
