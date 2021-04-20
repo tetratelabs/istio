@@ -20,4 +20,4 @@ spec:
   - name: v3
     labels:
       version: v3
-    weight: 20
+    weight: 10
