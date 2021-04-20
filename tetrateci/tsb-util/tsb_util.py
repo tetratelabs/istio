@@ -37,7 +37,6 @@ def create_namespace(ns, labels, fname):
 def install_bookinfo(conf, default_context, tenant_index):
     global cleanup_script
 
-    base_cmd = "kubectl apply -f /tmp/bookinfo.yaml -n "
     tenant_name = "bookinfo-tenant-" + tenant_index
 
     i = 0
@@ -54,12 +53,30 @@ def install_bookinfo(conf, default_context, tenant_index):
         detailsns = "bookinfo-b" + key + "-t" + tenant_index + "-mid"
         reviewsns = "bookinfo-b" + key + "-t" + tenant_index + "-back"
 
+        svc_domain = ".svc.cluster.local"
+        reviews_domain = (
+            svc_domain
+            if conf.reviews.cluster_hostname is None
+            else conf.reviews.cluster_hostname
+        )
+        details_domain = (
+            svc_domain
+            if conf.details is None or conf.details.cluster_hostname is None
+            else conf.details.cluster_hostname
+        )
+        details_env = "details." + detailsns + details_domain
+        reviews_env = "reviews." + reviewsns + reviews_domain
+        ratings_env = "ratings." + reviewsns + reviews_domain
+
         t = open("k8s-objects/bookinfo.yaml")
         template = Template(t.read())
         r = template.render(
             reviewsns=reviewsns,
             detailsns=detailsns,
             productns=productns,
+            detailsHostName=details_env,
+            reviewsHostName=reviews_env,
+            ratingsHostName=ratings_env,
         )
         t.close()
         save_file("genned/" + key + "/k8s-objects/bookinfo.yaml", r)
@@ -136,10 +153,6 @@ def install_bookinfo(conf, default_context, tenant_index):
             "genned/" + key + "/k8s-objects/detailsns.yaml",
         )
 
-        print("Installing details")
-        print_cmdline(base_cmd + detailsns + " -l account=details")
-        print_cmdline(base_cmd + detailsns + " -l app=details")
-
         i += 1
 
         if conf.reviews.context is not None:
@@ -152,12 +165,6 @@ def install_bookinfo(conf, default_context, tenant_index):
             {"istio-injection": "enabled"},
             "genned/" + key + "/k8s-objects/reviewsns.yaml",
         )
-
-        print("Installing reviews and ratings")
-        print_cmdline(base_cmd + reviewsns + " -l account=reviews")
-        print_cmdline(base_cmd + reviewsns + " -l app=reviews")
-        print_cmdline(base_cmd + reviewsns + " -l account=ratings")
-        print_cmdline(base_cmd + reviewsns + " -l app=ratings")
 
         # gateway
         t = open(conf.reviews.virtualservice_yaml)
@@ -175,13 +182,6 @@ def install_bookinfo(conf, default_context, tenant_index):
         save_file("genned/" + key + "/tsb-objects/serviceroute.yaml", r)
         t.close()
 
-        print_cmdline(
-            "kubectl apply -f "
-            + conf.reviews.destinationrules_yaml
-            + " -n "
-            + reviewsns
-        )
-
         i += 1
 
         if conf.product.context is not None:
@@ -194,37 +194,6 @@ def install_bookinfo(conf, default_context, tenant_index):
             {"istio-injection": "enabled"},
             "genned/" + key + "/k8s-objects/productns.yaml",
         )
-
-        print("Installing productpage")
-        print_cmdline(base_cmd + productns + " -l account=productpage")
-        print_cmdline(base_cmd + productns + " -l app=productpage")
-
-        svc_domain = ".svc.cluster.local"
-        reviews_domain = (
-            svc_domain
-            if conf.reviews.cluster_hostname is None
-            else conf.reviews.cluster_hostname
-        )
-        details_domain = (
-            svc_domain
-            if conf.details is None or conf.details.cluster_hostname is None
-            else conf.details.cluster_hostname
-        )
-        details_env = "DETAILS_HOSTNAME=details." + detailsns + details_domain
-        reviews_env = "REVIEWS_HOSTNAME=reviews." + reviewsns + reviews_domain
-        ratings_env = "RATINGS_HOSTNAME=ratings." + reviewsns + reviews_domain
-
-        cmd = (
-            "kubectl set env deployments productpage-v1 -n "
-            + productns
-            + " "
-            + ratings_env
-            + " "
-            + details_env
-            + " "
-            + reviews_env
-        )
-        print_cmdline(cmd)
 
         certs.create_private_key(productns)
         certs.create_cert(productns)
@@ -249,18 +218,6 @@ def install_bookinfo(conf, default_context, tenant_index):
         t.close()
         save_file("genned/" + key + "/tsb-objects/gateway.yaml", r)
 
-        product_vs = conf.product.virtualservice_yaml
-        virtual_service = config.modify_gateway(product_vs, productns)
-        cmd = (
-            "cat << EOF | kubectl apply "
-            + " -n "
-            + productns
-            + " -f - \n"
-            + virtual_service
-            + "\nEOF\n"
-        )
-        print_cmdline(cmd)
-
         # ingress
         t = open("./k8s-objects/ingress.yaml")
         template = Template(t.read())
@@ -269,6 +226,13 @@ def install_bookinfo(conf, default_context, tenant_index):
         )
         t.close()
         save_file("genned/" + key + "/k8s-objects/ingress.yaml", r)
+
+        # trafficgen
+        t = open("./k8s-objects/role.yaml")
+        template = Template(t.read())
+        r = template.render(targetNS=productns, clientNS=productns)
+        t.close()
+        save_file("genned/" + key + "/k8s-objects/role.yaml", r)
 
         # trafficgen
         t = open("./k8s-objects/traffic-gen.yaml")

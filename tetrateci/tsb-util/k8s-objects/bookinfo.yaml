@@ -245,4 +245,11 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9080
+        env:
+        - name: DETAILS_HOSTNAME
+          value: {{ detailsHostName }}
+        - name: REVIEWS_HOSTNAME
+          value: {{ reviewsHostName }}
+        - name: RATINGS_HOSTNAME
+          value: {{ ratingsHostName }}
 ---

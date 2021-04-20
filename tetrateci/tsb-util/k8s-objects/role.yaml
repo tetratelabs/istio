@@ -1,0 +1,24 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  namespace: {{ targetNS }}
+  name: service-reader
+rules:
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: service-reader-binding
+  namespace: {{ targetNS }}
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: {{ clientNS }}
+roleRef:
+  kind: Role
+  name: service-reader
+  apiGroup: ""
+
