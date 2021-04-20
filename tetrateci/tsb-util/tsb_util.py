@@ -33,12 +33,11 @@ def create_namespace(ns):
     print_cmdline("kubectl label namespace " + ns + " istio-injection=enabled")
     cleanup_script += "kubectl delete ns " + ns + "\n"
 
-def install_bookinfo(conf, default_context, tenant_name):
+def install_bookinfo(conf, default_context, tenant_index):
     global cleanup_script
 
-    download_url = "https://raw.githubusercontent.com/istio/istio/master/samples/bookinfo/platform/kube/bookinfo.yaml"
-    urllib.request.urlretrieve(download_url, "/tmp/bookinfo.yaml")
     base_cmd = "kubectl apply -f /tmp/bookinfo.yaml -n "
+    tenant_name = "bookinfo-tenant-" + tenant_index
 
     i = 0
 
@@ -50,9 +49,19 @@ def install_bookinfo(conf, default_context, tenant_name):
         os.mkdir("genned/" + key + "/k8s-objects")
         os.mkdir("genned/" + key + "/tsb-objects")
 
-        productns = "bookinfo-" + key + "-front"
-        detailsns = "bookinfo-" + key + "-mid"
-        reviewsns = "bookinfo-" + key + "-back"
+        productns = "bookinfo-b" + key + "-t" + tenant_index + "-front"
+        detailsns = "bookinfo-b" + key + "-t" + tenant_index + "-mid"
+        reviewsns = "bookinfo-b" + key + "-t" + tenant_index + "-back"
+
+        t = open("k8s-objects/bookinfo.yaml")
+        template = Template(t.read())
+        r = template.render(
+            reviewsns=reviewsns,
+            detailsns=detailsns,
+            productns=productns,
+        )
+        t.close()
+        save_file("genned/"+key+"/k8s-objects/bookinfo.yaml", r)
 
         # workspace
         t = open(conf.workspace_yaml)
@@ -311,7 +320,7 @@ def main():
         os.mkdir("genned")
         save_file("genned/tenant.yaml", r)
         apply_from_stdin("tetrate", r)  # namespaces
-        install_bookinfo(conf, default_context, tenant_name)
+        install_bookinfo(conf, default_context, str(index))
     index += 1
 
     f = open("./cleanup.sh", "w")
