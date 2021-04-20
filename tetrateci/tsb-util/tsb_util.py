@@ -5,6 +5,7 @@ import config
 import certs
 from subprocess import PIPE, Popen
 from jinja2 import Template
+import yaml
 
 # https://stackoverflow.com/a/23796709
 def cmdline(command):
@@ -12,12 +13,8 @@ def cmdline(command):
     return process.communicate()[0]
 
 def print_cmdline(command):
-    #print(str(cmdline(command), "utf-8"), end="")
+    # print(str(cmdline(command), "utf-8"), end="")
     pass
-
-def apply_from_stdin(ns, yaml):
-    cmd = "cat << EOF | kubectl apply " + " -n " + ns + " -f - \n" + yaml + "\nEOF\n"
-    print_cmdline(cmd)
 
 def save_file(fname, content):
     f = open(fname, "w")
@@ -26,12 +23,16 @@ def save_file(fname, content):
 
 cleanup_script = ""
 
-def create_namespace(ns):
-    global cleanup_script
-    print("Create Namespace : " + ns)
-    print_cmdline("kubectl create ns " + ns)
-    print_cmdline("kubectl label namespace " + ns + " istio-injection=enabled")
-    cleanup_script += "kubectl delete ns " + ns + "\n"
+def create_namespace(ns, labels, fname):
+    yamlcontent = {
+        "apiVersion": "v1",
+        "kind": "Namespace",
+        "metadata": {"name": ns, "labels": labels},
+    }
+
+    f = open(fname, "w")
+    yaml.safe_dump(yamlcontent, f)
+    f.close()
 
 def install_bookinfo(conf, default_context, tenant_index):
     global cleanup_script
@@ -43,7 +44,7 @@ def install_bookinfo(conf, default_context, tenant_index):
 
     while i < conf.replicas * 3:
         print("Installing Bookinfo")
-        key = str(int(i/3))
+        key = str(int(i / 3))
         workspace_name = "bookinfo-ws-" + key
         os.mkdir("genned/" + key)
         os.mkdir("genned/" + key + "/k8s-objects")
@@ -61,7 +62,7 @@ def install_bookinfo(conf, default_context, tenant_index):
             productns=productns,
         )
         t.close()
-        save_file("genned/"+key+"/k8s-objects/bookinfo.yaml", r)
+        save_file("genned/" + key + "/k8s-objects/bookinfo.yaml", r)
 
         # workspace
         t = open(conf.workspace_yaml)
@@ -73,11 +74,10 @@ def install_bookinfo(conf, default_context, tenant_index):
             ns1=reviewsns,
             ns2=detailsns,
             ns3=productns,
-            clusterName=conf.cluster_name
+            clusterName=conf.cluster_name,
         )
         t.close()
-        save_file("genned/"+key+"/tsb-objects/workspaces.yaml", r)
-        apply_from_stdin("tetrate", r)
+        save_file("genned/" + key + "/tsb-objects/workspaces.yaml", r)
 
         # groups
         gateway_group = "bookinfo-gateway-" + key
@@ -88,18 +88,17 @@ def install_bookinfo(conf, default_context, tenant_index):
         r = template.render(
             orgName=conf.org,
             tenantName=tenant_name,
-            workspaceName=workspace_name, 
+            workspaceName=workspace_name,
             gatewayGroupName=gateway_group,
             trafficGroupName=traffic_group,
             securityGroupName=security_group,
             productNs=productns,
             reviewsNs=reviewsns,
             detailsNs=detailsns,
-            clusterName=conf.cluster_name
+            clusterName=conf.cluster_name,
         )
         t.close()
-        save_file("genned/"+key+"/tsb-objects/groups.yaml", r)
-        apply_from_stdin("tetrate", r)
+        save_file("genned/" + key + "/tsb-objects/groups.yaml", r)
 
         # perm
         t = open(conf.perm_yaml)
@@ -111,8 +110,7 @@ def install_bookinfo(conf, default_context, tenant_index):
             trafficGroupName=traffic_group,
         )
         t.close()
-        save_file("genned/"+key+"/tsb-objects/perm.yaml", r)
-        apply_from_stdin("tetrate", r)
+        save_file("genned/" + key + "/tsb-objects/perm.yaml", r)
 
         # security
         t = open(conf.security_yaml)
@@ -125,15 +123,18 @@ def install_bookinfo(conf, default_context, tenant_index):
             securityGroupName=security_group,
         )
         t.close()
-        save_file("genned/"+key+"/tsb-objects/security.yaml", r)
-        apply_from_stdin("tetrate", r)
+        save_file("genned/" + key + "/tsb-objects/security.yaml", r)
 
         if conf.details is not None and conf.details.context is not None:
             switch_context(conf.details.context)
         else:
             switch_context(default_context)
 
-        create_namespace(detailsns)
+        create_namespace(
+            detailsns,
+            {"istio-injection": "enabled"},
+            "genned/" + key + "/k8s-objects/detailsns.yaml",
+        )
 
         print("Installing details")
         print_cmdline(base_cmd + detailsns + " -l account=details")
@@ -146,7 +147,11 @@ def install_bookinfo(conf, default_context, tenant_index):
         else:
             switch_context(default_context)
 
-        create_namespace(reviewsns)
+        create_namespace(
+            reviewsns,
+            {"istio-injection": "enabled"},
+            "genned/" + key + "/k8s-objects/reviewsns.yaml",
+        )
 
         print("Installing reviews and ratings")
         print_cmdline(base_cmd + reviewsns + " -l account=reviews")
@@ -167,12 +172,14 @@ def install_bookinfo(conf, default_context, tenant_index):
             else conf.reviews.cluster_hostname,
             serviceRouteName="bookinfo-serviceroute",  # need to change
         )
-        save_file("genned/"+key+"/tsb-objects/serviceroute.yaml", r)
+        save_file("genned/" + key + "/tsb-objects/serviceroute.yaml", r)
         t.close()
-        apply_from_stdin(reviewsns, r)
 
         print_cmdline(
-            "kubectl apply -f " + conf.reviews.destinationrules_yaml + " -n " + reviewsns
+            "kubectl apply -f "
+            + conf.reviews.destinationrules_yaml
+            + " -n "
+            + reviewsns
         )
 
         i += 1
@@ -182,7 +189,11 @@ def install_bookinfo(conf, default_context, tenant_index):
         else:
             switch_context(default_context)
 
-        create_namespace(productns)
+        create_namespace(
+            productns,
+            {"istio-injection": "enabled"},
+            "genned/" + key + "/k8s-objects/productns.yaml",
+        )
 
         print("Installing productpage")
         print_cmdline(base_cmd + productns + " -l account=productpage")
@@ -217,7 +228,7 @@ def install_bookinfo(conf, default_context, tenant_index):
 
         certs.create_private_key(productns)
         certs.create_cert(productns)
-        certs.create_secret(productns, "genned/"+key+"/k8s-objects/secret.yaml")
+        certs.create_secret(productns, "genned/" + key + "/k8s-objects/secret.yaml")
 
         # gateway
         t = open(conf.product.gateway_yaml)
@@ -236,8 +247,7 @@ def install_bookinfo(conf, default_context, tenant_index):
             else conf.product.cluster_hostname,
         )
         t.close()
-        apply_from_stdin(productns, r)
-        save_file("genned/"+key+"/tsb-objects/gateway.yaml", r)
+        save_file("genned/" + key + "/tsb-objects/gateway.yaml", r)
 
         product_vs = conf.product.virtualservice_yaml
         virtual_service = config.modify_gateway(product_vs, productns)
@@ -258,19 +268,14 @@ def install_bookinfo(conf, default_context, tenant_index):
             ns=productns,
         )
         t.close()
-        apply_from_stdin(productns, r)
-        save_file("genned/"+key+"/k8s-objects/ingress.yaml", r)
+        save_file("genned/" + key + "/k8s-objects/ingress.yaml", r)
 
         # trafficgen
         t = open("./k8s-objects/traffic-gen.yaml")
         template = Template(t.read())
-        r = template.render(
-            ns=productns,
-            hostname=productns+".k8s.local"
-        )
+        r = template.render(ns=productns, hostname=productns + ".k8s.local")
         t.close()
-        apply_from_stdin(productns, r)
-        save_file("genned/"+key+"/k8s-objects/traffic-gen.yaml", r)
+        save_file("genned/" + key + "/k8s-objects/traffic-gen.yaml", r)
 
         i += 1
 
@@ -319,12 +324,11 @@ def main():
         t.close()
         os.mkdir("genned")
         save_file("genned/tenant.yaml", r)
-        apply_from_stdin("tetrate", r)  # namespaces
         install_bookinfo(conf, default_context, str(index))
     index += 1
 
     f = open("./cleanup.sh", "w")
-    #f.write(cleanup_script)
+    # f.write(cleanup_script)
     f.close()
 
     print("Run `bash cleanup.sh` for cleaning up all the resources including istio.")

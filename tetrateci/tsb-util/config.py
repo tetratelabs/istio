@@ -44,7 +44,7 @@ def parse_config(yaml_dict):
             config["product"].get("context"),
             config["product"]["gatewayYaml"],
             config["product"]["virtualServiceYaml"],
-            config["product"].get("clusterHostName")
+            config["product"].get("clusterHostName"),
         )
         reviews = reviewspage(
             config["reviews"].get("context"),
@@ -70,7 +70,7 @@ def parse_config(yaml_dict):
             config["permYaml"],
             config["securityYaml"],
             config["organisation"],
-            config["clusterName"]
+            config["clusterName"],
         )
         parsed_conf.append(conf)
     return parsed_conf

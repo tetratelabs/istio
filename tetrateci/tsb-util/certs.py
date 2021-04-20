@@ -55,4 +55,3 @@ def create_secret(ns, fname):
     f.close()
     keyfile.close()
     certfile.close()
-
