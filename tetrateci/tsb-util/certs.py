@@ -1,4 +1,6 @@
 import os
+import yaml
+import base64
 
 def create_root_cert():
     os.system("mkdir cert")
@@ -30,18 +32,27 @@ def create_cert(ns):
         + ".crt"
     )
 
-def create_secret(ns):
-    print("avoiding secret creationg")
-    """
+def create_secret(ns, fname):
     secret_name = ns + "-credential"
     hostname = ns + ".k8s.local"
-    os.system(
-        "kubectl create -n istio-system secret tls "
-        + secret_name
-        + " --key=cert/"
-        + hostname
-        + ".key --cert=cert/"
-        + hostname
-        + ".crt"
-    )
-    """
+    keyfile = open("cert/" + hostname + ".key")
+    certfile = open("cert/" + hostname + ".crt")
+
+    yamlcontent = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": secret_name},
+        "type": "kubernetes.io/tls",
+        "data": {
+            # the data is abbreviated in this example
+            "tls.crt": base64.b64encode(certfile.read().encode("utf-8")),
+            "tls.key": base64.b64encode(keyfile.read().encode("utf-8")),
+        },
+    }
+
+    f = open(fname, "w")
+    yaml.safe_dump(yamlcontent, f)
+    f.close()
+    keyfile.close()
+    certfile.close()
+

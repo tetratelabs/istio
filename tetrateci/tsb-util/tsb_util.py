@@ -208,7 +208,7 @@ def install_bookinfo(conf, default_context, tenant_name):
 
         certs.create_private_key(productns)
         certs.create_cert(productns)
-        certs.create_secret(productns)
+        certs.create_secret(productns, "genned/"+key+"/k8s-objects/secret.yaml")
 
         # gateway
         t = open(conf.product.gateway_yaml)
