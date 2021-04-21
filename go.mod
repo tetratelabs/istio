@@ -23,8 +23,13 @@ replace github.com/Microsoft/hcsshim => github.com/Microsoft/hcsshim v0.8.8-0.20
 // Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
 replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 
-// istio/api 1.7.8 + cherry pick commits that restore Kubernetes v1.15 support
-replace istio.io/api => github.com/tetratelabs/istio-api v0.0.0-20210504133856-2c5bd7b4bc20
+// istio/api 1.7.8 + cherry pick commits that restore Kubernetes v1.15 support + CVE fix of istio-security-2021-005
+replace istio.io/api => github.com/tetratelabs/istio-api v0.0.0-20210713150245-41be1c5550dd
+
+// Required to fix unknown version error:
+//
+//   github.com/envoyproxy/go-control-plane@v0.9.8-0.20210420150603-831d6316d7b9: invalid version: unknown revision 831d6316d7b9
+replace github.com/envoyproxy/go-control-plane => github.com/istio/go-control-plane v0.9.8-0.20210420150603-831d6316d7b9
 
 require (
 	cloud.google.com/go v0.50.0
@@ -65,7 +70,7 @@ require (
 	github.com/elazarl/goproxy v0.0.0-20190630181448-f1e96bc0f4c5 // indirect
 	github.com/elazarl/goproxy/ext v0.0.0-20190630181448-f1e96bc0f4c5 // indirect
 	github.com/emicklei/go-restful v2.9.6+incompatible // indirect
-	github.com/envoyproxy/go-control-plane v0.9.7-0.20200730005029-803dd64f0468
+	github.com/envoyproxy/go-control-plane v0.9.8-0.20210420150603-831d6316d7b9
 	github.com/evanphx/json-patch v4.5.0+incompatible
 	github.com/fatih/color v1.7.0
 	github.com/fluent/fluent-logger-golang v1.3.0

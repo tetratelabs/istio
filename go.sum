@@ -223,12 +223,6 @@ github.com/emicklei/go-restful v0.0.0-20170410110728-ff4f55a20633/go.mod h1:otzb
 github.com/emicklei/go-restful v2.9.5+incompatible/go.mod h1:otzb+WCGbkyDHkqmQmT5YD2WR4BBwUdeQoFo8l/7tVs=
 github.com/emicklei/go-restful v2.9.6+incompatible h1:tfrHha8zJ01ywiOEC1miGY8st1/igzWB8OmvPgoYX7w=
 github.com/emicklei/go-restful v2.9.6+incompatible/go.mod h1:otzb+WCGbkyDHkqmQmT5YD2WR4BBwUdeQoFo8l/7tVs=
-github.com/envoyproxy/go-control-plane v0.6.9/go.mod h1:SBwIajubJHhxtWwsL9s8ss4safvEdbitLhGGK48rN6g=
-github.com/envoyproxy/go-control-plane v0.9.0/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=
-github.com/envoyproxy/go-control-plane v0.9.1-0.20191026205805-5f8ba28d4473/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=
-github.com/envoyproxy/go-control-plane v0.9.4/go.mod h1:6rpuAdCZL397s3pYoYcLgu1mIlRU8Am5FuJP05cCM98=
-github.com/envoyproxy/go-control-plane v0.9.7-0.20200730005029-803dd64f0468 h1:d6NP0AddmfOtmgiEBSyNU7Q8FfCXUjISIyXWU76oaAc=
-github.com/envoyproxy/go-control-plane v0.9.7-0.20200730005029-803dd64f0468/go.mod h1:cwu0lG7PUMfa9snN8LXBig5ynNVH9qI8YYLbd1fK2po=
 github.com/envoyproxy/protoc-gen-validate v0.1.0 h1:EQciDnbrYxy13PgWoY8AqoxGiPrpgBZ1R8UNe3ddc+A=
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=
 github.com/evanphx/json-patch v4.2.0+incompatible/go.mod h1:50XU6AFN0ol/bzJsmQLiYLvXMP4fmwYFNcr97nuDLSk=
@@ -485,6 +479,8 @@ github.com/inconshreveable/mousetrap v1.0.0 h1:Z8tu5sraLXCXIcARxBp/8cbvlwVa7Z1NH
 github.com/inconshreveable/mousetrap v1.0.0/go.mod h1:PxqpIevigyE2G7u3NXJIT2ANytuPF1OarO4DADm73n8=
 github.com/istio/glog v0.0.0-20190424172949-d7cfb6fa2ccd h1:AJnLAbRpHRy2stiICRI1hcp0f8EExPEiZLgeOmCGnuE=
 github.com/istio/glog v0.0.0-20190424172949-d7cfb6fa2ccd/go.mod h1:gF8UB8w1Mqkddo9AqNOPkiduBosB3HHkpC5ra96cDzw=
+github.com/istio/go-control-plane v0.9.8-0.20210420150603-831d6316d7b9 h1:VVczbb9W+T/6TIocczV6ni6tKVVz07/ouKEu2GtRJ3Q=
+github.com/istio/go-control-plane v0.9.8-0.20210420150603-831d6316d7b9/go.mod h1:cwu0lG7PUMfa9snN8LXBig5ynNVH9qI8YYLbd1fK2po=
 github.com/istio/klog v0.0.0-20190424230111-fb7481ea8bcf h1:AshFubsUWsHMYfGoz5XLZOOF87wnop5O/Fjjnqjk8lY=
 github.com/istio/klog v0.0.0-20190424230111-fb7481ea8bcf/go.mod h1:9gnFtvcm4y+2DZMNXbO8Q7Ke2kUDomg7HhR/mEs5wVA=
 github.com/istio/viper v1.3.3-0.20190515210538-2789fed3109c h1:EFWADU43GY2T7NIYYbIHWdrG2hRiWyGSHeON57ZADBE=
@@ -756,8 +752,8 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/stretchr/testify v1.5.1 h1:nOGnQDM7FYENwehXlg/kFVnos3rEvtKTjRvOWSzb6H4=
 github.com/stretchr/testify v1.5.1/go.mod h1:5W2xD1RspED5o8YsWQXVCued0rvSQ+mT+I5cxcmMvtA=
-github.com/tetratelabs/istio-api v0.0.0-20210504133856-2c5bd7b4bc20 h1:TSdaiF+88U6bfEQCdCjfcuRGvgCXWb3aUK9QPU+zYD0=
-github.com/tetratelabs/istio-api v0.0.0-20210504133856-2c5bd7b4bc20/go.mod h1:88HN3o1fSD1jo+Z1WTLlJfMm9biopur6Ct9BFKjiB64=
+github.com/tetratelabs/istio-api v0.0.0-20210713150245-41be1c5550dd h1:PIGRPUQy1u0pAprPGYtLQlW0R+TMrrOA3ozbNCCwNWA=
+github.com/tetratelabs/istio-api v0.0.0-20210713150245-41be1c5550dd/go.mod h1:88HN3o1fSD1jo+Z1WTLlJfMm9biopur6Ct9BFKjiB64=
 github.com/tidwall/pretty v1.0.0/go.mod h1:XNkn88O1ChpSDQmQeStsy+sBenx6DDtFZJxhVysOjyk=
 github.com/tinylib/msgp v1.0.2 h1:DfdQrzQa7Yh2es9SuLkixqxuXS2SxsdYn0KbdrOGWD8=
 github.com/tinylib/msgp v1.0.2/go.mod h1:+d+yLhGm8mzTaHzB+wgMYrodPfmZrzkirds8fDWklFE=
