@@ -7,21 +7,10 @@ from subprocess import PIPE, Popen
 from jinja2 import Template
 import yaml
 
-# https://stackoverflow.com/a/23796709
-def cmdline(command):
-    process = Popen(args=command, stdout=PIPE, shell=True)
-    return process.communicate()[0]
-
-def print_cmdline(command):
-    # print(str(cmdline(command), "utf-8"), end="")
-    pass
-
 def save_file(fname, content):
     f = open(fname, "w")
     f.write(content)
     f.close()
-
-cleanup_script = ""
 
 def create_namespace(ns, labels, fname):
     yamlcontent = {
@@ -34,9 +23,7 @@ def create_namespace(ns, labels, fname):
     yaml.safe_dump(yamlcontent, f)
     f.close()
 
-def install_bookinfo(conf, default_context, tenant_index):
-    global cleanup_script
-
+def install_bookinfo(conf, tenant_index):
     tenant_name = "bookinfo-tenant-" + tenant_index
 
     i = 0
@@ -54,19 +41,9 @@ def install_bookinfo(conf, default_context, tenant_index):
         reviewsns = "bookinfo-b" + key + "-t" + tenant_index + "-back"
 
         svc_domain = ".svc.cluster.local"
-        reviews_domain = (
-            svc_domain
-            if conf.reviews.cluster_hostname is None
-            else conf.reviews.cluster_hostname
-        )
-        details_domain = (
-            svc_domain
-            if conf.details is None or conf.details.cluster_hostname is None
-            else conf.details.cluster_hostname
-        )
-        details_env = "details." + detailsns + details_domain
-        reviews_env = "reviews." + reviewsns + reviews_domain
-        ratings_env = "ratings." + reviewsns + reviews_domain
+        details_env = "details." + detailsns + svc_domain
+        reviews_env = "reviews." + reviewsns + svc_domain
+        ratings_env = "ratings." + reviewsns + svc_domain
 
         t = open("k8s-objects/bookinfo.yaml")
         template = Template(t.read())
@@ -82,7 +59,7 @@ def install_bookinfo(conf, default_context, tenant_index):
         save_file("genned/" + key + "/k8s-objects/bookinfo.yaml", r)
 
         # workspace
-        t = open(conf.workspace_yaml)
+        t = open("tsb-objects/workspace.yaml")
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
@@ -100,7 +77,7 @@ def install_bookinfo(conf, default_context, tenant_index):
         gateway_group = "bookinfo-gateway-" + key
         traffic_group = "bookinfo-traffic-" + key
         security_group = "bookinfo-security-" + key
-        t = open(conf.groups_yaml)
+        t = open("tsb-objects/group.yaml")
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
@@ -118,7 +95,7 @@ def install_bookinfo(conf, default_context, tenant_index):
         save_file("genned/" + key + "/tsb-objects/groups.yaml", r)
 
         # perm
-        t = open(conf.perm_yaml)
+        t = open("tsb-objects/perm.yaml")
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
@@ -130,7 +107,7 @@ def install_bookinfo(conf, default_context, tenant_index):
         save_file("genned/" + key + "/tsb-objects/perm.yaml", r)
 
         # security
-        t = open(conf.security_yaml)
+        t = open("tsb-objects/security.yaml")
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
@@ -142,11 +119,6 @@ def install_bookinfo(conf, default_context, tenant_index):
         t.close()
         save_file("genned/" + key + "/tsb-objects/security.yaml", r)
 
-        if conf.details is not None and conf.details.context is not None:
-            switch_context(conf.details.context)
-        else:
-            switch_context(default_context)
-
         create_namespace(
             detailsns,
             {"istio-injection": "enabled"},
@@ -155,11 +127,6 @@ def install_bookinfo(conf, default_context, tenant_index):
 
         i += 1
 
-        if conf.reviews.context is not None:
-            switch_context(conf.reviews.context)
-        else:
-            switch_context(default_context)
-
         create_namespace(
             reviewsns,
             {"istio-injection": "enabled"},
@@ -167,27 +134,20 @@ def install_bookinfo(conf, default_context, tenant_index):
         )
 
         # gateway
-        t = open(conf.reviews.virtualservice_yaml)
+        t = open("tsb-objects/serviceroute.yaml")
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
             tenantName=tenant_name,
             workspaceName=workspace_name,
             groupName=traffic_group,
-            hostFQDN="reviews." + reviewsns + ".svc.cluster.local"
-            if conf.reviews.cluster_hostname is None
-            else conf.reviews.cluster_hostname,
+            hostFQDN="reviews." + reviewsns + ".svc.cluster.local",
             serviceRouteName="bookinfo-serviceroute",  # need to change
         )
         save_file("genned/" + key + "/tsb-objects/serviceroute.yaml", r)
         t.close()
 
         i += 1
-
-        if conf.product.context is not None:
-            switch_context(conf.product.context)
-        else:
-            switch_context(default_context)
 
         create_namespace(
             productns,
@@ -200,7 +160,7 @@ def install_bookinfo(conf, default_context, tenant_index):
         certs.create_secret(productns, "genned/" + key + "/k8s-objects/secret.yaml")
 
         # gateway
-        t = open(conf.product.gateway_yaml)
+        t = open("tsb-objects/gateway.yaml")
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
@@ -211,9 +171,7 @@ def install_bookinfo(conf, default_context, tenant_index):
             caSecretName=productns + "-credential",
             gatewayGroupName=gateway_group,
             ns=productns,
-            hostFQDN="productpage." + productns + ".svc.cluster.local"
-            if conf.product.cluster_hostname is None
-            else conf.product.cluster_hostname,
+            hostFQDN="productpage." + productns + ".svc.cluster.local",
         )
         t.close()
         save_file("genned/" + key + "/tsb-objects/gateway.yaml", r)
@@ -228,14 +186,14 @@ def install_bookinfo(conf, default_context, tenant_index):
         save_file("genned/" + key + "/k8s-objects/ingress.yaml", r)
 
         # trafficgen
-        t = open("./k8s-objects/role.yaml")
+        t = open("k8s-objects/role.yaml")
         template = Template(t.read())
         r = template.render(targetNS=productns, clientNS=productns)
         t.close()
         save_file("genned/" + key + "/k8s-objects/role.yaml", r)
 
         # trafficgen
-        t = open("./k8s-objects/traffic-gen.yaml")
+        t = open("k8s-objects/traffic-gen.yaml")
         template = Template(t.read())
         r = template.render(ns=productns, hostname=productns + ".k8s.local")
         t.close()
@@ -245,16 +203,7 @@ def install_bookinfo(conf, default_context, tenant_index):
 
         print("Bookinfo installed\n")
 
-def switch_context(context):
-    global cleanup_script
-    cmd = "kubectl config use-context " + context
-    print("Switching Context | Running: " + cmd)
-    print_cmdline(cmd)
-    cleanup_script += cmd + "\n"
-
 def main():
-    global cleanup_script
-
     parser = argparse.ArgumentParser(description="Spin up bookinfo instances")
 
     parser.add_argument("--config", help="the istio version tag to be installed")
@@ -266,20 +215,13 @@ def main():
 
     configs = config.read_config_yaml(args.config)
 
-    default_context = str(cmdline("kubectl config current-context"), "utf-8")
-
     certs.create_root_cert()
 
     index = 0
 
     for conf in configs:
-        if conf.context is not None:
-            switch_context(conf.context)
-        else:
-            switch_context(default_context)
-
         tenant_name = "bookinfo-tenant-" + str(index)
-        t = open(conf.tenant_yaml)
+        t = open("tsb-objects/tenant.yaml")
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
@@ -288,14 +230,8 @@ def main():
         t.close()
         os.mkdir("genned")
         save_file("genned/tenant.yaml", r)
-        install_bookinfo(conf, default_context, str(index))
+        install_bookinfo(conf, str(index))
     index += 1
-
-    f = open("./cleanup.sh", "w")
-    # f.write(cleanup_script)
-    f.close()
-
-    print("Run `bash cleanup.sh` for cleaning up all the resources including istio.")
 
 if __name__ == "__main__":
     main()
