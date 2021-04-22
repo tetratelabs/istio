@@ -1,0 +1,29 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  annotations:
+    tsb.tetrate.io/tenant: {{ tenantName }}
+    tsb.tetrate.io/organization: {{ orgName }}
+    tsb.tetrate.io/trafficGroup: {{ trafficGroupName }}
+    tsb.tetrate.io/workspace: {{ workspaceName }}
+  name: {{ serviceRouteName }}
+  namespace: {{ ns }}
+spec:
+  gateways:
+  - mesh
+  hosts:
+  - {{ hostFQDN }}
+  http:
+  - route:
+    - destination:
+        host: {{ hostFQDN }}
+        subset: v1
+      weight: 60
+    - destination:
+        host: {{ hostFQDN }}
+        subset: v2
+      weight: 30
+    - destination:
+        host: {{ hostFQDN }}
+        subset: v3
+      weight: 10

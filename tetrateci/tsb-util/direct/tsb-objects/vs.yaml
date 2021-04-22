@@ -1,0 +1,23 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  annotations:
+    tsb.tetrate.io/gatewayGroup: {{ gatewayGroupName }}
+    tsb.tetrate.io/tenant: {{ tenantName }}
+    tsb.tetrate.io/organization: {{ orgName }}
+    tsb.tetrate.io/workspace: {{ workspaceName }}
+  name: {{ virtualserviceName }}
+  namespace: {{ ns }}
+spec:
+  exportTo:
+  - .
+  gateways:
+  - {{ ns }}/{{ gatewayName }}
+  hosts:
+  - {{ hostFQDN }}
+  http:
+  - name: http
+    route:
+    - destination:
+        host: {{ hostFQDN }}
+      weight: 100

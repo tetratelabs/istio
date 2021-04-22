@@ -134,8 +134,11 @@ def install_bookinfo(conf, tenant_index):
             "genned/" + key + "/k8s-objects/reviewsns.yaml",
         )
 
-        # gateway
-        t = open("tsb-objects/serviceroute.yaml")
+        # serviceroute
+        servicerouteFile = "tsb-objects/serviceroute.yaml"
+        if conf.mode == "direct":
+            servicerouteFile = "direct/tsb-objects/reviews-vs.yaml"
+        t = open(servicerouteFile)
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
@@ -144,14 +147,33 @@ def install_bookinfo(conf, tenant_index):
             groupName=traffic_group,
             hostFQDN="reviews." + reviewsns + ".svc.cluster.local",
             serviceRouteName="bookinfo-serviceroute",  # need to change
+            ns=reviewsns,
         )
         save_file("genned/" + key + "/tsb-objects/serviceroute.yaml", r)
         t.close()
 
+        if conf.mode == "direct":
+            t = open("direct/tsb-objects/dr.yaml")
+            template = Template(t.read())
+            r = template.render(
+                orgName=conf.org,
+                tenantName=tenant_name,
+                workspaceName=workspace_name,
+                trafficGroupName=traffic_group,
+                hostFQDN="reviews." + reviewsns + ".svc.cluster.local",
+                destinationruleName="bookinfo-destinationrule",  # need to change
+                ns=reviewsns,
+            )
+            save_file("genned/" + key + "/tsb-objects/destinationrule.yaml", r)
+            t.close()
+
         i += 1
 
         # gateway
-        t = open("tsb-objects/gateway.yaml")
+        gatewayFile = "tsb-objects/gateway.yaml"
+        if conf.mode == "direct":
+            gatewayFile = "direct/tsb-objects/gw.yaml"
+        t = open(gatewayFile)
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
@@ -166,6 +188,22 @@ def install_bookinfo(conf, tenant_index):
         )
         t.close()
         save_file("genned/" + key + "/tsb-objects/gateway.yaml", r)
+
+        if conf.mode == "direct":
+            t = open("direct/tsb-objects/vs.yaml")
+            template = Template(t.read())
+            r = template.render(
+                orgName=conf.org,
+                tenantName=tenant_name,
+                workspaceName=workspace_name,
+                gatewayGroupName=gateway_group,
+                hostFQDN=productns + ".k8s.local",
+                virtualserviceName="bookinfo-virtualservice",  # need to change
+                ns=productns,
+                gatewayName=productns + "-gateway",
+            )
+            save_file("genned/" + key + "/tsb-objects/virtualservice.yaml", r)
+            t.close()
 
         gen_k8s_objects(productns, key)
 
