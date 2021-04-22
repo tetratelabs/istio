@@ -90,6 +90,7 @@ def install_bookinfo(conf, tenant_index):
             reviewsNs=reviewsns,
             detailsNs=detailsns,
             clusterName=conf.cluster_name,
+            mode=conf.mode.upper(),
         )
         t.close()
         save_file("genned/" + key + "/tsb-objects/groups.yaml", r)
@@ -149,16 +150,6 @@ def install_bookinfo(conf, tenant_index):
 
         i += 1
 
-        create_namespace(
-            productns,
-            {"istio-injection": "enabled"},
-            "genned/" + key + "/k8s-objects/productns.yaml",
-        )
-
-        certs.create_private_key(productns)
-        certs.create_cert(productns)
-        certs.create_secret(productns, "genned/" + key + "/k8s-objects/secret.yaml")
-
         # gateway
         t = open("tsb-objects/gateway.yaml")
         template = Template(t.read())
@@ -176,32 +167,45 @@ def install_bookinfo(conf, tenant_index):
         t.close()
         save_file("genned/" + key + "/tsb-objects/gateway.yaml", r)
 
-        # ingress
-        t = open("./k8s-objects/ingress.yaml")
-        template = Template(t.read())
-        r = template.render(
-            ns=productns,
-        )
-        t.close()
-        save_file("genned/" + key + "/k8s-objects/ingress.yaml", r)
-
-        # trafficgen
-        t = open("k8s-objects/role.yaml")
-        template = Template(t.read())
-        r = template.render(targetNS=productns, clientNS=productns)
-        t.close()
-        save_file("genned/" + key + "/k8s-objects/role.yaml", r)
-
-        # trafficgen
-        t = open("k8s-objects/traffic-gen.yaml")
-        template = Template(t.read())
-        r = template.render(ns=productns, hostname=productns + ".k8s.local")
-        t.close()
-        save_file("genned/" + key + "/k8s-objects/traffic-gen.yaml", r)
+        gen_k8s_objects(productns, key)
 
         i += 1
 
         print("Bookinfo installed\n")
+
+def gen_k8s_objects(productns, key):
+    create_namespace(
+        productns,
+        {"istio-injection": "enabled"},
+        "genned/" + key + "/k8s-objects/productns.yaml",
+    )
+
+    certs.create_private_key(productns)
+    certs.create_cert(productns)
+    certs.create_secret(productns, "genned/" + key + "/k8s-objects/secret.yaml")
+
+    # ingress
+    t = open("./k8s-objects/ingress.yaml")
+    template = Template(t.read())
+    r = template.render(
+        ns=productns,
+    )
+    t.close()
+    save_file("genned/" + key + "/k8s-objects/ingress.yaml", r)
+
+    # trafficgen
+    t = open("k8s-objects/role.yaml")
+    template = Template(t.read())
+    r = template.render(targetNS=productns, clientNS=productns)
+    t.close()
+    save_file("genned/" + key + "/k8s-objects/role.yaml", r)
+
+    # trafficgen
+    t = open("k8s-objects/traffic-gen.yaml")
+    template = Template(t.read())
+    r = template.render(ns=productns, hostname=productns + ".k8s.local")
+    t.close()
+    save_file("genned/" + key + "/k8s-objects/traffic-gen.yaml", r)
 
 def main():
     parser = argparse.ArgumentParser(description="Spin up bookinfo instances")

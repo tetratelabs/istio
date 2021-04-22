@@ -2,3 +2,4 @@ config:
   - replicas: 2
     organisation: "tetrate"
     clusterName: "demo"
+    mode: "bridged"

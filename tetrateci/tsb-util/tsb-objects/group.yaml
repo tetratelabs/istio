@@ -9,7 +9,7 @@ spec:
   namespaceSelector:
     names:
     - {{ clusterName }}/{{ productNs }}
-  configMode: BRIDGED
+  configMode: {{ mode }}
 ---
 apiVersion: traffic.tsb.tetrate.io/v2
 kind: Group
@@ -22,7 +22,7 @@ spec:
   namespaceSelector:
     names:
     - {{ clusterName }}/{{ reviewsNs }}
-  configMode: BRIDGED
+  configMode: {{ mode }}
 ---
 apiVersion: security.tsb.tetrate.io/v2
 kind: Group
@@ -38,4 +38,4 @@ spec:
     - {{ clusterName }}/{{ reviewsNs }}
     - {{ clusterName }}/{{ detailsNs }}
       
-  configMode: BRIDGED
+  configMode: {{ mode }}
