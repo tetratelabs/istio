@@ -101,18 +101,13 @@ if [[ -z $TEST ]]; then
 
     go run main.go build --manifest manifest.archive.yaml
 
+    python3 -m pip install --upgrade cloudsmith-cli --user
+
     PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
     for package in $PACKAGES; do
         echo "Publishing $package"
-        rm -f /tmp/curl.out
-        curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/$package -o /tmp/curl.out
-        cat /tmp/curl.out
-        grep "success" /tmp/curl.out
+        python3 -m cloudsmith push raw ${CLOUDSMITH_USER}/istio $package
     done
-
-    rm -f /tmp/curl.out
-    curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/publish -o /tmp/curl.out
-    cat /tmp/curl.out
 fi
 
 echo "Done building and pushing the artifacts."
