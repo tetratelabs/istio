@@ -53,6 +53,7 @@ fi
 # HACK : default manifest from release builder is modified
 echo "Generating the manifests"
 # we are generating the different yamls for both the archive & docker image builds which are saved to release-builder folder
+python3 -m pip install pyyaml --user
 ${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/example/manifest.yaml ${BASEDIR}/../release-builder/
 
 # if length $TEST is zero we are making a RELEASE. It should have both images and archives
