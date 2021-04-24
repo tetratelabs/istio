@@ -638,7 +638,7 @@ func (s *DiscoveryServer) ProxyUpdate(clusterID, ip string) {
 	var connection *Connection
 
 	for _, v := range s.Clients() {
-		if v.proxy.Metadata.ClusterID == clusterID && v.proxy.IPAddresses[0] == ip {
+		if v.proxy.Metadata.ClusterID == clusterID && v.proxy.IdentityIP() == ip {
 			connection = v
 			break
 		}

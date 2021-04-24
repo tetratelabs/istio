@@ -70,7 +70,7 @@ func endpointServiceInstances(c *Controller, endpoints *v1.Endpoints, proxy *mod
 	c.RUnlock()
 
 	if svc != nil {
-		podIP := proxy.IPAddresses[0]
+		podIP := proxy.IdentityIP()
 		pod := c.pods.getPodByIP(podIP)
 		builder := NewEndpointBuilder(c, pod)
 
@@ -82,7 +82,7 @@ func endpointServiceInstances(c *Controller, endpoints *v1.Endpoints, proxy *mod
 				}
 
 				// consider multiple IP scenarios
-				for _, ip := range proxy.IPAddresses {
+				for _, ip := range proxy.AllIPAddresses() {
 					if hasProxyIP(ss.Addresses, ip) || hasProxyIP(ss.NotReadyAddresses, ip) {
 						istioEndpoint := builder.buildIstioEndpoint(ip, port.Port, svcPort.Name)
 						out = append(out, &model.ServiceInstance{

@@ -268,6 +268,20 @@ func TestServiceNode(t *testing.T) {
 			},
 			out: "sidecar~10.3.3.3~random~local",
 		},
+		{
+			in: &model.Proxy{
+				Type:          model.SidecarProxy,
+				ID:            "random",
+				ServiceNodeIP: "1.2.3.4",
+				IPAddresses:   []string{"10.3.3.3", "10.4.4.4", "10.5.5.5", "10.6.6.6"},
+				DNSDomain:     "local",
+				Metadata: &model.NodeMetadata{
+					InstanceIPs: []string{"10.3.3.3", "10.4.4.4", "10.5.5.5", "10.6.6.6"},
+				},
+				IstioVersion: model.MaxIstioVersion,
+			},
+			out: "sidecar~1.2.3.4~random~local",
+		},
 	}
 
 	for _, node := range cases {
@@ -275,13 +289,17 @@ func TestServiceNode(t *testing.T) {
 		if out != node.out {
 			t.Errorf("%#v.ServiceNode() => Got %s, want %s", node.in, out, node.out)
 		}
-		in, err := model.ParseServiceNodeWithMetadata(node.out, node.in.Metadata)
+		got, err := model.ParseServiceNodeWithMetadata(node.out, node.in.Metadata)
 
 		if err != nil {
 			t.Errorf("ParseServiceNode(%q) => Got error %v", node.out, err)
 		}
-		if !reflect.DeepEqual(in, node.in) {
-			t.Errorf("ParseServiceNode(%q) => Got %#v, want %#v", node.out, in, node.in)
+		want := node.in
+		if want.ServiceNodeIP == "" && len(want.IPAddresses) > 0 {
+			want.ServiceNodeIP = want.IPAddresses[0]
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("ParseServiceNode(%q) => Got %#v, want %#v", node.out, got, &want)
 		}
 	}
 }
@@ -294,13 +312,25 @@ func TestParseMetadata(t *testing.T) {
 	}{
 		{
 			name: "Basic Case",
-			out: &model.Proxy{Type: "sidecar", IPAddresses: []string{"1.1.1.1"}, DNSDomain: "domain", ID: "id", IstioVersion: model.MaxIstioVersion,
-				Metadata: &model.NodeMetadata{Raw: map[string]interface{}{}}},
+			out: &model.Proxy{
+				Type:          "sidecar",
+				ServiceNodeIP: "1.1.1.1",
+				IPAddresses:   []string{"1.1.1.1"},
+				DNSDomain:     "domain",
+				ID:            "id",
+				IstioVersion:  model.MaxIstioVersion,
+				Metadata:      &model.NodeMetadata{Raw: map[string]interface{}{}}},
 		},
 		{
 			name:     "Capture Arbitrary Metadata",
 			metadata: map[string]interface{}{"foo": "bar"},
-			out: &model.Proxy{Type: "sidecar", IPAddresses: []string{"1.1.1.1"}, DNSDomain: "domain", ID: "id", IstioVersion: model.MaxIstioVersion,
+			out: &model.Proxy{
+				Type:          "sidecar",
+				ServiceNodeIP: "1.1.1.1",
+				IPAddresses:   []string{"1.1.1.1"},
+				DNSDomain:     "domain",
+				ID:            "id",
+				IstioVersion:  model.MaxIstioVersion,
 				Metadata: &model.NodeMetadata{
 					Raw: map[string]interface{}{
 						"foo": "bar",
@@ -314,7 +344,13 @@ func TestParseMetadata(t *testing.T) {
 					"foo": "bar",
 				},
 			},
-			out: &model.Proxy{Type: "sidecar", IPAddresses: []string{"1.1.1.1"}, DNSDomain: "domain", ID: "id", IstioVersion: model.MaxIstioVersion,
+			out: &model.Proxy{
+				Type:          "sidecar",
+				ServiceNodeIP: "1.1.1.1",
+				IPAddresses:   []string{"1.1.1.1"},
+				DNSDomain:     "domain",
+				ID:            "id",
+				IstioVersion:  model.MaxIstioVersion,
 				Metadata: &model.NodeMetadata{
 					Raw: map[string]interface{}{
 						"LABELS": map[string]interface{}{"foo": "bar"},
@@ -328,7 +364,13 @@ func TestParseMetadata(t *testing.T) {
 			metadata: map[string]interface{}{
 				"POD_PORTS": `[{"name":"http","containerPort":8080,"protocol":"TCP"},{"name":"grpc","containerPort":8079,"protocol":"TCP"}]`,
 			},
-			out: &model.Proxy{Type: "sidecar", IPAddresses: []string{"1.1.1.1"}, DNSDomain: "domain", ID: "id", IstioVersion: model.MaxIstioVersion,
+			out: &model.Proxy{
+				Type:          "sidecar",
+				ServiceNodeIP: "1.1.1.1",
+				IPAddresses:   []string{"1.1.1.1"},
+				DNSDomain:     "domain",
+				ID:            "id",
+				IstioVersion:  model.MaxIstioVersion,
 				Metadata: &model.NodeMetadata{
 					Raw: map[string]interface{}{
 						"POD_PORTS": `[{"name":"http","containerPort":8080,"protocol":"TCP"},{"name":"grpc","containerPort":8079,"protocol":"TCP"}]`,
@@ -594,6 +636,100 @@ func TestGlobalUnicastIP(t *testing.T) {
 			node.DiscoverIPVersions()
 			if got := node.GlobalUnicastIP; got != tt.expect {
 				t.Errorf("GlobalUnicastIP = %v, want %v", got, tt.expect)
+			}
+		})
+	}
+}
+
+func TestIdentityIP(t *testing.T) {
+	cases := []struct {
+		name   string
+		node   *model.Proxy
+		expect string
+	}{
+		{
+			name:   "no known IP addresses",
+			node:   &model.Proxy{},
+			expect: "",
+		},
+		{
+			name: "no ServiceNodeIP address",
+			node: &model.Proxy{
+				IPAddresses: []string{"10.0.4.16", "10.0.4.17"},
+			},
+			expect: "10.0.4.16",
+		},
+		{
+			name: "ServiceNodeIP address and no IPAddresses",
+			node: &model.Proxy{
+				ServiceNodeIP: "1.2.3.4",
+			},
+			expect: "1.2.3.4",
+		},
+		{
+			name: "both ServiceNodeIP address and IPAddresses",
+			node: &model.Proxy{
+				ServiceNodeIP: "1.2.3.4",
+				IPAddresses:   []string{"10.0.4.16", "10.0.4.17"},
+			},
+			expect: "1.2.3.4",
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.node.IdentityIP(); got != tt.expect {
+				t.Errorf("node.IdentityIP() = %v, want %v", got, tt.expect)
+			}
+		})
+	}
+}
+
+func TestAllIPAddresses(t *testing.T) {
+	cases := []struct {
+		name   string
+		node   *model.Proxy
+		expect []string
+	}{
+		{
+			name:   "no known IP addresses",
+			node:   &model.Proxy{},
+			expect: nil,
+		},
+		{
+			name: "no ServiceNodeIP address",
+			node: &model.Proxy{
+				IPAddresses: []string{"10.0.4.16", "10.0.4.17"},
+			},
+			expect: []string{"10.0.4.16", "10.0.4.17"},
+		},
+		{
+			name: "ServiceNodeIP address and no IPAddresses",
+			node: &model.Proxy{
+				ServiceNodeIP: "1.2.3.4",
+			},
+			expect: []string{"1.2.3.4"},
+		},
+		{
+			name: "both ServiceNodeIP address and IPAddresses",
+			node: &model.Proxy{
+				ServiceNodeIP: "1.2.3.4",
+				IPAddresses:   []string{"10.0.4.16", "10.0.4.17"},
+			},
+			expect: []string{"1.2.3.4", "10.0.4.16", "10.0.4.17"},
+		},
+		{
+			name: "ServiceNodeIP address is one of IPAddresses",
+			node: &model.Proxy{
+				ServiceNodeIP: "1.2.3.4",
+				IPAddresses:   []string{"10.0.4.16", "1.2.3.4", "10.0.4.17"},
+			},
+			expect: []string{"10.0.4.16", "1.2.3.4", "10.0.4.17"},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.node.AllIPAddresses(); !reflect.DeepEqual(got, tt.expect) {
+				t.Errorf("node.AllIPAddresses() = %v, want %v", got, tt.expect)
 			}
 		})
 	}

@@ -79,6 +79,9 @@ var (
 	loggingOptions         = log.DefaultOptions()
 	outlierLogPath         string
 
+	identityIPVar = env.RegisterStringVar("IDENTITY_IP", "",
+		"IP address that uniquely identifies that proxy to the control plane, "+
+			"even though the proxy might not be able to bind to it (e.g., External IP of an AWS EC2 instance)")
 	instanceIPVar        = env.RegisterStringVar("INSTANCE_IP", "", "")
 	podNameVar           = env.RegisterStringVar("POD_NAME", "", "")
 	podNamespaceVar      = env.RegisterStringVar("POD_NAMESPACE", "", "")
@@ -172,6 +175,8 @@ var (
 		RunE: func(c *cobra.Command, args []string) error {
 			cmd.PrintFlags(c.Flags())
 			grpclog.SetLoggerV2(grpclog.NewLoggerV2(ioutil.Discard, ioutil.Discard, ioutil.Discard))
+
+			role.ServiceNodeIP = identityIPVar.Get()
 
 			// Extract pod variables.
 			podName := podNameVar.Get()

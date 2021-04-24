@@ -845,10 +845,10 @@ func (c *Controller) collectWorkloadInstanceEndpoints(svc *model.Service) []*mod
 // TODO: this code does not return k8s service instances when the proxy's IP is a workload entry
 // To tackle this, we need a ip2instance map like what we have in service entry.
 func (c *Controller) GetProxyServiceInstances(proxy *model.Proxy) []*model.ServiceInstance {
-	if len(proxy.IPAddresses) > 0 {
+	if proxy.IdentityIP() != "" {
 		// only need to fetch the corresponding pod through the first IP, although there are multiple IP scenarios,
 		// because multiple ips belong to the same pod
-		proxyIP := proxy.IPAddresses[0]
+		proxyIP := proxy.IdentityIP()
 
 		pod := c.pods.getPodByIP(proxyIP)
 		if workload, f := c.workloadInstancesByIP[proxyIP]; f {
@@ -1094,7 +1094,7 @@ func (c *Controller) getProxyServiceInstancesFromMetadata(proxy *model.Proxy) ([
 		epBuilder := NewEndpointBuilderFromMetadata(c, proxy)
 		for tp, svcPort := range tps {
 			// consider multiple IP scenarios
-			for _, ip := range proxy.IPAddresses {
+			for _, ip := range proxy.AllIPAddresses() {
 				// Construct the ServiceInstance
 				out = append(out, &model.ServiceInstance{
 					Service:     modelService,
@@ -1147,7 +1147,7 @@ func (c *Controller) getProxyServiceInstancesByPod(pod *v1.Pod,
 	builder := NewEndpointBuilder(c, pod)
 	for tp, svcPort := range tps {
 		// consider multiple IP scenarios
-		for _, ip := range proxy.IPAddresses {
+		for _, ip := range proxy.AllIPAddresses() {
 			istioEndpoint := builder.buildIstioEndpoint(ip, int32(tp.Port), svcPort.Name)
 			out = append(out, &model.ServiceInstance{
 				Service:     svc,
@@ -1161,7 +1161,7 @@ func (c *Controller) getProxyServiceInstancesByPod(pod *v1.Pod,
 
 func (c *Controller) GetProxyWorkloadLabels(proxy *model.Proxy) labels.Collection {
 	// There is only one IP for kube registry
-	proxyIP := proxy.IPAddresses[0]
+	proxyIP := proxy.IdentityIP()
 
 	pod := c.pods.getPodByIP(proxyIP)
 	if pod != nil {

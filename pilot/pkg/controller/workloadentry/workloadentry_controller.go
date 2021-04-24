@@ -176,7 +176,7 @@ func (c *Controller) RegisterWorkload(proxy *model.Proxy, conTime time.Time) err
 	}
 
 	c.mutex.Lock()
-	c.adsConnections[proxy.Metadata.Network+proxy.IPAddresses[0]]++
+	c.adsConnections[proxy.Metadata.Network+proxy.IdentityIP()]++
 	c.mutex.Unlock()
 
 	if err := c.registerWorkload(entryName, proxy, conTime); err != nil {
@@ -233,14 +233,14 @@ func (c *Controller) QueueUnregisterWorkload(proxy *model.Proxy, origConnect tim
 	}
 
 	c.mutex.Lock()
-	num := c.adsConnections[proxy.Metadata.Network+proxy.IPAddresses[0]]
+	num := c.adsConnections[proxy.Metadata.Network+proxy.IdentityIP()]
 	// if there is still ads connection, do not unregister.
 	if num > 1 {
-		c.adsConnections[proxy.Metadata.Network+proxy.IPAddresses[0]] = num - 1
+		c.adsConnections[proxy.Metadata.Network+proxy.IdentityIP()] = num - 1
 		c.mutex.Unlock()
 		return
 	}
-	delete(c.adsConnections, proxy.Metadata.Network+proxy.IPAddresses[0])
+	delete(c.adsConnections, proxy.Metadata.Network+proxy.IdentityIP())
 	c.mutex.Unlock()
 
 	disconTime := time.Now()
@@ -397,7 +397,7 @@ func autoregisteredWorkloadEntryName(proxy *model.Proxy) string {
 		log.Errorf("auto-registration of %v failed: missing namespace", proxy.ID)
 		return ""
 	}
-	p := []string{proxy.Metadata.AutoRegisterGroup, proxy.IPAddresses[0]}
+	p := []string{proxy.Metadata.AutoRegisterGroup, proxy.IdentityIP()}
 	if proxy.Metadata.Network != "" {
 		p = append(p, proxy.Metadata.Network)
 	}
@@ -428,7 +428,7 @@ var workloadGroupIsController = true
 func workloadEntryFromGroup(name string, proxy *model.Proxy, groupCfg *config.Config) *config.Config {
 	group := groupCfg.Spec.(*v1alpha3.WorkloadGroup)
 	entry := group.Template.DeepCopy()
-	entry.Address = proxy.IPAddresses[0]
+	entry.Address = proxy.IdentityIP()
 	// TODO move labels out of entry
 	// node metadata > WorkloadGroup.Metadata > WorkloadGroup.Template
 	if group.Metadata != nil && group.Metadata.Labels != nil {

@@ -275,7 +275,7 @@ func setup(t *testing.T) (*Controller, *Controller, model.ConfigStoreCache) {
 }
 
 func checkNoEntry(store model.ConfigStoreCache, wg config.Config, proxy *model.Proxy) error {
-	name := wg.Name + "-" + proxy.IPAddresses[0]
+	name := wg.Name + "-" + proxy.IdentityIP()
 	if proxy.Metadata.Network != "" {
 		name += "-" + proxy.Metadata.Network
 	}
@@ -293,7 +293,7 @@ func checkEntry(
 	proxy *model.Proxy,
 	connectedTo string,
 ) (err error) {
-	name := wg.Name + "-" + proxy.IPAddresses[0]
+	name := wg.Name + "-" + proxy.IdentityIP()
 	if proxy.Metadata.Network != "" {
 		name += "-" + proxy.Metadata.Network
 	}
@@ -310,8 +310,8 @@ func checkEntry(
 	if !reflect.DeepEqual(we.Ports, tmpl.Template.Ports) {
 		err = multierror.Append(err, fmt.Errorf("expected ports from WorkloadGroup"))
 	}
-	if we.Address != proxy.IPAddresses[0] {
-		err = multierror.Append(fmt.Errorf("entry has address %s; expected %s", we.Address, proxy.IPAddresses[0]))
+	if we.Address != proxy.IdentityIP() {
+		err = multierror.Append(fmt.Errorf("entry has address %s; expected %s", we.Address, proxy.IdentityIP()))
 	}
 
 	if proxy.Metadata.Network != "" {
