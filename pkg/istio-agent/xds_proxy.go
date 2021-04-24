@@ -519,6 +519,12 @@ func (p *XdsProxy) getTLSDialOption(agent *Agent) (grpc.DialOption, error) {
 		return nil, err
 	}
 
+	// strip the port from the address
+	istiodSni := strings.Split(p.istiodAddress, ":")[0]
+	if agent.cfg.XDSSni != "" {
+		istiodSni = agent.cfg.XDSSni
+	}
+
 	config := tls.Config{
 		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 			var certificate tls.Certificate
@@ -532,12 +538,10 @@ func (p *XdsProxy) getTLSDialOption(agent *Agent) (grpc.DialOption, error) {
 			}
 			return &certificate, nil
 		},
-		RootCAs: rootCert,
+		RootCAs:    rootCert,
+		ServerName: istiodSni,
 	}
 
-	// strip the port from the address
-	parts := strings.Split(agent.proxyConfig.DiscoveryAddress, ":")
-	config.ServerName = parts[0]
 	// For debugging on localhost (with port forward)
 	// This matches the logic for the CA; this code should eventually be shared
 	if strings.Contains(config.ServerName, "localhost") {

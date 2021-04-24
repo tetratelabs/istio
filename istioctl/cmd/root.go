@@ -146,17 +146,7 @@ debug and diagnose their Istio mesh.
 
 	rootCmd.SetArgs(args)
 
-	rootCmd.PersistentFlags().StringVarP(&kubeconfig, "kubeconfig", "c", "",
-		"Kubernetes configuration file")
-
-	rootCmd.PersistentFlags().StringVar(&configContext, "context", "",
-		"The name of the kubeconfig context to use")
-
-	rootCmd.PersistentFlags().StringVarP(&istioNamespace, "istioNamespace", "i", viper.GetString("istioNamespace"),
-		"Istio system namespace")
-
-	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", v1.NamespaceAll,
-		"Config namespace")
+	AddRootFlags(rootCmd)
 
 	// Attach the Istio logging options to the command.
 	loggingOptions.AttachCobraFlags(rootCmd)
@@ -227,9 +217,9 @@ debug and diagnose their Istio mesh.
 	experimentalCmd.AddCommand(describe())
 	experimentalCmd.AddCommand(addToMeshCmd())
 	experimentalCmd.AddCommand(removeFromMeshCmd())
-	vmBootstrapCmd := vmBootstrapCommand()
-	deprecate(vmBootstrapCmd)
-	experimentalCmd.AddCommand(vmBootstrapCmd)
+	vmCmd := vmBootstrapCmd()
+	deprecate(vmCmd)
+	experimentalCmd.AddCommand(vmCmd)
 	experimentalCmd.AddCommand(waitCmd())
 	experimentalCmd.AddCommand(mesh.UninstallCmd(loggingOptions))
 	experimentalCmd.AddCommand(configCmd())
@@ -317,6 +307,17 @@ debug and diagnose their Istio mesh.
 	return rootCmd
 }
 
+func AddRootFlags(rootCmd *cobra.Command) {
+	rootCmd.PersistentFlags().StringVarP(&kubeconfig, "kubeconfig", "c", "",
+		"Kubernetes configuration file")
+	rootCmd.PersistentFlags().StringVar(&configContext, "context", "",
+		"The name of the kubeconfig context to use")
+	rootCmd.PersistentFlags().StringVarP(&istioNamespace, "istioNamespace", "i", viper.GetString("istioNamespace"),
+		"Istio system namespace")
+	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", v1.NamespaceAll,
+		"Config namespace")
+}
+
 func hideInheritedFlags(orig *cobra.Command, hidden ...string) {
 	orig.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		for _, hidden := range hidden {
@@ -327,6 +328,8 @@ func hideInheritedFlags(orig *cobra.Command, hidden ...string) {
 		orig.HelpFunc()(cmd, args)
 	})
 }
+
+var IstioPersistentPreRunE = configureLogging
 
 func configureLogging(_ *cobra.Command, _ []string) error {
 	if err := log.Configure(loggingOptions); err != nil {

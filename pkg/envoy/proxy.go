@@ -159,7 +159,10 @@ func (e *envoy) Run(config interface{}, epoch int, abort <-chan error) error {
 		// there is a custom configuration. Don't write our own config - but keep watching the certs.
 		fname = e.Config.CustomConfigFile
 	} else {
-		discHost := strings.Split(e.Config.DiscoveryAddress, ":")[0]
+		pilotSNI := strings.Split(e.Config.DiscoveryAddress, ":")[0]
+		if len(e.PilotSubjectAltName) > 0 {
+			pilotSNI = e.PilotSubjectAltName[0]
+		}
 		out, err := bootstrap.New(bootstrap.Config{
 			Node:                e.Node,
 			Proxy:               &e.Config,
@@ -172,7 +175,7 @@ func (e *envoy) Run(config interface{}, epoch int, abort <-chan error) error {
 			PilotCertProvider:   e.PilotCertProvider,
 			ProvCert:            e.ProvCert,
 			CallCredentials:     e.CallCredentials,
-			DiscoveryHost:       discHost,
+			DiscoveryHost:       pilotSNI,
 		}).CreateFileForEpoch(epoch)
 		if err != nil {
 			log.Errora("Failed to generate bootstrap config: ", err)

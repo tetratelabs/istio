@@ -89,6 +89,8 @@ var (
 	serviceAccountVar    = env.RegisterStringVar("SERVICE_ACCOUNT", "", "Name of service account")
 	clusterIDVar         = env.RegisterStringVar("ISTIO_META_CLUSTER_ID", "", "")
 	callCredentials      = env.RegisterBoolVar("CALL_CREDENTIALS", false, "Use JWT directly instead of MTLS")
+	pilotSniEnv          = env.RegisterStringVar("PILOT_SNI", "",
+		"SNI value to use in connections to the Istio Pilot.").Get()
 
 	pilotCertProvider = env.RegisterStringVar("PILOT_CERT_PROVIDER", "istiod",
 		"The provider of Pilot DNS certificate.").Get()
@@ -119,7 +121,9 @@ var (
 
 	caProviderEnv = env.RegisterStringVar("CA_PROVIDER", "Citadel", "name of authentication provider").Get()
 	// TODO: default to same as discovery address
-	caEndpointEnv = env.RegisterStringVar("CA_ADDR", "", "Address of the spiffee certificate provider. Defaults to discoveryAddress").Get()
+	caEndpointEnv    = env.RegisterStringVar("CA_ADDR", "", "Address of the spiffee certificate provider. Defaults to discoveryAddress").Get()
+	caEndpointSniEnv = env.RegisterStringVar("CA_SNI", "",
+		"SNI value to use in connections to the CA endpoint.").Get()
 
 	// This is also disabled by presence of the SDS socket directory
 	enableGatewaySDSEnv = env.RegisterBoolVar("ENABLE_INGRESS_GATEWAY_SDS", false,
@@ -258,6 +262,7 @@ var (
 				ClusterID:          clusterIDVar.Get(),
 				FileMountedCerts:   fileMountedCertsEnv,
 				CAEndpoint:         caEndpointEnv,
+				CAEndpointSni:      caEndpointSniEnv,
 				UseTokenForCSR:     useTokenForCSREnv,
 				CredFetcher:        nil,
 				WorkloadNamespace:  podNamespace,
@@ -312,9 +317,19 @@ var (
 			var pilotSAN []string
 			if proxyConfig.ControlPlaneAuthPolicy == meshconfig.AuthenticationPolicy_MUTUAL_TLS {
 				// Obtain Pilot SAN, using DNS.
-				pilotSAN = []string{getPilotSan(proxyConfig.DiscoveryAddress)}
+				// Check if Pilot's SAN was specified as env variable
+				if pilotSniEnv == "" {
+					// Obtain Pilot SAN, using DNS.
+					pilotSAN = []string{getPilotSan(proxyConfig.DiscoveryAddress)}
+				} else {
+					pilotSAN = []string{pilotSniEnv}
+				}
 			}
 			log.Infof("PilotSAN %#v", pilotSAN)
+
+			if len(pilotSAN) > 0 {
+				agentConfig.XDSSni = pilotSAN[0]
+			}
 
 			// Start in process SDS.
 			_, err = sa.Start(role.Type == model.SidecarProxy, podNamespaceVar.Get())

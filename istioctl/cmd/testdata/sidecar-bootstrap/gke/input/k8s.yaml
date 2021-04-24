@@ -1,0 +1,124 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio-ca-root-cert
+  namespace: istio-system
+data:
+  root-cert.pem: |-
+    -----BEGIN CERTIFICATE-----
+    MIIDnzCCAoegAwIBAgIJAON1ifrBZ2/BMA0GCSqGSIb3DQEBCwUAMIGLMQswCQYD
+    VQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTESMBAGA1UEBwwJU3Vubnl2YWxl
+    MQ4wDAYDVQQKDAVJc3RpbzENMAsGA1UECwwEVGVzdDEQMA4GA1UEAwwHUm9vdCBD
+    QTEiMCAGCSqGSIb3DQEJARYTdGVzdHJvb3RjYUBpc3Rpby5pbzAgFw0xODAxMjQx
+    OTE1NTFaGA8yMTE3MTIzMTE5MTU1MVowWTELMAkGA1UEBhMCVVMxEzARBgNVBAgT
+    CkNhbGlmb3JuaWExEjAQBgNVBAcTCVN1bm55dmFsZTEOMAwGA1UEChMFSXN0aW8x
+    ETAPBgNVBAMTCElzdGlvIENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC
+    AQEAyzCxr/xu0zy5rVBiso9ffgl00bRKvB/HF4AX9/ytmZ6Hqsy13XIQk8/u/By9
+    iCvVwXIMvyT0CbiJq/aPEj5mJUy0lzbrUs13oneXqrPXf7ir3HzdRw+SBhXlsh9z
+    APZJXcF93DJU3GabPKwBvGJ0IVMJPIFCuDIPwW4kFAI7R/8A5LSdPrFx6EyMXl7K
+    M8jekC0y9DnTj83/fY72WcWX7YTpgZeBHAeeQOPTZ2KYbFal2gLsar69PgFS0Tom
+    ESO9M14Yit7mzB1WDK2z9g3r+zLxENdJ5JG/ZskKe+TO4Diqi5OJt/h8yspS1ck8
+    LJtCole9919umByg5oruflqIlQIDAQABozUwMzALBgNVHQ8EBAMCAgQwDAYDVR0T
+    BAUwAwEB/zAWBgNVHREEDzANggtjYS5pc3Rpby5pbzANBgkqhkiG9w0BAQsFAAOC
+    AQEAltHEhhyAsve4K4bLgBXtHwWzo6SpFzdAfXpLShpOJNtQNERb3qg6iUGQdY+w
+    A2BpmSkKr3Rw/6ClP5+cCG7fGocPaZh+c+4Nxm9suMuZBZCtNOeYOMIfvCPcCS+8
+    PQ/0hC4/0J3WJKzGBssaaMufJxzgFPPtDJ998kY8rlROghdSaVt423/jXIAYnP3Y
+    05n8TGERBj7TLdtIVbtUIx3JHAo3PWJywA6mEDovFMJhJERp9sDHIr1BbhXK1TFN
+    Z6HNH6gInkSSMtvC4Ptejb749PTaePRPF7ID//eq/3AH8UK50F3TQcLjEqWUsJUn
+    aFKltOc+RAjzDklcUPeG4Y6eMA==
+    -----END CERTIFICATE-----
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio
+  namespace: istio-system
+data:
+  mesh: |
+    defaultConfig:
+      discoveryAddress: istiod.istio-system.svc:15012
+      envoyAccessLogService:
+        address: als.istio-system.svc:9876
+        tlsSettings:
+          mode: SIMPLE
+          caCertificates: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        tcpKeepalive:
+          probes: 1
+          time: 2s
+          interval: 3s
+      tracing:
+        zipkin:
+          address: zipkin.istio-system.svc:9411
+      proxyMetadata:
+        ISTIO_ADDITIONAL_METADATA_EXCHANGE_KEYS: CUSTOM_KEY_1,CUSTOM_KEY_2
+        CUSTOM_KEY_1: value1
+        CUSTOM_KEY_2: value2
+  meshNetworks: |
+    networks: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio-sidecar-injector
+  namespace: istio-system
+data:
+  values: |
+    {
+      "global": {
+        "jwtPolicy": "third-party-jwt",
+        "pilotCertProvider": "istiod"
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: istio-ingressgateway
+  namespace: istio-system
+spec:
+  ports:
+  - name: tls
+    nodePort: 30550
+    port: 15443
+    protocol: TCP
+    targetPort: 15443
+  selector:
+    app: istio-ingressgateway
+    istio: ingressgateway
+  sessionAffinity: None
+  type: LoadBalancer
+status:
+  loadBalancer:
+    ingress:
+    - ip: 1.2.3.4
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: global-mesh-expansion
+  namespace: istio-system
+data:
+  PROXY_CONFIG: |
+    discoveryAddress: istiod.istio-system.svc:15443
+    envoyAccessLogService:
+      address: als.istio-system.svc:15443
+      tlsSettings:
+        mode: ISTIO_MUTUAL
+        sni: als.istio-system.svc
+      tcpKeepalive:
+        probes: 3
+        time: 10s
+        interval: 20s
+    tracing:
+      zipkin:
+        address: zipkin.istio-system.svc:15443
+      tlsSettings:
+        mode: ISTIO_MUTUAL
+        sni: zipkin.istio-system.svc
+    

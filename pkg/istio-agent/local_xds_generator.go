@@ -117,9 +117,12 @@ func (sa *Agent) startXDSGenerator(proxyConfig *meshconfig.ProxyConfig, secrets 
 	if addr == "" {
 		addr = proxyConfig.DiscoveryAddress
 	}
-	discHost := strings.Split(addr, ":")[0]
-	if discHost == "localhost" {
-		discHost = "istiod.istio-system.svc"
+	discHost := sa.secOpts.CAEndpointSni
+	if discHost == "" {
+		discHost = strings.Split(addr, ":")[0]
+		if discHost == "localhost" {
+			discHost = "istiod.istio-system.svc"
+		}
 	}
 
 	cfg := &adsc.Config{
