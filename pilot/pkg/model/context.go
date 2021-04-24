@@ -35,6 +35,7 @@ import (
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pkg/config/constants"
+	"istio.io/istio/pkg/config/dns"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/config/mesh"
@@ -63,6 +64,9 @@ type Environment struct {
 	// routable L3 network. A single routable L3 network can have one or more
 	// service registries.
 	mesh.NetworksWatcher
+
+	// Resolver resolves DNS names, e.g. DNS name of a LoadBalancer.
+	dns.Resolver
 
 	// PushContext holds informations during push generation. It is reset on config change, at the beginning
 	// of the pushAll. It will hold all errors and stats and possibly caches needed during the entire cache computation.
@@ -124,6 +128,12 @@ func (e *Environment) Networks() *meshconfig.MeshNetworks {
 func (e *Environment) AddNetworksHandler(h func()) {
 	if e != nil && e.NetworksWatcher != nil {
 		e.NetworksWatcher.AddNetworksHandler(h)
+	}
+}
+
+func (e *Environment) AddDNSUpdateHandler(h dns.UpdateHandler) {
+	if e != nil && e.Resolver != nil {
+		e.Resolver.AddUpdateHandler(h)
 	}
 }
 

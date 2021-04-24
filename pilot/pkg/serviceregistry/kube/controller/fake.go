@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pkg/config/dns"
 	"istio.io/istio/pkg/config/mesh"
 	kubelib "istio.io/istio/pkg/kube"
 )
@@ -127,6 +128,7 @@ func (fx *FakeXdsUpdater) Clear() {
 type FakeControllerOptions struct {
 	Client            kubelib.Client
 	NetworksWatcher   mesh.NetworksWatcher
+	DNSResolver       dns.Resolver
 	ServiceHandler    func(service *model.Service, event model.Event)
 	Mode              EndpointMode
 	ClusterID         string
@@ -159,6 +161,7 @@ func NewFakeControllerWithOptions(opts FakeControllerOptions) (*FakeController, 
 		XDSUpdater:        xdsUpdater,
 		Metrics:           &model.Environment{},
 		NetworksWatcher:   opts.NetworksWatcher,
+		DNSResolver:       opts.DNSResolver,
 		EndpointMode:      opts.Mode,
 		ClusterID:         opts.ClusterID,
 		SyncInterval:      time.Microsecond,

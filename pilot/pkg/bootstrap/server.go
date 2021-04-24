@@ -230,6 +230,7 @@ func NewServer(args *PilotArgs) (*Server, error) {
 	s.initMeshConfiguration(args, s.fileWatcher)
 	spiffe.SetTrustDomain(s.environment.Mesh().GetTrustDomain())
 
+	s.initDNSResolver()
 	s.initMeshNetworks(args, s.fileWatcher)
 	s.initMeshHandlers()
 
