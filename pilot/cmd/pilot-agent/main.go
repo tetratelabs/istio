@@ -85,6 +85,19 @@ var (
 	callCredentials      = env.RegisterBoolVar("CALL_CREDENTIALS", false, "Use JWT directly instead of MTLS")
 	// Provider for XDS auth, e.g., gcp. By default, it is empty, meaning no auth provider.
 	xdsAuthProvider = env.RegisterStringVar("XDS_AUTH_PROVIDER", "", "Provider for XDS auth")
+	// NOTES(yskopets): We want `pilot-agent` to be able to connect to the `istiod`
+	//                  by any DNS name associated with it. E.g., it might be a
+	//                  DNS name of an AWS ELB that is associated with the Ingress Gateway
+	//                  through which `istiod` is exposed to sidecars on VMs.
+	//                  If we just used DNS name of an AWS ELB, `pilot-agent` would have failed
+	//                  to establish TLS connection to `istiod` because TLS cert of `istiod`
+	//                  is bound to the name `istiod.istio-system.svc` rather than a random
+	//                  AWS ELB name.
+	//                  Use of `PILOT_SNI` variable allows `pilot-agent` to connect to `istiod`
+	//                  by one DNS name (e.g., AWS ELB name), but validate TLS cert against
+	//                  another DNS name (e.g., `istiod.istio-system.svc`).
+	pilotSniEnv = env.RegisterStringVar("PILOT_SNI", "",
+		"SNI value to use in connections to the Istio Pilot.").Get()
 
 	pilotCertProvider = env.RegisterStringVar("PILOT_CERT_PROVIDER", "istiod",
 		"The provider of Pilot DNS certificate.").Get()
@@ -115,6 +128,11 @@ var (
 
 	caProviderEnv = env.RegisterStringVar("CA_PROVIDER", "Citadel", "name of authentication provider").Get()
 	caEndpointEnv = env.RegisterStringVar("CA_ADDR", "", "Address of the spiffee certificate provider. Defaults to discoveryAddress").Get()
+	// NOTES(yskopets): `CA_SNI` variable plays the same role for connections
+	//                  between `pilot-agent` and `CA` as `PILOT_SNI` variable
+	//                  plays for connections between `pilot-agent` and `istiod`.
+	caEndpointSniEnv = env.RegisterStringVar("CA_SNI", "",
+		"SNI value to use in connections to the CA endpoint.").Get()
 
 	trustDomainEnv = env.RegisterStringVar("TRUST_DOMAIN", "cluster.local",
 		"The trust domain for spiffe certificates").Get()
@@ -222,6 +240,7 @@ var (
 
 			sop := security.Options{
 				CAEndpoint:                     caEndpointEnv,
+				CAEndpointSni:                  caEndpointSniEnv,
 				CAProviderName:                 caProviderEnv,
 				PilotCertProvider:              pilotCertProvider,
 				OutputKeyCertToDir:             outputKeyCertToDir,
@@ -290,9 +309,19 @@ var (
 			var pilotSAN []string
 			if proxyConfig.ControlPlaneAuthPolicy == meshconfig.AuthenticationPolicy_MUTUAL_TLS {
 				// Obtain Pilot SAN, using DNS.
-				pilotSAN = []string{config.GetPilotSan(proxyConfig.DiscoveryAddress)}
+				// Check if Pilot's SAN was specified as env variable
+				if pilotSniEnv == "" {
+					// Obtain Pilot SAN, using DNS.
+					pilotSAN = []string{config.GetPilotSan(proxyConfig.DiscoveryAddress)}
+				} else {
+					pilotSAN = []string{pilotSniEnv}
+				}
 			}
 			log.Infof("Pilot SAN: %v", pilotSAN)
+
+			if len(pilotSAN) > 0 {
+				agentConfig.XDSSni = pilotSAN[0]
+			}
 
 			// Start in process SDS.
 			if err := sa.Start(); err != nil {

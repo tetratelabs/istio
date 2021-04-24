@@ -1330,7 +1330,6 @@ honnef.co/go/tools v0.0.1-2020.1.4/go.mod h1:X/FiERA/W4tHapMX5mGpAtMSVEeEUOyHaw9
 honnef.co/go/tools v0.0.1-2020.1.5 h1:nI5egYTGJakVyOryqLs1cQO5dO0ksin5XXs2pspk75k=
 honnef.co/go/tools v0.0.1-2020.1.5/go.mod h1:X/FiERA/W4tHapMX5mGpAtMSVEeEUOyHaw9vFzvIQ3k=
 istio.io/api v0.0.0-20190515205759-982e5c3888c6/go.mod h1:hhLFQmpHia8zgaM37vb2ml9iS5NfNfqZGRt1pS9aVEo=
-istio.io/api v0.0.0-20210607161139-ab961225b5e9 h1:iwvNNwuT4BQ+mHjXAA+y7Xn96Qt4u/3eRsLBexvTIqg=
 istio.io/api v0.0.0-20210607161139-ab961225b5e9/go.mod h1:88HN3o1fSD1jo+Z1WTLlJfMm9biopur6Ct9BFKjiB64=
 istio.io/api v0.0.0-20210713181237-07d053cfb57e h1:YT/zvSLsZRVEBNJGrj9tzu1/I4G2DzrE2sj4PO5oRoE=
 istio.io/api v0.0.0-20210713181237-07d053cfb57e/go.mod h1:88HN3o1fSD1jo+Z1WTLlJfMm9biopur6Ct9BFKjiB64=
