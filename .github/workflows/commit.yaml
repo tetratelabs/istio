@@ -1,0 +1,327 @@
+# `name` value will appear "as is" in the badge.
+# See https://docs.github.com/en/actions/configuring-and-managing-workflows/configuring-a-workflow#adding-a-workflow-status-badge-to-your-repository
+name: "build"
+
+on:
+  push:
+    branches:
+    - tcc-1.8
+    tags:
+    - '**'
+  pull_request:
+    branches:
+    - '**'
+
+jobs:
+
+  config:
+    runs-on: ubuntu-latest
+
+    outputs:
+      image: ${{ steps.config.outputs.image }}
+      tag: ${{ steps.git.outputs.tag }}
+
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - id: config
+      run: |
+        source common/scripts/setup_env.sh
+        echo "::set-output name=image::${IMG}" # ISTIO_BUILD_TOOLS
+
+    - id: git
+      run: |
+        TAG=
+        if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+          TAG=$( echo "${GITHUB_REF}" | tail -c +11 )
+        fi
+        echo "::set-output name=tag::${TAG}"
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0 # fetch all history for all tags and branches
+
+    - run: make -e T=-v build binaries-test
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - run: make -e T=-v init racetest
+
+  release:
+    needs: config
+    runs-on: [self-hosted, linux, x64, medium] # we use a self-host runner here to get more disk space
+
+    container:
+      image: ${{ needs.config.outputs.image }} # ISTIO_BUILD_TOOLS
+      env:
+        BUILD_WITH_CONTAINER: "0"
+        GOOGLE_APPLICATION_CREDENTIALS: /gcs.key.json
+
+    steps:
+    - name: "Install latest `git`"
+      run: |
+        apt-get purge git -y
+        add-apt-repository ppa:git-core/ppa -y
+        apt-get update && apt-get install -y --no-install-recommends \
+            git \
+         && apt-get clean \
+         && rm -rf /var/lib/apt/lists/*
+
+    - name: "Checkout"
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0 # fetch all history for all tags and branches
+
+    - name: "Docker login"
+      env:
+        DOCKER_HUB_USER: ${{ secrets.TETRATE_CI_DOCKER_HUB_USER }}
+        DOCKER_HUB_PASSWORD: ${{ secrets.TETRATE_CI_DOCKER_HUB_PASSWORD }}
+      run: docker login --username "${DOCKER_HUB_USER}" --password "${DOCKER_HUB_PASSWORD}"
+
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+      run: echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+
+    - env:
+        DOCKER_HUB: ${{ secrets.TETRATE_CI_DOCKER_HUB }}
+        GCS_BUCKET: ${{ secrets.TETRATE_CI_GCS_BUCKET }}
+        PUBLISH_GCS_ALIASES: "0" # don't publish aliases to GCS
+        VERSION: ${{ needs.config.outputs.tag }}
+      run: prow/release-commit.sh
+
+  lint:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - run: make lint
+
+  gencheck:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - run: make gen-check
+
+  analyze-tests:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - run: make test.integration.analyze
+
+  integ-pilot-k8s-tests:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,-multicluster
+      run: prow/integ-suite-kind.sh test.integration.pilot.kube.presubmit
+
+  integ-security-k8s-tests:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,-multicluster
+      run: prow/integ-suite-kind.sh test.integration.security.kube.presubmit
+
+  integ-telemetry-k8s-tests:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,-multicluster
+      run: prow/integ-suite-kind.sh test.integration.telemetry.kube.presubmit
+
+  integ-telemetry-mc-k8s-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - name: "Free disk space"
+      run: .github/workflows/scripts/free_gha_disk_space.sh
+
+    - env:
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh --topology MULTICLUSTER test.integration.telemetry.kube
+
+  integ-multicluster-k8s-tests:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - name: "Free disk space"
+      run: .github/workflows/scripts/free_gha_disk_space.sh
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,+multicluster
+      run: prow/integ-suite-kind.sh --topology MULTICLUSTER test.integration.multicluster.kube.presubmit
+
+  integ-distroless-k8s-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        VARIANT: distroless
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.kube.reachability
+
+  integ-ipv6-k8s-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        DOCKER_IN_DOCKER_IPV6_ENABLED: true
+        IP_FAMILY: ipv6
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.kube.reachability
+
+  integ-operator-controller-tests:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,-multicluster
+      run: prow/integ-suite-kind.sh test.integration.operator.kube.presubmit
+
+  integ-pilot-k8s-tests-postsubmit:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.pilot.kube
+
+  integ-pilot-multicluster-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - name: "Free disk space"
+      run: .github/workflows/scripts/free_gha_disk_space.sh
+
+    - env:
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh --topology MULTICLUSTER test.integration.pilot.kube
+
+  integ-external-istiod-mc-tests:
+    if: ${{ false }} # skip because this job requires multiple git repos, e.g. `istio/test-infra`
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -postsubmit,-flaky,+externalistiod
+      run: prow/integ-suite-kind.sh --topology MULTICLUSTER test.integration.multicluster.kube.presubmit --topology-config ${ROOT}/prow/config/topology/externalistiod.json
+
+  integ-security-k8s-tests-postsubmit:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.security.kube
+
+  integ-security-multicluster-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - name: "Free disk space"
+      run: .github/workflows/scripts/free_gha_disk_space.sh
+
+    - env:
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh --topology MULTICLUSTER test.integration.security.kube
+
+  integ-telemetry-k8s-tests-postsubmit:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        TEST_SELECT: -multicluster
+      run: prow/integ-suite-kind.sh test.integration.telemetry.kube
+
+  integ-helm-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - run: prow/integ-suite-kind.sh test.integration.helm.kube
+
+  integ-k8s-115:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        INTEGRATION_TEST_FLAGS: --istio.test.retries=1
+      run: prow/integ-suite-kind.sh --node-image kindest/node:v1.15.12 test.integration.kube.presubmit
+
+  integ-k8s-116:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - env:
+        INTEGRATION_TEST_FLAGS: --istio.test.retries=1
+      run: prow/integ-suite-kind.sh --node-image kindest/node:v1.16.9 test.integration.kube.presubmit
+
+  install-cni-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+
+    - run: make cni.install-test
