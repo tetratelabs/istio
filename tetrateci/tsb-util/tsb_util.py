@@ -159,7 +159,7 @@ def gen_bridge_specific_objects(
         tenantName=tenant_name,
         workspaceName=workspace_name,
         gatewayName=namespaces["product"] + "-gateway",
-        hostname=namespaces["product"] + ".k8s.local",
+        hostname=namespaces["product"] + ".tetrate.test.com",
         caSecretName=namespaces["product"] + "-credential",
         gatewayGroupName=gateway_group,
         ns=namespaces["product"],
@@ -212,7 +212,7 @@ def gen_direct_specific_objects(
         tenantName=tenant_name,
         workspaceName=workspace_name,
         gatewayGroupName=gateway_group,
-        hostFQDN=namespaces["product"] + ".k8s.local",
+        hostFQDN=namespaces["product"] + ".tetrate.test.com",
         virtualserviceName="bookinfo-virtualservice",  # need to change
         ns=namespaces["product"],
         gatewayName=namespaces["product"] + "-gateway",
@@ -229,7 +229,7 @@ def gen_direct_specific_objects(
         tenantName=tenant_name,
         workspaceName=workspace_name,
         gatewayName=namespaces["product"] + "-gateway",
-        hostname=namespaces["product"] + ".k8s.local",
+        hostname=namespaces["product"] + ".tetrate.test.com",
         caSecretName=namespaces["product"] + "-credential",
         gatewayGroupName=gateway_group,
         ns=namespaces["product"],
@@ -308,17 +308,19 @@ def gen_k8s_objects(productns, key):
     t.close()
     save_file("genned/" + key + "/k8s-objects/ingress.yaml", r)
 
+    service_account = productns + "-trafficegen-sa"
+
     # trafficgen
     t = open("k8s-objects/role.yaml")
     template = Template(t.read())
-    r = template.render(targetNS=productns, clientNS=productns)
+    r = template.render(targetNS=productns, clientNS=productns, saName=service_account)
     t.close()
     save_file("genned/" + key + "/k8s-objects/role.yaml", r)
 
     # trafficgen
     t = open("k8s-objects/traffic-gen.yaml")
     template = Template(t.read())
-    r = template.render(ns=productns, hostname=productns + ".k8s.local")
+    r = template.render(ns=productns, hostname=productns + ".tetrate.test.com", saName=service_account)
     t.close()
     save_file("genned/" + key + "/k8s-objects/traffic-gen.yaml", r)
 
