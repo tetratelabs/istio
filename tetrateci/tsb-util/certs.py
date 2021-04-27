@@ -6,12 +6,12 @@ def create_root_cert():
     os.system("mkdir cert")
     os.system(
         "openssl req -x509 -sha256 -nodes -days 365 \
-        -newkey rsa:2048 -subj '/O=k8s Inc./CN=k8s.local' \
-        -keyout cert/k8s.local.key -out cert/k8s.local.crt"
+        -newkey rsa:2048 -subj '/O=k8s Inc./CN=tetrate.test.com' \
+        -keyout cert/tetrate.test.com.key -out cert/tetrate.test.com.crt"
     )
 
 def create_private_key(ns):
-    hostname = ns + ".k8s.local"
+    hostname = ns + ".tetrate.test.com"
     os.system(
         "openssl req -out cert/"
         + hostname
@@ -23,9 +23,9 @@ def create_private_key(ns):
     )
 
 def create_cert(ns):
-    hostname = ns + ".k8s.local"
+    hostname = ns + ".tetrate.test.com"
     os.system(
-        "openssl x509 -req -days 365 -CA cert/k8s.local.crt -CAkey cert/k8s.local.key -set_serial 0 -in cert/"
+        "openssl x509 -req -days 365 -CA cert/tetrate.test.com.crt -CAkey cert/tetrate.test.com.key -set_serial 0 -in cert/"
         + hostname
         + ".csr -out cert/"
         + hostname
@@ -34,7 +34,7 @@ def create_cert(ns):
 
 def create_secret(ns, fname):
     secret_name = ns + "-credential"
-    hostname = ns + ".k8s.local"
+    hostname = ns + ".tetrate.test.com"
     keyfile = open("cert/" + hostname + ".key")
     certfile = open("cert/" + hostname + ".crt")
 
