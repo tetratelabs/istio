@@ -53,6 +53,7 @@ fi
 # HACK : default manifest from release builder is modified
 echo "Generating the manifests"
 # we are generating the different yamls for both the archive & docker image builds which are saved to release-builder folder
+python3 -m pip install pyyaml --user
 ${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/example/manifest.yaml ${BASEDIR}/../release-builder/
 
 # if length $TEST is zero we are making a RELEASE. It should have both images and archives
@@ -101,18 +102,13 @@ if [[ -z $TEST ]]; then
 
     go run main.go build --manifest manifest.archive.yaml
 
+    python3 -m pip install --upgrade cloudsmith-cli --user
+
     PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
     for package in $PACKAGES; do
         echo "Publishing $package"
-        rm -f /tmp/curl.out
-        curl -T /tmp/istio-release/out/$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/$package -o /tmp/curl.out
-        cat /tmp/curl.out
-        grep "success" /tmp/curl.out
+        cloudsmith push raw ${CLOUDSMITH_USER}/getistio $package
     done
-
-    rm -f /tmp/curl.out
-    curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$TAG/publish -o /tmp/curl.out
-    cat /tmp/curl.out
 fi
 
 echo "Done building and pushing the artifacts."
