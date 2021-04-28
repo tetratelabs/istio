@@ -354,7 +354,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Overriding workflow level HUB for deploy
-      HUB: ${{ secrets.DEPLOY_HUB }}
+      HUB: ${{ secrets.CLOUDSMITH_HUB }}
 
     steps:
       - name: Checkout tetrate branch
