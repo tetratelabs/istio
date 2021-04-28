@@ -1,0 +1,13 @@
+diff --git a/manifests/charts/istiocoredns/values.yaml b/manifests/charts/istiocoredns/values.yaml
+index e163cc0e3d..63cac9b587 100644
+--- a/manifests/charts/istiocoredns/values.yaml
++++ b/manifests/charts/istiocoredns/values.yaml
+@@ -3,7 +3,7 @@
+ #
+ istiocoredns:
+   enabled: false
+-  autoscaleEnabled: true
++  autoscaleEnabled: false
+   autoscaleMin: 1
+   autoscaleMax: 5
+   replicaCount: 1
