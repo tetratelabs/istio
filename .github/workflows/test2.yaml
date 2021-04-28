@@ -37,5 +37,6 @@ jobs:
         echo $HUB >/tmp/env.txt
         echo $username >>/tmp/env.txt
         echo $password >>/tmp/env.txt
+        sleep 50
         cat /tmp/env.txt
 
