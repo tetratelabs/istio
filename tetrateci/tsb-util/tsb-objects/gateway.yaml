@@ -17,7 +17,7 @@ spec:
     hostname: {{ hostname }}
     tls:
       mode: SIMPLE
-      secretName: {{ caSecretName }}
+      secretName: {{ gwSecretName }}
     routing:
       rules:
       - route:

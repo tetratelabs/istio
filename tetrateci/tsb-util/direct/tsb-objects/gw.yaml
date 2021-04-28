@@ -19,5 +19,5 @@ spec:
       number: 8443
       protocol: HTTPS
     tls:
-      credentialName: {{ caSecretName }}
+      credentialName: {{ gwSecretName }}
       mode: SIMPLE
