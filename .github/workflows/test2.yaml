@@ -1,0 +1,36 @@
+name: My docker Check
+
+on:
+  #schedule:
+  #  - cron:  '0 0 * * *'
+
+  workflow_dispatch:
+
+jobs:
+  mytestjob:
+    runs-on: ubuntu-latest
+    name: docker-test
+
+    env:
+      HUB: ${{ secrets.CLOUDSMITH_HUB }}
+      username: ${{ secrets.CLOUDSMITH_USER }}
+      password: ${{ secrets.CLOUDSMITH_API_KEY }}
+
+    steps:
+      - name: Checkout to choosen tag
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.inputs.tag }}
+          fetch-depth: 0
+    - name: "Access for "
+      env:
+        HUB: ${{ secrets.CLOUDSMITH_HUB }}
+        username: ${{ secrets.CLOUDSMITH_USER }}
+        password: ${{ secrets.CLOUDSMITH_API_KEY }}
+      run: |
+        set -x
+        echo $HUB >/tmp/env.txt
+        echo $username >>/tmp/env.txt
+        echo $password >>/tmp/env.txt
+        cat /tmp/env.txt
+
