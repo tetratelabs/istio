@@ -5,12 +5,19 @@ on:
   #  - cron:  '0 0 * * *'
 
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Manual Tag
+        required: true
+      type:
+        description: Build Type [fips or default]
+        required: true
+        default: "default"
 
 jobs:
   mytestjob:
     runs-on: ubuntu-latest
     name: docker-test
-
     env:
       HUB: ${{ secrets.CLOUDSMITH_HUB }}
       username: ${{ secrets.CLOUDSMITH_USER }}
