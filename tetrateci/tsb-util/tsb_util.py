@@ -12,13 +12,13 @@ def save_file(fname, content):
     f.write(content)
     f.close()
 
-def create_namespace(ns, labels, fname):
+def create_namespace(ns, labels, key):
     yamlcontent = {
         "apiVersion": "v1",
         "kind": "Namespace",
         "metadata": {"name": ns, "labels": labels},
     }
-
+    fname = "generated/" + key + "/k8s-objects/"+ ns +"ns.yaml"
     f = open(fname, "w")
     yaml.safe_dump(yamlcontent, f)
     f.close()
@@ -98,19 +98,19 @@ def gen_namespace_yamls(namespaces, key):
     create_namespace(
         namespaces["details"],
         {"istio-injection": "enabled"},
-        "generated/" + key + "/k8s-objects/detailsns.yaml",
+        key,
     )
 
     create_namespace(
         namespaces["reviews"],
         {"istio-injection": "enabled"},
-        "generated/" + key + "/k8s-objects/reviewsns.yaml",
+        key,
     )
 
     create_namespace(
         namespaces["product"],
         {"istio-injection": "enabled"},
-        "generated/" + key + "/k8s-objects/productns.yaml",
+        key,
     )
 
 def gen_bridge_specific_objects(
