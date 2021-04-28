@@ -16,7 +16,7 @@ jobs:
     name: release-builder-run
     runs-on: ubuntu-latest
     env:
-      HUB: ${{ secrets.DEPLOY_HUB }}
+      HUB: ${{ secrets.CLOUDSMITH_HUB }}
 
     steps:
       - name: Checkout to choosen tag
@@ -25,12 +25,12 @@ jobs:
           ref: ${{ github.event.inputs.tag }}
           fetch-depth: 0
 
-      - name: Login to Bintray
+      - name: Login to CloudSmith
         uses: docker/login-action@v1
         with:
           registry: ${{ env.HUB }}
-          username: ${{ secrets.BINTRAY_USER }}
-          password: ${{ secrets.BINTRAY_API_KEY }}
+          username: ${{ secrets.CLOUDSMITH_USER }}
+          password: ${{ secrets.CLOUDSMITH_API_KEY }}
 
       - name: Get minor version
         id: get_minor_ver
@@ -41,10 +41,9 @@ jobs:
 
       - name: Run release builder
         env:
-          BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
-          API_KEY: ${{ secrets.BINTRAY_API_KEY }}
+          CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
           TAG: ${{ github.event.inputs.tag }}
-          BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
           BUILD: ${{ github.event.inputs.type }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
         run: bash ./tetrateci/create_istio_release.sh
