@@ -44,7 +44,6 @@ def create_secret(ns, fname):
         "metadata": {"name": secret_name, "namespace": ns},
         "type": "kubernetes.io/tls",
         "data": {
-            # the data is abbreviated in this example
             "tls.crt": base64.b64encode(certfile.read().encode("utf-8")),
             "tls.key": base64.b64encode(keyfile.read().encode("utf-8")),
         },
@@ -55,3 +54,23 @@ def create_secret(ns, fname):
     f.close()
     keyfile.close()
     certfile.close()
+
+def create_trafficgen_secret(ns, fname):
+    secret_name = ns + "-trafficgen-credential"
+    certfile = open("cert/tetrate.test.com.crt")
+
+    yamlcontent = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": secret_name, "namespace": ns},
+        "type": "Opaque",
+        "data": {
+            "bookinfo-ca.crt": base64.b64encode(certfile.read().encode("utf-8")),
+        },
+    }
+
+    f = open(fname, "w")
+    yaml.safe_dump(yamlcontent, f)
+    f.close()
+    certfile.close()
+    return secret_name

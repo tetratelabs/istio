@@ -18,7 +18,7 @@ def create_namespace(ns, labels, key):
         "kind": "Namespace",
         "metadata": {"name": ns, "labels": labels},
     }
-    fname = "generated/" + key + "/k8s-objects/"+ ns +"ns.yaml"
+    fname = "generated/" + key + "/k8s-objects/" + ns + "ns.yaml"
     f = open(fname, "w")
     yaml.safe_dump(yamlcontent, f)
     f.close()
@@ -312,16 +312,25 @@ def gen_k8s_objects(productns, key):
     service_account = productns + "-trafficegen-sa"
 
     # trafficgen
+
+    secret_name = certs.create_trafficgen_secret(
+        productns, "generated/" + key + "/k8s-objects/trafficgen-secret.yaml"
+    )
+
     t = open("templates/k8s-objects/role.yaml")
     template = Template(t.read())
     r = template.render(targetNS=productns, clientNS=productns, saName=service_account)
     t.close()
     save_file("generated/" + key + "/k8s-objects/role.yaml", r)
 
-    # trafficgen
     t = open("templates/k8s-objects/traffic-gen.yaml")
     template = Template(t.read())
-    r = template.render(ns=productns, hostname=productns + ".tetrate.test.com", saName=service_account)
+    r = template.render(
+        ns=productns,
+        hostname=productns + ".tetrate.test.com",
+        saName=service_account,
+        secretName=secret_name,
+    )
     t.close()
     save_file("generated/" + key + "/k8s-objects/traffic-gen.yaml", r)
 
