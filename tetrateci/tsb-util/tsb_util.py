@@ -40,7 +40,7 @@ def generate_bookinfo_yaml(namespaces, key):
         ratingsHostName=ratings_env,
     )
     t.close()
-    save_file("genned/" + key + "/k8s-objects/bookinfo.yaml", r)
+    save_file("generated/" + key + "/k8s-objects/bookinfo.yaml", r)
 
 def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
     # workspace
@@ -56,7 +56,7 @@ def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
         clusterName=conf.cluster_name,
     )
     t.close()
-    save_file("genned/" + key + "/tsb-objects/workspaces.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/workspaces.yaml", r)
 
     # groups
     gateway_group = "bookinfo-gateway-" + key
@@ -78,7 +78,7 @@ def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
         mode=conf.mode.upper(),
     )
     t.close()
-    save_file("genned/" + key + "/tsb-objects/groups.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/groups.yaml", r)
 
     # perm
     t = open("tsb-objects/perm.yaml")
@@ -90,7 +90,7 @@ def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
         trafficGroupName=traffic_group,
     )
     t.close()
-    save_file("genned/" + key + "/tsb-objects/perm.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/perm.yaml", r)
 
     return gateway_group, traffic_group, security_group
 
@@ -98,19 +98,19 @@ def gen_namespace_yamls(namespaces, key):
     create_namespace(
         namespaces["details"],
         {"istio-injection": "enabled"},
-        "genned/" + key + "/k8s-objects/detailsns.yaml",
+        "generated/" + key + "/k8s-objects/detailsns.yaml",
     )
 
     create_namespace(
         namespaces["reviews"],
         {"istio-injection": "enabled"},
-        "genned/" + key + "/k8s-objects/reviewsns.yaml",
+        "generated/" + key + "/k8s-objects/reviewsns.yaml",
     )
 
     create_namespace(
         namespaces["product"],
         {"istio-injection": "enabled"},
-        "genned/" + key + "/k8s-objects/productns.yaml",
+        "generated/" + key + "/k8s-objects/productns.yaml",
     )
 
 def gen_bridge_specific_objects(
@@ -134,7 +134,7 @@ def gen_bridge_specific_objects(
         securityGroupName=security_group,
     )
     t.close()
-    save_file("genned/" + key + "/tsb-objects/security.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/security.yaml", r)
 
     servicerouteFile = "tsb-objects/serviceroute.yaml"
     t = open(servicerouteFile)
@@ -148,7 +148,7 @@ def gen_bridge_specific_objects(
         serviceRouteName="bookinfo-serviceroute",  # need to change
         ns=namespaces["reviews"],
     )
-    save_file("genned/" + key + "/tsb-objects/serviceroute.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/serviceroute.yaml", r)
     t.close()
 
     gatewayFile = "tsb-objects/gateway.yaml"
@@ -166,7 +166,7 @@ def gen_bridge_specific_objects(
         hostFQDN="productpage." + namespaces["product"] + ".svc.cluster.local",
     )
     t.close()
-    save_file("genned/" + key + "/tsb-objects/gateway.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/gateway.yaml", r)
     pass
 
 def gen_direct_specific_objects(
@@ -186,7 +186,7 @@ def gen_direct_specific_objects(
         serviceRouteName="bookinfo-serviceroute",  # need to change
         ns=namespaces["reviews"],
     )
-    save_file("genned/" + key + "/tsb-objects/reviews_vs.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/reviews_vs.yaml", r)
     t.close()
 
     # destination rules
@@ -201,7 +201,7 @@ def gen_direct_specific_objects(
         destinationruleName="bookinfo-destinationrule",  # need to change
         ns=namespaces["reviews"],
     )
-    save_file("genned/" + key + "/tsb-objects/destinationrule.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/destinationrule.yaml", r)
     t.close()
 
     # virtual service for product page
@@ -217,7 +217,7 @@ def gen_direct_specific_objects(
         ns=namespaces["product"],
         gatewayName=namespaces["product"] + "-gateway",
     )
-    save_file("genned/" + key + "/tsb-objects/virtualservice.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/virtualservice.yaml", r)
     t.close()
 
     # gateway
@@ -236,7 +236,7 @@ def gen_direct_specific_objects(
         hostFQDN="productpage." + namespaces["product"] + ".svc.cluster.local",
     )
     t.close()
-    save_file("genned/" + key + "/tsb-objects/gateway.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/gateway.yaml", r)
 
 def install_bookinfo(conf, tenant_index):
     tenant_name = "bookinfo-tenant-" + tenant_index
@@ -247,9 +247,9 @@ def install_bookinfo(conf, tenant_index):
         print("Installing Bookinfo")
         key = str(i)
         workspace_name = "bookinfo-ws-" + key
-        os.mkdir("genned/" + key)
-        os.mkdir("genned/" + key + "/k8s-objects")
-        os.mkdir("genned/" + key + "/tsb-objects")
+        os.mkdir("generated/" + key)
+        os.mkdir("generated/" + key + "/k8s-objects")
+        os.mkdir("generated/" + key + "/tsb-objects")
 
         # TODO: d for direct, b for bridged
         productns = "bookinfo-b" + key + "-t" + tenant_index + "-front"
@@ -297,7 +297,7 @@ def gen_k8s_objects(productns, key):
 
     certs.create_private_key(productns)
     certs.create_cert(productns)
-    certs.create_secret(productns, "genned/" + key + "/k8s-objects/secret.yaml")
+    certs.create_secret(productns, "generated/" + key + "/k8s-objects/secret.yaml")
 
     # ingress
     t = open("./k8s-objects/ingress.yaml")
@@ -306,7 +306,7 @@ def gen_k8s_objects(productns, key):
         ns=productns,
     )
     t.close()
-    save_file("genned/" + key + "/k8s-objects/ingress.yaml", r)
+    save_file("generated/" + key + "/k8s-objects/ingress.yaml", r)
 
     service_account = productns + "-trafficegen-sa"
 
@@ -315,14 +315,14 @@ def gen_k8s_objects(productns, key):
     template = Template(t.read())
     r = template.render(targetNS=productns, clientNS=productns, saName=service_account)
     t.close()
-    save_file("genned/" + key + "/k8s-objects/role.yaml", r)
+    save_file("generated/" + key + "/k8s-objects/role.yaml", r)
 
     # trafficgen
     t = open("k8s-objects/traffic-gen.yaml")
     template = Template(t.read())
     r = template.render(ns=productns, hostname=productns + ".tetrate.test.com", saName=service_account)
     t.close()
-    save_file("genned/" + key + "/k8s-objects/traffic-gen.yaml", r)
+    save_file("generated/" + key + "/k8s-objects/traffic-gen.yaml", r)
 
 def main():
     parser = argparse.ArgumentParser(description="Spin up bookinfo instances")
@@ -349,8 +349,8 @@ def main():
             tenantName=tenant_name,
         )
         t.close()
-        os.mkdir("genned")
-        save_file("genned/tenant.yaml", r)
+        os.mkdir("generated")
+        save_file("generated/tenant.yaml", r)
         install_bookinfo(conf, str(index))
     index += 1
 
