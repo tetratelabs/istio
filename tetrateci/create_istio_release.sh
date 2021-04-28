@@ -107,7 +107,7 @@ if [[ -z $TEST ]]; then
     PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
     for package in $PACKAGES; do
         echo "Publishing $package"
-        python3 -m cloudsmith push raw ${CLOUDSMITH_USER}/getistio $package
+        cloudsmith push raw ${CLOUDSMITH_USER}/getistio $package
     done
 fi
 
