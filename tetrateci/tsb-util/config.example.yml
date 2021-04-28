@@ -1,5 +1,6 @@
+# an array of configuration
 config:
-  - replicas: 2
+  - replicas: 2 # how many times we want to replicate the same bookinfo configuration in cluster 
     organisation: "tetrate"
     clusterName: "demo"
-    mode: "bridged"
+    mode: "bridged" # possible values: `bridged` or `direct`
