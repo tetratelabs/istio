@@ -7,7 +7,7 @@ Metadata:
   workspace: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
-  service: {{ hostFQDN }}
+  service: {{ ns }}/{{ hostFQDN }}
   subsets:
   - name: v1
     labels:
