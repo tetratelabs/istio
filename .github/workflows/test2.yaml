@@ -17,11 +17,9 @@ jobs:
       password: ${{ secrets.CLOUDSMITH_API_KEY }}
 
     steps:
-      - name: Checkout to choosen tag
-        uses: actions/checkout@v2
-        with:
-          ref: ${{ github.event.inputs.tag }}
-          fetch-depth: 0
+    - name: Checkout to choosen tag
+      uses: actions/checkout@v2
+
     - name: "Access for "
       env:
         HUB: ${{ secrets.CLOUDSMITH_HUB }}
