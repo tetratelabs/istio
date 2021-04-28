@@ -29,7 +29,7 @@ def generate_bookinfo_yaml(namespaces, key):
     reviews_env = "reviews." + namespaces["reviews"] + svc_domain
     ratings_env = "ratings." + namespaces["reviews"] + svc_domain
 
-    t = open("k8s-objects/bookinfo.yaml")
+    t = open("templates/k8s-objects/bookinfo.yaml")
     template = Template(t.read())
     r = template.render(
         reviewsns=namespaces["reviews"],
@@ -44,7 +44,7 @@ def generate_bookinfo_yaml(namespaces, key):
 
 def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
     # workspace
-    t = open("tsb-objects/workspace.yaml")
+    t = open("templates/tsb-objects/workspace.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
@@ -62,7 +62,7 @@ def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
     gateway_group = "bookinfo-gateway-" + key
     traffic_group = "bookinfo-traffic-" + key
     security_group = "bookinfo-security-" + key
-    t = open("tsb-objects/group.yaml")
+    t = open("templates/tsb-objects/group.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
@@ -81,7 +81,7 @@ def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
     save_file("generated/" + key + "/tsb-objects/groups.yaml", r)
 
     # perm
-    t = open("tsb-objects/perm.yaml")
+    t = open("templates/tsb-objects/perm.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
@@ -125,7 +125,7 @@ def gen_bridge_specific_objects(
 ):
     os.mkdir("generated/" + key + "/tsb-objects/bridged")
     # security
-    t = open("tsb-objects/bridged/security.yaml")
+    t = open("templates/tsb-objects/bridged/security.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
@@ -137,7 +137,7 @@ def gen_bridge_specific_objects(
     t.close()
     save_file("generated/" + key + "/tsb-objects/bridged/security.yaml", r)
 
-    servicerouteFile = "tsb-objects/bridged/serviceroute.yaml"
+    servicerouteFile = "templates/tsb-objects/bridged/serviceroute.yaml"
     t = open(servicerouteFile)
     template = Template(t.read())
     r = template.render(
@@ -152,7 +152,7 @@ def gen_bridge_specific_objects(
     save_file("generated/" + key + "/tsb-objects/bridged/serviceroute.yaml", r)
     t.close()
 
-    gatewayFile = "tsb-objects/bridged/gateway.yaml"
+    gatewayFile = "templates/tsb-objects/bridged/gateway.yaml"
     t = open(gatewayFile)
     template = Template(t.read())
     r = template.render(
@@ -175,7 +175,7 @@ def gen_direct_specific_objects(
 ):
     os.mkdir("generated/" + key + "/tsb-objects/direct")
     # reviews virtual service
-    reviews_vs = "tsb-objects/direct/reviews-vs.yaml"
+    reviews_vs = "templates/tsb-objects/direct/reviews-vs.yaml"
     t = open(reviews_vs)
     template = Template(t.read())
     r = template.render(
@@ -191,7 +191,7 @@ def gen_direct_specific_objects(
     t.close()
 
     # destination rules
-    t = open("tsb-objects/direct/dr.yaml")
+    t = open("templates/tsb-objects/direct/dr.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
@@ -206,7 +206,7 @@ def gen_direct_specific_objects(
     t.close()
 
     # virtual service for product page
-    t = open("tsb-objects/direct/vs.yaml")
+    t = open("templates/tsb-objects/direct/vs.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
@@ -222,7 +222,7 @@ def gen_direct_specific_objects(
     t.close()
 
     # gateway
-    gatewayFile = "tsb-objects/direct/gw.yaml"
+    gatewayFile = "templates/tsb-objects/direct/gw.yaml"
     t = open(gatewayFile)
     template = Template(t.read())
     r = template.render(
@@ -301,7 +301,7 @@ def gen_k8s_objects(productns, key):
     certs.create_secret(productns, "generated/" + key + "/k8s-objects/secret.yaml")
 
     # ingress
-    t = open("./k8s-objects/ingress.yaml")
+    t = open("templates//k8s-objects/ingress.yaml")
     template = Template(t.read())
     r = template.render(
         ns=productns,
@@ -312,14 +312,14 @@ def gen_k8s_objects(productns, key):
     service_account = productns + "-trafficegen-sa"
 
     # trafficgen
-    t = open("k8s-objects/role.yaml")
+    t = open("templates/k8s-objects/role.yaml")
     template = Template(t.read())
     r = template.render(targetNS=productns, clientNS=productns, saName=service_account)
     t.close()
     save_file("generated/" + key + "/k8s-objects/role.yaml", r)
 
     # trafficgen
-    t = open("k8s-objects/traffic-gen.yaml")
+    t = open("templates/k8s-objects/traffic-gen.yaml")
     template = Template(t.read())
     r = template.render(ns=productns, hostname=productns + ".tetrate.test.com", saName=service_account)
     t.close()
@@ -343,7 +343,7 @@ def main():
 
     for conf in configs:
         tenant_name = "bookinfo-tenant-" + str(index)
-        t = open("tsb-objects/tenant.yaml")
+        t = open("templates/tsb-objects/tenant.yaml")
         template = Template(t.read())
         r = template.render(
             orgName=conf.org,
