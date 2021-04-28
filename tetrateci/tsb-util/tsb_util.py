@@ -253,8 +253,8 @@ def install_bookinfo(conf, tenant_index):
 
         # TODO: d for direct, b for bridged
         productns = "bookinfo-b" + key + "-t" + tenant_index + "-front"
-        detailsns = "bookinfo-b" + key + "-t" + tenant_index + "-mid"
-        reviewsns = "bookinfo-b" + key + "-t" + tenant_index + "-back"
+        detailsns = "bookinfo-b" + key + "-t" + tenant_index + "-back"
+        reviewsns = "bookinfo-b" + key + "-t" + tenant_index + "-mid"
 
         namespaces = {"product": productns, "details": detailsns, "reviews": reviewsns}
 
