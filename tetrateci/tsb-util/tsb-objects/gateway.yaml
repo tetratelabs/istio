@@ -8,7 +8,7 @@ Metadata:
   tenant: {{ tenantName }}
 spec:
   workloadSelector:
-    namespace: tsb-gateway-{{ ns }}
+    namespace: {{ ns }}
     labels:
       app: tsb-gateway-{{ ns }}
   http:
@@ -21,4 +21,4 @@ spec:
     routing:
       rules:
       - route:
-          host: {{ hostFQDN }}
+          host: {{ ns }}/{{ hostFQDN }}
