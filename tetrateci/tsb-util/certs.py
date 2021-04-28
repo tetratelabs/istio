@@ -41,7 +41,7 @@ def create_secret(ns, fname):
     yamlcontent = {
         "apiVersion": "v1",
         "kind": "Secret",
-        "metadata": {"name": secret_name},
+        "metadata": {"name": secret_name, "namespace": ns},
         "type": "kubernetes.io/tls",
         "data": {
             # the data is abbreviated in this example
