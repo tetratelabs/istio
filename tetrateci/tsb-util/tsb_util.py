@@ -123,8 +123,9 @@ def gen_bridge_specific_objects(
     namespaces,
     key,
 ):
+    os.mkdir("generated/" + key + "/tsb-objects/bridged")
     # security
-    t = open("tsb-objects/security.yaml")
+    t = open("tsb-objects/bridged/security.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
@@ -134,9 +135,9 @@ def gen_bridge_specific_objects(
         securityGroupName=security_group,
     )
     t.close()
-    save_file("generated/" + key + "/tsb-objects/security.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/bridged/security.yaml", r)
 
-    servicerouteFile = "tsb-objects/serviceroute.yaml"
+    servicerouteFile = "tsb-objects/bridged/serviceroute.yaml"
     t = open(servicerouteFile)
     template = Template(t.read())
     r = template.render(
@@ -148,10 +149,10 @@ def gen_bridge_specific_objects(
         serviceRouteName="bookinfo-serviceroute",  # need to change
         ns=namespaces["reviews"],
     )
-    save_file("generated/" + key + "/tsb-objects/serviceroute.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/bridged/serviceroute.yaml", r)
     t.close()
 
-    gatewayFile = "tsb-objects/gateway.yaml"
+    gatewayFile = "tsb-objects/bridged/gateway.yaml"
     t = open(gatewayFile)
     template = Template(t.read())
     r = template.render(
@@ -166,15 +167,15 @@ def gen_bridge_specific_objects(
         hostFQDN="productpage." + namespaces["product"] + ".svc.cluster.local",
     )
     t.close()
-    save_file("generated/" + key + "/tsb-objects/gateway.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/bridged/gateway.yaml", r)
     pass
 
 def gen_direct_specific_objects(
     conf, tenant_name, workspace_name, traffic_group, gateway_group, namespaces, key
 ):
-
+    os.mkdir("generated/" + key + "/tsb-objects/direct")
     # reviews virtual service
-    reviews_vs = "direct/tsb-objects/reviews-vs.yaml"
+    reviews_vs = "tsb-objects/direct/reviews-vs.yaml"
     t = open(reviews_vs)
     template = Template(t.read())
     r = template.render(
@@ -186,11 +187,11 @@ def gen_direct_specific_objects(
         serviceRouteName="bookinfo-serviceroute",  # need to change
         ns=namespaces["reviews"],
     )
-    save_file("generated/" + key + "/tsb-objects/reviews_vs.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/direct/reviews_vs.yaml", r)
     t.close()
 
     # destination rules
-    t = open("direct/tsb-objects/dr.yaml")
+    t = open("tsb-objects/direct/dr.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
@@ -201,11 +202,11 @@ def gen_direct_specific_objects(
         destinationruleName="bookinfo-destinationrule",  # need to change
         ns=namespaces["reviews"],
     )
-    save_file("generated/" + key + "/tsb-objects/destinationrule.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/direct/destinationrule.yaml", r)
     t.close()
 
     # virtual service for product page
-    t = open("direct/tsb-objects/vs.yaml")
+    t = open("tsb-objects/direct/vs.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
@@ -217,11 +218,11 @@ def gen_direct_specific_objects(
         ns=namespaces["product"],
         gatewayName=namespaces["product"] + "-gateway",
     )
-    save_file("generated/" + key + "/tsb-objects/virtualservice.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/direct/virtualservice.yaml", r)
     t.close()
 
     # gateway
-    gatewayFile = "direct/tsb-objects/gw.yaml"
+    gatewayFile = "tsb-objects/direct/gw.yaml"
     t = open(gatewayFile)
     template = Template(t.read())
     r = template.render(
@@ -236,7 +237,7 @@ def gen_direct_specific_objects(
         hostFQDN="productpage." + namespaces["product"] + ".svc.cluster.local",
     )
     t.close()
-    save_file("generated/" + key + "/tsb-objects/gateway.yaml", r)
+    save_file("generated/" + key + "/tsb-objects/direct/gateway.yaml", r)
 
 def install_bookinfo(conf, tenant_index):
     tenant_name = "bookinfo-tenant-" + tenant_index
