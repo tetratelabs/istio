@@ -41,20 +41,40 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
       with:
         fetch-depth: 0 # fetch all history for all tags and branches
 
     - run: make -e T=-v build binaries-test
+      env:
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
 
   unit-tests:
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - run: make -e T=-v init racetest
+      env:
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
 
   release:
     needs: config
@@ -64,7 +84,7 @@ jobs:
       image: ${{ needs.config.outputs.image }} # ISTIO_BUILD_TOOLS
       env:
         BUILD_WITH_CONTAINER: "0"
-        GOOGLE_APPLICATION_CREDENTIALS: /gcs.key.json
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
 
     steps:
     - name: "Install latest `git`"
@@ -90,13 +110,17 @@ jobs:
     - name: "GCS Credentials"
       env:
         GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
-      run: echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
 
     - env:
         DOCKER_HUB: ${{ secrets.TETRATE_CI_DOCKER_HUB }}
         GCS_BUCKET: ${{ secrets.TETRATE_CI_GCS_BUCKET }}
         PUBLISH_GCS_ALIASES: "0" # don't publish aliases to GCS
         VERSION: ${{ needs.config.outputs.tag }}
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/release-commit.sh
 
   lint:
@@ -121,82 +145,153 @@ jobs:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -postsubmit,-flaky,-multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.galley.kube.presubmit
 
   integ-mixer-k8s-tests:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -postsubmit,-flaky,-multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.mixer.kube.presubmit
 
   integ-pilot-k8s-tests:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -postsubmit,-flaky,-multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.pilot.kube.presubmit
 
   integ-security-k8s-tests:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -postsubmit,-flaky,-multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.security.kube.presubmit
 
   integ-telemetry-k8s-tests:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -postsubmit,-flaky,-multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.telemetry.kube.presubmit
 
   integ-multicluster-k8s-tests:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -postsubmit,-flaky,+multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh --topology MULTICLUSTER test.integration.multicluster.kube.presubmit
 
   integ-distroless-k8s-tests:
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         VARIANT: distroless
         TEST_SELECT: -multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.kube.reachability
 
   integ-ipv6-k8s-tests:
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
@@ -204,98 +299,181 @@ jobs:
         DOCKER_IN_DOCKER_IPV6_ENABLED: true
         IP_FAMILY: ipv6
         TEST_SELECT: -multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.kube.reachability
 
   integ-operator-controller-tests:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -postsubmit,-flaky,-multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.operator.kube.presubmit
 
   integ-galley-k8s-tests-postsubmit:
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.galley.kube
 
   integ-mixer-k8s-tests-postsubmit:
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.mixer.kube
 
   integ-pilot-k8s-tests-postsubmit:
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.pilot.kube
 
   integ-security-k8s-tests-postsubmit:
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.security.kube
 
   integ-telemetry-k8s-tests-postsubmit:
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         TEST_SELECT: -multicluster
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh test.integration.telemetry.kube
 
   integ-k8s-115:
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         INTEGRATION_TEST_FLAGS: --istio.test.retries=1
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh --node-image kindest/node:v1.15.12 test.integration.kube.presubmit
 
   integ-k8s-116:
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - env:
         INTEGRATION_TEST_FLAGS: --istio.test.retries=1
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"
       run: prow/integ-suite-kind.sh --node-image kindest/node:v1.16.9 test.integration.kube.presubmit
 
   install-cni-test:
     runs-on: ubuntu-latest
     steps:
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+        GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcs.key.json
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+        echo "ACCESS_TOKEN=${ACCESS_TOKEN}" >> $GITHUB_ENV
     - name: "Checkout"
       uses: actions/checkout@v2
 
     - run: make cni.install-test
+      env:
+        AUTH_HEADER: "Authorization: Bearer ${{ env.ACCESS_TOKEN }}"

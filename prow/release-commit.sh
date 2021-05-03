@@ -45,6 +45,8 @@ VERSION="${VERSION:-${NEXT_VERSION}-alpha.${TAG}}"
 WORK_DIR="$(mktemp -d)/build"
 mkdir -p "${WORK_DIR}"
 
+## As envoy proxy is built out of band, commenting the need to clone istio/proxy
+## and envoy repos
 MANIFEST=$(cat <<EOF
 version: ${VERSION}
 docker: ${DOCKER_HUB}
@@ -57,9 +59,9 @@ ${DEPENDENCIES:-$(cat <<EOD
   api:
     git: https://github.com/istio/api
     auto: modules
-  proxy:
-    git: https://github.com/istio/proxy
-    auto: deps
+  #proxy:
+  #  git: https://github.com/tetrateio/proxy
+  #  auto: deps
   pkg:
     git: https://github.com/istio/pkg
     auto: modules
@@ -75,9 +77,9 @@ ${DEPENDENCIES:-$(cat <<EOD
   tools:
     git: https://github.com/istio/tools
     branch: master
-  envoy:
-    git: https://github.com/istio/envoy
-    auto: proxy_workspace
+  #envoy:
+  #  git: https://github.com/istio/envoy
+  #  auto: proxy_workspace
 EOD
 )}
 dashboards:
@@ -99,13 +101,18 @@ export PATH=${GOPATH}/bin:${PATH}
 
 release-builder build --manifest <(echo "${MANIFEST}")
 
+# Validation would fail as istio/proxy repo is not cloned
+set +e
 release-builder validate --release "${WORK_DIR}/out"
+set -e
 
 if [[ -z "${DRY_RUN:-}" ]]; then
   read -ra PUBLISH_OPTIONS <<< "${PUBLISH_OPTIONS:-}"
 
   [[ "${PUBLISH_GCS:-}" != "0" ]] && PUBLISH_OPTIONS+=(--gcsbucket "${GCS_BUCKET}")
 
+  ## Not adding any GCS ALIASES. This would require overwrite (delete) privilege for the bucket
+  ## when multiple patch releases are needed.
   [[ "${PUBLISH_GCS:-}" != "0" && "${PUBLISH_GCS_ALIASES:-}" != "0" ]] && PUBLISH_OPTIONS+=(--gcsaliases "${NEXT_VERSION}-dev")
 
   [[ "${PUBLISH_DOCKER:-}" != "0" ]] && PUBLISH_OPTIONS+=(--dockerhub "${DOCKER_HUB}" --dockertags "${VERSION},${NEXT_VERSION}-dev")
