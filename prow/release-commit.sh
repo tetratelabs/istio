@@ -104,7 +104,9 @@ release-builder validate --release "${WORK_DIR}/out"
 if [[ -z "${DRY_RUN:-}" ]]; then
   read -ra PUBLISH_OPTIONS <<< "${PUBLISH_OPTIONS:-}"
 
-  [[ "${PUBLISH_GCS:-}" != "0" ]] && PUBLISH_OPTIONS+=(--gcsbucket "${GCS_BUCKET}" --gcsaliases "${NEXT_VERSION}-dev")
+  [[ "${PUBLISH_GCS:-}" != "0" ]] && PUBLISH_OPTIONS+=(--gcsbucket "${GCS_BUCKET}")
+
+  [[ "${PUBLISH_GCS:-}" != "0" && "${PUBLISH_GCS_ALIASES:-}" != "0" ]] && PUBLISH_OPTIONS+=(--gcsaliases "${NEXT_VERSION}-dev")
 
   [[ "${PUBLISH_DOCKER:-}" != "0" ]] && PUBLISH_OPTIONS+=(--dockerhub "${DOCKER_HUB}" --dockertags "${VERSION},${NEXT_VERSION}-dev")
 
