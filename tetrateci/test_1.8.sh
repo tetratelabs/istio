@@ -16,7 +16,7 @@ git apply tetrateci/patches/common/disable-autoscaling-on-cpu.1.8.patch
 if [[ ${CLUSTER} == "gke" ]]; then
   echo "Generating operator config for GKE"
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
-  pip install pyyaml --user && ./tetrateci/gen_iop.py
+  python3 -m pip install pyyaml --user && ./tetrateci/gen_iop.py
   CLUSTERFLAGS="-istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml"
 
   echo "Applying GKE specific patches...."
