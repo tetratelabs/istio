@@ -12,7 +12,7 @@ echo "Applying patches...."
 if [[ ${CLUSTER} == "gke" ]]; then
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio-old/issues/76
   echo "Generating operator config for GKE"
-  pip install pyyaml --user && ./tetrateci/gen_iop.py
+  python3 -m pip install pyyaml --user && ./tetrateci/gen_iop.py
   CLUSTERFLAGS="-istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml"
 
   echo "Applying GKE specific patches...."
