@@ -25,15 +25,15 @@ def create_namespace(ns, labels, key):
 
 def generate_bookinfo_yaml(namespaces, key):
     svc_domain = ".svc.cluster.local"
-    details_env = "details." + namespaces["details"] + svc_domain
+    details_env = "details." + namespaces["reviews"] + svc_domain
     reviews_env = "reviews." + namespaces["reviews"] + svc_domain
-    ratings_env = "ratings." + namespaces["reviews"] + svc_domain
+    ratings_env = "ratings." + namespaces["ratings"] + svc_domain
 
     t = open("templates/k8s-objects/bookinfo.yaml")
     template = Template(t.read())
     r = template.render(
         reviewsns=namespaces["reviews"],
-        detailsns=namespaces["details"],
+        ratingsns=namespaces["ratings"],
         productns=namespaces["product"],
         detailsHostName=details_env,
         reviewsHostName=reviews_env,
@@ -51,7 +51,7 @@ def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
         tenantName=tenant_name,
         workspaceName=workspace_name,
         ns1=namespaces["reviews"],
-        ns2=namespaces["details"],
+        ns2=namespaces["ratings"],
         ns3=namespaces["product"],
         clusterName=conf.cluster_name,
     )
@@ -73,7 +73,7 @@ def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
         securityGroupName=security_group,
         productNs=namespaces["product"],
         reviewsNs=namespaces["reviews"],
-        detailsNs=namespaces["details"],
+        ratingsNs=namespaces["ratings"],
         clusterName=conf.cluster_name,
         mode=conf.mode.upper(),
     )
@@ -95,23 +95,15 @@ def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
     return gateway_group, traffic_group, security_group
 
 def gen_namespace_yamls(namespaces, key):
-    create_namespace(
-        namespaces["details"],
-        {"istio-injection": "enabled"},
-        key,
+    t = open("templates/k8s-objects/namespaces.yaml")
+    template = Template(t.read())
+    r = template.render(
+        reviewsns=namespaces["reviews"],
+        ratingsns=namespaces["ratings"],
+        productns=namespaces["product"],
     )
-
-    create_namespace(
-        namespaces["reviews"],
-        {"istio-injection": "enabled"},
-        key,
-    )
-
-    create_namespace(
-        namespaces["product"],
-        {"istio-injection": "enabled"},
-        key,
-    )
+    t.close()
+    save_file("generated/" + key + "/k8s-objects/namespaces.yaml", r)
 
 def gen_bridge_specific_objects(
     conf,
@@ -254,10 +246,10 @@ def install_bookinfo(conf, tenant_index):
 
         # TODO: d for direct, b for bridged
         productns = "bookinfo-b" + key + "-t" + tenant_index + "-front"
-        detailsns = "bookinfo-b" + key + "-t" + tenant_index + "-back"
         reviewsns = "bookinfo-b" + key + "-t" + tenant_index + "-mid"
+        ratingsns = "bookinfo-b" + key + "-t" + tenant_index + "-back"
 
-        namespaces = {"product": productns, "details": detailsns, "reviews": reviewsns}
+        namespaces = {"product": productns, "ratings": ratingsns, "reviews": reviewsns}
 
         generate_bookinfo_yaml(namespaces, key)
 

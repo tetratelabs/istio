@@ -36,6 +36,6 @@ spec:
     names:
     - {{ clusterName }}/{{ productNs }}
     - {{ clusterName }}/{{ reviewsNs }}
-    - {{ clusterName }}/{{ detailsNs }}
+    - {{ clusterName }}/{{ ratingsNs }}
       
   configMode: {{ mode }}

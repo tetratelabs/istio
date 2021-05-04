@@ -19,7 +19,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: details
-  namespace: {{ detailsns }}
+  namespace: {{ reviewsns }}
   labels:
     app: details
     service: details
@@ -34,7 +34,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: details-v1
-  namespace: {{ detailsns }}
+  namespace: {{ reviewsns }}
   labels:
     app: details
     version: v1
@@ -64,7 +64,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ratings
-  namespace: {{ reviewsns }}
+  namespace: {{ ratingsns }}
   labels:
     app: ratings
     service: ratings
@@ -79,7 +79,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ratings-v1
-  namespace: {{ reviewsns }}
+  namespace: {{ ratingsns }}
   labels:
     app: ratings
     version: v1
