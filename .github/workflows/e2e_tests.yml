@@ -346,7 +346,11 @@ jobs:
           draft: false
           prerelease: false
 
-  make_release:    
+  make_release:
+    #######################################################################
+    # WARN: Sync up the changes made to this job to the make_release.yaml #
+    #######################################################################
+
     needs: [create-new-tag]
     if: false
 
@@ -354,18 +358,18 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Overriding workflow level HUB for deploy
-      HUB: ${{ secrets.DEPLOY_HUB }}
+      HUB: ${{ secrets.CLOUDSMITH_HUB }}
 
     steps:
       - name: Checkout tetrate branch
         uses: actions/checkout@v2
 
-      - name: Login to Bintray
+      - name: Login to CloudSmith
         uses: docker/login-action@v1
         with:
           registry: ${{ env.HUB }}
-          username: ${{ secrets.BINTRAY_USER }}
-          password: ${{ secrets.BINTRAY_API_KEY }}
+          username: ${{ secrets.CLOUDSMITH_USER }}
+          password: ${{ secrets.CLOUDSMITH_API_KEY }}
 
       - name: Get the tag
         id: get_tag
@@ -381,12 +385,15 @@ jobs:
 
       - name: run release builder
         env:
-          BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
-          API_KEY: ${{ secrets.BINTRAY_API_KEY }}
+          CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
           TAG: ${{ steps.get_tag.outputs.TAG }}
-          BINTRAY_API: ${{ secrets.BINTRAY_ARCHIVE_API }}
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
         # not using the official build container 
         run: ./tetrateci/create_istio_release.sh
+
+    #######################################################################
+    # WARN: Sync up the changes made to this job to the make_release.yaml #
+    #######################################################################
