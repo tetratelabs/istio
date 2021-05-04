@@ -32,7 +32,7 @@ spec:
             sleep 10
           done
           while :; do
-            curl "https://{{ hostname }}/productpage" --resolve "{{ hostname }}:$IP" --cacert /etc/bookinfo/bookinfo-ca.crt #>/dev/null 2>&1
+            curl "https://{{ hostname }}/productpage" --resolve "{{ hostname }}:443:$IP" --cacert /etc/bookinfo/bookinfo-ca.crt #>/dev/null 2>&1
             sleep 10
           done
         image: bitnami/kubectl
