@@ -23,9 +23,8 @@ spec:
         app: trafficgenerator
     spec:
       containers:
-      - args:
-        - /bin/sh
-        - -c
+      - command: [ "/bin/bash", "-c", "--" ]
+        args:
         - |
           while [[ ${IP} == "" ]]; do
             IP=$(kubectl get service -n {{ ns }} istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
