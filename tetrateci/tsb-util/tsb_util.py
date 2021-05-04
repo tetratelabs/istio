@@ -245,9 +245,10 @@ def install_bookinfo(conf, tenant_index):
         os.mkdir("generated/" + key + "/tsb-objects")
 
         # TODO: d for direct, b for bridged
-        productns = "bookinfo-b" + key + "-t" + tenant_index + "-front"
-        reviewsns = "bookinfo-b" + key + "-t" + tenant_index + "-mid"
-        ratingsns = "bookinfo-b" + key + "-t" + tenant_index + "-back"
+        mode = "d" if conf.mode == "direct" else "b"
+        productns = "bookinfo-" + mode + key + "-t" + tenant_index + "-front"
+        reviewsns = "bookinfo-" + mode + key + "-t" + tenant_index + "-mid"
+        ratingsns = "bookinfo-" + mode + key + "-t" + tenant_index + "-back"
 
         namespaces = {"product": productns, "ratings": ratingsns, "reviews": reviewsns}
 

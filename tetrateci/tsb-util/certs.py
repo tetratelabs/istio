@@ -56,7 +56,7 @@ def create_secret(ns, fname):
     certfile.close()
 
 def create_trafficgen_secret(ns, fname):
-    secret_name = ns + "-trafficgen-credential"
+    secret_name = ns + "-ca-cert"
     certfile = open("cert/tetrate.test.com.crt")
 
     yamlcontent = {
