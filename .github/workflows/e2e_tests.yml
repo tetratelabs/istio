@@ -346,7 +346,11 @@ jobs:
           draft: false
           prerelease: false
 
-  make_release:    
+  make_release:
+    #######################################################################
+    # WARN: Sync up the changes made to this job to the make_release.yaml #
+    #######################################################################
+
     needs: [create-new-tag]
     if: false
 
@@ -389,3 +393,7 @@ jobs:
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
         # not using the official build container 
         run: ./tetrateci/create_istio_release.sh
+
+    #######################################################################
+    # WARN: Sync up the changes made to this job to the make_release.yaml #
+    #######################################################################
