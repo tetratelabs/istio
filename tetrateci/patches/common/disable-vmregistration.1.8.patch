@@ -1,0 +1,12 @@
+diff --git a/tests/integration/pilot/vm_test.go b/tests/integration/pilot/vm_test.go
+index 5aa5af8855..6b458503d0 100644
+--- a/tests/integration/pilot/vm_test.go
++++ b/tests/integration/pilot/vm_test.go
+@@ -76,6 +76,7 @@ func TestVmOSPost(t *testing.T) {
+ }
+ 
+ func TestVMRegistrationLifecycle(t *testing.T) {
++	t.Skip("https://github.com/istio/istio/issues/29100")
+ 	framework.
+ 		NewTest(t).
+ 		RequiresSingleCluster().

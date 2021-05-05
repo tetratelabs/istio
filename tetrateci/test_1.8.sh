@@ -10,13 +10,14 @@ source ./tetrateci/setup_go.sh
 echo "Applying patches...."
 git apply tetrateci/patches/common/increase-dashboard-timeout.1.8.patch
 git apply tetrateci/patches/common/wait-for-envoy.1.8.patch
-git apply tetrateci/patches/common/increase-vm-timeout.1.8.patch
-git apply tetrateci/patches/common/disable-autoscaling-on-cpu.1.8.patch
+#git apply tetrateci/patches/common/increase-vm-timeout.1.8.patch
+#git apply tetrateci/patches/common/disable-autoscaling-on-cpu.1.8.patch
+git apply tetrateci/patches/common/disable-vmregistration.1.8.patch # https://github.com/istio/istio/issues/29100
 
 if [[ ${CLUSTER} == "gke" ]]; then
   echo "Generating operator config for GKE"
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
-  pip install pyyaml --user && ./tetrateci/gen_iop.py
+  python3 -m pip install pyyaml --user && ./tetrateci/gen_iop.py
   CLUSTERFLAGS="-istio.test.kube.helm.iopFile $(pwd)/tetrateci/iop-gke-integration.yml"
 
   echo "Applying GKE specific patches...."
