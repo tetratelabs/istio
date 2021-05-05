@@ -29,11 +29,11 @@ for tag in $tags; do
     if [[ ! $(git rev-parse --verify --quiet origin/tetrate-release-$branch) ]]; then
         # create the tetrate release branch if it doesn't exist with the workflows
         git checkout -b tetrate-release-$branch origin/tetrate-workflow
-        git merge $tag --no-edit --allow-unrelated-histories
+        git merge $tag --no-edit --allow-unrelated-histories -X theirs
         git tag test-$tag-tetrate-v0
     else
         git checkout -b tetrate-release-$branch origin/tetrate-release-$branch
-        git merge $tag --no-edit --allow-unrelated-histories
+        git merge $tag --no-edit --allow-unrelated-histories -X theirs
         git tag test-$tag-tetrate-v0
     fi
 
@@ -42,11 +42,11 @@ for tag in $tags; do
     # Now for FIPS
     if [[ ! $(git rev-parse --verify --quiet origin/tetratefips-release-$branch) ]]; then
         git checkout -b tetratefips-release-$branch origin/tetrate-workflow
-        git merge $tag --no-edit --allow-unrelated-histories
+        git merge $tag --no-edit --allow-unrelated-histories -X theirs
         # no tag created since we need to backport the corresponding patch for fips compliant build manually
     else
         git checkout -b tetratefips-release-$branch origin/tetratefips-release-$branch
-        git merge $tag --no-edit --allow-unrelated-histories
+        git merge $tag --no-edit --allow-unrelated-histories -X theirs
         git tag test-$tag-tetratefips-v0
     fi
 
