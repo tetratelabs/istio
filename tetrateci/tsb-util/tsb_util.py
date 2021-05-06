@@ -312,6 +312,7 @@ def gen_k8s_objects(productns, key):
         hostname=productns + ".tetrate.test.com",
         saName=service_account,
         secretName=secret_name,
+        serviceName="tsb-gateway-" + productns
     )
     t.close()
     save_file("generated/" + key + "/k8s-objects/traffic-gen.yaml", r)

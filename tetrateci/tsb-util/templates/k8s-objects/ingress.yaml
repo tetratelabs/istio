@@ -6,4 +6,4 @@ metadata:
 spec:
   kubeSpec:
     service:
-      type: LoadBalancer
+      type: NodePort
