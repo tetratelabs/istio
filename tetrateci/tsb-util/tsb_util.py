@@ -12,17 +12,6 @@ def save_file(fname, content):
     f.write(content)
     f.close()
 
-def create_namespace(ns, labels, key):
-    yamlcontent = {
-        "apiVersion": "v1",
-        "kind": "Namespace",
-        "metadata": {"name": ns, "labels": labels},
-    }
-    fname = "generated/" + key + "/k8s-objects/" + ns + "ns.yaml"
-    f = open(fname, "w")
-    yaml.safe_dump(yamlcontent, f)
-    f.close()
-
 def generate_bookinfo_yaml(namespaces, key):
     svc_domain = ".svc.cluster.local"
     details_env = "details." + namespaces["reviews"] + svc_domain
@@ -103,7 +92,7 @@ def gen_namespace_yamls(namespaces, key):
         productns=namespaces["product"],
     )
     t.close()
-    save_file("generated/" + key + "/k8s-objects/namespaces.yaml", r)
+    save_file("generated/" + key + "/k8s-objects/01namespaces.yaml", r)
 
 def gen_bridge_specific_objects(
     conf,
@@ -307,7 +296,7 @@ def gen_k8s_objects(productns, key):
     # trafficgen
 
     secret_name = certs.create_trafficgen_secret(
-        productns, "generated/" + key + "/k8s-objects/trafficgen-secret.yaml"
+        productns, "generated/" + key + "/k8s-objects/"+ productns +"-secret.yaml"
     )
 
     t = open("templates/k8s-objects/role.yaml")
