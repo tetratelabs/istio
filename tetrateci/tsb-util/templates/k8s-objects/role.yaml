@@ -5,16 +5,16 @@ metadata:
   namespace: {{ clientNS }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   namespace: {{ targetNS }}
   name: trafficgen-service-reader
 rules:
 - apiGroups: [""]
-  resources: ["services"]
-  verbs: ["get"]
+  resources: ["services", "nodes"]
+  verbs: ["get", "list"]
 ---
-kind: RoleBinding
+kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: trafficgen-service-reader-binding
@@ -24,7 +24,7 @@ subjects:
   name: {{ saName }}
   namespace: {{ clientNS }}
 roleRef:
-  kind: Role
+  kind: ClusterRole
   name: trafficgen-service-reader
   apiGroup: ""
 
