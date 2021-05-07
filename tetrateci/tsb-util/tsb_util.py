@@ -163,9 +163,9 @@ def gen_direct_specific_objects(
         orgName=conf.org,
         tenantName=tenant_name,
         workspaceName=workspace_name,
-        groupName=traffic_group,
+        trafficGroupName=traffic_group,
         hostFQDN="reviews." + namespaces["reviews"] + ".svc.cluster.local",
-        serviceRouteName="bookinfo-serviceroute",  # need to change
+        serviceRouteName="bookinfo-reviews",  # need to change
         ns=namespaces["reviews"],
     )
     save_file("generated/" + key + "/tsb-objects/direct/reviews_vs.yaml", r)
@@ -228,13 +228,13 @@ def install_bookinfo(conf, tenant_index):
     while i < conf.replicas:
         print("Installing Bookinfo")
         key = str(i)
-        workspace_name = "bookinfo-ws-" + key
+        # TODO: d for direct, b for bridged
+        mode = "d" if conf.mode == "direct" else "b"
+        workspace_name = "bookinfo-ws-"+ mode + key
         os.mkdir("generated/" + key)
         os.mkdir("generated/" + key + "/k8s-objects")
         os.mkdir("generated/" + key + "/tsb-objects")
 
-        # TODO: d for direct, b for bridged
-        mode = "d" if conf.mode == "direct" else "b"
         productns = "bookinfo-" + mode + key + "-t" + tenant_index + "-front"
         reviewsns = "bookinfo-" + mode + key + "-t" + tenant_index + "-mid"
         ratingsns = "bookinfo-" + mode + key + "-t" + tenant_index + "-back"
