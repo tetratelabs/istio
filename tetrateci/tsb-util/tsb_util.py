@@ -228,7 +228,7 @@ def install_bookinfo(conf, tenant_index):
     while i < conf.replicas:
         print("Installing Bookinfo")
         key = str(i)
-        # TODO: d for direct, b for bridged
+        
         mode = "d" if conf.mode == "direct" else "b"
         workspace_name = "bookinfo-ws-"+ mode + key
         os.mkdir("generated/" + key)
