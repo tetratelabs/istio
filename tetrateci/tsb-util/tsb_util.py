@@ -198,7 +198,7 @@ def gen_direct_specific_objects(
         virtualserviceName="bookinfo-virtualservice",  # need to change
         ns=namespaces["product"],
         gatewayName=namespaces["product"] + "-gateway",
-        destinationFQDN="productpage." + namespaces["product"] + ".tetrate.test.com",
+        destinationFQDN="productpage." + namespaces["product"] + ".svc.cluster.local",
     )
     save_file("generated/" + key + "/tsb-objects/direct/virtualservice.yaml", r)
     t.close()
