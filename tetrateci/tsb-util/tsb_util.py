@@ -198,6 +198,7 @@ def gen_direct_specific_objects(
         virtualserviceName="bookinfo-virtualservice",  # need to change
         ns=namespaces["product"],
         gatewayName=namespaces["product"] + "-gateway",
+        destinationFQDN="productpage." + namespaces["product"] + ".tetrate.test.com",
     )
     save_file("generated/" + key + "/tsb-objects/direct/virtualservice.yaml", r)
     t.close()
@@ -215,7 +216,7 @@ def gen_direct_specific_objects(
         gwSecretName=namespaces["product"] + "-credential",
         gatewayGroupName=gateway_group,
         ns=namespaces["product"],
-        hostFQDN="productpage." + namespaces["product"] + ".svc.cluster.local",
+        hostFQDN=namespaces["product"] + ".tetrate.test.com",
     )
     t.close()
     save_file("generated/" + key + "/tsb-objects/direct/gateway.yaml", r)
@@ -228,9 +229,9 @@ def install_bookinfo(conf, tenant_index):
     while i < conf.replicas:
         print("Installing Bookinfo")
         key = str(i)
-        
+
         mode = "d" if conf.mode == "direct" else "b"
-        workspace_name = "bookinfo-ws-"+ mode + key
+        workspace_name = "bookinfo-ws-" + mode + key
         os.mkdir("generated/" + key)
         os.mkdir("generated/" + key + "/k8s-objects")
         os.mkdir("generated/" + key + "/tsb-objects")

@@ -19,5 +19,5 @@ spec:
   - name: http
     route:
     - destination:
-        host: {{ hostFQDN }}
+        host: {{ destinationFQDN }}
       weight: 100
