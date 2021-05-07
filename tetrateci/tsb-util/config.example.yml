@@ -4,3 +4,5 @@ config:
     organisation: "tetrate"
     clusterName: "demo"
     mode: "bridged" # possible values: `bridged` or `direct`
+    # for selecting the node ip to be used to send traffic with trafficgen pod
+    trafficGenIPType: "external" # possible values: `external` or `internal` 

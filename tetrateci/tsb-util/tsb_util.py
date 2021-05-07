@@ -271,12 +271,12 @@ def install_bookinfo(conf, tenant_index):
                 key,
             )
 
-        gen_k8s_objects(productns, key)
+        gen_k8s_objects(productns, key, conf.traffic_gen_ip)
 
         print("Bookinfo installed\n")
         i += 1
 
-def gen_k8s_objects(productns, key):
+def gen_k8s_objects(productns, key, iptype):
 
     certs.create_private_key(productns)
     certs.create_cert(productns)
@@ -296,7 +296,7 @@ def gen_k8s_objects(productns, key):
     # trafficgen
 
     secret_name = certs.create_trafficgen_secret(
-        productns, "generated/" + key + "/k8s-objects/"+ productns +"-secret.yaml"
+        productns, "generated/" + key + "/k8s-objects/" + productns + "-secret.yaml"
     )
 
     t = open("templates/k8s-objects/role.yaml")
@@ -312,7 +312,8 @@ def gen_k8s_objects(productns, key):
         hostname=productns + ".tetrate.test.com",
         saName=service_account,
         secretName=secret_name,
-        serviceName="tsb-gateway-" + productns
+        serviceName="tsb-gateway-" + productns,
+        ipType=iptype,
     )
     t.close()
     save_file("generated/" + key + "/k8s-objects/traffic-gen.yaml", r)

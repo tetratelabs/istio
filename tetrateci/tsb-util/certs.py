@@ -44,7 +44,9 @@ def create_secret(ns, fname):
         "metadata": {"name": secret_name, "namespace": ns},
         "type": "kubernetes.io/tls",
         "data": {
-            "tls.crt": base64.b64encode(certfile.read().encode("utf-8")).decode("utf-8"),
+            "tls.crt": base64.b64encode(certfile.read().encode("utf-8")).decode(
+                "utf-8"
+            ),
             "tls.key": base64.b64encode(keyfile.read().encode("utf-8")).decode("utf-8"),
         },
     }
@@ -65,7 +67,9 @@ def create_trafficgen_secret(ns, fname):
         "metadata": {"name": secret_name, "namespace": ns},
         "type": "Opaque",
         "data": {
-            "bookinfo-ca.crt": base64.b64encode(certfile.read().encode("utf-8")).decode("utf-8"),
+            "bookinfo-ca.crt": base64.b64encode(certfile.read().encode("utf-8")).decode(
+                "utf-8"
+            ),
         },
     }
 
