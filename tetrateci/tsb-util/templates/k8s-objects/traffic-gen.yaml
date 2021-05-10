@@ -26,7 +26,10 @@ spec:
       - command: [ "/bin/bash", "-c", "--" ]
         args:
         - |
-          PORT=$(kubectl get service -n {{ ns }} {{ serviceName }} -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+          while [[ ${PORT} == "" ]]; do
+            PORT=$(kubectl get service -n {{ ns }} {{ serviceName }} -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+            sleep 2
+          done
           IP=$(kubectl get nodes --output "jsonpath={.items[0].status.addresses[?(@.type=='{{ ipType }}')].address}")
           while :; do
             curl "https://{{ hostname }}/productpage" --connect-to "{{ hostname }}:443:$IP:$PORT" --cacert /etc/bookinfo/bookinfo-ca.crt #>/dev/null 2>&1
