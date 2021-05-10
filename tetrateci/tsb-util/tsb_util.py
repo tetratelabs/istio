@@ -347,7 +347,7 @@ def main():
         os.mkdir("generated")
         save_file("generated/tenant.yaml", r)
         install_bookinfo(conf, str(index))
-    index += 1
+        index += 1
 
 if __name__ == "__main__":
     main()
