@@ -1,6 +1,7 @@
 import os
 import yaml
 import base64
+from jinja2 import Template
 
 def create_root_cert():
     os.system("mkdir cert")
@@ -38,22 +39,20 @@ def create_secret(ns, fname):
     keyfile = open("cert/" + hostname + ".key")
     certfile = open("cert/" + hostname + ".crt")
 
-    yamlcontent = {
-        "apiVersion": "v1",
-        "kind": "Secret",
-        "metadata": {"name": secret_name, "namespace": ns},
-        "type": "kubernetes.io/tls",
-        "data": {
-            "tls.crt": base64.b64encode(certfile.read().encode("utf-8")).decode(
-                "utf-8"
-            ),
-            "tls.key": base64.b64encode(keyfile.read().encode("utf-8")).decode("utf-8"),
-        },
-    }
+    t = open("templates/k8s-objects/secret.yaml")
+    template = Template(t.read())
+    r = template.render(
+        name=secret_name,
+        ns=ns,
+        crtData=base64.b64encode(certfile.read().encode("utf-8")).decode("utf-8"),
+        keyData=base64.b64encode(keyfile.read().encode("utf-8")).decode("utf-8"),
+    )
+    t.close()
 
     f = open(fname, "w")
-    yaml.safe_dump(yamlcontent, f)
+    f.write(r)
     f.close()
+
     keyfile.close()
     certfile.close()
 
@@ -61,20 +60,18 @@ def create_trafficgen_secret(ns, fname):
     secret_name = ns + "-ca-cert"
     certfile = open("cert/tetrate.test.com.crt")
 
-    yamlcontent = {
-        "apiVersion": "v1",
-        "kind": "Secret",
-        "metadata": {"name": secret_name, "namespace": ns},
-        "type": "Opaque",
-        "data": {
-            "bookinfo-ca.crt": base64.b64encode(certfile.read().encode("utf-8")).decode(
-                "utf-8"
-            ),
-        },
-    }
+    t = open("templates/k8s-objects/trafficgen-secret.yaml")
+    template = Template(t.read())
+    r = template.render(
+        name=secret_name,
+        ns=ns,
+        data=base64.b64encode(certfile.read().encode("utf-8")).decode("utf-8"),
+    )
+    t.close()
 
     f = open(fname, "w")
-    yaml.safe_dump(yamlcontent, f)
+    f.write(r)
     f.close()
+
     certfile.close()
     return secret_name
