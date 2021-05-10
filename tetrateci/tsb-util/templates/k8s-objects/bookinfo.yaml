@@ -146,6 +146,9 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9080
+        env:
+        - name: RATINGS_HOSTNAME
+          value: {{ ratingsHostName }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -173,6 +176,9 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9080
+        env:
+        - name: RATINGS_HOSTNAME
+          value: {{ ratingsHostName }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -200,6 +206,9 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9080
+        env:
+        - name: RATINGS_HOSTNAME
+          value: {{ ratingsHostName }}
 ---
 ##################################################################################################
 # Productpage services
