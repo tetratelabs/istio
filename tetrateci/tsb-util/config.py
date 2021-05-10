@@ -7,7 +7,7 @@ class bookinfo:
     replicas: int
     org: str
     cluster_name: str
-    mode: str
+    mode: List[str]
     traffic_gen_ip: str
 
 def parse_config(yaml_dict):
@@ -16,8 +16,8 @@ def parse_config(yaml_dict):
         # context is not necessary, we can always fallback to current context
         mode = config["mode"]
 
-        if mode != "direct" and mode != "bridged":
-            print("Possible values for `mode` are `direct` and `bridged`, not ", mode)
+        if "direct" not in mode and "bridged" not in mode :
+            print("Possible values for `mode` array are `direct` and `bridged`, not ", mode)
             exit(1)
 
         traffic_gen_ip = config["trafficGenIPType"]

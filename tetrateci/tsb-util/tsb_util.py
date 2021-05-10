@@ -31,7 +31,7 @@ def generate_bookinfo_yaml(namespaces, key):
     t.close()
     save_file("generated/" + key + "/k8s-objects/bookinfo.yaml", r)
 
-def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
+def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name, mode):
     # workspace
     t = open("templates/tsb-objects/workspace.yaml")
     template = Template(t.read())
@@ -64,7 +64,7 @@ def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name):
         reviewsNs=namespaces["reviews"],
         ratingsNs=namespaces["ratings"],
         clusterName=conf.cluster_name,
-        mode=conf.mode.upper(),
+        mode=mode.upper(),
     )
     t.close()
     save_file("generated/" + key + "/tsb-objects/groups.yaml", r)
@@ -230,7 +230,10 @@ def install_bookinfo(conf, tenant_index):
         print("Installing Bookinfo")
         key = str(i)
 
-        mode = "d" if conf.mode == "direct" else "b"
+        # we repeat if there are not enough for values for mode in the configuration as the number of replicas
+        current_mode = conf.mode[i % len(conf.mode)]
+
+        mode = "d" if current_mode == "direct" else "b"
         workspace_name = "bookinfo-ws-" + mode + key
         os.mkdir("generated/" + key)
         os.mkdir("generated/" + key + "/k8s-objects")
@@ -245,12 +248,12 @@ def install_bookinfo(conf, tenant_index):
         generate_bookinfo_yaml(namespaces, key)
 
         gateway_group, traffic_group, security_group = gen_common_tsb_objects(
-            namespaces, key, conf, tenant_name, workspace_name
+            namespaces, key, conf, tenant_name, workspace_name, current_mode
         )
 
         gen_namespace_yamls(namespaces, key)
 
-        if conf.mode == "bridged":
+        if current_mode == "bridged":
             gen_bridge_specific_objects(
                 conf,
                 tenant_name,
