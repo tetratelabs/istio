@@ -1,11 +1,8 @@
-import urllib.request
-import os, sys, shutil, platform
+import os, sys
 import argparse
 import config
 import certs
-from subprocess import PIPE, Popen
 from jinja2 import Template
-import yaml
 
 def save_file(fname, content):
     f = open(fname, "w")

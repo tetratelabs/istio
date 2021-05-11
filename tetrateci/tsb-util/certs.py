@@ -1,5 +1,4 @@
 import os
-import yaml
 import base64
 from jinja2 import Template
 
