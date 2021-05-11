@@ -15,8 +15,11 @@ def parse_config(yaml_dict):
         # context is not necessary, we can always fallback to current context
         mode = config["mode"]
 
-        if "direct" not in mode and "bridged" not in mode :
-            print("Possible values for `mode` array are `direct` and `bridged`, not ", mode)
+        if "direct" not in mode and "bridged" not in mode:
+            print(
+                "Possible values for `mode` array are `direct` and `bridged`, not ",
+                mode,
+            )
             exit(1)
 
         traffic_gen_ip = config["trafficGenIPType"]

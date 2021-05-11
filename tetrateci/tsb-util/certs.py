@@ -2,6 +2,8 @@ import os
 import base64
 from jinja2 import Template
 
+script_path = os.path.dirname(os.path.realpath(__file__))
+
 def create_root_cert():
     os.system("mkdir cert")
     os.system(
@@ -38,7 +40,7 @@ def create_secret(ns, fname):
     keyfile = open("cert/" + hostname + ".key")
     certfile = open("cert/" + hostname + ".crt")
 
-    t = open("templates/k8s-objects/secret.yaml")
+    t = open(script_path + "/templates/k8s-objects/secret.yaml")
     template = Template(t.read())
     r = template.render(
         name=secret_name,
@@ -59,7 +61,7 @@ def create_trafficgen_secret(ns, fname):
     secret_name = ns + "-ca-cert"
     certfile = open("cert/tetrate.test.com.crt")
 
-    t = open("templates/k8s-objects/trafficgen-secret.yaml")
+    t = open(script_path + "/templates/k8s-objects/trafficgen-secret.yaml")
     template = Template(t.read())
     r = template.render(
         name=secret_name,
