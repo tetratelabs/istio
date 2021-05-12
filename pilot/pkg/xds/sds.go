@@ -22,10 +22,12 @@ import (
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/golang/protobuf/ptypes/any"
 
+	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/secrets"
 	authnmodel "istio.io/istio/pilot/pkg/security/model"
+	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/schema/gvk"
 )
 
@@ -44,6 +46,11 @@ type SecretResource struct {
 
 func (sr SecretResource) Key() string {
 	return "sds://" + sr.ResourceName
+}
+
+// DependentTypes is not needed; we know exactly which configs impact SDS, so we can scope at DependentConfigs level
+func (sr SecretResource) DependentTypes() []config.GroupVersionKind {
+	return nil
 }
 
 func (sr SecretResource) DependentConfigs() []model.ConfigKey {
@@ -134,9 +141,11 @@ func (s *SecretGen) Generate(proxy *model.Proxy, _ *model.PushContext, w *model.
 			adsLog.Warnf("requested secret %v not accessible for proxy %v: %v", sr.ResourceName, proxy.ID, err)
 			continue
 		}
-		if cached, f := s.cache.Get(sr); f {
+		cachedItem, token, f := s.cache.Get(sr)
+		if f && !features.EnableUnsafeAssertions {
 			// If it is in the Cache, add it and continue
-			results = append(results, cached)
+			// We skip cache if assertions are enabled, so that the cache will assert our eviction logic is correct
+			results = append(results, cachedItem)
 			continue
 		}
 
@@ -146,7 +155,7 @@ func (s *SecretGen) Generate(proxy *model.Proxy, _ *model.PushContext, w *model.
 			if secret != nil {
 				res := toEnvoyCaSecret(sr.ResourceName, secret)
 				results = append(results, res)
-				s.cache.Add(sr, res)
+				s.cache.Add(sr, token, res)
 			} else {
 				adsLog.Warnf("failed to fetch ca certificate for %v", sr.ResourceName)
 			}
@@ -155,7 +164,7 @@ func (s *SecretGen) Generate(proxy *model.Proxy, _ *model.PushContext, w *model.
 			if key != nil && cert != nil {
 				res := toEnvoyKeyCertSecret(sr.ResourceName, key, cert)
 				results = append(results, res)
-				s.cache.Add(sr, res)
+				s.cache.Add(sr, token, res)
 			} else {
 				adsLog.Warnf("failed to fetch key and certificate for %v", sr.ResourceName)
 			}
