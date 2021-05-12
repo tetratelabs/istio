@@ -70,8 +70,9 @@ func (b *EndpointBuilder) EndpointsByNetworkFilter(endpoints []*endpoint.Localit
 				if !b.canViewNetwork(epNetwork) {
 					continue
 				}
-				if tlsMode := envoytransportSocketMetadata(lbEp, "tlsMode"); tlsMode == model.DisabledTLSModeLabel {
-					// dont allow cross-network endpoints for uninjected traffic
+				// cross-network traffic relies on mTLS to be enabled for SNI routing
+				// TODO BTS may allow us to work around this
+				if b.mtlsChecker.isMtlsDisabled(lbEp) {
 					continue
 				}
 
@@ -122,6 +123,38 @@ func (b *EndpointBuilder) EndpointsByNetworkFilter(endpoints []*endpoint.Localit
 		// and then build a new LocalityLbEndpoints with them.
 		newEp := createLocalityLbEndpoints(ep, lbEndpoints)
 		filtered = append(filtered, newEp)
+	}
+
+	return filtered
+}
+
+// EndpointsWithMTLSFilter removes all endpoints that do not handle mTLS. This is determined by looking at
+// auto-mTLS, DestinationRule, and PeerAuthentication to determine if we would send mTLS to these endpoints.
+// Note there is no guarantee these destinations *actually* handle mTLS; just that we are configured to send mTLS to them.
+func (b *EndpointBuilder) EndpointsWithMTLSFilter(endpoints []*endpoint.LocalityLbEndpoints) []*endpoint.LocalityLbEndpoints {
+	// A new array of endpoints to be returned that will have both local and
+	// remote gateways (if any)
+	filtered := make([]*endpoint.LocalityLbEndpoints, 0)
+
+	// Go through all cluster endpoints and add those with mTLS enabled
+	for _, ep := range endpoints {
+		lbEndpoints := make([]*endpoint.LbEndpoint, 0)
+
+		for _, lbEp := range ep.LbEndpoints {
+			if b.mtlsChecker.isMtlsDisabled(lbEp) {
+				// no mTLS, skip it
+				continue
+			}
+			lbEndpoints = append(lbEndpoints, lbEp)
+		}
+
+		filtered = append(filtered, &endpoint.LocalityLbEndpoints{
+			Locality:            ep.Locality,
+			LbEndpoints:         lbEndpoints,
+			LoadBalancingWeight: ep.LoadBalancingWeight,
+			Priority:            ep.Priority,
+			Proximity:           ep.Proximity,
+		})
 	}
 
 	return filtered
