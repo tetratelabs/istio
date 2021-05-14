@@ -28,6 +28,7 @@ import (
 	securityBeta "istio.io/api/security/v1beta1"
 	selectorpb "istio.io/api/type/v1beta1"
 
+	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/labels"
@@ -321,6 +322,8 @@ func TestBestEffortInferServiceMTLSMode(t *testing.T) {
 	const wholeNS string = "whole"
 	ps := NewPushContext()
 	env := &Environment{Watcher: mesh.NewFixedWatcher(&meshconfig.MeshConfig{RootNamespace: "istio-system"})}
+	sd := &localServiceDiscovery{}
+	env.ServiceDiscovery = sd
 	ps.Mesh = env.Mesh()
 	ps.ServiceDiscovery = env
 
@@ -342,40 +345,71 @@ func TestBestEffortInferServiceMTLSMode(t *testing.T) {
 		t.Fatalf("init authn policies failed: %v", err)
 	}
 
-	cases := []struct {
-		name             string
-		serviceNamespace string
-		servicePort      int
-		wanted           MutualTLSMode
-	}{
-		{
-			name:             "from namespace policy",
-			serviceNamespace: wholeNS,
-			servicePort:      80,
-			wanted:           MTLSStrict,
-		},
-		{
-			name:             "from mesh default",
-			serviceNamespace: partialNS,
-			servicePort:      80,
-			wanted:           MTLSPermissive,
+	instancePlainText := &ServiceInstance{
+		Endpoint: &IstioEndpoint{
+			Address:      "192.168.1.2",
+			EndpointPort: 1000000,
+			TLSMode:      DisabledTLSModeLabel,
 		},
 	}
+
+	cases := []struct {
+		name              string
+		serviceNamespace  string
+		servicePort       int
+		serviceResolution Resolution
+		serviceInstances  []*ServiceInstance
+		wanted            MutualTLSMode
+	}{
+		{
+			name:              "from namespace policy",
+			serviceNamespace:  wholeNS,
+			servicePort:       80,
+			serviceResolution: ClientSideLB,
+			wanted:            MTLSStrict,
+		},
+		{
+			name:              "from mesh default",
+			serviceNamespace:  partialNS,
+			servicePort:       80,
+			serviceResolution: ClientSideLB,
+			wanted:            MTLSPermissive,
+		},
+		{
+			name:              "headless service with no instances found yet",
+			serviceNamespace:  partialNS,
+			servicePort:       80,
+			serviceResolution: Passthrough,
+			wanted:            MTLSDisable,
+		},
+		{
+			name:              "headless service with instances",
+			serviceNamespace:  partialNS,
+			servicePort:       80,
+			serviceResolution: Passthrough,
+			serviceInstances:  []*ServiceInstance{instancePlainText},
+			wanted:            MTLSDisable,
+		},
+	}
+
 	serviceName := host.Name("some-service")
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			service := &Service{
 				Hostname:   host.Name(fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, tc.serviceNamespace)),
+				Resolution: tc.serviceResolution,
 				Attributes: ServiceAttributes{Namespace: tc.serviceNamespace},
 			}
 			// Intentionally use the externalService with the same name and namespace for test, though
 			// these attributes don't matter.
 			externalService := &Service{
 				Hostname:     host.Name(fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, tc.serviceNamespace)),
+				Resolution:   tc.serviceResolution,
 				Attributes:   ServiceAttributes{Namespace: tc.serviceNamespace},
 				MeshExternal: true,
 			}
 
+			sd.serviceInstances = tc.serviceInstances
 			port := &Port{
 				Port: tc.servicePort,
 			}
@@ -737,6 +771,106 @@ func TestVirtualServiceWithExportTo(t *testing.T) {
 	}
 }
 
+func TestInitVirtualService(t *testing.T) {
+	features.EnableVirtualServiceDelegate = true
+
+	ps := NewPushContext()
+	env := &Environment{Watcher: mesh.NewFixedWatcher(&meshconfig.MeshConfig{RootNamespace: "istio-system"})}
+	ps.Mesh = env.Mesh()
+	ps.ServiceDiscovery = env
+	configStore := NewFakeStore()
+	gatewayName := "ns1/gateway"
+
+	vs1 := Config{
+		ConfigMeta: ConfigMeta{
+			GroupVersionKind: collections.IstioNetworkingV1Alpha3Virtualservices.Resource().GroupVersionKind(),
+			Name:             "vs1",
+			Namespace:        "ns1",
+		},
+		Spec: &networking.VirtualService{
+			Hosts:    []string{"*.org"},
+			Gateways: []string{"gateway"},
+			Http: []*networking.HTTPRoute{
+				{
+					Match: []*networking.HTTPMatchRequest{
+						{
+							Uri: &networking.StringMatch{
+								MatchType: &networking.StringMatch_Prefix{Prefix: "/productpage"},
+							},
+						},
+						{
+							Uri: &networking.StringMatch{
+								MatchType: &networking.StringMatch_Exact{Exact: "/login"},
+							},
+						},
+					},
+					Delegate: &networking.Delegate{
+						Name:      "vs2",
+						Namespace: "ns2",
+					},
+				},
+			},
+		},
+	}
+	vs2 := Config{
+		ConfigMeta: ConfigMeta{
+			GroupVersionKind: collections.IstioNetworkingV1Alpha3Virtualservices.Resource().GroupVersionKind(),
+			Name:             "vs2",
+			Namespace:        "ns2",
+		},
+		Spec: &networking.VirtualService{
+			Hosts:    []string{},
+			Gateways: []string{gatewayName},
+			Http: []*networking.HTTPRoute{
+				{
+					Route: []*networking.HTTPRouteDestination{
+						{
+							Destination: &networking.Destination{
+								Host: "test",
+								Port: &networking.PortSelector{
+									Number: 80,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, c := range []Config{vs1, vs2} {
+		if _, err := configStore.Create(c); err != nil {
+			t.Fatalf("could not create %v", c.Name)
+		}
+	}
+
+	store := istioConfigStore{ConfigStore: configStore}
+	env.IstioConfigStore = &store
+	ps.initDefaultExportMaps()
+	if err := ps.initVirtualServices(env); err != nil {
+		t.Fatalf("init virtual services failed: %v", err)
+	}
+
+	t.Run("resolve shortname", func(t *testing.T) {
+		rules := ps.VirtualServicesForGateway(&Proxy{ConfigNamespace: "ns1"}, gatewayName)
+		if len(rules) != 1 {
+			t.Fatalf("wanted 1 virtualservice for gateway %s, actually got %d", gatewayName, len(rules))
+		}
+		gotHTTPHosts := make([]string, 0)
+		for _, r := range rules {
+			vs := r.Spec.(*networking.VirtualService)
+			for _, route := range vs.GetHttp() {
+				for _, dst := range route.Route {
+					gotHTTPHosts = append(gotHTTPHosts, dst.Destination.Host)
+				}
+			}
+		}
+		if !reflect.DeepEqual(gotHTTPHosts, []string{"test.ns2"}) {
+			t.Errorf("got %+v", gotHTTPHosts)
+		}
+	})
+}
+
 func TestServiceWithExportTo(t *testing.T) {
 	ps := NewPushContext()
 	env := &Environment{Watcher: mesh.NewFixedWatcher(&meshconfig.MeshConfig{RootNamespace: "zzz"})}
@@ -933,7 +1067,8 @@ func TestIsClusterLocal(t *testing.T) {
 
 // MockDiscovery is an in-memory ServiceDiscover with mock services
 type localServiceDiscovery struct {
-	services []*Service
+	services         []*Service
+	serviceInstances []*ServiceInstance
 }
 
 func (l *localServiceDiscovery) Services() ([]*Service, error) {
@@ -945,7 +1080,7 @@ func (l *localServiceDiscovery) GetService(hostname host.Name) (*Service, error)
 }
 
 func (l *localServiceDiscovery) InstancesByPort(svc *Service, servicePort int, labels labels.Collection) ([]*ServiceInstance, error) {
-	panic("implement me")
+	return l.serviceInstances, nil
 }
 
 func (l *localServiceDiscovery) GetProxyServiceInstances(proxy *Proxy) ([]*ServiceInstance, error) {

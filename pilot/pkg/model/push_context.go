@@ -100,6 +100,8 @@ type PushContext struct {
 	privateVirtualServicesByNamespaceAndGateway map[string]map[string][]Config
 	// This contains all virtual services whose exportTo is "*", keyed by gateway
 	publicVirtualServicesByGateway map[string][]Config
+	// root vs namespace/name ->delegate vs virtualservice gvk/namespace/name
+	delegateVirtualServices map[ConfigKey][]ConfigKey
 
 	// destination rules are of three types:
 	//  namespaceLocalDestRules: all public/private dest rules pertaining to a service defined in a given namespace
@@ -614,7 +616,7 @@ func (ps *PushContext) ServiceForHostname(proxy *Proxy, hostname host.Name) *Ser
 	return nil
 }
 
-// VirtualServices lists all virtual services bound to the specified gateways
+// VirtualServicesForGateway lists all virtual services bound to the specified gateways
 // This replaces store.VirtualServices. Used only by the gateways
 // Sidecars use the egressListener.VirtualServices().
 func (ps *PushContext) VirtualServicesForGateway(proxy *Proxy, gateway string) []Config {
@@ -622,6 +624,16 @@ func (ps *PushContext) VirtualServicesForGateway(proxy *Proxy, gateway string) [
 	res = append(res, ps.virtualServicesExportedToNamespaceByGateway[proxy.ConfigNamespace][gateway]...)
 	res = append(res, ps.publicVirtualServicesByGateway[gateway]...)
 	return res
+}
+
+// DelegateVirtualServicesConfigKey lists all the delegate virtual services configkeys associated with the provided virtual services
+func (ps *PushContext) DelegateVirtualServicesConfigKey(vses []Config) []ConfigKey {
+	var out []ConfigKey
+	for _, vs := range vses {
+		out = append(out, ps.delegateVirtualServices[ConfigKey{Kind: gvk.VirtualService, Namespace: vs.Namespace, Name: vs.Name}]...)
+	}
+
+	return out
 }
 
 // getSidecarScope returns a SidecarScope object associated with the
@@ -1116,12 +1128,11 @@ func (ps *PushContext) initVirtualServices(env *Environment) error {
 	// the RDS code. See separateVSHostsAndServices in route/route.go
 	sortConfigByCreationTime(vservices)
 
-	vservices = mergeVirtualServicesIfNeeded(vservices, ps.defaultVirtualServiceExportTo)
-
 	// convert all shortnames in virtual services into FQDNs
 	for _, r := range vservices {
 		resolveVirtualServiceShortnames(r.Spec.(*networking.VirtualService), r.ConfigMeta)
 	}
+	vservices, ps.delegateVirtualServices = mergeVirtualServicesIfNeeded(vservices, ps.defaultVirtualServiceExportTo)
 
 	for _, virtualService := range vservices {
 		ns := virtualService.Namespace
@@ -1752,7 +1763,7 @@ func (ps *PushContext) QuotaSpecByDestination(hostname host.Name) []Config {
 
 // BestEffortInferServiceMTLSMode infers the mTLS mode for the service + port from all authentication
 // policies (both alpha and beta) in the system. The function always returns MTLSUnknown for external service.
-// The resulst is a best effort. It is because the PeerAuthentication is workload-based, this function is unable
+// The result is a best effort. It is because the PeerAuthentication is workload-based, this function is unable
 // to compute the correct service mTLS mode without knowing service to workload binding. For now, this
 // function uses only mesh and namespace level PeerAuthentication and ignore workload & port level policies.
 // This function is used to give a hint for auto-mTLS configuration on client side.
@@ -1762,12 +1773,26 @@ func (ps *PushContext) BestEffortInferServiceMTLSMode(service *Service, port *Po
 		return MTLSUnknown
 	}
 
-	// First , check mTLS settings from beta policy (i.e PeerAuthentication) at namespace / mesh level.
+	// 1. Check service instances' tls mode, mainly used for headless service.
+	if service.Resolution == Passthrough {
+		instances, _ := ps.InstancesByPort(service, port.Port, nil)
+		if len(instances) == 0 {
+			return MTLSDisable
+		}
+		for _, i := range instances {
+			// Infer mTls disabled if any of the endpoint is with tls disabled
+			if i.Endpoint.TLSMode == DisabledTLSModeLabel {
+				return MTLSDisable
+			}
+		}
+	}
+
+	// 2. check mTLS settings from beta policy (i.e PeerAuthentication) at namespace / mesh level.
 	// If the mode is not unknown, use it.
 	if serviceMTLSMode := ps.AuthnBetaPolicies.GetNamespaceMutualTLSMode(service.Attributes.Namespace); serviceMTLSMode != MTLSUnknown {
 		return serviceMTLSMode
 	}
 
-	// When all are failed, default to permissive.
+	// Fallback to permissive.
 	return MTLSPermissive
 }
