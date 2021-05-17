@@ -220,8 +220,7 @@ def gen_direct_specific_objects(
     t.close()
     save_file("generated/tsb-objects/" + key + "/direct/gateway.yaml", r)
 
-def install_bookinfo(conf, tenant_index):
-    tenant_name = "bookinfo-tenant-" + tenant_index
+def install_bookinfo(conf):
 
     i = 0
 
@@ -231,6 +230,8 @@ def install_bookinfo(conf, tenant_index):
 
         # we repeat if there are not enough for values for mode in the configuration as the number of replicas
         current_mode = conf.mode[i % len(conf.mode)]
+        tenant_index = str(conf.tenant_index[i % len(conf.tenant_index)])
+        tenant_name = "bookinfo-tenant-" + tenant_index
 
         mode = "d" if current_mode == "direct" else "b"
         workspace_name = "bookinfo-ws-" + mode + key
@@ -334,21 +335,21 @@ def main():
 
     certs.create_root_cert()
 
-    index = 0
+    os.mkdir("generated")
 
-    for conf in configs:
-        tenant_name = "bookinfo-tenant-" + str(index)
+    for tenant in range(configs.tenant_count):
+        tenant_name = "bookinfo-tenant-" + str(tenant)
         t = open(script_path + "/templates/tsb-objects/tenant.yaml")
         template = Template(t.read())
         r = template.render(
-            orgName=conf.org,
+            orgName=configs.org,
             tenantName=tenant_name,
         )
         t.close()
-        os.mkdir("generated")
-        save_file("generated/tenant" + str(index) + ".yaml", r)
-        install_bookinfo(conf, str(index))
-        index += 1
+        save_file("generated/tenant" + str(tenant) + ".yaml", r)
+
+    for conf in configs.app:
+        install_bookinfo(conf)
 
 if __name__ == "__main__":
     main()

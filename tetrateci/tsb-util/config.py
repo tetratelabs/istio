@@ -1,15 +1,24 @@
 import yaml
 from dataclasses import dataclass
 from typing import List
+
 @dataclass
 class bookinfo:
     replicas: int
-    org: str
     cluster_name: str
     mode: List[str]
     traffic_gen_ip: str
+    org: str
+    tenant_index: List[int]
+
+@dataclass
+class fullconfig:
+    tenant_count: int
+    org: str
+    app: List[bookinfo]
 
 def parse_config(yaml_dict):
+    fullconf = fullconfig(yaml_dict["tenantCount"], yaml_dict["organisation"], [])
     parsed_conf = []
     for config in yaml_dict["config"]:
         # context is not necessary, we can always fallback to current context
@@ -33,13 +42,17 @@ def parse_config(yaml_dict):
 
         conf = bookinfo(
             config["replicas"],
-            config["organisation"],
             config["clusterName"],
             config["mode"],
             "ExternalIP" if traffic_gen_ip == "external" else "InternalIP",
+            yaml_dict[
+                "organisation"
+            ],  # keeping else need to refactor a lot, so probably in a later commit
+            config["tenantIndex"],
         )
         parsed_conf.append(conf)
-    return parsed_conf
+    fullconf.app = parsed_conf
+    return fullconf
 
 def read_config_yaml(filename):
     with open(filename) as file:
