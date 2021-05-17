@@ -7,3 +7,5 @@ spec:
   kubeSpec:
     service:
       type: NodePort
+    annotations:
+        traffic.istio.io/nodeSelector: ‘{“kubernetes.io/os”:“linux”}’
