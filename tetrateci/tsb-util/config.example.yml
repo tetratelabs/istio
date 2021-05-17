@@ -1,10 +1,15 @@
+tenantCount: 2
+organisation: "tetrate"
+
 # an array of configuration
 config:
   - replicas: 2 # how many times we want to replicate the same bookinfo configuration in cluster 
-    organisation: "tetrate"
     clusterName: "demo"
     mode:
     - "bridged" # possible values: `bridged` or `direct`
     - "direct" # if length of mode array is less than replicas, it would repeat itself
     # for selecting the node ip to be used to send traffic with trafficgen pod
     trafficGenIPType: "internal" # possible values: `external` or `internal`
+    tenantIndex:
+    - 0 # the tenant index 0 <= index < tenantCount
+    - 1 # would repeat if length of array < replicas and would ignore extra values
