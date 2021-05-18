@@ -25,6 +25,9 @@ CONTAINER_OPTIONS = --mount type=bind,source=/tmp,destination=/tmp --net=host
 # see https://github.com/tetrateio/istio-tools/tree/release-1.7.8
 IMG ?= docker.io/tetrate/build-tools:release-1.7.8-2021-05-04T12-36-52
 
+# Prebuilt envoy binary to pull from with goldpanda fix for Istio 1.7.8 proxy
+ISTIO_ENVOY_BASE_URL ?= https://storage.googleapis.com/tetrate-istio-build/proxy
+
 ifeq ($(BUILD_WITH_CONTAINER),1)
 # create phony targets for the top-level items in the repo
 PHONYS := $(shell ls | grep -v Makefile)
