@@ -1,0 +1,30 @@
+# The following policy selects workload in namespace 2
+
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: policy-ns2-workloadselector
+  namespace: "{{ .Namespace2 }}"
+spec:
+  selector:
+    matchLabels:
+      "app": "{{ .dst1 }}"
+  rules:
+  - to:
+    - operation:
+        paths: ["/policy-ns2-{{ .dst1 }}"]
+---
+
+# The following policy selects all workloads in namespace 2
+
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: policy-ns2-all
+  namespace: "{{ .Namespace2 }}"
+spec:
+  rules:
+  - to:
+    - operation:
+        paths: ["/policy-ns2-all"]
+---
