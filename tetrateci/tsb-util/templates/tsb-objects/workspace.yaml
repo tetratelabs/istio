@@ -5,6 +5,7 @@ metadata:
   name: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
+  displayName: {{ workspaceName }}
   namespaceSelector:
     names:
     - {{ clusterName }}/{{ ns1 }}

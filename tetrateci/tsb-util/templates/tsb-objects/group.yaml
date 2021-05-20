@@ -2,10 +2,11 @@ apiVersion: gateway.tsb.tetrate.io/v2
 kind: Group
 metadata:
   organization: {{ orgName }}
-  name: {{ gatewayGroupName }}
+  name: {{ workspaceName }}
   workspace: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
+  displayName: {{ workspaceName }}
   namespaceSelector:
     names:
     - {{ clusterName }}/{{ productNs }}
@@ -19,6 +20,7 @@ metadata:
   workspace: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
+  displayName: {{ trafficGroupName }}
   namespaceSelector:
     names:
     - {{ clusterName }}/{{ reviewsNs }}
@@ -32,6 +34,7 @@ metadata:
   workspace: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
+  displayName: {{ securityGroupName }}
   namespaceSelector:
     names:
     - {{ clusterName }}/{{ productNs }}
