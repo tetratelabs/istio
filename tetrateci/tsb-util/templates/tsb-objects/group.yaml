@@ -2,11 +2,11 @@ apiVersion: gateway.tsb.tetrate.io/v2
 kind: Group
 metadata:
   organization: {{ orgName }}
-  name: {{ workspaceName }}
+  name: {{ gatewayGroupName }}
   workspace: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
-  displayName: {{ workspaceName }}
+  displayName: {{ gatewayGroupName }}
   namespaceSelector:
     names:
     - {{ clusterName }}/{{ productNs }}
