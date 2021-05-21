@@ -32,7 +32,7 @@ spec:
           done
           IP=$(kubectl get nodes --output "jsonpath={.items[0].status.addresses[?(@.type=='{{ ipType }}')].address}")
           while :; do
-            curl "https://{{ hostname }}/productpage" --connect-to "{{ hostname }}:443:$IP:$PORT" --cacert /etc/bookinfo/bookinfo-ca.crt #>/dev/null 2>&1
+            curl "https://{{ hostname }}/productpage" --connect-to "{{ hostname }}:443:$IP:$PORT" --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
             sleep 10
           done
         image: bitnami/kubectl
