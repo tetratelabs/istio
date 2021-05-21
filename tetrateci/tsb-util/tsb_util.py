@@ -1,6 +1,7 @@
 import os
 import sys
 import argparse
+import shutil
 import config
 import certs
 from jinja2 import Template
@@ -31,12 +32,14 @@ def generate_bookinfo_yaml(namespaces, key):
     t.close()
     save_file("generated/k8s-objects/" + key + "/bookinfo.yaml", r)
 
-def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name, mode):
+def gen_common_tsb_objects(
+    namespaces, key, conf, tenant_name, workspace_name, mode, org
+):
     # workspace
     t = open(script_path + "/templates/tsb-objects/workspace.yaml")
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenantName=tenant_name,
         workspaceName=workspace_name,
         ns1=namespaces["reviews"],
@@ -54,7 +57,7 @@ def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name, m
     t = open(script_path + "/templates/tsb-objects/group.yaml")
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenantName=tenant_name,
         workspaceName=workspace_name,
         gatewayGroupName=gateway_group,
@@ -73,7 +76,7 @@ def gen_common_tsb_objects(namespaces, key, conf, tenant_name, workspace_name, m
     t = open(script_path + "/templates/tsb-objects/perm.yaml")
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenantName=tenant_name,
         workspaceName=workspace_name,
         trafficGroupName=traffic_group,
@@ -104,6 +107,7 @@ def gen_bridge_specific_objects(
     namespaces,
     key,
     password,
+    org,
 ):
     os.mkdir("generated/tsb-objects/" + key + "/bridged")
     os.mkdir("generated/k8s-objects/" + key + "/bridged")
@@ -112,7 +116,7 @@ def gen_bridge_specific_objects(
     t = open(script_path + "/templates/tsb-objects/bridged/security.yaml")
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenantName=tenant_name,
         workspaceName=workspace_name,
         securitySettingName="bookinfo-security-setting",  # need to change
@@ -125,7 +129,7 @@ def gen_bridge_specific_objects(
     t = open(servicerouteFile)
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenantName=tenant_name,
         workspaceName=workspace_name,
         groupName=traffic_group,
@@ -140,7 +144,7 @@ def gen_bridge_specific_objects(
     t = open(gatewayFile)
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenantName=tenant_name,
         workspaceName=workspace_name,
         gatewayName=namespaces["product"] + "-gateway",
@@ -156,7 +160,7 @@ def gen_bridge_specific_objects(
     t = open(script_path + "/templates/k8s-objects/bridged/servicerouteeditor.yaml")
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenant=tenant_name,
         workspaceName=workspace_name,
         groupName=traffic_group,
@@ -179,6 +183,7 @@ def gen_direct_specific_objects(
     namespaces,
     key,
     password,
+    org,
 ):
     os.mkdir("generated/tsb-objects/" + key + "/direct")
     os.mkdir("generated/k8s-objects/" + key + "/direct")
@@ -187,7 +192,7 @@ def gen_direct_specific_objects(
     t = open(reviews_vs)
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenantName=tenant_name,
         workspaceName=workspace_name,
         trafficGroupName=traffic_group,
@@ -201,7 +206,7 @@ def gen_direct_specific_objects(
     t = open(script_path + "/templates/k8s-objects/direct/servicerouteeditor.yaml")
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenant=tenant_name,
         workspaceName=workspace_name,
         trafficGroupName=traffic_group,
@@ -218,7 +223,7 @@ def gen_direct_specific_objects(
     t = open(script_path + "/templates/tsb-objects/direct/dr.yaml")
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenantName=tenant_name,
         workspaceName=workspace_name,
         trafficGroupName=traffic_group,
@@ -233,7 +238,7 @@ def gen_direct_specific_objects(
     t = open(script_path + "/templates/tsb-objects/direct/vs.yaml")
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenantName=tenant_name,
         workspaceName=workspace_name,
         gatewayGroupName=gateway_group,
@@ -251,7 +256,7 @@ def gen_direct_specific_objects(
     t = open(gatewayFile)
     template = Template(t.read())
     r = template.render(
-        orgName=conf.org,
+        orgName=org,
         tenantName=tenant_name,
         workspaceName=workspace_name,
         gatewayName=namespaces["product"] + "-gateway",
@@ -264,66 +269,83 @@ def gen_direct_specific_objects(
     t.close()
     save_file("generated/tsb-objects/" + key + "/direct/gateway.yaml", r)
 
-def install_bookinfo(conf, password):
+def install_bookinfo(conf, password, org, tenant_count):
 
-    i = 0
+    for replica in conf.replicas:
+        i = 0
 
-    while i < conf.replicas:
-        print("Installing Bookinfo")
-        key = str(i)
+        modes_list = modes_list = ["bridged"] * replica.bridged + [
+            "direct"
+        ] * replica.direct
 
-        # we repeat if there are not enough for values for mode in the configuration as the number of replicas
-        current_mode = conf.mode[i % len(conf.mode)]
-        tenant_index = str(conf.tenant_index[i % len(conf.tenant_index)])
-        tenant_name = "bookinfo-tenant-" + tenant_index
+        while i < (replica.bridged + replica.direct):
+            print("Installing Bookinfo")
+            key = str(i)
 
-        mode = "d" if current_mode == "direct" else "b"
-        workspace_name = "bookinfo-ws-" + mode + key
-        os.makedirs("generated/k8s-objects/" + key, exist_ok=True)
-        os.makedirs("generated/tsb-objects/" + key, exist_ok=True)
+            current_mode = modes_list[i]
 
-        productns = "bookinfo-" + mode + key + "-t" + tenant_index + "-front"
-        reviewsns = "bookinfo-" + mode + key + "-t" + tenant_index + "-mid"
-        ratingsns = "bookinfo-" + mode + key + "-t" + tenant_index + "-back"
+            if not (0 <= replica.tenant_index < tenant_count):
+                print("Wrong tenant index!! Cleaning up and Quitting.")
+                shutil.rmtree("cert")
+                shutil.rmtree("generated")
+                exit(1)
 
-        namespaces = {"product": productns, "ratings": ratingsns, "reviews": reviewsns}
+            tenant_index = str(replica.tenant_index)
+            tenant_name = "bookinfo-tenant-" + tenant_index
 
-        generate_bookinfo_yaml(namespaces, key)
+            mode = "d" if current_mode == "direct" else "b"
+            workspace_name = "bookinfo-ws-" + mode + key
+            os.makedirs("generated/k8s-objects/" + key, exist_ok=True)
+            os.makedirs("generated/tsb-objects/" + key, exist_ok=True)
 
-        gateway_group, traffic_group, security_group = gen_common_tsb_objects(
-            namespaces, key, conf, tenant_name, workspace_name, current_mode
-        )
+            productns = "bookinfo-" + mode + key + "-t" + tenant_index + "-front"
+            reviewsns = "bookinfo-" + mode + key + "-t" + tenant_index + "-mid"
+            ratingsns = "bookinfo-" + mode + key + "-t" + tenant_index + "-back"
 
-        gen_namespace_yamls(namespaces, key)
+            namespaces = {
+                "product": productns,
+                "ratings": ratingsns,
+                "reviews": reviewsns,
+            }
 
-        if current_mode == "bridged":
-            gen_bridge_specific_objects(
-                conf,
-                tenant_name,
-                workspace_name,
-                traffic_group,
-                gateway_group,
-                security_group,
-                namespaces,
-                key,
-                password,
-            )
-        else:
-            gen_direct_specific_objects(
-                conf,
-                tenant_name,
-                workspace_name,
-                traffic_group,
-                gateway_group,
-                namespaces,
-                key,
-                password,
+            generate_bookinfo_yaml(namespaces, key)
+
+            gateway_group, traffic_group, security_group = gen_common_tsb_objects(
+                namespaces, key, conf, tenant_name, workspace_name, current_mode, org
             )
 
-        gen_k8s_objects(productns, key, conf.traffic_gen_ip)
+            gen_namespace_yamls(namespaces, key)
 
-        print("Bookinfo installed\n")
-        i += 1
+            if current_mode == "bridged":
+                gen_bridge_specific_objects(
+                    conf,
+                    tenant_name,
+                    workspace_name,
+                    traffic_group,
+                    gateway_group,
+                    security_group,
+                    namespaces,
+                    key,
+                    password,
+                    org,
+                )
+            else:
+                gen_direct_specific_objects(
+                    conf,
+                    tenant_name,
+                    workspace_name,
+                    traffic_group,
+                    gateway_group,
+                    namespaces,
+                    key,
+                    password,
+                    org,
+                )
+
+            gen_k8s_objects(productns, key, conf.traffic_gen_ip)
+
+            print("Bookinfo installed\n")
+            i += 1
 
 def gen_k8s_objects(productns, key, iptype):
 
@@ -404,7 +426,7 @@ def main():
         save_file("generated/tenant" + str(tenant) + ".yaml", r)
 
     for conf in configs.app:
-        install_bookinfo(conf, password)
+        install_bookinfo(conf, password, configs.org, configs.tenant_count)
 
 if __name__ == "__main__":
     main()
