@@ -1,4 +1,5 @@
-import os, sys
+import os
+import sys
 import argparse
 import config
 import certs
@@ -102,8 +103,11 @@ def gen_bridge_specific_objects(
     security_group,
     namespaces,
     key,
+    password,
 ):
     os.mkdir("generated/tsb-objects/" + key + "/bridged")
+    os.mkdir("generated/k8s-objects/" + key + "/bridged")
+
     # security
     t = open(script_path + "/templates/tsb-objects/bridged/security.yaml")
     template = Template(t.read())
@@ -148,12 +152,36 @@ def gen_bridge_specific_objects(
     )
     t.close()
     save_file("generated/tsb-objects/" + key + "/bridged/gateway.yaml", r)
-    pass
+
+    t = open(script_path + "/templates/k8s-objects/bridged/servicerouteeditor.yaml")
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenant=tenant_name,
+        workspaceName=workspace_name,
+        groupName=traffic_group,
+        hostFQDN="reviews." + namespaces["reviews"] + ".svc.cluster.local",
+        serviceRouteName="bookinfo-serviceroute",  # need to change
+        ns=namespaces["reviews"],
+        password=password,
+        servicerouteSAName=namespaces["reviews"] + "-editor",
+        podName=namespaces["reviews"] + "-editorpod",
+    )
+    save_file("generated/k8s-objects/" + key + "/bridged/servicerouteeditor.yaml", r)
+    t.close()
 
 def gen_direct_specific_objects(
-    conf, tenant_name, workspace_name, traffic_group, gateway_group, namespaces, key
+    conf,
+    tenant_name,
+    workspace_name,
+    traffic_group,
+    gateway_group,
+    namespaces,
+    key,
+    password,
 ):
     os.mkdir("generated/tsb-objects/" + key + "/direct")
+    os.mkdir("generated/k8s-objects/" + key + "/direct")
     # reviews virtual service
     reviews_vs = script_path + "/templates/tsb-objects/direct/reviews-vs.yaml"
     t = open(reviews_vs)
@@ -169,6 +197,22 @@ def gen_direct_specific_objects(
     )
     save_file("generated/tsb-objects/" + key + "/direct/reviews_vs.yaml", r)
     t.close()
+
+    t = open(script_path + "/templates/k8s-objects/direct/servicerouteeditor.yaml")
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenant=tenant_name,
+        workspaceName=workspace_name,
+        trafficGroupName=traffic_group,
+        hostFQDN="reviews." + namespaces["reviews"] + ".svc.cluster.local",
+        serviceRouteName="bookinfo-serviceroute",  # need to change
+        ns=namespaces["reviews"],
+        password=password,
+        servicerouteSAName=namespaces["reviews"] + "-editor",
+        podName=namespaces["reviews"] + "-editorpod",
+    )
+    save_file("generated/k8s-objects/" + key + "/direct/servicerouteeditor.yaml", r)
 
     # destination rules
     t = open(script_path + "/templates/tsb-objects/direct/dr.yaml")
@@ -220,7 +264,7 @@ def gen_direct_specific_objects(
     t.close()
     save_file("generated/tsb-objects/" + key + "/direct/gateway.yaml", r)
 
-def install_bookinfo(conf):
+def install_bookinfo(conf, password):
 
     i = 0
 
@@ -262,6 +306,7 @@ def install_bookinfo(conf):
                 security_group,
                 namespaces,
                 key,
+                password,
             )
         else:
             gen_direct_specific_objects(
@@ -272,6 +317,7 @@ def install_bookinfo(conf):
                 gateway_group,
                 namespaces,
                 key,
+                password,
             )
 
         gen_k8s_objects(productns, key, conf.traffic_gen_ip)
@@ -324,7 +370,12 @@ def gen_k8s_objects(productns, key, iptype):
 def main():
     parser = argparse.ArgumentParser(description="Spin up bookinfo instances")
 
-    parser.add_argument("--config", help="the istio version tag to be installed")
+    parser.add_argument(
+        "--config", help="the yaml configuration for the bookinfo instances"
+    )
+    parser.add_argument(
+        "--password", help="password for the admin user in the tsb instance"
+    )
     args = parser.parse_args()
 
     if args.config is None:
@@ -332,6 +383,10 @@ def main():
         sys.exit(1)
 
     configs = config.read_config_yaml(args.config)
+
+    password = "admin"
+    if args.password is not None:
+        password = args.password
 
     certs.create_root_cert()
 
@@ -349,7 +404,7 @@ def main():
         save_file("generated/tenant" + str(tenant) + ".yaml", r)
 
     for conf in configs.app:
-        install_bookinfo(conf)
+        install_bookinfo(conf, password)
 
 if __name__ == "__main__":
     main()
