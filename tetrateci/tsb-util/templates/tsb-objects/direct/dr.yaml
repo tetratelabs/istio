@@ -1,0 +1,22 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  annotations:
+    tsb.tetrate.io/tenant: {{ tenantName }}
+    tsb.tetrate.io/organization: {{ orgName }}
+    tsb.tetrate.io/trafficGroup: {{ trafficGroupName }}
+    tsb.tetrate.io/workspace: {{ workspaceName }}
+  name: {{ destinationruleName }}
+  namespace: {{ ns }}
+spec:
+  host: {{ hostFQDN }}
+  subsets:
+  - labels:
+      version: v1
+    name: v1
+  - labels:
+      version: v2
+    name: v2
+  - labels:
+      version: v2
+    name: v3

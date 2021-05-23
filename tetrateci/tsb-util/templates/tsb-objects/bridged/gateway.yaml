@@ -1,0 +1,24 @@
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: IngressGateway
+Metadata:
+  organization: {{ orgName }}
+  name: {{ gatewayName }}
+  group: {{ gatewayGroupName }}
+  workspace: {{ workspaceName }}
+  tenant: {{ tenantName }}
+spec:
+  workloadSelector:
+    namespace: {{ ns }}
+    labels:
+      app: tsb-gateway-{{ ns }}
+  http:
+  - name: bookinfo
+    port: 8443
+    hostname: {{ hostname }}
+    tls:
+      mode: SIMPLE
+      secretName: {{ gwSecretName }}
+    routing:
+      rules:
+      - route:
+          host: {{ ns }}/{{ hostFQDN }}
