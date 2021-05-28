@@ -73,6 +73,8 @@ spec:
   metricsServer:
     enabled: true
     image: {{ .metrics_server.repository }}:{{ .metrics_server.tag }}
+  certManager:
+    enabled: true
   authentication:
     aws:
       image: {{ .awsiamauth.repository }}:{{ .awsiamauth.tag }}
