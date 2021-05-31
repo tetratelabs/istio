@@ -1,14 +1,13 @@
-tenant_count: 2
+tenant_count: 2 # TODO remove
 org: "tetrate"
-
 # an array of configuration
 app:
-  - replicas:
-      - bridged: 1
-        direct: 0
-        tenant_index: 0
-      - bridged: 0
-        direct: 1
-        tenant_index: 1
-    cluster_name: "demo"
-    traffic_gen_ip: "internal" # possible values: `external` or `internal`
+- replicas:
+  - bridged: 1
+    direct: 0
+    tenant_index: 0 # TODO tenant_id
+  - bridged: 0
+    direct: 1
+    tenant_index: 1
+  cluster_name: "demo"
+  traffic_gen_ip: "internal" # possible values: `external` or `internal`
