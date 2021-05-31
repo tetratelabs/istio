@@ -97,7 +97,6 @@ def gen_namespace_yamls(namespaces, key):
     save_file("generated/k8s-objects/" + key + "/01namespaces.yaml", r)
 
 def gen_bridge_specific_objects(
-    conf,
     tenant_name,
     workspace_name,
     traffic_group,
@@ -107,6 +106,7 @@ def gen_bridge_specific_objects(
     key,
     password,
     org,
+    provider,
 ):
     os.mkdir("generated/tsb-objects/" + key + "/bridged")
     os.mkdir("generated/k8s-objects/" + key + "/bridged")
@@ -169,12 +169,12 @@ def gen_bridge_specific_objects(
         password=password,
         servicerouteSAName=namespaces["reviews"] + "-editor",
         podName=namespaces["reviews"] + "-editorpod",
+        provider=provider,
     )
     save_file("generated/k8s-objects/" + key + "/bridged/servicerouteeditor.yaml", r)
     t.close()
 
 def gen_direct_specific_objects(
-    conf,
     tenant_name,
     workspace_name,
     traffic_group,
@@ -183,6 +183,7 @@ def gen_direct_specific_objects(
     key,
     password,
     org,
+    provider,
 ):
     os.mkdir("generated/tsb-objects/" + key + "/direct")
     os.mkdir("generated/k8s-objects/" + key + "/direct")
@@ -215,6 +216,7 @@ def gen_direct_specific_objects(
         password=password,
         servicerouteSAName=namespaces["reviews"] + "-editor",
         podName=namespaces["reviews"] + "-editorpod",
+        provider=provider,
     )
     save_file("generated/k8s-objects/" + key + "/direct/servicerouteeditor.yaml", r)
 
@@ -268,7 +270,7 @@ def gen_direct_specific_objects(
     t.close()
     save_file("generated/tsb-objects/" + key + "/direct/gateway.yaml", r)
 
-def install_bookinfo(conf, password, org, count=0):
+def install_bookinfo(conf, password, org, count=0, provider="others"):
     for replica in conf.replicas:
         i = 0
 
@@ -310,7 +312,6 @@ def install_bookinfo(conf, password, org, count=0):
 
             if current_mode == "bridged":
                 gen_bridge_specific_objects(
-                    conf,
                     tenant_name,
                     workspace_name,
                     traffic_group,
@@ -320,10 +321,10 @@ def install_bookinfo(conf, password, org, count=0):
                     key,
                     password,
                     org,
+                    provider,
                 )
             else:
                 gen_direct_specific_objects(
-                    conf,
                     tenant_name,
                     workspace_name,
                     traffic_group,
@@ -332,6 +333,7 @@ def install_bookinfo(conf, password, org, count=0):
                     key,
                     password,
                     org,
+                    provider,
                 )
 
             gen_k8s_objects(
@@ -396,6 +398,11 @@ def main():
     parser.add_argument(
         "--password", help="password for the admin user in the tsb instance"
     )
+    parser.add_argument(
+        "--aws",
+        help="if the cluster is installed in aws, otherwise dont use",
+        action="store_true",
+    )
     args = parser.parse_args()
 
     if args.config is None:
@@ -407,6 +414,10 @@ def main():
     password = "admin"
     if args.password is not None:
         password = args.password
+
+    provider = "others"
+    if args.aws is True:
+        provider = "aws"
 
     certs.create_root_cert()
 
@@ -432,7 +443,7 @@ def main():
         save_file("generated/tenant" + str(tenant) + ".yaml", r)
     count = 0
     for conf in configs.app:
-        count = install_bookinfo(conf, password, configs.org, count)
+        count = install_bookinfo(conf, password, configs.org, count, provider)
 
 if __name__ == "__main__":
     main()

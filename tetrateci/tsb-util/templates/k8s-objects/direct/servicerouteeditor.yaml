@@ -19,7 +19,12 @@ spec:
       apt update && apt install curl -y
       curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
       install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-      IP=$(kubectl get svc envoy -n tsb -o "jsonpath={.status.loadBalancer.ingress[0].ip}")
+      PROVIDER={{ provider }}
+      if [[ ${PROVIDER} == "aws" ]]; then
+        IP=$(kubectl get svc envoy -n tsb -o "jsonpath={.status.loadBalancer.ingress[0].hostname}")
+      else
+        IP=$(kubectl get svc envoy -n tsb -o "jsonpath={.status.loadBalancer.ingress[0].ip}")
+      fi
       echo "IP = $IP"
       mkdir -p ~/.tctl/bin
       curl -Lo ~/.tctl/bin/tctl https://binaries.dl.tetrate.io/public/raw/versions/linux-amd64-1.2.0/tctl
