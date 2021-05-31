@@ -269,8 +269,7 @@ def gen_direct_specific_objects(
     t.close()
     save_file("generated/tsb-objects/" + key + "/direct/gateway.yaml", r)
 
-def install_bookinfo(conf, password, org, tenant_count):
-
+def install_bookinfo(conf, password, org, tenant_count, count=0):
     for replica in conf.replicas:
         i = 0
 
@@ -280,7 +279,7 @@ def install_bookinfo(conf, password, org, tenant_count):
 
         while i < (replica.bridged + replica.direct):
             print("Installing Bookinfo")
-            key = str(i)
+            key = str(count)
 
             current_mode = modes_list[i]
 
@@ -346,6 +345,8 @@ def install_bookinfo(conf, password, org, tenant_count):
 
             print("Bookinfo installed\n")
             i += 1
+            count += 1
+    return count
 
 def gen_k8s_objects(productns, key, iptype):
 
@@ -424,9 +425,11 @@ def main():
         )
         t.close()
         save_file("generated/tenant" + str(tenant) + ".yaml", r)
-
+    count = 0
     for conf in configs.app:
-        install_bookinfo(conf, password, configs.org, configs.tenant_count)
+        count = install_bookinfo(
+            conf, password, configs.org, configs.tenant_count, count
+        )
 
 if __name__ == "__main__":
     main()
