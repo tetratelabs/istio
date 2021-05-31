@@ -269,7 +269,7 @@ def gen_direct_specific_objects(
     t.close()
     save_file("generated/tsb-objects/" + key + "/direct/gateway.yaml", r)
 
-def install_bookinfo(conf, password, org, tenant_count, count=0):
+def install_bookinfo(conf, password, org, count=0):
     for replica in conf.replicas:
         i = 0
 
@@ -283,23 +283,17 @@ def install_bookinfo(conf, password, org, tenant_count, count=0):
 
             current_mode = modes_list[i]
 
-            if not (0 <= replica.tenant_index < tenant_count):
-                print("Wrong tenant index!! Cleaning up and Quitting.")
-                shutil.rmtree("cert")
-                shutil.rmtree("generated")
-                exit(1)
-
-            tenant_index = str(replica.tenant_index)
-            tenant_name = "bookinfo-tenant-" + tenant_index
+            tenant_id = str(replica.tenant_id)
+            tenant_name = "bookinfo-tenant-" + tenant_id
 
             mode = "d" if current_mode == "direct" else "b"
             workspace_name = "bookinfo-ws-" + mode + key
             os.makedirs("generated/k8s-objects/" + key, exist_ok=True)
             os.makedirs("generated/tsb-objects/" + key, exist_ok=True)
 
-            productns = "bookinfo-" + mode + key + "-t" + tenant_index + "-front"
-            reviewsns = "bookinfo-" + mode + key + "-t" + tenant_index + "-mid"
-            ratingsns = "bookinfo-" + mode + key + "-t" + tenant_index + "-back"
+            productns = "bookinfo-" + mode + key + "-t" + tenant_id + "-front"
+            reviewsns = "bookinfo-" + mode + key + "-t" + tenant_id + "-mid"
+            ratingsns = "bookinfo-" + mode + key + "-t" + tenant_id + "-back"
 
             namespaces = {
                 "product": productns,
@@ -415,7 +409,15 @@ def main():
 
     os.mkdir("generated")
 
-    for tenant in range(configs.tenant_count):
+    tenant_count = 0
+
+    for conf in configs.app:
+        for replica in conf.replicas:
+            if replica.tenant_id > tenant_count:
+                tenant_count = replica.tenant_id
+    tenant_count += 1
+
+    for tenant in range(tenant_count):
         tenant_name = "bookinfo-tenant-" + str(tenant)
         t = open(script_path + "/templates/tsb-objects/tenant.yaml")
         template = Template(t.read())
@@ -427,9 +429,7 @@ def main():
         save_file("generated/tenant" + str(tenant) + ".yaml", r)
     count = 0
     for conf in configs.app:
-        count = install_bookinfo(
-            conf, password, configs.org, configs.tenant_count, count
-        )
+        count = install_bookinfo(conf, password, configs.org, count)
 
 if __name__ == "__main__":
     main()

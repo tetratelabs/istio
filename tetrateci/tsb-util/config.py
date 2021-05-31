@@ -7,7 +7,7 @@ from marshmallow_dataclass import class_schema
 class replica:
     bridged: int
     direct: int
-    tenant_index: int
+    tenant_id: int
 
 @dataclass
 class bookinfo:
@@ -17,7 +17,6 @@ class bookinfo:
 
 @dataclass
 class fullconfig:
-    tenant_count: int
     org: str
     app: List[bookinfo]
 
