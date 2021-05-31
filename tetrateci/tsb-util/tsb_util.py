@@ -1,7 +1,6 @@
 import os
 import sys
 import argparse
-import shutil
 import config
 import certs
 from jinja2 import Template
@@ -335,7 +334,11 @@ def install_bookinfo(conf, password, org, count=0):
                     org,
                 )
 
-            gen_k8s_objects(productns, key, conf.traffic_gen_ip)
+            gen_k8s_objects(
+                productns,
+                key,
+                "InternalIP" if conf.traffic_gen_ip == "internal" else "ExternalIP",
+            )
 
             print("Bookinfo installed\n")
             i += 1
