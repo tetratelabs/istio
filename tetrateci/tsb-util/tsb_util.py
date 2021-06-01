@@ -398,11 +398,6 @@ def main():
     parser.add_argument(
         "--password", help="password for the admin user in the tsb instance"
     )
-    parser.add_argument(
-        "--aws",
-        help="if the cluster is installed in aws, otherwise dont use",
-        action="store_true",
-    )
     args = parser.parse_args()
 
     if args.config is None:
@@ -411,13 +406,15 @@ def main():
 
     configs = config.read_config_yaml(args.config)
 
+    if configs.provider not in ["aws", "others"]:
+        print(
+            "Possible values for provider is `aws` and `others` not", configs.provider
+        )
+        sys.exit(1)
+
     password = "admin"
     if args.password is not None:
         password = args.password
-
-    provider = "others"
-    if args.aws is True:
-        provider = "aws"
 
     certs.create_root_cert()
 
@@ -442,7 +439,7 @@ def main():
         save_file("generated/tenant" + str(tenant) + ".yaml", r)
     count = 0
     for conf in configs.app:
-        count = install_bookinfo(conf, password, configs.org, count, provider)
+        count = install_bookinfo(conf, password, configs.org, count, configs.provider)
 
 if __name__ == "__main__":
     main()

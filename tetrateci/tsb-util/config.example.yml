@@ -1,4 +1,5 @@
 org: "tetrate"
+provider: "others" # the management plane provider, possible values "aws", "others"
 # an array of configuration
 app:
 - replicas:
