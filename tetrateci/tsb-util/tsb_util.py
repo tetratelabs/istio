@@ -171,7 +171,7 @@ def gen_bridge_specific_objects(
         podName=namespaces["reviews"] + "-editorpod",
         provider=provider,
     )
-    save_file("generated/k8s-objects/" + key + "/bridged/servicerouteeditor.yaml", r)
+    save_file("generated/tsb-k8s-objects/" + key + "/servicerouteeditor.yaml", r)
     t.close()
 
 def gen_direct_specific_objects(
@@ -218,7 +218,7 @@ def gen_direct_specific_objects(
         podName=namespaces["reviews"] + "-editorpod",
         provider=provider,
     )
-    save_file("generated/k8s-objects/" + key + "/direct/servicerouteeditor.yaml", r)
+    save_file("generated/tsb-k8s-objects/" + key + "/servicerouteeditor.yaml", r)
 
     # destination rules
     t = open(script_path + "/templates/tsb-objects/direct/dr.yaml")
@@ -291,6 +291,7 @@ def install_bookinfo(conf, password, org, count=0, provider="others"):
             workspace_name = "bookinfo-ws-" + mode + key
             os.makedirs("generated/k8s-objects/" + key, exist_ok=True)
             os.makedirs("generated/tsb-objects/" + key, exist_ok=True)
+            os.makedirs("generated/tsb-k8s-objects/" + key, exist_ok=True)
 
             productns = "bookinfo-" + mode + key + "-t" + tenant_id + "-front"
             reviewsns = "bookinfo-" + mode + key + "-t" + tenant_id + "-mid"
