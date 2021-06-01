@@ -427,8 +427,7 @@ def main():
 
     for conf in configs.app:
         for replica in conf.replicas:
-            if replica.tenant_id > tenant_count:
-                tenant_count = replica.tenant_id
+            tenant_count = max(tenant_count, replica.tenant_id)
     tenant_count += 1
 
     for tenant in range(tenant_count):

@@ -36,6 +36,7 @@ spec:
             echo "Fetching IP"
             IP=$(kubectl get nodes --output "jsonpath={.items[0].status.addresses[?(@.type=='{{ ipType }}')].address}")
             if [[ ${IP} == "" ]]; then
+              echo "Error Fetching {{ ipType }}."
               exit 1
             fi
 
