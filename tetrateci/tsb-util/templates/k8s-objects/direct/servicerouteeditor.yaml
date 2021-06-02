@@ -21,7 +21,7 @@ spec:
     command: [ "/bin/bash", "-c", "--" ]
     args:
     - |
-      apt update && apt install curl -y
+      apt update && apt install curl jq -y
       curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
       install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
       PROVIDER={{ provider }}
@@ -40,76 +40,22 @@ spec:
       tctl config profiles set demo --username admin --cluster demo
       tctl config profiles set-current demo
       tctl login --org {{ orgName }} --password "{{ password }}" --username admin --tenant {{ tenant }}
-
-      cat >version1.yaml<<EOF
-      apiVersion: networking.istio.io/v1beta1
-      kind: VirtualService
-      metadata:
-        annotations:
-          tsb.tetrate.io/tenant: {{ tenant }}
-          tsb.tetrate.io/organization: {{ orgName }}
-          tsb.tetrate.io/trafficGroup: {{ trafficGroupName }}
-          tsb.tetrate.io/workspace: {{ workspaceName }}
-        name: {{ serviceRouteName }}
-        namespace: {{ ns }}
-      spec:
-        gateways:
-        - mesh
-        hosts:
-        - {{ hostFQDN }}
-        http:
-        - route:
-          - destination:
-              host: {{ hostFQDN }}
-              subset: v1
-            weight: 50
-          - destination:
-              host: {{ hostFQDN }}
-              subset: v2
-            weight: 20
-          - destination:
-              host: {{ hostFQDN }}
-              subset: v3
-            weight: 30
-      EOF
-        
-      cat >version2.yaml<<EOF
-      apiVersion: networking.istio.io/v1beta1
-      kind: VirtualService
-      metadata:
-        annotations:
-          tsb.tetrate.io/tenant: {{ tenant }}
-          tsb.tetrate.io/organization: {{ orgName }}
-          tsb.tetrate.io/trafficGroup: {{ trafficGroupName }}
-          tsb.tetrate.io/workspace: {{ workspaceName }}
-        name: {{ serviceRouteName }}
-        namespace: {{ ns }}
-      spec:
-        gateways:
-        - mesh
-        hosts:
-        - {{ hostFQDN }}
-        http:
-        - route:
-          - destination:
-              host: {{ hostFQDN }}
-              subset: v1
-            weight: 60
-          - destination:
-              host: {{ hostFQDN }}
-              subset: v2
-            weight: 30
-          - destination:
-              host: {{ hostFQDN }}
-              subset: v3
-            weight: 10
-      EOF
       while :; do
+        tctl get networking.istio.io/v1beta1/VirtualService  --tenant {{ tenant }} -w {{ workspaceName }} -t {{ trafficGroupName }} -o json | jq ".[0]" > original.json
+        tmp=$(mktemp)
+        jq ".spec.http[0].route[0].weight=50" original.json  > $tmp && cp $tmp new.json
+        jq ".spec.http[0].route[1].weight=20" new.json  > $tmp && cp $tmp new.json
+        jq ".spec.http[0].route[2].weight=30" new.json  > $tmp && cp $tmp new.json
         echo "Applying version 1"
-        tctl apply -f version1.yaml
+        tctl apply -f new.json
         sleep 100
+        tctl get networking.istio.io/v1beta1/VirtualService  --tenant {{ tenant }} -w {{ workspaceName }} -t {{ trafficGroupName }} -o json | jq ".[0]" > original.json
+        tmp=$(mktemp)
+        jq ".spec.http[0].route[0].weight=60" original.json  > $tmp && cp $tmp new.json
+        jq ".spec.http[0].route[1].weight=30" new.json  > $tmp && cp $tmp new.json
+        jq ".spec.http[0].route[2].weight=10" new.json  > $tmp && cp $tmp new.json
         echo "Applying version 2"
-        tctl apply -f version2.yaml
+        tctl apply -f original.json
         sleep 100
       done
   serviceAccount: {{ servicerouteSAName }}

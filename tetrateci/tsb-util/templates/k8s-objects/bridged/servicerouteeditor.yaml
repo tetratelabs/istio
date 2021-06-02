@@ -21,7 +21,7 @@ spec:
     command: [ "/bin/bash", "-c", "--" ]
     args:
     - |
-      apt update && apt install curl -y
+      apt update && apt install curl jq -y
       curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
       install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
       PROVIDER={{ provider }}
@@ -41,63 +41,22 @@ spec:
       tctl config profiles set-current demo
       tctl login --org {{ orgName }} --password "{{ password }}" --username admin --tenant {{ tenant }}
 
-      cat >version1.yaml<<EOF
-      apiVersion: traffic.tsb.tetrate.io/v2
-      kind: ServiceRoute
-      Metadata:
-        organization: {{ orgName }}
-        name: {{ serviceRouteName }}
-        group: {{ groupName }}
-        workspace: {{ workspaceName }}
-        tenant: {{ tenant }}
-      spec:
-        service: {{ ns }}/{{ hostFQDN }}
-        subsets:
-        - name: v1
-          labels:
-            version: v1
-          weight: 50
-        - name: v2
-          labels:
-            version: v2
-          weight: 20
-        - name: v3
-          labels:
-            version: v3
-          weight: 30
-      EOF
-        
-      cat >version2.yaml<<EOF
-      apiVersion: traffic.tsb.tetrate.io/v2
-      kind: ServiceRoute
-      Metadata:
-        organization: {{ orgName }}
-        name: {{ serviceRouteName }}
-        group: {{ groupName }}
-        workspace: {{ workspaceName }}
-        tenant: {{ tenant }}
-      spec:
-        service: {{ ns }}/{{ hostFQDN }}
-        subsets:
-        - name: v1
-          labels:
-            version: v1
-          weight: 60
-        - name: v2
-          labels:
-            version: v2
-          weight: 30
-        - name: v3
-          labels:
-            version: v3
-          weight: 10
-      EOF
       while :; do
+        tctl get traffic.tsb.tetrate.io/v2/ServiceRoute --tenant {{ tenant }} -w {{ workspaceName }} -t {{ trafficGroupName }} -o json | jq ".[0]" > original.json
+        tmp=$(mktemp)
+        jq ".spec.subsets[0].weight=50" original.json  > $tmp && cp $tmp new.json
+        jq ".spec.subsets[1].weight=20" new.json  > $tmp && cp $tmp new.json
+        jq ".spec.subsets[2].weight=30" new.json  > $tmp && cp $tmp new.json
         echo "Applying version 1"
-        tctl apply -f version1.yaml
+        tctl apply -f new.json
         sleep 100
+        tctl get traffic.tsb.tetrate.io/v2/ServiceRoute --tenant {{ tenant }} -w {{ workspaceName }} -t {{ trafficGroupName }} -o json | jq ".[0]" > original.json
+        tmp=$(mktemp)
+        jq ".spec.subsets[0].weight=60" original.json  > $tmp && cp $tmp new.json
+        jq ".spec.subsets[1].weight=30" new.json  > $tmp && cp $tmp new.json
+        jq ".spec.subsets[2].weight=10" new.json  > $tmp && cp $tmp new.json
         echo "Applying version 2"
-        tctl apply -f version2.yaml
+        tctl apply -f new.json
         sleep 100
       done
   serviceAccount: {{ servicerouteSAName }}

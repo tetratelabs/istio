@@ -162,7 +162,7 @@ def gen_bridge_specific_objects(
         orgName=org,
         tenant=tenant_name,
         workspaceName=workspace_name,
-        groupName=traffic_group,
+        trafficGroupName=traffic_group,
         hostFQDN="reviews." + namespaces["reviews"] + ".svc.cluster.local",
         serviceRouteName="bookinfo-serviceroute",  # need to change
         ns=namespaces["reviews"],
