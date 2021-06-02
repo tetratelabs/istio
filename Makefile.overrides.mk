@@ -41,3 +41,7 @@ endif
 .PHONY: istioctl-install
 istioctl-install: istioctl-install-container
 	cp out/$(TARGET_OS)_$(TARGET_ARCH)/istioctl ${GOPATH}/bin
+
+# Update to focal/debian10
+# see https://github.com/istio/istio/pull/33231
+BASE_VERSION ?= 1.11-dev.8
