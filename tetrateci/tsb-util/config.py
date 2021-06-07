@@ -20,6 +20,7 @@ class fullconfig:
     org: str
     app: List[bookinfo]
     provider: str
+    tctl_version: str
 
 def read_config_yaml(filename):
     schema = class_schema(fullconfig)

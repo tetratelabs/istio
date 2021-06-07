@@ -107,6 +107,7 @@ def gen_bridge_specific_objects(
     password,
     org,
     provider,
+    tctl_ver,
 ):
     os.mkdir("generated/tsb-objects/" + key + "/bridged")
     os.mkdir("generated/k8s-objects/" + key + "/bridged")
@@ -170,6 +171,7 @@ def gen_bridge_specific_objects(
         servicerouteSAName=namespaces["reviews"] + "-editor",
         podName=namespaces["reviews"] + "-editorpod",
         provider=provider,
+        tctlVersion=tctl_ver,
     )
     save_file("generated/tsb-k8s-objects/" + key + "/servicerouteeditor.yaml", r)
     t.close()
@@ -184,6 +186,7 @@ def gen_direct_specific_objects(
     password,
     org,
     provider,
+    tctl_ver,
 ):
     os.mkdir("generated/tsb-objects/" + key + "/direct")
     os.mkdir("generated/k8s-objects/" + key + "/direct")
@@ -217,6 +220,7 @@ def gen_direct_specific_objects(
         servicerouteSAName=namespaces["reviews"] + "-editor",
         podName=namespaces["reviews"] + "-editorpod",
         provider=provider,
+        tctlVersion=tctl_ver,
     )
     save_file("generated/tsb-k8s-objects/" + key + "/servicerouteeditor.yaml", r)
 
@@ -270,7 +274,7 @@ def gen_direct_specific_objects(
     t.close()
     save_file("generated/tsb-objects/" + key + "/direct/gateway.yaml", r)
 
-def install_bookinfo(conf, password, org, count=0, provider="others"):
+def install_bookinfo(conf, password, org, count=0, provider="others", tctl_ver="1.2.0"):
     for replica in conf.replicas:
         i = 0
 
@@ -323,6 +327,7 @@ def install_bookinfo(conf, password, org, count=0, provider="others"):
                     password,
                     org,
                     provider,
+                    tctl_ver,
                 )
             else:
                 gen_direct_specific_objects(
@@ -335,6 +340,7 @@ def install_bookinfo(conf, password, org, count=0, provider="others"):
                     password,
                     org,
                     provider,
+                    tctl_ver,
                 )
 
             gen_k8s_objects(
@@ -440,7 +446,9 @@ def main():
         save_file("generated/tenant" + str(tenant) + ".yaml", r)
     count = 0
     for conf in configs.app:
-        count = install_bookinfo(conf, password, configs.org, count, configs.provider)
+        count = install_bookinfo(
+            conf, password, configs.org, count, configs.provider, configs.tctl_version
+        )
 
 if __name__ == "__main__":
     main()

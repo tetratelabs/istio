@@ -1,5 +1,6 @@
 org: "tetrate"
 provider: "others" # the management plane provider, possible values "aws", "others"
+tctl_version: "1.2.0" # tctl version to be used to edit serviceroute
 # an array of configuration
 app:
 - replicas:

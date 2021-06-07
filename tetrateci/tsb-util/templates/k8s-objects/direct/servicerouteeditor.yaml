@@ -32,7 +32,7 @@ spec:
       fi
       echo "IP = $IP"
       mkdir -p ~/.tctl/bin
-      curl -Lo ~/.tctl/bin/tctl https://binaries.dl.tetrate.io/public/raw/versions/linux-amd64-1.2.0/tctl
+      curl -Lo ~/.tctl/bin/tctl https://binaries.dl.tetrate.io/public/raw/versions/linux-amd64-{{ tctlVersion }}/tctl
       chmod +x ~/.tctl/bin/tctl
       export PATH=$PATH:~/.tctl/bin
       tctl config clusters set demo --bridge-address $IP:8443
