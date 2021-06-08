@@ -102,14 +102,22 @@ def install_httpbin(index, namespace):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Spin up httpbin instances")
+    parser = argparse.ArgumentParser(
+        description="Spin up httpbin instances, all the flags are required and to be pre generated\n"
+        + "Example:\n"
+        + " pipenv run python single_ns.py --count 10 --workspace bookinfo-ws-b0 --namespace default --tenant bookinfo-tenant-0 --org tetrate --group bookinfo-gateway-0\n"
+        + "\nNote: All the arguments are pre generated and installed in the cluster.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
 
     parser.add_argument(
         "--count", help="number of httpbin instances", type=int, required=True
     )
     parser.add_argument("--workspace", help="TSB workspace to be used", required=True)
     parser.add_argument(
-        "--namespace", help="namespace to spin up all the pods", required=True
+        "--namespace",
+        help="namespace to spin up all the pods, make sure istio-injection is enabled",
+        required=True,
     )
     parser.add_argument("--tenant", help="TSB tenant to be used", required=True)
     parser.add_argument("--org", help="TSB org to be used", required=True)
