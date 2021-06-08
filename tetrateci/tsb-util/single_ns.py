@@ -152,21 +152,50 @@ def main():
     )
 
     http_routes = []
+    curl_calls = ""
 
     for i in range(args.count):
         install_httpbin(str(i), args.namespace)
         name = "httpbin" + str(i)
         entries["name"] = name
-        entries["hostname"] = name + ".tetrate.test.com"
+        hostname = name + ".tetrate.test.com"
+        entries["hostname"] = hostname
         entries["routing"]["rules"][0]["route"]["host"] = (
             args.namespace + "/" + name + "." + args.namespace + ".svc.cluster.local"
         )
         http_routes.append(copy.deepcopy(entries))
+        curl_calls += (
+            "              curl https://"
+            + hostname
+            + " --connect-to "
+            + hostname
+            + ":443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null\n"
+        )
     gateway_yaml["spec"]["http"] = http_routes
 
     f = open("generated/tsb-objects/gateway.yaml", "w")
     yaml.dump(gateway_yaml, f)
     f.close()
+    service_account = "httpbin-serviceaccount"
+    t = open(script_path + "/templates/k8s-objects/role.yaml")
+    template = Template(t.read())
+    r = template.render(
+        targetNS=args.namespace, clientNS=args.namespace, saName=service_account
+    )
+    t.close()
+    save_file("generated/k8s-objects/role.yaml", r)
+
+    t = open(script_path + "/templates/k8s-objects/traffic-gen-httpbin.yaml")
+    template = Template(t.read())
+    r = template.render(
+        ns=args.namespace,
+        saName=service_account,
+        secretName=args.namespace + "-ca-cert",
+        serviceName="tsb-gateway-" + args.namespace,
+        content=curl_calls,
+    )
+    t.close()
+    save_file("generated/k8s-objects/traffic-gen.yaml", r)
 
 
 if __name__ == "__main__":
