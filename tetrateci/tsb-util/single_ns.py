@@ -4,6 +4,23 @@ import yaml
 import base64
 import copy
 import argparse
+from dataclasses import dataclass
+from marshmallow_dataclass import class_schema
+
+@dataclass
+class config:
+    namespace: str
+    tenant: str
+    count: int
+    org: str
+    cluster: str
+    workspace: str
+
+def read_config_yaml(filename):
+    schema = class_schema(config)
+    with open(filename) as file:
+        yamlconfig = yaml.load(file, Loader=yaml.SafeLoader)
+        return schema().load(yamlconfig)
 
 script_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -99,53 +116,91 @@ def main():
     parser = argparse.ArgumentParser(
         description="Spin up httpbin instances, all the flags are required and to be pre generated\n"
         + "Example:\n"
-        + " pipenv run python single_ns.py --count 10 --workspace bookinfo-ws-b0 --namespace default --tenant bookinfo-tenant-0 --org tetrate --group bookinfo-gateway-0\n"
+        + " pipenv run python single_ns.py --config httpbin-config.example.yaml\n"
         + "\nNote: All the arguments are pre generated and installed in the cluster.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
     parser.add_argument(
-        "--count", help="number of httpbin instances", type=int, required=True
+        "--config", help="pass the config for the install", required=True
     )
-    parser.add_argument("--workspace", help="TSB workspace to be used", required=True)
-    parser.add_argument(
-        "--namespace",
-        help="namespace to spin up all the pods",
-        required=True,
-    )
-    parser.add_argument("--tenant", help="TSB tenant to be used", required=True)
-    parser.add_argument("--org", help="TSB org to be used", required=True)
-    parser.add_argument("--group", help="TSB gateway group to be used", required=True)
 
     args = parser.parse_args()
+    conf = read_config_yaml(args.config)
 
     namespace_yaml = {
         "apiVersion": "v1",
         "kind": "Namespace",
-        "metadata": {"labels": {"istio-injection": "enabled"}, "name": args.namespace},
-    }
-
-    gateway_yaml = {
-        "apiVersion": "gateway.tsb.tetrate.io/v2",
-        "kind": "IngressGateway",
-        "Metadata": {
-            "organization": args.org,
-            "name": "tsb-gateway",
-            "group": args.group,
-            "workspace": args.workspace,
-            "tenant": args.tenant,
-        },
-        "spec": {
-            "workloadSelector": {
-                "namespace": args.namespace,
-                "labels": {"app": "tsb-gateway-" + args.namespace},
-            },
-            "http": [],
-        },
+        "metadata": {"labels": {"istio-injection": "enabled"}, "name": conf.namespace},
     }
 
     os.makedirs("generated/k8s-objects/", exist_ok=True)
     os.makedirs("generated/tsb-objects/", exist_ok=True)
+
+    t = open(script_path + "/templates/tsb-objects/tenant.yaml")
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenantName=conf.tenant,
+    )
+    t.close()
+    save_file("generated/tsb-objects/tenant.yaml", r)
+
+    t = open(script_path + "/templates/tsb-objects/workspace-httpbin.yaml")
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenantName=conf.tenant,
+        workspaceName=conf.workspace,
+        ns=conf.namespace,
+        clusterName=conf.cluster,
+    )
+    t.close()
+    save_file("generated/tsb-objects/workspaces.yaml", r)
+
+    # groups
+    gateway_group = "httpbin-gateway-" + conf.namespace
+    traffic_group = "httpbin-traffic-" + conf.namespace
+    security_group = "httpbin-security-" + conf.namespace
+    t = open(script_path + "/templates/tsb-objects/group-httpbin.yaml")
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenantName=conf.tenant,
+        workspaceName=conf.workspace,
+        gatewayGroupName=gateway_group,
+        trafficGroupName=traffic_group,
+        securityGroupName=security_group,
+        ns=conf.namespace,
+        clusterName=conf.cluster,
+        mode="BRIDGED",
+    )
+    t.close()
+    save_file("generated/tsb-objects/groups.yaml", r)
+
+    # perm
+    t = open(script_path + "/templates/tsb-objects/perm.yaml")
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenantName=conf.tenant,
+        workspaceName=conf.workspace,
+        trafficGroupName=traffic_group,
+    )
+    t.close()
+    save_file("generated/tsb-objects/perm.yaml", r)
+
+    t = open(script_path + "/templates/tsb-objects/bridged/security.yaml")
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenantName=conf.tenant,
+        workspaceName=conf.workspace,
+        securitySettingName="httpbin-security-setting-" + conf.namespace,
+        securityGroupName=security_group,
+    )
+    t.close()
+    save_file("generated/tsb-objects/security.yaml", r)
 
     f = open("generated/k8s-objects/01namespace.yaml", "w")
     yaml.dump(namespace_yaml, f)
@@ -153,27 +208,46 @@ def main():
 
     t = open(script_path + "/templates/k8s-objects/ingress.yaml")
     template = Template(t.read())
-    r = template.render(ns=args.namespace)
+    r = template.render(ns=conf.namespace)
     t.close()
     save_file("generated/k8s-objects/ingress.yaml", r)
 
     create_cert()
-    create_secret(args.namespace, "generated/k8s-objects/secret.yaml")
+    create_secret(conf.namespace, "generated/k8s-objects/secret.yaml")
     create_trafficgen_secret(
-        args.namespace, "generated/k8s-objects/trafficgen-secret.yaml"
+        conf.namespace, "generated/k8s-objects/trafficgen-secret.yaml"
     )
+
+    gateway_yaml = {
+        "apiVersion": "gateway.tsb.tetrate.io/v2",
+        "kind": "IngressGateway",
+        "Metadata": {
+            "organization": conf.org,
+            "name": "tsb-gateway",
+            "group": gateway_group,
+            "workspace": conf.workspace,
+            "tenant": conf.tenant,
+        },
+        "spec": {
+            "workloadSelector": {
+                "namespace": conf.namespace,
+                "labels": {"app": "tsb-gateway-" + conf.namespace},
+            },
+            "http": [],
+        },
+    }
 
     http_routes = []
     curl_calls = ""
 
-    for i in range(args.count):
-        install_httpbin(str(i), args.namespace)
+    for i in range(conf.count):
+        install_httpbin(str(i), conf.namespace)
         name = "httpbin" + str(i)
         entries["name"] = name
         hostname = name + ".tetrate.test.com"
         entries["hostname"] = hostname
         entries["routing"]["rules"][0]["route"]["host"] = (
-            args.namespace + "/" + name + "." + args.namespace + ".svc.cluster.local"
+            conf.namespace + "/" + name + "." + conf.namespace + ".svc.cluster.local"
         )
         http_routes.append(copy.deepcopy(entries))
         curl_calls += (
@@ -192,7 +266,7 @@ def main():
     t = open(script_path + "/templates/k8s-objects/role.yaml")
     template = Template(t.read())
     r = template.render(
-        targetNS=args.namespace, clientNS=args.namespace, saName=service_account
+        targetNS=conf.namespace, clientNS=conf.namespace, saName=service_account
     )
     t.close()
     save_file("generated/k8s-objects/role.yaml", r)
@@ -200,10 +274,10 @@ def main():
     t = open(script_path + "/templates/k8s-objects/traffic-gen-httpbin.yaml")
     template = Template(t.read())
     r = template.render(
-        ns=args.namespace,
+        ns=conf.namespace,
         saName=service_account,
-        secretName=args.namespace + "-ca-cert",
-        serviceName="tsb-gateway-" + args.namespace,
+        secretName=conf.namespace + "-ca-cert",
+        serviceName="tsb-gateway-" + conf.namespace,
         content=curl_calls,
     )
     t.close()

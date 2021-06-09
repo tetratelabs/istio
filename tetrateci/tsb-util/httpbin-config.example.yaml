@@ -1,0 +1,6 @@
+namespace: "default"
+tenant: "dummy-tenant"
+count: 10
+org: "tetrate"
+cluster: "demo"
+workspace: "dummy-workspace"
