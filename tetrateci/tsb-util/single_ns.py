@@ -18,12 +18,10 @@ entries = {
     "routing": {"rules": [{"route": {"host": ""}}]},
 }
 
-
 def save_file(fname, content):
     f = open(fname, "w")
     f.write(content)
     f.close()
-
 
 def create_cert():
     os.mkdir("cert")
@@ -45,7 +43,6 @@ def create_cert():
         -set_serial 0 -in cert/wildcard.tetrate.test.com.csr \
         -out cert/wildcard.tetrate.test.com.crt"
     )
-
 
 def create_secret(ns, fname):
     secret_name = "wilcard-credential"
@@ -70,7 +67,6 @@ def create_secret(ns, fname):
     keyfile.close()
     certfile.close()
 
-
 def create_trafficgen_secret(ns, fname):
     secret_name = ns + "-ca-cert"
     certfile = open("cert/tetrate.test.com.crt")
@@ -91,7 +87,6 @@ def create_trafficgen_secret(ns, fname):
     certfile.close()
     return secret_name
 
-
 def install_httpbin(index, namespace):
     instance_name = "httpbin" + index
     t = open(script_path + "/templates/k8s-objects/httpbin.yaml")
@@ -99,7 +94,6 @@ def install_httpbin(index, namespace):
     r = template.render(namespace=namespace, name=instance_name)
     t.close()
     save_file("generated/k8s-objects/httpbin" + index + ".yaml", r)
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -116,7 +110,7 @@ def main():
     parser.add_argument("--workspace", help="TSB workspace to be used", required=True)
     parser.add_argument(
         "--namespace",
-        help="namespace to spin up all the pods, make sure istio-injection is enabled",
+        help="namespace to spin up all the pods",
         required=True,
     )
     parser.add_argument("--tenant", help="TSB tenant to be used", required=True)
@@ -124,6 +118,12 @@ def main():
     parser.add_argument("--group", help="TSB gateway group to be used", required=True)
 
     args = parser.parse_args()
+
+    namespace_yaml = {
+        "apiVersion": "v1",
+        "kind": "Namespace",
+        "metadata": {"labels": {"istio-injection": "enabled"}, "name": args.namespace},
+    }
 
     gateway_yaml = {
         "apiVersion": "gateway.tsb.tetrate.io/v2",
@@ -146,6 +146,10 @@ def main():
 
     os.makedirs("generated/k8s-objects/", exist_ok=True)
     os.makedirs("generated/tsb-objects/", exist_ok=True)
+
+    f = open("generated/k8s-objects/01namespace.yaml", "w")
+    yaml.dump(namespace_yaml, f)
+    f.close()
 
     t = open(script_path + "/templates/k8s-objects/ingress.yaml")
     template = Template(t.read())
@@ -204,7 +208,6 @@ def main():
     )
     t.close()
     save_file("generated/k8s-objects/traffic-gen.yaml", r)
-
 
 if __name__ == "__main__":
     main()
