@@ -181,6 +181,38 @@ spec:
 			workloadAgnostic: true,
 		},
 		TrafficTestCase{
+			name: "set host header in destination",
+			config: `
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: default
+spec:
+  hosts:
+  - {{ (index .dst 0).Config.Service }}
+  http:
+  - route:
+    - destination:
+        host: {{ (index .dst 0).Config.Service }}
+      headers:
+        request:
+          set:
+            Host: my-custom-authority`,
+			opts: echo.CallOptions{
+				PortName: "http",
+				Count:    1,
+				Validator: echo.And(
+					echo.ExpectOK(),
+					echo.ValidatorFunc(
+						func(response echoclient.ParsedResponses, _ error) error {
+							return response.Check(func(_ int, response *echoclient.ParsedResponse) error {
+								return ExpectString(response.RawResponse["Host"], "my-custom-authority", "added authority header")
+							})
+						})),
+			},
+			workloadAgnostic: true,
+		},
+		TrafficTestCase{
 			name: "redirect",
 			config: `
 apiVersion: networking.istio.io/v1alpha3
@@ -244,7 +276,7 @@ spec:
 					echo.ValidatorFunc(
 						func(response echoclient.ParsedResponses, _ error) error {
 							return response.Check(func(_ int, response *echoclient.ParsedResponse) error {
-								return ExpectString(response.URL, "/new/path?key=value", "URL")
+								return ExpectString(response.URL, "/new/path?key=value#hash", "URL")
 							})
 						})),
 			},
@@ -591,10 +623,10 @@ func autoPassthroughCases(apps *EchoDeployments) []TrafficTestCase {
 				}
 				childs = append(childs, TrafficCall{
 					name: fmt.Sprintf("mode:%v,sni:%v,alpn:%v", mode, sni, alpn),
-					call: apps.EastWest.CallEchoWithRetryOrFail,
+					call: apps.Ingress.CallEchoWithRetryOrFail,
 					opts: echo.CallOptions{
 						Port: &echo.Port{
-							ServicePort: 15443,
+							ServicePort: 443,
 							Protocol:    protocol.HTTPS,
 						},
 						ServerName: sni,
@@ -615,10 +647,10 @@ metadata:
   namespace: istio-system
 spec:
   selector:
-    istio: eastwestgateway
+    istio: ingressgateway
   servers:
     - port:
-        number: 15443
+        number: 443
         name: tls
         protocol: TLS
       tls:
