@@ -9,12 +9,13 @@ from marshmallow_dataclass import class_schema
 
 @dataclass
 class config:
-    namespace: str
     tenant: str
     count: int
     org: str
     cluster: str
     workspace: str
+    mode: str
+    namespace: str
 
 def read_config_yaml(filename):
     schema = class_schema(config)
@@ -23,6 +24,11 @@ def read_config_yaml(filename):
         return schema().load(yamlconfig)
 
 script_path = os.path.dirname(os.path.realpath(__file__))
+
+def save_file(fname, content):
+    f = open(fname, "w")
+    f.write(content)
+    f.close()
 
 entries = {
     "name": "",
@@ -34,11 +40,6 @@ entries = {
     },
     "routing": {"rules": [{"route": {"host": ""}}]},
 }
-
-def save_file(fname, content):
-    f = open(fname, "w")
-    f.write(content)
-    f.close()
 
 def create_cert():
     os.mkdir("cert")
@@ -104,19 +105,30 @@ def create_trafficgen_secret(ns, fname):
     certfile.close()
     return secret_name
 
-def install_httpbin(index, namespace):
-    instance_name = "httpbin" + index
-    t = open(script_path + "/templates/k8s-objects/httpbin.yaml")
+def install_bookinfo(ns, key):
+    svc_domain = ".svc.cluster.local"
+    details_env = "details-" + key + "." + ns + svc_domain
+    reviews_env = "reviews-" + key + "." + ns + svc_domain
+    ratings_env = "ratings-" + key + "." + ns + svc_domain
+
+    t = open(script_path + "/templates/k8s-objects/bookinfo-single.yaml")
     template = Template(t.read())
-    r = template.render(namespace=namespace, name=instance_name)
+    r = template.render(
+        ns=ns,
+        detailsHostName=details_env,
+        reviewsHostName=reviews_env,
+        ratingsHostName=ratings_env,
+        id=key,
+    )
     t.close()
-    save_file("generated/k8s-objects/httpbin" + index + ".yaml", r)
+    save_file("generated/k8s-objects/bookinfo-" + key + ".yaml", r)
+    pass
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Spin up httpbin instances, all the flags are required and to be pre generated\n"
+        description="Spin up bookinfo instances, all the flags are required and to be pre generated\n"
         + "Example:\n"
-        + " pipenv run python single_ns.py --config httpbin-config.example.yaml\n",
+        + " pipenv run python bookinfo-single-gw.py --config bookinfo-single.example.yml\n",
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
@@ -127,14 +139,14 @@ def main():
     args = parser.parse_args()
     conf = read_config_yaml(args.config)
 
+    os.makedirs("generated/k8s-objects/", exist_ok=True)
+    os.makedirs("generated/tsb-objects/", exist_ok=True)
+
     namespace_yaml = {
         "apiVersion": "v1",
         "kind": "Namespace",
         "metadata": {"labels": {"istio-injection": "enabled"}, "name": conf.namespace},
     }
-
-    os.makedirs("generated/k8s-objects/", exist_ok=True)
-    os.makedirs("generated/tsb-objects/", exist_ok=True)
 
     t = open(script_path + "/templates/tsb-objects/tenant.yaml")
     template = Template(t.read())
@@ -158,9 +170,9 @@ def main():
     save_file("generated/tsb-objects/workspaces.yaml", r)
 
     # groups
-    gateway_group = "httpbin-gateway-" + conf.namespace
-    traffic_group = "httpbin-traffic-" + conf.namespace
-    security_group = "httpbin-security-" + conf.namespace
+    gateway_group = "bookinfo-gateway-" + conf.namespace
+    traffic_group = "bookinfo-traffic-" + conf.namespace
+    security_group = "bookinfo-security-" + conf.namespace
     t = open(script_path + "/templates/tsb-objects/group-httpbin.yaml")
     template = Template(t.read())
     r = template.render(
@@ -172,7 +184,7 @@ def main():
         securityGroupName=security_group,
         ns=conf.namespace,
         clusterName=conf.cluster,
-        mode="BRIDGED",
+        mode=conf.mode.upper(),
     )
     t.close()
     save_file("generated/tsb-objects/groups.yaml", r)
@@ -195,7 +207,7 @@ def main():
         orgName=conf.org,
         tenantName=conf.tenant,
         workspaceName=conf.workspace,
-        securitySettingName="httpbin-security-setting-" + conf.namespace,
+        securitySettingName="bookinfo-security-setting-" + conf.namespace,
         securityGroupName=security_group,
     )
     t.close()
@@ -240,8 +252,8 @@ def main():
     curl_calls = ""
 
     for i in range(conf.count):
-        install_httpbin(str(i), conf.namespace)
-        name = "httpbin" + str(i)
+        install_bookinfo(conf.namespace, str(i))
+        name = "productpage-" + str(i)
         entries["name"] = name
         hostname = name + ".tetrate.test.com"
         entries["hostname"] = hostname
@@ -250,12 +262,30 @@ def main():
         )
         http_routes.append(copy.deepcopy(entries))
         curl_calls += (
-            "              curl https://"
+            '              curl "https://'
             + hostname
-            + " --connect-to "
+            + '" --connect-to "'
             + hostname
-            + ":443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null\n"
+            + ':443:$IP:$PORT" --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null\n'
         )
+
+        servicerouteFile = (
+            script_path + "/templates/tsb-objects/bridged/serviceroute.yaml"
+        )
+        t = open(servicerouteFile)
+        template = Template(t.read())
+        r = template.render(
+            orgName=conf.org,
+            tenantName=conf.tenant,
+            workspaceName=conf.workspace,
+            groupName=traffic_group,
+            hostFQDN="reviews-" + str(i) + "." + conf.namespace + ".svc.cluster.local",
+            serviceRouteName="bookinfo-serviceroute-" + str(i),
+            ns=conf.namespace,
+        )
+        save_file("generated/tsb-objects/serviceroute" + str(i) + ".yaml", r)
+        t.close()
+
     gateway_yaml["spec"]["http"] = http_routes
 
     f = open("generated/tsb-objects/gateway.yaml", "w")
@@ -281,6 +311,8 @@ def main():
     )
     t.close()
     save_file("generated/k8s-objects/traffic-gen.yaml", r)
+
+    pass
 
 if __name__ == "__main__":
     main()
