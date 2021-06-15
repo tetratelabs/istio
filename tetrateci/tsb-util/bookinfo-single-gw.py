@@ -30,7 +30,7 @@ def save_file(fname, content):
     f.write(content)
     f.close()
 
-entries = {
+entries_bridged = {
     "name": "",
     "port": 8443,
     "hostname": "",
@@ -39,6 +39,19 @@ entries = {
         "secretName": "wilcard-credential",
     },
     "routing": {"rules": [{"route": {"host": ""}}]},
+}
+
+entries_direct = {
+    "hosts": [],
+    "port": {
+        "name": "",
+        "number": 8443,
+        "protocol": "HTTPS",
+    },
+    "tls": {
+        "credentialName": "wilcard-credential",
+        "mode": "SIMPLE",
+    },
 }
 
 def create_cert():
@@ -229,7 +242,7 @@ def main():
         conf.namespace, "generated/k8s-objects/trafficgen-secret.yaml"
     )
 
-    gateway_yaml = {
+    gateway_yaml_bridged = {
         "apiVersion": "gateway.tsb.tetrate.io/v2",
         "kind": "IngressGateway",
         "Metadata": {
@@ -248,19 +261,35 @@ def main():
         },
     }
 
+    gateway_yaml_direct = {
+        "apiVersion": "networking.istio.io/v1beta1",
+        "kind": "Gateway",
+        "metadata": {
+            "annotations": {
+                "tsb.tetrate.io/gatewayGroup": gateway_group,
+                "tsb.tetrate.io/tenant": conf.tenant,
+                "tsb.tetrate.io/organization": conf.org,
+                "tsb.tetrate.io/workspace": conf.workspace,
+            },
+            "name": "tsb-gateway",
+            "namespace": conf.namespace,
+        },
+        "spec": {
+            "selector": {
+                "app": "tsb-gateway-" + conf.namespace,
+            },
+            "servers": [],
+        },
+    }
+
     http_routes = []
     curl_calls = ""
 
     for i in range(conf.count):
         install_bookinfo(conf.namespace, str(i))
         name = "productpage-" + str(i)
-        entries["name"] = name
         hostname = name + ".tetrate.test.com"
-        entries["hostname"] = hostname
-        entries["routing"]["rules"][0]["route"]["host"] = (
-            conf.namespace + "/" + name + "." + conf.namespace + ".svc.cluster.local"
-        )
-        http_routes.append(copy.deepcopy(entries))
+
         curl_calls += (
             '              curl "https://'
             + hostname
@@ -272,25 +301,116 @@ def main():
         servicerouteFile = (
             script_path + "/templates/tsb-objects/bridged/serviceroute.yaml"
         )
-        t = open(servicerouteFile)
-        template = Template(t.read())
-        r = template.render(
-            orgName=conf.org,
-            tenantName=conf.tenant,
-            workspaceName=conf.workspace,
-            groupName=traffic_group,
-            hostFQDN="reviews-" + str(i) + "." + conf.namespace + ".svc.cluster.local",
-            serviceRouteName="bookinfo-serviceroute-" + str(i),
-            ns=conf.namespace,
-        )
-        save_file("generated/tsb-objects/serviceroute" + str(i) + ".yaml", r)
-        t.close()
+        if conf.mode == "bridged":
+            entries_bridged["name"] = name
+            entries_bridged["hostname"] = hostname
+            entries_bridged["routing"]["rules"][0]["route"]["host"] = (
+                conf.namespace
+                + "/"
+                + name
+                + "."
+                + conf.namespace
+                + ".svc.cluster.local"
+            )
+            http_routes.append(copy.deepcopy(entries_bridged))
 
-    gateway_yaml["spec"]["http"] = http_routes
+            t = open(servicerouteFile)
+            template = Template(t.read())
+            r = template.render(
+                orgName=conf.org,
+                tenantName=conf.tenant,
+                workspaceName=conf.workspace,
+                groupName=traffic_group,
+                hostFQDN="reviews-"
+                + str(i)
+                + "."
+                + conf.namespace
+                + ".svc.cluster.local",
+                serviceRouteName="bookinfo-serviceroute-" + str(i),
+                ns=conf.namespace,
+            )
+            save_file("generated/tsb-objects/serviceroute" + str(i) + ".yaml", r)
+            t.close()
+        else:
+            entries_direct["port"]["name"] = name
+            entries_direct["hosts"] = [conf.namespace + "/" + hostname]
+            http_routes.append(copy.deepcopy(entries_direct))
 
-    f = open("generated/tsb-objects/gateway.yaml", "w")
-    yaml.dump(gateway_yaml, f)
-    f.close()
+            # virtual service for product page
+            t = open(script_path + "/templates/tsb-objects/direct/vs.yaml")
+            template = Template(t.read())
+            r = template.render(
+                orgName=conf.org,
+                tenantName=conf.tenant,
+                workspaceName=conf.workspace,
+                gatewayGroupName=gateway_group,
+                hostFQDN=hostname,
+                virtualserviceName="bookinfo-virtualservice-"
+                + str(i),  # need to change
+                ns=conf.namespace,
+                gatewayName="tsb-gateway",
+                destinationFQDN="productpage-"
+                + str(i)
+                + "."
+                + conf.namespace
+                + ".svc.cluster.local",
+            )
+            save_file("generated/tsb-objects/virtualservice-" + str(i) + ".yaml", r)
+            t.close()
+
+            # destination rules
+            t = open(script_path + "/templates/tsb-objects/direct/dr.yaml")
+            template = Template(t.read())
+            r = template.render(
+                orgName=conf.org,
+                tenantName=conf.tenant,
+                workspaceName=conf.workspace,
+                trafficGroupName=traffic_group,
+                hostFQDN="reviews-"
+                + str(i)
+                + "."
+                + conf.namespace
+                + ".svc.cluster.local",
+                destinationruleName="bookinfo-destinationrule-" + str(i),
+                ns=conf.namespace,
+            )
+            save_file("generated/tsb-objects/destinationrule-" + str(i) + ".yaml", r)
+            t.close()
+
+            # reviews virtual service
+            reviews_vs = script_path + "/templates/tsb-objects/direct/reviews-vs.yaml"
+            t = open(reviews_vs)
+            template = Template(t.read())
+            r = template.render(
+                orgName=conf.org,
+                tenantName=conf.tenant,
+                workspaceName=conf.workspace,
+                trafficGroupName=traffic_group,
+                hostFQDN="reviews-"
+                + str(i)
+                + "."
+                + conf.namespace
+                + ".svc.cluster.local",
+                serviceRouteName="bookinfo-reviews-" + str(i),
+                ns=conf.namespace,
+            )
+            save_file("generated/tsb-objects/reviews_vs-" + str(i) + ".yaml", r)
+            t.close()
+
+    if conf.mode == "bridged":
+        gateway_yaml_bridged["spec"]["servers"] = http_routes
+
+        f = open("generated/tsb-objects/gateway.yaml", "w")
+        yaml.dump(gateway_yaml_bridged, f)
+        f.close()
+
+    else:
+        gateway_yaml_direct["spec"]["servers"] = http_routes
+
+        f = open("generated/tsb-objects/gateway.yaml", "w")
+        yaml.dump(gateway_yaml_direct, f)
+        f.close()
+
     service_account = "httpbin-serviceaccount"
     t = open(script_path + "/templates/k8s-objects/role.yaml")
     template = Template(t.read())
