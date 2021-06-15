@@ -264,7 +264,7 @@ def main():
         curl_calls += (
             '              curl "https://'
             + hostname
-            + '" --connect-to "'
+            + '/productpage" --connect-to "'
             + hostname
             + ':443:$IP:$PORT" --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null\n'
         )
