@@ -427,14 +427,13 @@ def main():
 
     os.mkdir("generated")
 
-    tenant_count = 0
+    tenant_set = set()
 
     for conf in configs.app:
         for replica in conf.replicas:
-            tenant_count = max(tenant_count, replica.tenant_id)
-    tenant_count += 1
+            tenant_set.add(replica.tenant_id)
 
-    for tenant in range(tenant_count):
+    for tenant in tenant_set:
         tenant_name = "bookinfo-tenant-" + str(tenant)
         t = open(script_path + "/templates/tsb-objects/tenant.yaml")
         template = Template(t.read())
