@@ -5,7 +5,12 @@ from jinja2 import Template
 script_path = os.path.dirname(os.path.realpath(__file__))
 
 def create_root_cert():
-    os.system("mkdir cert")
+    os.makedirs("cert/", exist_ok=True)
+    if os.path.exists("cert/tetrate.test.com.crt") and os.path.exists(
+        "cert/tetrate.test.com.key"
+    ):
+        return
+
     os.system(
         "openssl req -x509 -sha256 -nodes -days 365 \
         -newkey rsa:4096 -subj '/C=US/ST=CA/O=Tetrateio/CN=tetrate.test.com' \
@@ -14,6 +19,10 @@ def create_root_cert():
 
 def create_private_key(ns):
     hostname = ns + ".tetrate.test.com"
+    if os.path.exists("cert/" + hostname + ".csr") and os.path.exists(
+        "cert/" + hostname + ".key"
+    ):
+        return
     os.system(
         "openssl req -out cert/"
         + hostname
@@ -26,6 +35,8 @@ def create_private_key(ns):
 
 def create_cert(ns):
     hostname = ns + ".tetrate.test.com"
+    if os.path.exists("cert/" + hostname + ".crt"):
+        return
     os.system(
         "openssl x509 -req -sha256 -days 365 -CA cert/tetrate.test.com.crt -CAkey cert/tetrate.test.com.key -set_serial 0 -in cert/"
         + hostname

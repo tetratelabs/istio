@@ -109,8 +109,8 @@ def gen_bridge_specific_objects(
     provider,
     tctl_ver,
 ):
-    os.mkdir("generated/tsb-objects/" + key + "/bridged")
-    os.mkdir("generated/k8s-objects/" + key + "/bridged")
+    os.makedirs("generated/tsb-objects/" + key + "/bridged", exist_ok=True)
+    os.makedirs("generated/k8s-objects/" + key + "/bridged", exist_ok=True)
 
     # security
     t = open(script_path + "/templates/tsb-objects/bridged/security.yaml")
@@ -188,8 +188,8 @@ def gen_direct_specific_objects(
     provider,
     tctl_ver,
 ):
-    os.mkdir("generated/tsb-objects/" + key + "/direct")
-    os.mkdir("generated/k8s-objects/" + key + "/direct")
+    os.makedirs("generated/tsb-objects/" + key + "/direct", exist_ok=True)
+    os.makedirs("generated/k8s-objects/" + key + "/direct", exist_ok=True)
     # reviews virtual service
     reviews_vs = script_path + "/templates/tsb-objects/direct/reviews-vs.yaml"
     t = open(reviews_vs)
@@ -275,6 +275,7 @@ def gen_direct_specific_objects(
     save_file("generated/tsb-objects/" + key + "/direct/gateway.yaml", r)
 
 def install_bookinfo(conf, password, org, count=0, provider="others", tctl_ver="1.2.0"):
+    count = 0
     for replica in conf.replicas:
         i = 0
 
@@ -284,7 +285,7 @@ def install_bookinfo(conf, password, org, count=0, provider="others", tctl_ver="
 
         while i < (replica.bridged + replica.direct):
             print("Installing Bookinfo")
-            key = str(count)
+            key = conf.cluster_name + "-" + str(count)
 
             current_mode = modes_list[i]
 
@@ -292,14 +293,14 @@ def install_bookinfo(conf, password, org, count=0, provider="others", tctl_ver="
             tenant_name = "bookinfo-tenant-" + tenant_id
 
             mode = "d" if current_mode == "direct" else "b"
-            workspace_name = "bookinfo-ws-" + mode + key
+            workspace_name = "bookinfo-ws-" + mode + "-" + key
             os.makedirs("generated/k8s-objects/" + key, exist_ok=True)
             os.makedirs("generated/tsb-objects/" + key, exist_ok=True)
             os.makedirs("generated/tsb-k8s-objects/" + key, exist_ok=True)
 
-            productns = "bookinfo-" + mode + key + "-t" + tenant_id + "-front"
-            reviewsns = "bookinfo-" + mode + key + "-t" + tenant_id + "-mid"
-            ratingsns = "bookinfo-" + mode + key + "-t" + tenant_id + "-back"
+            productns = "bookinfo-" + mode + "-" + key + "-t" + tenant_id + "-front"
+            reviewsns = "bookinfo-" + mode + "-" + key + "-t" + tenant_id + "-mid"
+            ratingsns = "bookinfo-" + mode + "-" + key + "-t" + tenant_id + "-back"
 
             namespaces = {
                 "product": productns,
@@ -425,13 +426,16 @@ def main():
 
     certs.create_root_cert()
 
-    os.mkdir("generated")
-
+    os.makedirs("generated/", exist_ok=True)
     tenant_set = set()
+    cluster_list = []
 
     for conf in configs.app:
         for replica in conf.replicas:
             tenant_set.add(replica.tenant_id)
+        if conf.cluster_name in cluster_list:
+            print("Multiple entries for the same cluster found, please fix.")
+        cluster_list.append(conf.cluster_name)
 
     for tenant in tenant_set:
         tenant_name = "bookinfo-tenant-" + str(tenant)
