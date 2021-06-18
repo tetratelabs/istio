@@ -32,14 +32,14 @@ def generate_bookinfo_yaml(namespaces, key):
     save_file("generated/k8s-objects/" + key + "/bookinfo.yaml", r)
 
 def gen_common_tsb_objects(
-    namespaces, key, conf, tenant_name, workspace_name, mode, org
+    namespaces, key, conf, tenant_id, workspace_name, mode, org, workspace_id
 ):
     # workspace
     t = open(script_path + "/templates/tsb-objects/workspace.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=org,
-        tenantName=tenant_name,
+        tenantName="bookinfo-tenant-" + tenant_id,
         workspaceName=workspace_name,
         ns1=namespaces["reviews"],
         ns2=namespaces["ratings"],
@@ -49,15 +49,21 @@ def gen_common_tsb_objects(
     t.close()
     save_file("generated/tsb-objects/" + key + "/workspaces.yaml", r)
 
-    # groups
-    gateway_group = "bookinfo-gateway-" + key
-    traffic_group = "bookinfo-traffic-" + key
-    security_group = "bookinfo-security-" + key
+    # groups = <app>-<type>-<cluster_name>-<mode>-t<tenant_id>-w<workspace_id>-<id>
+    gateway_group = (
+        f"bookinfo-gateway-{conf.cluster_name}-{mode}-t{tenant_id}-w{workspace_id}-0"
+    )
+    traffic_group = (
+        f"bookinfo-traffic-{conf.cluster_name}-{mode}-t{tenant_id}-w{workspace_id}-0"
+    )
+    security_group = (
+        f"bookinfo-security-{conf.cluster_name}-{mode}-t{tenant_id}-w{workspace_id}-0"
+    )
     t = open(script_path + "/templates/tsb-objects/group.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=org,
-        tenantName=tenant_name,
+        tenantName="bookinfo-tenant-" + tenant_id,
         workspaceName=workspace_name,
         gatewayGroupName=gateway_group,
         trafficGroupName=traffic_group,
@@ -76,7 +82,7 @@ def gen_common_tsb_objects(
     template = Template(t.read())
     r = template.render(
         orgName=org,
-        tenantName=tenant_name,
+        tenantName="bookinfo-tenant-" + tenant_id,
         workspaceName=workspace_name,
         trafficGroupName=traffic_group,
     )
@@ -274,7 +280,7 @@ def gen_direct_specific_objects(
     t.close()
     save_file("generated/tsb-objects/" + key + "/direct/gateway.yaml", r)
 
-def install_bookinfo(conf, password, org, count=0, provider="others", tctl_ver="1.2.0"):
+def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
     count = 0
     for replica in conf.replicas:
         i = 0
@@ -293,14 +299,23 @@ def install_bookinfo(conf, password, org, count=0, provider="others", tctl_ver="
             tenant_name = "bookinfo-tenant-" + tenant_id
 
             mode = "d" if current_mode == "direct" else "b"
-            workspace_name = "bookinfo-ws-" + mode + "-" + key
+            # <app>-ws-<cluster_name>-<mode>-t<tenant_id>-<id>
+            workspace_name = (
+                f"bookinfo-ws-{conf.cluster_name}-{mode}-t{tenant_id}-{count}"
+            )
+
             os.makedirs("generated/k8s-objects/" + key, exist_ok=True)
             os.makedirs("generated/tsb-objects/" + key, exist_ok=True)
             os.makedirs("generated/tsb-k8s-objects/" + key, exist_ok=True)
 
-            productns = "bookinfo-" + mode + "-" + key + "-t" + tenant_id + "-front"
-            reviewsns = "bookinfo-" + mode + "-" + key + "-t" + tenant_id + "-mid"
-            ratingsns = "bookinfo-" + mode + "-" + key + "-t" + tenant_id + "-back"
+            # namespace = <app>-<cluster_name>-<mode>-t<tenant_id>-w<workspace_id>-<type>
+            productns = (
+                f"bookinfo-{conf.cluster_name}-{mode}-t{tenant_id}-w{count}-front"
+            )
+            reviewsns = f"bookinfo-{conf.cluster_name}-{mode}-t{tenant_id}-w{count}-mid"
+            ratingsns = (
+                f"bookinfo-{conf.cluster_name}-{mode}-t{tenant_id}-w{count}-back"
+            )
 
             namespaces = {
                 "product": productns,
@@ -311,7 +326,14 @@ def install_bookinfo(conf, password, org, count=0, provider="others", tctl_ver="
             generate_bookinfo_yaml(namespaces, key)
 
             gateway_group, traffic_group, security_group = gen_common_tsb_objects(
-                namespaces, key, conf, tenant_name, workspace_name, current_mode, org
+                namespaces,
+                key,
+                conf,
+                tenant_id,
+                workspace_name,
+                current_mode,
+                org,
+                count,
             )
 
             gen_namespace_yamls(namespaces, key)
@@ -438,6 +460,7 @@ def main():
         cluster_list.append(conf.cluster_name)
 
     for tenant in tenant_set:
+        # tenant = <app>-tenant-<id>
         tenant_name = "bookinfo-tenant-" + str(tenant)
         t = open(script_path + "/templates/tsb-objects/tenant.yaml")
         template = Template(t.read())
@@ -447,11 +470,17 @@ def main():
         )
         t.close()
         save_file("generated/tenant" + str(tenant) + ".yaml", r)
-    count = 0
     for conf in configs.app:
-        count = install_bookinfo(
-            conf, password, configs.org, count, configs.provider, configs.tctl_version
+        install_bookinfo(
+            conf, password, configs.org, configs.provider, configs.tctl_version
         )
 
 if __name__ == "__main__":
     main()
+
+"""
+tenant = <app>-tenant-<id>
+workspace = <app>-ws-<cluster_name>-<mode>-t<tenant_id>-<id>
+groups = <app>-<type>-<cluster_name>-<mode>-t<tenant_id>-w<workspace_id>-<id>
+namespace = <app>-<cluster_name>-<mode>-t<tenant_id>-w<workspace_id>-<type>-<id>
+"""

@@ -9,12 +9,9 @@ from marshmallow_dataclass import class_schema
 
 @dataclass
 class config:
-    namespace: str
-    tenant: str
     count: int
     org: str
     cluster: str
-    workspace: str
 
 def read_config_yaml(filename):
     schema = class_schema(config)
@@ -127,10 +124,14 @@ def main():
     args = parser.parse_args()
     conf = read_config_yaml(args.config)
 
+    tenant = "httpbin-tenant-0"
+    workspace = f"httpbin-ws-{conf.cluster}-b-t0-0"
+    namespace = f"httpbin-{conf.cluster}-b-t0-w0-front-0"
+
     namespace_yaml = {
         "apiVersion": "v1",
         "kind": "Namespace",
-        "metadata": {"labels": {"istio-injection": "enabled"}, "name": conf.namespace},
+        "metadata": {"labels": {"istio-injection": "enabled"}, "name": namespace},
     }
 
     os.makedirs("generated/k8s-objects/", exist_ok=True)
@@ -140,7 +141,7 @@ def main():
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName=conf.tenant,
+        tenantName=tenant,
     )
     t.close()
     save_file("generated/tsb-objects/tenant.yaml", r)
@@ -149,28 +150,28 @@ def main():
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName=conf.tenant,
-        workspaceName=conf.workspace,
-        ns=conf.namespace,
+        tenantName=tenant,
+        workspaceName=workspace,
+        ns=namespace,
         clusterName=conf.cluster,
     )
     t.close()
     save_file("generated/tsb-objects/workspaces.yaml", r)
 
-    # groups
-    gateway_group = "httpbin-gateway-" + conf.namespace
-    traffic_group = "httpbin-traffic-" + conf.namespace
-    security_group = "httpbin-security-" + conf.namespace
+    # groups = <app>-<type>-<cluster_name>-<mode>-t<tenant_id>-w<workspace_id>-<id>
+    gateway_group = f"bookinfo-gateway-{conf.cluster}-b-t0-w0-0"
+    traffic_group = f"bookinfo-traffic-{conf.cluster}-b-t0-w0-0"
+    security_group = f"bookinfo-security-{conf.cluster}-b-t0-w0-0"
     t = open(script_path + "/templates/tsb-objects/group-httpbin.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName=conf.tenant,
-        workspaceName=conf.workspace,
+        tenantName=tenant,
+        workspaceName=workspace,
         gatewayGroupName=gateway_group,
         trafficGroupName=traffic_group,
         securityGroupName=security_group,
-        ns=conf.namespace,
+        ns=namespace,
         clusterName=conf.cluster,
         mode="BRIDGED",
     )
@@ -182,8 +183,8 @@ def main():
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName=conf.tenant,
-        workspaceName=conf.workspace,
+        tenantName=tenant,
+        workspaceName=workspace,
         trafficGroupName=traffic_group,
     )
     t.close()
@@ -193,9 +194,9 @@ def main():
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName=conf.tenant,
-        workspaceName=conf.workspace,
-        securitySettingName="httpbin-security-setting-" + conf.namespace,
+        tenantName=tenant,
+        workspaceName=workspace,
+        securitySettingName="httpbin-security-setting-" + namespace,
         securityGroupName=security_group,
     )
     t.close()
@@ -207,15 +208,13 @@ def main():
 
     t = open(script_path + "/templates/k8s-objects/ingress.yaml")
     template = Template(t.read())
-    r = template.render(ns=conf.namespace)
+    r = template.render(ns=namespace)
     t.close()
     save_file("generated/k8s-objects/ingress.yaml", r)
 
     create_cert()
-    create_secret(conf.namespace, "generated/k8s-objects/secret.yaml")
-    create_trafficgen_secret(
-        conf.namespace, "generated/k8s-objects/trafficgen-secret.yaml"
-    )
+    create_secret(namespace, "generated/k8s-objects/secret.yaml")
+    create_trafficgen_secret(namespace, "generated/k8s-objects/trafficgen-secret.yaml")
 
     gateway_yaml = {
         "apiVersion": "gateway.tsb.tetrate.io/v2",
@@ -224,13 +223,13 @@ def main():
             "organization": conf.org,
             "name": "tsb-gateway",
             "group": gateway_group,
-            "workspace": conf.workspace,
-            "tenant": conf.tenant,
+            "workspace": workspace,
+            "tenant": tenant,
         },
         "spec": {
             "workloadSelector": {
-                "namespace": conf.namespace,
-                "labels": {"app": "tsb-gateway-" + conf.namespace},
+                "namespace": namespace,
+                "labels": {"app": "tsb-gateway-" + namespace},
             },
             "http": [],
         },
@@ -240,13 +239,13 @@ def main():
     curl_calls = ""
 
     for i in range(conf.count):
-        install_httpbin(str(i), conf.namespace)
+        install_httpbin(str(i), namespace)
         name = "httpbin" + str(i)
         entries["name"] = name
         hostname = name + ".tetrate.test.com"
         entries["hostname"] = hostname
         entries["routing"]["rules"][0]["route"]["host"] = (
-            conf.namespace + "/" + name + "." + conf.namespace + ".svc.cluster.local"
+            namespace + "/" + name + "." + namespace + ".svc.cluster.local"
         )
         http_routes.append(copy.deepcopy(entries))
         curl_calls += (
@@ -264,19 +263,17 @@ def main():
     service_account = "httpbin-serviceaccount"
     t = open(script_path + "/templates/k8s-objects/role.yaml")
     template = Template(t.read())
-    r = template.render(
-        targetNS=conf.namespace, clientNS=conf.namespace, saName=service_account
-    )
+    r = template.render(targetNS=namespace, clientNS=namespace, saName=service_account)
     t.close()
     save_file("generated/k8s-objects/role.yaml", r)
 
     t = open(script_path + "/templates/k8s-objects/traffic-gen-httpbin.yaml")
     template = Template(t.read())
     r = template.render(
-        ns=conf.namespace,
+        ns=namespace,
         saName=service_account,
-        secretName=conf.namespace + "-ca-cert",
-        serviceName="tsb-gateway-" + conf.namespace,
+        secretName=namespace + "-ca-cert",
+        serviceName="tsb-gateway-" + namespace,
         content=curl_calls,
     )
     t.close()

@@ -1,7 +1,4 @@
-tenant: "dummy-tenant"
 count: 3
 org: "tetrate"
 cluster: "demo"
-workspace: "dummy-workspace"
 mode: "direct"
-namespace: "test"

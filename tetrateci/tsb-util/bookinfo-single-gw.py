@@ -9,13 +9,10 @@ from marshmallow_dataclass import class_schema
 
 @dataclass
 class config:
-    tenant: str
     count: int
     org: str
     cluster: str
-    workspace: str
     mode: str
-    namespace: str
 
 def read_config_yaml(filename):
     schema = class_schema(config)
@@ -152,20 +149,24 @@ def main():
     args = parser.parse_args()
     conf = read_config_yaml(args.config)
 
+    tenant = "httpbin-tenant-0"
+    workspace = f"httpbin-ws-{conf.cluster}-b-t0-0"
+    namespace = f"httpbin-{conf.cluster}-b-t0-w0-front-0"
+
     os.makedirs("generated/k8s-objects/", exist_ok=True)
     os.makedirs("generated/tsb-objects/", exist_ok=True)
 
     namespace_yaml = {
         "apiVersion": "v1",
         "kind": "Namespace",
-        "metadata": {"labels": {"istio-injection": "enabled"}, "name": conf.namespace},
+        "metadata": {"labels": {"istio-injection": "enabled"}, "name": namespace},
     }
 
     t = open(script_path + "/templates/tsb-objects/tenant.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName=conf.tenant,
+        tenantName=tenant,
     )
     t.close()
     save_file("generated/tsb-objects/tenant.yaml", r)
@@ -174,28 +175,28 @@ def main():
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName=conf.tenant,
-        workspaceName=conf.workspace,
-        ns=conf.namespace,
+        tenantName=tenant,
+        workspaceName=workspace,
+        ns=namespace,
         clusterName=conf.cluster,
     )
     t.close()
     save_file("generated/tsb-objects/workspaces.yaml", r)
 
-    # groups
-    gateway_group = "bookinfo-gateway-" + conf.namespace
-    traffic_group = "bookinfo-traffic-" + conf.namespace
-    security_group = "bookinfo-security-" + conf.namespace
+    # groups = <app>-<type>-<cluster_name>-<mode>-t<tenant_id>-w<workspace_id>-<id>
+    gateway_group = f"bookinfo-gateway-{conf.cluster}-{conf.mode}-t0-w0-0"
+    traffic_group = f"bookinfo-traffic-{conf.cluster}-{conf.mode}-t0-w0-0"
+    security_group = f"bookinfo-security-{conf.cluster}-{conf.mode}-t0-w0-0"
     t = open(script_path + "/templates/tsb-objects/group-httpbin.yaml")
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName=conf.tenant,
-        workspaceName=conf.workspace,
+        tenantName=tenant,
+        workspaceName=workspace,
         gatewayGroupName=gateway_group,
         trafficGroupName=traffic_group,
         securityGroupName=security_group,
-        ns=conf.namespace,
+        ns=namespace,
         clusterName=conf.cluster,
         mode=conf.mode.upper(),
     )
@@ -207,8 +208,8 @@ def main():
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName=conf.tenant,
-        workspaceName=conf.workspace,
+        tenantName=tenant,
+        workspaceName=workspace,
         trafficGroupName=traffic_group,
     )
     t.close()
@@ -218,9 +219,9 @@ def main():
     template = Template(t.read())
     r = template.render(
         orgName=conf.org,
-        tenantName=conf.tenant,
-        workspaceName=conf.workspace,
-        securitySettingName="bookinfo-security-setting-" + conf.namespace,
+        tenantName=tenant,
+        workspaceName=workspace,
+        securitySettingName="bookinfo-security-setting-" + namespace,
         securityGroupName=security_group,
     )
     t.close()
@@ -232,15 +233,13 @@ def main():
 
     t = open(script_path + "/templates/k8s-objects/ingress.yaml")
     template = Template(t.read())
-    r = template.render(ns=conf.namespace)
+    r = template.render(ns=namespace)
     t.close()
     save_file("generated/k8s-objects/ingress.yaml", r)
 
     create_cert()
-    create_secret(conf.namespace, "generated/k8s-objects/secret.yaml")
-    create_trafficgen_secret(
-        conf.namespace, "generated/k8s-objects/trafficgen-secret.yaml"
-    )
+    create_secret(namespace, "generated/k8s-objects/secret.yaml")
+    create_trafficgen_secret(namespace, "generated/k8s-objects/trafficgen-secret.yaml")
 
     gateway_yaml_bridged = {
         "apiVersion": "gateway.tsb.tetrate.io/v2",
@@ -249,13 +248,13 @@ def main():
             "organization": conf.org,
             "name": "tsb-gateway",
             "group": gateway_group,
-            "workspace": conf.workspace,
-            "tenant": conf.tenant,
+            "workspace": workspace,
+            "tenant": tenant,
         },
         "spec": {
             "workloadSelector": {
-                "namespace": conf.namespace,
-                "labels": {"app": "tsb-gateway-" + conf.namespace},
+                "namespace": namespace,
+                "labels": {"app": "tsb-gateway-" + namespace},
             },
             "http": [],
         },
@@ -267,16 +266,16 @@ def main():
         "metadata": {
             "annotations": {
                 "tsb.tetrate.io/gatewayGroup": gateway_group,
-                "tsb.tetrate.io/tenant": conf.tenant,
+                "tsb.tetrate.io/tenant": tenant,
                 "tsb.tetrate.io/organization": conf.org,
-                "tsb.tetrate.io/workspace": conf.workspace,
+                "tsb.tetrate.io/workspace": workspace,
             },
             "name": "tsb-gateway",
-            "namespace": conf.namespace,
+            "namespace": namespace,
         },
         "spec": {
             "selector": {
-                "app": "tsb-gateway-" + conf.namespace,
+                "app": "tsb-gateway-" + namespace,
             },
             "servers": [],
         },
@@ -286,7 +285,7 @@ def main():
     curl_calls = ""
 
     for i in range(conf.count):
-        install_bookinfo(conf.namespace, str(i))
+        install_bookinfo(namespace, str(i))
         name = "productpage-" + str(i)
         hostname = name + ".tetrate.test.com"
 
@@ -305,12 +304,7 @@ def main():
             entries_bridged["name"] = name
             entries_bridged["hostname"] = hostname
             entries_bridged["routing"]["rules"][0]["route"]["host"] = (
-                conf.namespace
-                + "/"
-                + name
-                + "."
-                + conf.namespace
-                + ".svc.cluster.local"
+                namespace + "/" + name + "." + namespace + ".svc.cluster.local"
             )
             http_routes.append(copy.deepcopy(entries_bridged))
 
@@ -318,22 +312,18 @@ def main():
             template = Template(t.read())
             r = template.render(
                 orgName=conf.org,
-                tenantName=conf.tenant,
-                workspaceName=conf.workspace,
+                tenantName=tenant,
+                workspaceName=workspace,
                 groupName=traffic_group,
-                hostFQDN="reviews-"
-                + str(i)
-                + "."
-                + conf.namespace
-                + ".svc.cluster.local",
+                hostFQDN="reviews-" + str(i) + "." + namespace + ".svc.cluster.local",
                 serviceRouteName="bookinfo-serviceroute-" + str(i),
-                ns=conf.namespace,
+                ns=namespace,
             )
             save_file("generated/tsb-objects/serviceroute" + str(i) + ".yaml", r)
             t.close()
         else:
             entries_direct["port"]["name"] = name
-            entries_direct["hosts"] = [conf.namespace + "/" + hostname]
+            entries_direct["hosts"] = [namespace + "/" + hostname]
             http_routes.append(copy.deepcopy(entries_direct))
 
             # virtual service for product page
@@ -341,18 +331,18 @@ def main():
             template = Template(t.read())
             r = template.render(
                 orgName=conf.org,
-                tenantName=conf.tenant,
-                workspaceName=conf.workspace,
+                tenantName=tenant,
+                workspaceName=workspace,
                 gatewayGroupName=gateway_group,
                 hostFQDN=hostname,
                 virtualserviceName="bookinfo-virtualservice-"
                 + str(i),  # need to change
-                ns=conf.namespace,
+                ns=namespace,
                 gatewayName="tsb-gateway",
                 destinationFQDN="productpage-"
                 + str(i)
                 + "."
-                + conf.namespace
+                + namespace
                 + ".svc.cluster.local",
             )
             save_file("generated/tsb-objects/virtualservice-" + str(i) + ".yaml", r)
@@ -363,16 +353,12 @@ def main():
             template = Template(t.read())
             r = template.render(
                 orgName=conf.org,
-                tenantName=conf.tenant,
-                workspaceName=conf.workspace,
+                tenantName=tenant,
+                workspaceName=workspace,
                 trafficGroupName=traffic_group,
-                hostFQDN="reviews-"
-                + str(i)
-                + "."
-                + conf.namespace
-                + ".svc.cluster.local",
+                hostFQDN="reviews-" + str(i) + "." + namespace + ".svc.cluster.local",
                 destinationruleName="bookinfo-destinationrule-" + str(i),
-                ns=conf.namespace,
+                ns=namespace,
             )
             save_file("generated/tsb-objects/destinationrule-" + str(i) + ".yaml", r)
             t.close()
@@ -383,16 +369,12 @@ def main():
             template = Template(t.read())
             r = template.render(
                 orgName=conf.org,
-                tenantName=conf.tenant,
-                workspaceName=conf.workspace,
+                tenantName=tenant,
+                workspaceName=workspace,
                 trafficGroupName=traffic_group,
-                hostFQDN="reviews-"
-                + str(i)
-                + "."
-                + conf.namespace
-                + ".svc.cluster.local",
+                hostFQDN="reviews-" + str(i) + "." + namespace + ".svc.cluster.local",
                 serviceRouteName="bookinfo-reviews-" + str(i),
-                ns=conf.namespace,
+                ns=namespace,
             )
             save_file("generated/tsb-objects/reviews_vs-" + str(i) + ".yaml", r)
             t.close()
@@ -414,19 +396,17 @@ def main():
     service_account = "httpbin-serviceaccount"
     t = open(script_path + "/templates/k8s-objects/role.yaml")
     template = Template(t.read())
-    r = template.render(
-        targetNS=conf.namespace, clientNS=conf.namespace, saName=service_account
-    )
+    r = template.render(targetNS=namespace, clientNS=namespace, saName=service_account)
     t.close()
     save_file("generated/k8s-objects/role.yaml", r)
 
     t = open(script_path + "/templates/k8s-objects/traffic-gen-httpbin.yaml")
     template = Template(t.read())
     r = template.render(
-        ns=conf.namespace,
+        ns=namespace,
         saName=service_account,
-        secretName=conf.namespace + "-ca-cert",
-        serviceName="tsb-gateway-" + conf.namespace,
+        secretName=namespace + "-ca-cert",
+        serviceName="tsb-gateway-" + namespace,
         content=curl_calls,
     )
     t.close()
