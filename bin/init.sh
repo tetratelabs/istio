@@ -110,6 +110,45 @@ function download_wasm_if_necessary () {
   fi
 }
 
+# Downloads and extracts the OWASP Core Rule Set (CRS) to embed them to
+# proxyv2 image for efficient distribution.
+# Params:
+#   $1: The URL of the  tar.gz to be downloaded.
+#   $2: The expected sha1sum of the downloaded tar.gz.
+#       Why sha1sum? Because the official site provides the verified sha1sum value as of 2021-06-21.
+#   $3: The version string
+#   $4: The full path of the output directory.
+function download_crs_if_necessary () {
+  if [[ ! -d "$4/$3" ]] ; then
+    # Enter the output directory.
+    mkdir -p "$4"/{"$3",tmp}
+    pushd "$4/tmp"
+
+    # Download and extract the binary to the output directory.
+    echo "Downloading OWASP CRS: ${DOWNLOAD_COMMAND} $1 to $4"
+    if [[ ${DOWNLOAD_COMMAND} == curl* ]]; then
+      time ${DOWNLOAD_COMMAND} --header "${AUTH_HEADER:-}" "$1" -o "crs.tar.gz"
+    elif [[ ${DOWNLOAD_COMMAND} == wget* ]]; then
+      time ${DOWNLOAD_COMMAND} --header "${AUTH_HEADER:-}" "$1" -O "crs.tar.gz"
+    fi
+    if ! sha1sum --quiet -c <(echo "$2 crs.tar.gz"); then
+      echo "Error: sha1sum of '$1' doesn't match. Expected: $2. Actual: $(sha1sum "crs.tar.gz")."
+      exit 1
+    fi
+    tar xf crs.tar.gz
+
+    # Copy the extracted binary to the output location
+    cp ./*/rules/* ../"$3"/
+    cp ./*/crs-setup.conf.example ../"$3"/crs-setup-default.conf
+
+    # Remove the extracted binary.
+    cd ..
+    rm -rf tmp
+
+    popd
+  fi
+}
+
 mkdir -p "${ISTIO_OUT}"
 
 # Set the value of DOWNLOAD_COMMAND (either curl or wget)
@@ -143,6 +182,13 @@ do
   FILTER_WASM_URL="${ISTIO_ENVOY_BASE_URL}/${plugin}-${ISTIO_ENVOY_VERSION}.compiled.wasm"
   download_wasm_if_necessary "${FILTER_WASM_URL}" "${WASM_RELEASE_DIR}"/"${plugin//_/-}"-filter.compiled.wasm
 done
+
+# Download OWASP Core Rule Set files
+CRS_RELEASE_DIR=${ISTIO_ENVOY_LINUX_RELEASE_DIR}/owasp-modsecurity-crs
+CRS_URL="https://github.com/coreruleset/coreruleset/archive/refs/tags/v3.3.0.tar.gz"
+CRS_SHA1="1f4002b5cf941a9172b6250cea7e3465a85ef6ee"  # You can find the official value at https://coreruleset.org/installation/
+CRS_VERSION="3.3.0"
+download_crs_if_necessary "${CRS_URL}" "${CRS_SHA1}" "${CRS_VERSION}" "${CRS_RELEASE_DIR}"
 
 # Copy native envoy binary to ISTIO_OUT
 echo "Copying ${ISTIO_ENVOY_NATIVE_PATH} to ${ISTIO_OUT}/${SIDECAR}"
