@@ -27,30 +27,6 @@ def save_file(fname, content):
     f.write(content)
     f.close()
 
-entries_bridged = {
-    "name": "",
-    "port": 8443,
-    "hostname": "",
-    "tls": {
-        "mode": "SIMPLE",
-        "secretName": "wilcard-credential",
-    },
-    "routing": {"rules": [{"route": {"host": ""}}]},
-}
-
-entries_direct = {
-    "hosts": [],
-    "port": {
-        "name": "",
-        "number": 8443,
-        "protocol": "HTTPS",
-    },
-    "tls": {
-        "credentialName": "wilcard-credential",
-        "mode": "SIMPLE",
-    },
-}
-
 def create_cert():
     os.makedirs("cert/", exist_ok=True)
     if not os.path.exists("cert/tetrate.test.com.crt") or not os.path.exists(
@@ -248,46 +224,6 @@ def main():
     create_secret(namespace, "generated/k8s-objects/secret.yaml")
     create_trafficgen_secret(namespace, "generated/k8s-objects/trafficgen-secret.yaml")
 
-    gateway_yaml_bridged = {
-        "apiVersion": "gateway.tsb.tetrate.io/v2",
-        "kind": "IngressGateway",
-        "Metadata": {
-            "organization": conf.org,
-            "name": "tsb-gateway",
-            "group": gateway_group,
-            "workspace": workspace,
-            "tenant": tenant,
-        },
-        "spec": {
-            "workloadSelector": {
-                "namespace": namespace,
-                "labels": {"app": "tsb-gateway-" + namespace},
-            },
-            "http": [],
-        },
-    }
-
-    gateway_yaml_direct = {
-        "apiVersion": "networking.istio.io/v1beta1",
-        "kind": "Gateway",
-        "metadata": {
-            "annotations": {
-                "tsb.tetrate.io/gatewayGroup": gateway_group,
-                "tsb.tetrate.io/tenant": tenant,
-                "tsb.tetrate.io/organization": conf.org,
-                "tsb.tetrate.io/workspace": workspace,
-            },
-            "name": "tsb-gateway",
-            "namespace": namespace,
-        },
-        "spec": {
-            "selector": {
-                "app": "tsb-gateway-" + namespace,
-            },
-            "servers": [],
-        },
-    }
-
     http_routes = []
     curl_calls = []
 
@@ -304,12 +240,7 @@ def main():
             script_path + "/templates/tsb-objects/bridged/serviceroute.yaml"
         )
         if conf.mode == "bridged":
-            entries_bridged["name"] = name
-            entries_bridged["hostname"] = hostname
-            entries_bridged["routing"]["rules"][0]["route"]["host"] = (
-                namespace + "/" + name + "." + namespace + ".svc.cluster.local"
-            )
-            http_routes.append(copy.deepcopy(entries_bridged))
+            http_routes.append(name)
 
             t = open(servicerouteFile)
             template = Template(t.read())
@@ -325,9 +256,7 @@ def main():
             save_file("generated/tsb-objects/serviceroute" + str(i) + ".yaml", r)
             t.close()
         else:
-            entries_direct["port"]["name"] = name
-            entries_direct["hosts"] = [namespace + "/" + hostname]
-            http_routes.append(copy.deepcopy(entries_direct))
+            http_routes.append(name)
 
             # virtual service for product page
             t = open(script_path + "/templates/tsb-objects/direct/vs.yaml")
@@ -383,18 +312,36 @@ def main():
             t.close()
 
     if conf.mode == "bridged":
-        gateway_yaml_bridged["spec"]["servers"] = http_routes
-
-        f = open("generated/tsb-objects/gateway.yaml", "w")
-        yaml.dump(gateway_yaml_bridged, f)
-        f.close()
+        t = open(script_path + "/templates/tsb-objects/bridged/gateway-single.yaml")
+        template = Template(t.read())
+        r = template.render(
+            orgName=conf.org,
+            tenantName=tenant,
+            workspaceName=workspace,
+            gatewayGroupName=gateway_group,
+            gatewayName="tsb-gateway",
+            ns=namespace,
+            entries=http_routes,
+            secretName="wildcard-credential",
+        )
+        t.close()
+        save_file("generated/tsb-objects/gateway.yaml", r)
 
     else:
-        gateway_yaml_direct["spec"]["servers"] = http_routes
-
-        f = open("generated/tsb-objects/gateway.yaml", "w")
-        yaml.dump(gateway_yaml_direct, f)
-        f.close()
+        t = open(script_path + "/templates/tsb-objects/direct/gw-single.yaml")
+        template = Template(t.read())
+        r = template.render(
+            orgName=conf.org,
+            tenantName=tenant,
+            workspaceName=workspace,
+            gatewayGroupName=gateway_group,
+            gatewayName="tsb-gateway",
+            ns=namespace,
+            entries=http_routes,
+            gwSecretName="wildcard-credential",
+        )
+        t.close()
+        save_file("generated/tsb-objects/gateway.yaml", r)
 
     service_account = "httpbin-serviceaccount"
     t = open(script_path + "/templates/k8s-objects/role.yaml")

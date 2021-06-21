@@ -1,0 +1,26 @@
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: IngressGateway
+Metadata:
+  organization: {{ orgName }}
+  name: {{ gatewayName }}
+  group: {{ gatewayGroupName }}
+  workspace: {{ workspaceName }}
+  tenant: {{ tenantName }}
+spec:
+  workloadSelector:
+    namespace: {{ ns }}
+    labels:
+      app: tsb-gateway-{{ ns }}
+  http:
+  {% for entry in entries %}
+  - name: {{ entry }}
+    port: 8443
+    hostname: {{ entry }}.tetrate.test.com
+    tls:
+      mode: SIMPLE
+      secretName: {{ secretName }}
+    routing:
+      rules:
+      - route:
+          host: {{ ns }}/{{ entry }}.{{ ns }}.svc.cluster.local
+  {% endfor %}

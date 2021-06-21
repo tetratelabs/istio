@@ -21,17 +21,6 @@ def read_config_yaml(filename):
 
 script_path = os.path.dirname(os.path.realpath(__file__))
 
-entries = {
-    "name": "",
-    "port": 8443,
-    "hostname": "",
-    "tls": {
-        "mode": "SIMPLE",
-        "secretName": "wilcard-credential",
-    },
-    "routing": {"rules": [{"route": {"host": ""}}]},
-}
-
 def save_file(fname, content):
     f = open(fname, "w")
     f.write(content)
@@ -223,46 +212,33 @@ def main():
     create_secret(namespace, "generated/k8s-objects/secret.yaml")
     create_trafficgen_secret(namespace, "generated/k8s-objects/trafficgen-secret.yaml")
 
-    gateway_yaml = {
-        "apiVersion": "gateway.tsb.tetrate.io/v2",
-        "kind": "IngressGateway",
-        "Metadata": {
-            "organization": conf.org,
-            "name": "tsb-gateway",
-            "group": gateway_group,
-            "workspace": workspace,
-            "tenant": tenant,
-        },
-        "spec": {
-            "workloadSelector": {
-                "namespace": namespace,
-                "labels": {"app": "tsb-gateway-" + namespace},
-            },
-            "http": [],
-        },
-    }
-
     http_routes = []
     curl_calls = []
 
     for i in range(conf.count):
         install_httpbin(str(i), namespace)
         name = "httpbin" + str(i)
-        entries["name"] = name
         hostname = name + ".tetrate.test.com"
-        entries["hostname"] = hostname
-        entries["routing"]["rules"][0]["route"]["host"] = (
-            namespace + "/" + name + "." + namespace + ".svc.cluster.local"
-        )
-        http_routes.append(copy.deepcopy(entries))
+        http_routes.append(name)
         curl_calls.append(
             f"curl https://{hostname} --connect-to {hostname}:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null"
         )
-    gateway_yaml["spec"]["http"] = http_routes
 
-    f = open("generated/tsb-objects/gateway.yaml", "w")
-    yaml.dump(gateway_yaml, f)
-    f.close()
+    t = open(script_path + "/templates/tsb-objects/bridged/gateway-single.yaml")
+    template = Template(t.read())
+    r = template.render(
+        orgName=conf.org,
+        tenantName=tenant,
+        workspaceName=workspace,
+        gatewayGroupName=gateway_group,
+        gatewayName="tsb-gateway",
+        ns=namespace,
+        entries=http_routes,
+        secretName="wildcard-credential",
+    )
+    t.close()
+    save_file("generated/tsb-objects/gateway.yaml", r)
+
     service_account = "httpbin-serviceaccount"
     t = open(script_path + "/templates/k8s-objects/role.yaml")
     template = Template(t.read())
