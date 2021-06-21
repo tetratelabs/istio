@@ -420,16 +420,16 @@ def main():
     parser = argparse.ArgumentParser(description="Spin up bookinfo instances")
 
     parser.add_argument(
-        "--config", help="the yaml configuration for the bookinfo instances"
+        "--config",
+        help="the yaml configuration for the bookinfo instances",
+        required=True,
     )
     parser.add_argument(
-        "--password", help="password for the admin user in the tsb instance"
+        "--password",
+        help="password for the admin user in the tsb instance",
+        default="admin",
     )
     args = parser.parse_args()
-
-    if args.config is None:
-        print("Pass in the config file with the `--config` flag")
-        sys.exit(1)
 
     configs = config.read_config_yaml(args.config)
 
@@ -438,10 +438,6 @@ def main():
             "Possible values for provider is `aws` and `others` not", configs.provider
         )
         sys.exit(1)
-
-    password = "admin"
-    if args.password is not None:
-        password = args.password
 
     certs.create_root_cert()
 
@@ -469,7 +465,7 @@ def main():
         save_file("generated/tenant" + str(tenant) + ".yaml", r)
     for conf in configs.app:
         install_bookinfo(
-            conf, password, configs.org, configs.provider, configs.tctl_version
+            conf, args.password, configs.org, configs.provider, configs.tctl_version
         )
 
 if __name__ == "__main__":
