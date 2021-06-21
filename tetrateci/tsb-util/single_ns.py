@@ -38,25 +38,32 @@ def save_file(fname, content):
     f.close()
 
 def create_cert():
-    os.mkdir("cert")
-    os.system(
-        "openssl req -x509 -sha256 -nodes -days 365 \
+    os.makedirs("cert/", exist_ok=True)
+    if not os.path.exists("cert/tetrate.test.com.crt") or not os.path.exists(
+        "cert/tetrate.test.com.key"
+    ):
+        os.system(
+            "openssl req -x509 -sha256 -nodes -days 365 \
         -newkey rsa:4096 -subj '/C=US/ST=CA/O=Tetrateio/CN=tetrate.test.com' \
         -keyout cert/tetrate.test.com.key -out cert/tetrate.test.com.crt"
-    )
+        )
 
-    os.system(
-        "openssl req -out cert/wildcard.tetrate.test.com.csr -newkey rsa:2048 \
+    if not os.path.exists("cert/wildcard.tetrate.test.com.csr") or not os.path.exists(
+        "cert/wildcard.tetrate.test.com.key"
+    ):
+        os.system(
+            "openssl req -out cert/wildcard.tetrate.test.com.csr -newkey rsa:2048 \
         -nodes -keyout cert/wildcard.tetrate.test.com.key \
         -subj '/CN=*.tetrate.test.com/O=bookinfo organization'"
-    )
+        )
 
-    os.system(
-        "openssl x509 -req -sha256 -days 365 -CA cert/tetrate.test.com.crt \
+    if not os.path.exists("cert/wildcard.tetrate.test.com.crt"):
+        os.system(
+            "openssl x509 -req -sha256 -days 365 -CA cert/tetrate.test.com.crt \
         -CAkey cert/tetrate.test.com.key \
         -set_serial 0 -in cert/wildcard.tetrate.test.com.csr \
         -out cert/wildcard.tetrate.test.com.crt"
-    )
+        )
 
 def create_secret(ns, fname):
     secret_name = "wilcard-credential"
@@ -236,7 +243,7 @@ def main():
     }
 
     http_routes = []
-    curl_calls = ""
+    curl_calls = []
 
     for i in range(conf.count):
         install_httpbin(str(i), namespace)
@@ -248,12 +255,8 @@ def main():
             namespace + "/" + name + "." + namespace + ".svc.cluster.local"
         )
         http_routes.append(copy.deepcopy(entries))
-        curl_calls += (
-            "              curl https://"
-            + hostname
-            + " --connect-to "
-            + hostname
-            + ":443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null\n"
+        curl_calls.append(
+            f"curl https://{hostname} --connect-to {hostname}:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null"
         )
     gateway_yaml["spec"]["http"] = http_routes
 

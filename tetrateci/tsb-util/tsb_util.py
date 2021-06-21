@@ -271,7 +271,6 @@ def gen_direct_specific_objects(
         tenantName=tenant_name,
         workspaceName=workspace_name,
         gatewayName=namespaces["product"] + "-gateway",
-        hostname=namespaces["product"] + ".tetrate.test.com",
         gwSecretName=namespaces["product"] + "-credential",
         gatewayGroupName=gateway_group,
         ns=namespaces["product"],
@@ -410,10 +409,8 @@ def gen_k8s_objects(productns, key, iptype):
     template = Template(t.read())
     r = template.render(
         ns=productns,
-        hostname=productns + ".tetrate.test.com",
         saName=service_account,
         secretName=secret_name,
-        serviceName="tsb-gateway-" + productns,
         ipType=iptype,
     )
     t.close()

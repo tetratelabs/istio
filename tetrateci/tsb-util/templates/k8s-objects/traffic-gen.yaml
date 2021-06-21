@@ -29,7 +29,7 @@ spec:
           while :; do
             while [[ ${PORT} == "" ]]; do
               echo "Fetching Port"
-              PORT=$(kubectl get service -n {{ ns }} {{ serviceName }} -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+              PORT=$(kubectl get service -n {{ ns }} tsb-gateway-{{ ns }} -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
               sleep 5
             done
 
@@ -47,7 +47,7 @@ spec:
 
             while (( SECONDS < secs )); do
               echo "IP: $IP | PORT: $PORT | Sending traffic..."
-              curl "https://{{ hostname }}/productpage" --connect-to "{{ hostname }}:443:$IP:$PORT" --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
+              curl "https://{{ ns }}.tetrate.test.com/productpage" --connect-to "{{ ns }}.tetrate.test.com:443:$IP:$PORT" --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
               sleep 10
             done
           done

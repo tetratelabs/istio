@@ -47,7 +47,9 @@ spec:
 
             while (( SECONDS < secs )); do
               echo "IP: $IP | PORT: $PORT | Sending traffic..."
-{{ content }}
+              {% for call in content %}
+              {{ call }}
+              {% endfor %}
               sleep 10
             done
           done
