@@ -4,6 +4,7 @@ import argparse
 import config
 import certs
 from jinja2 import Template
+import tsb_objects
 
 script_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -452,17 +453,13 @@ def main():
             print("Multiple entries for the same cluster found, please fix.")
         cluster_list.append(conf.cluster_name)
 
-    for tenant in tenant_set:
+    for tenant_id in tenant_set:
         # tenant = <app>-tenant-<id>
-        tenant_name = "bookinfo-tenant-" + str(tenant)
-        t = open(script_path + "/templates/tsb-objects/tenant.yaml")
-        template = Template(t.read())
-        r = template.render(
-            orgName=configs.org,
-            tenantName=tenant_name,
+        tenant_name = f"bookinfo-tenant-{tenant_id}"
+        tsb_objects.gen_tenant(
+            configs.org, tenant_name, f"generated/tenant{tenant_id}.yaml"
         )
-        t.close()
-        save_file("generated/tenant" + str(tenant) + ".yaml", r)
+
     for conf in configs.app:
         install_bookinfo(
             conf, args.password, configs.org, configs.provider, configs.tctl_version

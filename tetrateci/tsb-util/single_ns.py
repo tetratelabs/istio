@@ -1,11 +1,11 @@
 import os
 from jinja2 import Template
 import yaml
-import base64
 import argparse
 from dataclasses import dataclass
 from marshmallow_dataclass import class_schema
 import certs
+import tsb_objects
 
 @dataclass
 class config:
@@ -62,14 +62,7 @@ def main():
     os.makedirs("generated/k8s-objects/", exist_ok=True)
     os.makedirs("generated/tsb-objects/", exist_ok=True)
 
-    t = open(script_path + "/templates/tsb-objects/tenant.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName=tenant,
-    )
-    t.close()
-    save_file("generated/tsb-objects/tenant.yaml", r)
+    tsb_objects.gen_tenant(conf.org, tenant, "generated/tsb-objects/tenant.yaml")
 
     t = open(script_path + "/templates/tsb-objects/workspace-httpbin.yaml")
     template = Template(t.read())
