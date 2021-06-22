@@ -61,9 +61,9 @@ def main():
     args = parser.parse_args()
     conf = read_config_yaml(args.config)
 
-    tenant = "httpbin-tenant-0"
-    workspace = f"httpbin-ws-{conf.cluster}-b-t0-0"
-    namespace = f"httpbin-{conf.cluster}-b-t0-w0-front-0"
+    tenant = "tenant-0"
+    workspace = f"bookinfo-t0-ws0"
+    namespace = f"t0-w0-{conf.cluster}-bookinfo-b-front-n0"
 
     os.makedirs("generated/k8s-objects/", exist_ok=True)
     os.makedirs("generated/tsb-objects/", exist_ok=True)
@@ -88,10 +88,9 @@ def main():
     t.close()
     save_file("generated/tsb-objects/workspaces.yaml", r)
 
-    # groups = <app>-<type>-<cluster_name>-<mode>-t<tenant_id>-w<workspace_id>-<id>
-    gateway_group = f"bookinfo-gateway-{conf.cluster}-{conf.mode}-t0-w0-0"
-    traffic_group = f"bookinfo-traffic-{conf.cluster}-{conf.mode}-t0-w0-0"
-    security_group = f"bookinfo-security-{conf.cluster}-{conf.mode}-t0-w0-0"
+    gateway_group = f"bookinfo-t0-w0-b-gg0"
+    traffic_group = f"bookinfo-t0-w0-b-tg0"
+    security_group = f"bookinfo-t0-w0-b-sg0"
     t = open(script_path + "/templates/tsb-objects/group-httpbin.yaml")
     template = Template(t.read())
     r = template.render(

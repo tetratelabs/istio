@@ -50,16 +50,10 @@ def gen_common_tsb_objects(
     t.close()
     save_file("generated/tsb-objects/" + key + "/workspaces.yaml", r)
 
-    # groups = <app>-<type>-<cluster_name>-<mode>-t<tenant_id>-w<workspace_id>-<id>
-    gateway_group = (
-        f"bookinfo-gateway-{conf.cluster_name}-{mode}-t{tenant_id}-w{workspace_id}-0"
-    )
-    traffic_group = (
-        f"bookinfo-traffic-{conf.cluster_name}-{mode}-t{tenant_id}-w{workspace_id}-0"
-    )
-    security_group = (
-        f"bookinfo-security-{conf.cluster_name}-{mode}-t{tenant_id}-w{workspace_id}-0"
-    )
+    # groups = <app>-t<tenant_id>-w<id>-<mode>-<type><id>
+    gateway_group = f"bookinfo-t{tenant_id}-w{workspace_id}-{mode}-gg0"
+    traffic_group = f"bookinfo-t{tenant_id}-w{workspace_id}-{mode}-tg0"
+    security_group = f"bookinfo-t{tenant_id}-w{workspace_id}-{mode}-sg0"
     t = open(script_path + "/templates/tsb-objects/group.yaml")
     template = Template(t.read())
     r = template.render(
@@ -299,22 +293,22 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
             tenant_name = "bookinfo-tenant-" + tenant_id
 
             mode = "d" if current_mode == "direct" else "b"
-            # <app>-ws-<cluster_name>-<mode>-t<tenant_id>-<id>
-            workspace_name = (
-                f"bookinfo-ws-{conf.cluster_name}-{mode}-t{tenant_id}-{count}"
-            )
+            # workspace = <app>-t<tenant_id>-ws<id>
+            workspace_name = f"bookinfo-t{tenant_id}-ws{count}"
 
             os.makedirs("generated/k8s-objects/" + key, exist_ok=True)
             os.makedirs("generated/tsb-objects/" + key, exist_ok=True)
             os.makedirs("generated/tsb-k8s-objects/" + key, exist_ok=True)
 
-            # namespace = <app>-<cluster_name>-<mode>-t<tenant_id>-w<workspace_id>-<type>
+            # namespace = <app>-t<tenant_id>-w<workspace_id>-<cluster_name>-<mode>-<app>-<type>-n<id>
             productns = (
-                f"bookinfo-{conf.cluster_name}-{mode}-t{tenant_id}-w{count}-front"
+                f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-front-n0"
             )
-            reviewsns = f"bookinfo-{conf.cluster_name}-{mode}-t{tenant_id}-w{count}-mid"
+            reviewsns = (
+                f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-mid-n0"
+            )
             ratingsns = (
-                f"bookinfo-{conf.cluster_name}-{mode}-t{tenant_id}-w{count}-back"
+                f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-back-n0"
             )
 
             namespaces = {
@@ -469,8 +463,8 @@ if __name__ == "__main__":
     main()
 
 """
-tenant = <app>-tenant-<id>
-workspace = <app>-ws-<cluster_name>-<mode>-t<tenant_id>-<id>
-groups = <app>-<type>-<cluster_name>-<mode>-t<tenant_id>-w<workspace_id>-<id>
-namespace = <app>-<cluster_name>-<mode>-t<tenant_id>-w<workspace_id>-<type>-<id>
+tenant = tenant-<id>
+workspace = <app>-t<tenant_id>-ws<id>
+groups = <app>-t<tenant_id>-w<id>-<mode>-<type><id>
+namespace = t<tenant_id>-w<workspace_id>-<cluster_name>-<mode>-<app>-<type>-n<id>
 """
