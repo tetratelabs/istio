@@ -52,6 +52,23 @@ def main():
     tenant = "tenant-0"
     workspace = f"httpbin-t0-ws0"
     namespace = f"t0-w0-{conf.cluster}-httpbin-b-front-n0"
+    # groups = <app>-t<tenant_id>-w<id>-<mode>-<type><id>
+    gateway_group = f"httpbin-t0-w0-b-gg0"
+    traffic_group = f"httpbin-t0-w0-b-tg0"
+    security_group = f"httpbin-t0-w0-b-sg0"
+
+    arguments = {
+        "orgName": conf.org,
+        "tenantName": tenant,
+        "workspaceName": workspace,
+        "namespaces": {"0": namespace},
+        "clusterName": conf.cluster,
+        "mode": "BRIDGED",
+        "gatewayGroupName": gateway_group,
+        "trafficGroupName": traffic_group,
+        "securityGroupName": security_group,
+        "securitySettingName": f"httpbin-security-setting-{namespace}",
+    }
 
     namespace_yaml = {
         "apiVersion": "v1",
@@ -62,63 +79,11 @@ def main():
     os.makedirs("generated/k8s-objects/", exist_ok=True)
     os.makedirs("generated/tsb-objects/", exist_ok=True)
 
-    tsb_objects.gen_tenant(conf.org, tenant, "generated/tsb-objects/tenant.yaml")
-
-    t = open(script_path + "/templates/tsb-objects/workspace-httpbin.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName=tenant,
-        workspaceName=workspace,
-        ns=namespace,
-        clusterName=conf.cluster,
-    )
-    t.close()
-    save_file("generated/tsb-objects/workspaces.yaml", r)
-
-    # groups = <app>-t<tenant_id>-w<id>-<mode>-<type><id>
-    gateway_group = f"httpbin-t0-w0-b-gg0"
-    traffic_group = f"httpbin-t0-w0-b-tg0"
-    security_group = f"httpbin-t0-w0-b-sg0"
-    t = open(script_path + "/templates/tsb-objects/group-httpbin.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName=tenant,
-        workspaceName=workspace,
-        gatewayGroupName=gateway_group,
-        trafficGroupName=traffic_group,
-        securityGroupName=security_group,
-        ns=namespace,
-        clusterName=conf.cluster,
-        mode="BRIDGED",
-    )
-    t.close()
-    save_file("generated/tsb-objects/groups.yaml", r)
-
-    # perm
-    t = open(script_path + "/templates/tsb-objects/perm.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName=tenant,
-        workspaceName=workspace,
-        trafficGroupName=traffic_group,
-    )
-    t.close()
-    save_file("generated/tsb-objects/perm.yaml", r)
-
-    t = open(script_path + "/templates/tsb-objects/bridged/security.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName=tenant,
-        workspaceName=workspace,
-        securitySettingName="httpbin-security-setting-" + namespace,
-        securityGroupName=security_group,
-    )
-    t.close()
-    save_file("generated/tsb-objects/security.yaml", r)
+    tsb_objects.gen_tenant(arguments, "generated/tsb-objects/tenant.yaml")
+    tsb_objects.gen_workspace(arguments, "generated/tsb-objects/workspaces.yaml")
+    tsb_objects.gen_groups(arguments, "generated/tsb-objects/groups.yaml")
+    tsb_objects.gen_perm(arguments, "generated/tsb-objects/perm.yaml")
+    tsb_objects.gen_bridged_security(arguments, "generated/tsb-objects/security.yaml")
 
     f = open("generated/k8s-objects/01namespace.yaml", "w")
     yaml.dump(namespace_yaml, f)

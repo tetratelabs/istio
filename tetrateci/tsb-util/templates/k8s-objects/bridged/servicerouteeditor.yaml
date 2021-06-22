@@ -12,7 +12,7 @@ metadata:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: {{ podName }}
+  name: {{ servicerouteEditorPodName }}
   namespace: config-update
 spec:
   containers:
@@ -39,10 +39,10 @@ spec:
       tctl config users set admin --username admin --password "{{ password }}"
       tctl config profiles set demo --username admin --cluster demo
       tctl config profiles set-current demo
-      tctl login --org {{ orgName }} --password "{{ password }}" --username admin --tenant {{ tenant }}
+      tctl login --org {{ orgName }} --password "{{ password }}" --username admin --tenant {{ tenantName }}
 
       while :; do
-        tctl get traffic.tsb.tetrate.io/v2/ServiceRoute --tenant {{ tenant }} -w {{ workspaceName }} -t {{ trafficGroupName }} -o json | jq ".[0]" > original.json
+        tctl get traffic.tsb.tetrate.io/v2/ServiceRoute --tenant {{ tenantName }} -w {{ workspaceName }} -t {{ trafficGroupName }} -o json | jq ".[0]" > original.json
         tmp=$(mktemp)
         jq ".spec.subsets[0].weight=50" original.json  > $tmp && cp $tmp new.json
         jq ".spec.subsets[1].weight=20" new.json  > $tmp && cp $tmp new.json
@@ -50,7 +50,7 @@ spec:
         echo "Applying version 1"
         tctl apply -f new.json
         sleep 100
-        tctl get traffic.tsb.tetrate.io/v2/ServiceRoute --tenant {{ tenant }} -w {{ workspaceName }} -t {{ trafficGroupName }} -o json | jq ".[0]" > original.json
+        tctl get traffic.tsb.tetrate.io/v2/ServiceRoute --tenant {{ tenantName }} -w {{ workspaceName }} -t {{ trafficGroupName }} -o json | jq ".[0]" > original.json
         tmp=$(mktemp)
         jq ".spec.subsets[0].weight=60" original.json  > $tmp && cp $tmp new.json
         jq ".spec.subsets[1].weight=30" new.json  > $tmp && cp $tmp new.json

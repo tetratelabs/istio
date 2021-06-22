@@ -8,6 +8,5 @@ spec:
   displayName: {{ workspaceName }}
   namespaceSelector:
     names:
-    - {{ clusterName }}/{{ ns1 }}
-    - {{ clusterName }}/{{ ns2 }}
-    - {{ clusterName }}/{{ ns3 }}
+    {% for ns in namespaces %}- {{ clusterName }}/{{ namespaces[ns] }}
+    {% endfor %}

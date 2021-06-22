@@ -64,6 +64,9 @@ def main():
     tenant = "tenant-0"
     workspace = f"bookinfo-t0-ws0"
     namespace = f"t0-w0-{conf.cluster}-bookinfo-b-front-n0"
+    gateway_group = f"bookinfo-t0-w0-b-gg0"
+    traffic_group = f"bookinfo-t0-w0-b-tg0"
+    security_group = f"bookinfo-t0-w0-b-sg0"
 
     os.makedirs("generated/k8s-objects/", exist_ok=True)
     os.makedirs("generated/tsb-objects/", exist_ok=True)
@@ -74,62 +77,23 @@ def main():
         "metadata": {"labels": {"istio-injection": "enabled"}, "name": namespace},
     }
 
-    tsb_objects.gen_tenant(conf.org, tenant, "generated/tsb-objects/tenant.yaml")
+    arguments = {
+        "orgName": conf.org,
+        "tenantName": tenant,
+        "workspaceName": workspace,
+        "namespaces": {"0": namespace},
+        "clusterName": conf.cluster,
+        "mode": conf.mode.upper(),
+        "gatewayGroupName": gateway_group,
+        "trafficGroupName": traffic_group,
+        "securityGroupName": security_group,
+        "securitySettingName": f"bookinfo-security-setting-{namespace}",
+    }
 
-    t = open(script_path + "/templates/tsb-objects/workspace-httpbin.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName=tenant,
-        workspaceName=workspace,
-        ns=namespace,
-        clusterName=conf.cluster,
-    )
-    t.close()
-    save_file("generated/tsb-objects/workspaces.yaml", r)
-
-    gateway_group = f"bookinfo-t0-w0-b-gg0"
-    traffic_group = f"bookinfo-t0-w0-b-tg0"
-    security_group = f"bookinfo-t0-w0-b-sg0"
-    t = open(script_path + "/templates/tsb-objects/group-httpbin.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName=tenant,
-        workspaceName=workspace,
-        gatewayGroupName=gateway_group,
-        trafficGroupName=traffic_group,
-        securityGroupName=security_group,
-        ns=namespace,
-        clusterName=conf.cluster,
-        mode=conf.mode.upper(),
-    )
-    t.close()
-    save_file("generated/tsb-objects/groups.yaml", r)
-
-    # perm
-    t = open(script_path + "/templates/tsb-objects/perm.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName=tenant,
-        workspaceName=workspace,
-        trafficGroupName=traffic_group,
-    )
-    t.close()
-    save_file("generated/tsb-objects/perm.yaml", r)
-
-    t = open(script_path + "/templates/tsb-objects/bridged/security.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=conf.org,
-        tenantName=tenant,
-        workspaceName=workspace,
-        securitySettingName="bookinfo-security-setting-" + namespace,
-        securityGroupName=security_group,
-    )
-    t.close()
-    save_file("generated/tsb-objects/security.yaml", r)
+    tsb_objects.gen_tenant(arguments, "generated/tsb-objects/tenant.yaml")
+    tsb_objects.gen_workspace(arguments, "generated/tsb-objects/workspaces.yaml")
+    tsb_objects.gen_groups(arguments, "generated/tsb-objects/groups.yaml")
+    tsb_objects.gen_perm(arguments, "generated/tsb-objects/perm.yaml")
 
     f = open("generated/k8s-objects/01namespace.yaml", "w")
     yaml.dump(namespace_yaml, f)
@@ -171,10 +135,14 @@ def main():
                 orgName=conf.org,
                 tenantName=tenant,
                 workspaceName=workspace,
-                groupName=traffic_group,
-                hostFQDN="reviews-" + str(i) + "." + namespace + ".svc.cluster.local",
+                trafficGroupName=traffic_group,
+                reviewsHostFQDN="reviews-"
+                + str(i)
+                + "."
+                + namespace
+                + ".svc.cluster.local",
                 serviceRouteName="bookinfo-serviceroute-" + str(i),
-                ns=namespace,
+                namespaces={"0": namespace},
             )
             save_file("generated/tsb-objects/serviceroute" + str(i) + ".yaml", r)
             t.close()
@@ -189,10 +157,10 @@ def main():
                 tenantName=tenant,
                 workspaceName=workspace,
                 gatewayGroupName=gateway_group,
-                hostFQDN=hostname,
+                hostname=hostname,
                 virtualserviceName="bookinfo-virtualservice-"
                 + str(i),  # need to change
-                ns=namespace,
+                namespaces={"0": namespace},
                 gatewayName="tsb-gateway",
                 destinationFQDN="productpage-"
                 + str(i)
@@ -211,9 +179,13 @@ def main():
                 tenantName=tenant,
                 workspaceName=workspace,
                 trafficGroupName=traffic_group,
-                hostFQDN="reviews-" + str(i) + "." + namespace + ".svc.cluster.local",
+                reviewsHostFQDN="reviews-"
+                + str(i)
+                + "."
+                + namespace
+                + ".svc.cluster.local",
                 destinationruleName="bookinfo-destinationrule-" + str(i),
-                ns=namespace,
+                namespaces={"0": namespace},
             )
             save_file("generated/tsb-objects/destinationrule-" + str(i) + ".yaml", r)
             t.close()
@@ -227,9 +199,13 @@ def main():
                 tenantName=tenant,
                 workspaceName=workspace,
                 trafficGroupName=traffic_group,
-                hostFQDN="reviews-" + str(i) + "." + namespace + ".svc.cluster.local",
+                reviewsHostFQDN="reviews-"
+                + str(i)
+                + "."
+                + namespace
+                + ".svc.cluster.local",
                 serviceRouteName="bookinfo-reviews-" + str(i),
-                ns=namespace,
+                namespaces={"0": namespace},
             )
             save_file("generated/tsb-objects/reviews_vs-" + str(i) + ".yaml", r)
             t.close()
@@ -249,6 +225,10 @@ def main():
         )
         t.close()
         save_file("generated/tsb-objects/gateway.yaml", r)
+
+        tsb_objects.gen_bridged_security(
+            arguments, "generated/tsb-objects/security.yaml"
+        )
 
     else:
         t = open(script_path + "/templates/tsb-objects/direct/gw-single.yaml")

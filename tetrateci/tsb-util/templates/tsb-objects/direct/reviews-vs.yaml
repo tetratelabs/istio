@@ -7,23 +7,23 @@ metadata:
     tsb.tetrate.io/trafficGroup: {{ trafficGroupName }}
     tsb.tetrate.io/workspace: {{ workspaceName }}
   name: {{ serviceRouteName }}
-  namespace: {{ ns }}
+  namespace: {{ namespaces["reviews"] or namespaces['0'] }}
 spec:
   gateways:
   - mesh
   hosts:
-  - {{ hostFQDN }}
+  - {{ reviewsHostFQDN }}
   http:
   - route:
     - destination:
-        host: {{ hostFQDN }}
+        host: {{ reviewsHostFQDN }}
         subset: v1
       weight: 60
     - destination:
-        host: {{ hostFQDN }}
+        host: {{ reviewsHostFQDN }}
         subset: v2
       weight: 30
     - destination:
-        host: {{ hostFQDN }}
+        host: {{ reviewsHostFQDN }}
         subset: v3
       weight: 10

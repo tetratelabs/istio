@@ -32,59 +32,18 @@ def generate_bookinfo_yaml(namespaces, key):
     t.close()
     save_file("generated/k8s-objects/" + key + "/bookinfo.yaml", r)
 
-def gen_common_tsb_objects(
-    namespaces, key, conf, tenant_id, workspace_name, mode, org, workspace_id
-):
+def gen_common_tsb_objects(arguments, key):
     # workspace
-    t = open(script_path + "/templates/tsb-objects/workspace.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenantName="bookinfo-tenant-" + tenant_id,
-        workspaceName=workspace_name,
-        ns1=namespaces["reviews"],
-        ns2=namespaces["ratings"],
-        ns3=namespaces["product"],
-        clusterName=conf.cluster_name,
+    tsb_objects.gen_workspace(
+        arguments,
+        f"generated/tsb-objects/{key}/workspaces.yaml",
     )
-    t.close()
-    save_file("generated/tsb-objects/" + key + "/workspaces.yaml", r)
 
-    # groups = <app>-t<tenant_id>-w<id>-<mode>-<type><id>
-    gateway_group = f"bookinfo-t{tenant_id}-w{workspace_id}-{mode}-gg0"
-    traffic_group = f"bookinfo-t{tenant_id}-w{workspace_id}-{mode}-tg0"
-    security_group = f"bookinfo-t{tenant_id}-w{workspace_id}-{mode}-sg0"
-    t = open(script_path + "/templates/tsb-objects/group.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenantName="bookinfo-tenant-" + tenant_id,
-        workspaceName=workspace_name,
-        gatewayGroupName=gateway_group,
-        trafficGroupName=traffic_group,
-        securityGroupName=security_group,
-        productNs=namespaces["product"],
-        reviewsNs=namespaces["reviews"],
-        ratingsNs=namespaces["ratings"],
-        clusterName=conf.cluster_name,
-        mode=mode.upper(),
-    )
-    t.close()
-    save_file("generated/tsb-objects/" + key + "/groups.yaml", r)
+    # groups
+    tsb_objects.gen_groups(arguments, f"generated/tsb-objects/{key}/groups.yaml")
 
     # perm
-    t = open(script_path + "/templates/tsb-objects/perm.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenantName="bookinfo-tenant-" + tenant_id,
-        workspaceName=workspace_name,
-        trafficGroupName=traffic_group,
-    )
-    t.close()
-    save_file("generated/tsb-objects/" + key + "/perm.yaml", r)
-
-    return gateway_group, traffic_group, security_group
+    tsb_objects.gen_perm(arguments, f"generated/tsb-objects/{key}/perm.yaml")
 
 def gen_namespace_yamls(namespaces, key):
     t = open(script_path + "/templates/k8s-objects/namespaces.yaml")
@@ -98,181 +57,58 @@ def gen_namespace_yamls(namespaces, key):
     save_file("generated/k8s-objects/" + key + "/01namespaces.yaml", r)
 
 def gen_bridge_specific_objects(
-    tenant_name,
-    workspace_name,
-    traffic_group,
-    gateway_group,
-    security_group,
-    namespaces,
+    arguments,
     key,
-    password,
-    org,
-    provider,
-    tctl_ver,
 ):
     os.makedirs("generated/tsb-objects/" + key + "/bridged", exist_ok=True)
     os.makedirs("generated/k8s-objects/" + key + "/bridged", exist_ok=True)
 
-    # security
-    t = open(script_path + "/templates/tsb-objects/bridged/security.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenantName=tenant_name,
-        workspaceName=workspace_name,
-        securitySettingName="bookinfo-security-setting",  # need to change
-        securityGroupName=security_group,
+    tsb_objects.gen_bridged_security(
+        arguments, f"generated/tsb-objects/{key}/bridged/security.yaml"
     )
-    t.close()
-    save_file("generated/tsb-objects/" + key + "/bridged/security.yaml", r)
 
-    servicerouteFile = script_path + "/templates/tsb-objects/bridged/serviceroute.yaml"
-    t = open(servicerouteFile)
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenantName=tenant_name,
-        workspaceName=workspace_name,
-        groupName=traffic_group,
-        hostFQDN="reviews." + namespaces["reviews"] + ".svc.cluster.local",
-        serviceRouteName="bookinfo-serviceroute",  # need to change
-        ns=namespaces["reviews"],
+    tsb_objects.gen_bridged_serviceroute(
+        arguments, f"generated/tsb-objects/{key}/bridged/serviceroute.yaml"
     )
-    save_file("generated/tsb-objects/" + key + "/bridged/serviceroute.yaml", r)
-    t.close()
 
-    gatewayFile = script_path + "/templates/tsb-objects/bridged/gateway.yaml"
-    t = open(gatewayFile)
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenantName=tenant_name,
-        workspaceName=workspace_name,
-        gatewayName=namespaces["product"] + "-gateway",
-        hostname=namespaces["product"] + ".tetrate.test.com",
-        gwSecretName=namespaces["product"] + "-credential",
-        gatewayGroupName=gateway_group,
-        ns=namespaces["product"],
-        hostFQDN="productpage." + namespaces["product"] + ".svc.cluster.local",
+    tsb_objects.gen_bridged_gateway(
+        arguments, f"generated/tsb-objects/{key}/bridged/gateway.yaml"
     )
-    t.close()
-    save_file("generated/tsb-objects/" + key + "/bridged/gateway.yaml", r)
 
-    t = open(script_path + "/templates/k8s-objects/bridged/servicerouteeditor.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenant=tenant_name,
-        workspaceName=workspace_name,
-        trafficGroupName=traffic_group,
-        hostFQDN="reviews." + namespaces["reviews"] + ".svc.cluster.local",
-        serviceRouteName="bookinfo-serviceroute",  # need to change
-        ns=namespaces["reviews"],
-        password=password,
-        servicerouteSAName=namespaces["reviews"] + "-editor",
-        podName=namespaces["reviews"] + "-editorpod",
-        provider=provider,
-        tctlVersion=tctl_ver,
+    tsb_objects.gen_brigded_servicerouteeditor(
+        arguments, f"generated/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
     )
-    save_file("generated/tsb-k8s-objects/" + key + "/servicerouteeditor.yaml", r)
-    t.close()
 
 def gen_direct_specific_objects(
-    tenant_name,
-    workspace_name,
-    traffic_group,
-    gateway_group,
-    namespaces,
+    arguments,
     key,
-    password,
-    org,
-    provider,
-    tctl_ver,
 ):
     os.makedirs("generated/tsb-objects/" + key + "/direct", exist_ok=True)
     os.makedirs("generated/k8s-objects/" + key + "/direct", exist_ok=True)
-    # reviews virtual service
-    reviews_vs = script_path + "/templates/tsb-objects/direct/reviews-vs.yaml"
-    t = open(reviews_vs)
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenantName=tenant_name,
-        workspaceName=workspace_name,
-        trafficGroupName=traffic_group,
-        hostFQDN="reviews." + namespaces["reviews"] + ".svc.cluster.local",
-        serviceRouteName="bookinfo-reviews",  # need to change
-        ns=namespaces["reviews"],
-    )
-    save_file("generated/tsb-objects/" + key + "/direct/reviews_vs.yaml", r)
-    t.close()
 
-    t = open(script_path + "/templates/k8s-objects/direct/servicerouteeditor.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenant=tenant_name,
-        workspaceName=workspace_name,
-        trafficGroupName=traffic_group,
-        hostFQDN="reviews." + namespaces["reviews"] + ".svc.cluster.local",
-        serviceRouteName="bookinfo-serviceroute",  # need to change
-        ns=namespaces["reviews"],
-        password=password,
-        servicerouteSAName=namespaces["reviews"] + "-editor",
-        podName=namespaces["reviews"] + "-editorpod",
-        provider=provider,
-        tctlVersion=tctl_ver,
+    # reviews virtual service
+    tsb_objects.gen_direct_reviews_vs(
+        arguments, f"generated/tsb-objects/{key}/direct/reviews_vs.yaml"
     )
-    save_file("generated/tsb-k8s-objects/" + key + "/servicerouteeditor.yaml", r)
+
+    tsb_objects.gen_direct_servicerouteeditor(
+        arguments, f"generated/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
+    )
 
     # destination rules
-    t = open(script_path + "/templates/tsb-objects/direct/dr.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenantName=tenant_name,
-        workspaceName=workspace_name,
-        trafficGroupName=traffic_group,
-        hostFQDN="reviews." + namespaces["reviews"] + ".svc.cluster.local",
-        destinationruleName="bookinfo-destinationrule",  # need to change
-        ns=namespaces["reviews"],
+    tsb_objects.gen_direct_dr(
+        arguments, f"generated/tsb-objects/{key}/direct/destinationrule.yaml"
     )
-    save_file("generated/tsb-objects/" + key + "/direct/destinationrule.yaml", r)
-    t.close()
 
     # virtual service for product page
-    t = open(script_path + "/templates/tsb-objects/direct/vs.yaml")
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenantName=tenant_name,
-        workspaceName=workspace_name,
-        gatewayGroupName=gateway_group,
-        hostFQDN=namespaces["product"] + ".tetrate.test.com",
-        virtualserviceName="bookinfo-virtualservice",  # need to change
-        ns=namespaces["product"],
-        gatewayName=namespaces["product"] + "-gateway",
-        destinationFQDN="productpage." + namespaces["product"] + ".svc.cluster.local",
+    tsb_objects.gen_direct_vs(
+        arguments, f"generated/tsb-objects/{key}/direct/virtualservice.yaml"
     )
-    save_file("generated/tsb-objects/" + key + "/direct/virtualservice.yaml", r)
-    t.close()
 
     # gateway
-    gatewayFile = script_path + "/templates/tsb-objects/direct/gw.yaml"
-    t = open(gatewayFile)
-    template = Template(t.read())
-    r = template.render(
-        orgName=org,
-        tenantName=tenant_name,
-        workspaceName=workspace_name,
-        gatewayName=namespaces["product"] + "-gateway",
-        gwSecretName=namespaces["product"] + "-credential",
-        gatewayGroupName=gateway_group,
-        ns=namespaces["product"],
-        hostFQDN=namespaces["product"] + ".tetrate.test.com",
+    tsb_objects.gen_direct_gateway(
+        arguments, f"generated/tsb-objects/{key}/direct/gateway.yaml"
     )
-    t.close()
-    save_file("generated/tsb-objects/" + key + "/direct/gateway.yaml", r)
 
 def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
     count = 0
@@ -290,7 +126,6 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
             current_mode = modes_list[i]
 
             tenant_id = str(replica.tenant_id)
-            tenant_name = "bookinfo-tenant-" + tenant_id
 
             mode = "d" if current_mode == "direct" else "b"
             # workspace = <app>-t<tenant_id>-ws<id>
@@ -301,67 +136,63 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
             os.makedirs("generated/tsb-k8s-objects/" + key, exist_ok=True)
 
             # namespace = <app>-t<tenant_id>-w<workspace_id>-<cluster_name>-<mode>-<app>-<type>-n<id>
-            productns = (
-                f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-front-n0"
-            )
-            reviewsns = (
-                f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-mid-n0"
-            )
-            ratingsns = (
-                f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-back-n0"
-            )
-
             namespaces = {
-                "product": productns,
-                "ratings": ratingsns,
-                "reviews": reviewsns,
+                "product": f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-front-n0",
+                "ratings": f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-mid-n0",
+                "reviews": f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-back-n0",
+            }
+
+            # groups = <app>-t<tenant_id>-w<id>-<mode>-<type><id>
+            gateway_group = f"bookinfo-t{tenant_id}-w{count}-{mode}-gg0"
+            traffic_group = f"bookinfo-t{tenant_id}-w{count}-{mode}-tg0"
+            security_group = f"bookinfo-t{tenant_id}-w{count}-{mode}-sg0"
+
+            arguments = {
+                "tenantName": f"tenant-{tenant_id}",
+                "orgName": org,
+                "workspaceName": workspace_name,
+                "clusterName": conf.cluster_name,
+                "namespaces": namespaces,
+                "gatewayGroupName": gateway_group,
+                "trafficGroupName": traffic_group,
+                "securityGroupName": security_group,
+                "mode": mode.upper(),
+                "securitySettingName": "bookinfo-security-setting",
+                "reviewsHostFQDN": f"reviews.{namespaces['reviews']}.svc.cluster.local",
+                "serviceRouteName": "bookinfo-serviceroute",
+                "gatewayName": f"{namespaces['product']}-gateway",
+                "hostname": f"{namespaces['product']}.tetrate.test.com",
+                "gwSecretName": f"{namespaces['product']}-credential",
+                "productHostFQDN": f"productpage.{namespaces['product']}.svc.cluster.local",
+                "password": password,
+                "servicerouteSAName": f"{namespaces['reviews']}-editor",
+                "serviceRouteEditorPodName": f"{namespaces['reviews']}-editorpod",
+                "provider": provider,
+                "tctlVersion": tctl_ver,
+                "destinationruleName": "bookinfo-destinationrule",
+                "destinationFQDN": f"productpage.{namespaces['product']}.svc.cluster.local",
+                "virtualserviceName": "bookinfo-virtualservice",
             }
 
             generate_bookinfo_yaml(namespaces, key)
 
-            gateway_group, traffic_group, security_group = gen_common_tsb_objects(
-                namespaces,
-                key,
-                conf,
-                tenant_id,
-                workspace_name,
-                current_mode,
-                org,
-                count,
-            )
+            gen_common_tsb_objects(arguments, key)
 
             gen_namespace_yamls(namespaces, key)
 
             if current_mode == "bridged":
                 gen_bridge_specific_objects(
-                    tenant_name,
-                    workspace_name,
-                    traffic_group,
-                    gateway_group,
-                    security_group,
-                    namespaces,
+                    arguments,
                     key,
-                    password,
-                    org,
-                    provider,
-                    tctl_ver,
                 )
             else:
                 gen_direct_specific_objects(
-                    tenant_name,
-                    workspace_name,
-                    traffic_group,
-                    gateway_group,
-                    namespaces,
+                    arguments,
                     key,
-                    password,
-                    org,
-                    provider,
-                    tctl_ver,
                 )
 
             gen_k8s_objects(
-                productns,
+                namespaces["product"],
                 key,
                 "InternalIP" if conf.traffic_gen_ip == "internal" else "ExternalIP",
             )
@@ -449,9 +280,10 @@ def main():
 
     for tenant_id in tenant_set:
         # tenant = <app>-tenant-<id>
-        tenant_name = f"bookinfo-tenant-{tenant_id}"
+        tenant_name = f"tenant-{tenant_id}"
         tsb_objects.gen_tenant(
-            configs.org, tenant_name, f"generated/tenant{tenant_id}.yaml"
+            {"org": configs.org, "tenantName": tenant_name},
+            f"generated/tenant{tenant_id}.yaml",
         )
 
     for conf in configs.app:
