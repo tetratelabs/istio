@@ -61,12 +61,12 @@ def main():
     args = parser.parse_args()
     conf = read_config_yaml(args.config)
 
-    tenant = "tenant-0"
-    workspace = f"bookinfo-t0-ws0"
-    namespace = f"t0-w0-{conf.cluster}-bookinfo-b-front-n0"
-    gateway_group = f"bookinfo-t0-w0-b-gg0"
-    traffic_group = f"bookinfo-t0-w0-b-tg0"
-    security_group = f"bookinfo-t0-w0-b-sg0"
+    tenant = "tenant0"
+    workspace = "bkift0ws0"
+    namespace = f"t0w0{conf.cluster}bkiffn{'d' if conf.mode == 'direct' else 'b'}0"
+    gateway_group = f"bkifot0w0bgg0"
+    traffic_group = f"bkift0w0btg0"
+    security_group = f"bkift0w0bsg0"
 
     os.makedirs("generated/k8s-objects/", exist_ok=True)
     os.makedirs("generated/tsb-objects/", exist_ok=True)

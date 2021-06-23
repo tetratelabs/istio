@@ -49,13 +49,12 @@ def main():
     args = parser.parse_args()
     conf = read_config_yaml(args.config)
 
-    tenant = "tenant-0"
-    workspace = f"httpbin-t0-ws0"
-    namespace = f"t0-w0-{conf.cluster}-httpbin-b-front-n0"
-    # groups = <app>-t<tenant_id>-w<id>-<mode>-<type><id>
-    gateway_group = f"httpbin-t0-w0-b-gg0"
-    traffic_group = f"httpbin-t0-w0-b-tg0"
-    security_group = f"httpbin-t0-w0-b-sg0"
+    tenant = "tenant0"
+    workspace = "htbnt0ws0"
+    namespace = f"t0w0{conf.cluster}htbnfnb0"
+    gateway_group = "htbnt0w0bgg0"
+    traffic_group = "htbnt0w0btg0"
+    security_group = "htbnt0w0bsg0"
 
     arguments = {
         "orgName": conf.org,

@@ -3,7 +3,6 @@ import sys
 import argparse
 import config
 import certs
-from jinja2 import Template
 import tsb_objects, k8s_objects
 
 def gen_common_tsb_objects(arguments, key):
@@ -12,10 +11,8 @@ def gen_common_tsb_objects(arguments, key):
         arguments,
         f"generated/tsb-objects/{key}/workspaces.yaml",
     )
-
     # groups
     tsb_objects.generate_groups(arguments, f"generated/tsb-objects/{key}/groups.yaml")
-
     # perm
     tsb_objects.generate_perm(arguments, f"generated/tsb-objects/{key}/perm.yaml")
 
@@ -29,15 +26,12 @@ def gen_bridge_specific_objects(
     tsb_objects.generate_bridged_security(
         arguments, f"generated/tsb-objects/{key}/bridged/security.yaml"
     )
-
     tsb_objects.generate_bridged_serviceroute(
         arguments, f"generated/tsb-objects/{key}/bridged/serviceroute.yaml"
     )
-
     tsb_objects.generate_bridged_gateway(
         arguments, f"generated/tsb-objects/{key}/bridged/gateway.yaml"
     )
-
     tsb_objects.generate_brigded_servicerouteeditor(
         arguments, f"generated/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
     )
@@ -53,21 +47,17 @@ def gen_direct_specific_objects(
     tsb_objects.generate_direct_reviews_vs(
         arguments, f"generated/tsb-objects/{key}/direct/reviews_vs.yaml"
     )
-
     tsb_objects.generate_direct_servicerouteeditor(
         arguments, f"generated/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
     )
-
     # destination rules
     tsb_objects.generate_direct_dr(
         arguments, f"generated/tsb-objects/{key}/direct/destinationrule.yaml"
     )
-
     # virtual service for product page
     tsb_objects.generate_direct_vs(
         arguments, f"generated/tsb-objects/{key}/direct/virtualservice.yaml"
     )
-
     # gateway
     tsb_objects.generate_direct_gateway(
         arguments, f"generated/tsb-objects/{key}/direct/gateway.yaml"
@@ -89,27 +79,24 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
             tenant_id = str(replica.tenant_id)
 
             mode = "d" if current_mode == "direct" else "b"
-            # workspace = <app>-t<tenant_id>-ws<id>
-            workspace_name = f"bookinfo-t{tenant_id}-ws{count}"
+            workspace_name = f"bkift{tenant_id}ws{count}"
 
             os.makedirs("generated/k8s-objects/" + key, exist_ok=True)
             os.makedirs("generated/tsb-objects/" + key, exist_ok=True)
             os.makedirs("generated/tsb-k8s-objects/" + key, exist_ok=True)
 
-            # namespace = <app>-t<tenant_id>-w<workspace_id>-<cluster_name>-<mode>-<app>-<type>-n<id>
             namespaces = {
-                "product": f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-front-n0",
-                "ratings": f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-mid-n0",
-                "reviews": f"t{tenant_id}-w{count}-{conf.cluster_name}-{mode}-bookinfo-back-n0",
+                "product": f"t{tenant_id}w{count}{conf.cluster_name}bkiffn{mode}0",
+                "ratings": f"t{tenant_id}w{count}{conf.cluster_name}bkifmn{mode}0",
+                "reviews": f"t{tenant_id}w{count}{conf.cluster_name}bkifbn{mode}0",
             }
 
-            # groups = <app>-t<tenant_id>-w<id>-<mode>-<type><id>
-            gateway_group = f"bookinfo-t{tenant_id}-w{count}-{mode}-gg0"
-            traffic_group = f"bookinfo-t{tenant_id}-w{count}-{mode}-tg0"
-            security_group = f"bookinfo-t{tenant_id}-w{count}-{mode}-sg0"
+            gateway_group = f"bkift{tenant_id}w{count}{mode}gg0"
+            traffic_group = f"bkift{tenant_id}w{count}{mode}tg0"
+            security_group = f"bkift{tenant_id}w{count}{mode}sg0"
 
             arguments = {
-                "tenantName": f"tenant-{tenant_id}",
+                "tenantName": f"tenant{tenant_id}",
                 "orgName": org,
                 "workspaceName": workspace_name,
                 "clusterName": conf.cluster_name,
@@ -224,10 +211,9 @@ def main():
         cluster_list.append(appconfig.cluster_name)
 
     for tenant_id in tenant_set:
-        # tenant = <app>-tenant-<id>
-        tenant_name = f"tenant-{tenant_id}"
+        tenant_name = f"tenant{tenant_id}"
         tsb_objects.generate_tenant(
-            {"org": configs.org, "tenantName": tenant_name},
+            {"orgName": configs.org, "tenantName": tenant_name},
             f"generated/tenant{tenant_id}.yaml",
         )
 
