@@ -34,16 +34,16 @@ def generate_bookinfo_yaml(namespaces, key):
 
 def gen_common_tsb_objects(arguments, key):
     # workspace
-    tsb_objects.gen_workspace(
+    tsb_objects.generate_workspace(
         arguments,
         f"generated/tsb-objects/{key}/workspaces.yaml",
     )
 
     # groups
-    tsb_objects.gen_groups(arguments, f"generated/tsb-objects/{key}/groups.yaml")
+    tsb_objects.generate_groups(arguments, f"generated/tsb-objects/{key}/groups.yaml")
 
     # perm
-    tsb_objects.gen_perm(arguments, f"generated/tsb-objects/{key}/perm.yaml")
+    tsb_objects.generate_perm(arguments, f"generated/tsb-objects/{key}/perm.yaml")
 
 def gen_namespace_yamls(namespaces, key):
     t = open(script_path + "/templates/k8s-objects/namespaces.yaml")
@@ -63,19 +63,19 @@ def gen_bridge_specific_objects(
     os.makedirs("generated/tsb-objects/" + key + "/bridged", exist_ok=True)
     os.makedirs("generated/k8s-objects/" + key + "/bridged", exist_ok=True)
 
-    tsb_objects.gen_bridged_security(
+    tsb_objects.generate_bridged_security(
         arguments, f"generated/tsb-objects/{key}/bridged/security.yaml"
     )
 
-    tsb_objects.gen_bridged_serviceroute(
+    tsb_objects.generate_bridged_serviceroute(
         arguments, f"generated/tsb-objects/{key}/bridged/serviceroute.yaml"
     )
 
-    tsb_objects.gen_bridged_gateway(
+    tsb_objects.generate_bridged_gateway(
         arguments, f"generated/tsb-objects/{key}/bridged/gateway.yaml"
     )
 
-    tsb_objects.gen_brigded_servicerouteeditor(
+    tsb_objects.generate_brigded_servicerouteeditor(
         arguments, f"generated/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
     )
 
@@ -87,26 +87,26 @@ def gen_direct_specific_objects(
     os.makedirs("generated/k8s-objects/" + key + "/direct", exist_ok=True)
 
     # reviews virtual service
-    tsb_objects.gen_direct_reviews_vs(
+    tsb_objects.generate_direct_reviews_vs(
         arguments, f"generated/tsb-objects/{key}/direct/reviews_vs.yaml"
     )
 
-    tsb_objects.gen_direct_servicerouteeditor(
+    tsb_objects.generate_direct_servicerouteeditor(
         arguments, f"generated/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
     )
 
     # destination rules
-    tsb_objects.gen_direct_dr(
+    tsb_objects.generate_direct_dr(
         arguments, f"generated/tsb-objects/{key}/direct/destinationrule.yaml"
     )
 
     # virtual service for product page
-    tsb_objects.gen_direct_vs(
+    tsb_objects.generate_direct_vs(
         arguments, f"generated/tsb-objects/{key}/direct/virtualservice.yaml"
     )
 
     # gateway
-    tsb_objects.gen_direct_gateway(
+    tsb_objects.generate_direct_gateway(
         arguments, f"generated/tsb-objects/{key}/direct/gateway.yaml"
     )
 
@@ -115,9 +115,7 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
     for replica in conf.replicas:
         i = 0
 
-        modes_list = modes_list = ["bridged"] * replica.bridged + [
-            "direct"
-        ] * replica.direct
+        modes_list = ["bridged"] * replica.bridged + ["direct"] * replica.direct
 
         while i < (replica.bridged + replica.direct):
             print("Installing Bookinfo")
@@ -271,24 +269,28 @@ def main():
     tenant_set = set()
     cluster_list = []
 
-    for conf in configs.app:
-        for replica in conf.replicas:
+    for appconfig in configs.app:
+        for replica in appconfig.replicas:
             tenant_set.add(replica.tenant_id)
-        if conf.cluster_name in cluster_list:
+        if appconfig.cluster_name in cluster_list:
             print("Multiple entries for the same cluster found, please fix.")
-        cluster_list.append(conf.cluster_name)
+        cluster_list.append(appconfig.cluster_name)
 
     for tenant_id in tenant_set:
         # tenant = <app>-tenant-<id>
         tenant_name = f"tenant-{tenant_id}"
-        tsb_objects.gen_tenant(
+        tsb_objects.generate_tenant(
             {"org": configs.org, "tenantName": tenant_name},
             f"generated/tenant{tenant_id}.yaml",
         )
 
-    for conf in configs.app:
+    for appconfig in configs.app:
         install_bookinfo(
-            conf, args.password, configs.org, configs.provider, configs.tctl_version
+            appconfig,
+            args.password,
+            configs.org,
+            configs.provider,
+            configs.tctl_version,
         )
 
 if __name__ == "__main__":

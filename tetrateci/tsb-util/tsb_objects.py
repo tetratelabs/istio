@@ -7,60 +7,60 @@ def save_file(fname, content):
     with open(fname, "w") as f:
         f.write(content)
 
-def gen_yaml(template, args, filepath):
+def generate_yaml(template, args, filepath):
     with open(template) as t:
         template = Template(t.read())
         r = template.render(**args)
         save_file(filepath, r)
 
-def gen_tenant(arguments, filepath):
+def generate_tenant(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/tenant.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_workspace(arguments, filepath):
+def generate_workspace(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/workspace.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_groups(arguments, filepath):
+def generate_groups(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/group.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_perm(arguments, filepath):
+def generate_perm(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/perm.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_bridged_security(arguments, filepath):
+def generate_bridged_security(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/bridged/security.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_bridged_serviceroute(arguments, filepath):
+def generate_bridged_serviceroute(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/bridged/serviceroute.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_bridged_gateway(arguments, filepath):
+def generate_bridged_gateway(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/bridged/gateway.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_brigded_servicerouteeditor(arguments, filepath):
+def generate_brigded_servicerouteeditor(arguments, filepath):
     template = f"{script_path}/templates/k8s-objects/bridged/servicerouteeditor.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_direct_reviews_vs(arguments, filepath):
+def generate_direct_reviews_vs(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/direct/reviews-vs.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_direct_servicerouteeditor(arguments, filepath):
+def generate_direct_servicerouteeditor(arguments, filepath):
     template = f"{script_path}/templates/k8s-objects/direct/servicerouteeditor.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_direct_dr(arguments, filepath):
+def generate_direct_dr(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/direct/dr.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_direct_vs(arguments, filepath):
+def generate_direct_vs(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/direct/vs.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)
 
-def gen_direct_gateway(arguments, filepath):
+def generate_direct_gateway(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/direct/gw.yaml"
-    gen_yaml(template, arguments, filepath)
+    generate_yaml(template, arguments, filepath)

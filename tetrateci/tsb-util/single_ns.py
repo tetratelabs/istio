@@ -79,11 +79,13 @@ def main():
     os.makedirs("generated/k8s-objects/", exist_ok=True)
     os.makedirs("generated/tsb-objects/", exist_ok=True)
 
-    tsb_objects.gen_tenant(arguments, "generated/tsb-objects/tenant.yaml")
-    tsb_objects.gen_workspace(arguments, "generated/tsb-objects/workspaces.yaml")
-    tsb_objects.gen_groups(arguments, "generated/tsb-objects/groups.yaml")
-    tsb_objects.gen_perm(arguments, "generated/tsb-objects/perm.yaml")
-    tsb_objects.gen_bridged_security(arguments, "generated/tsb-objects/security.yaml")
+    tsb_objects.generate_tenant(arguments, "generated/tsb-objects/tenant.yaml")
+    tsb_objects.generate_workspace(arguments, "generated/tsb-objects/workspaces.yaml")
+    tsb_objects.generate_groups(arguments, "generated/tsb-objects/groups.yaml")
+    tsb_objects.generate_perm(arguments, "generated/tsb-objects/perm.yaml")
+    tsb_objects.generate_bridged_security(
+        arguments, "generated/tsb-objects/security.yaml"
+    )
 
     f = open("generated/k8s-objects/01namespace.yaml", "w")
     yaml.dump(namespace_yaml, f)
