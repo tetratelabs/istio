@@ -5,7 +5,7 @@ import argparse
 from dataclasses import dataclass
 from marshmallow_dataclass import class_schema
 import certs
-import tsb_objects
+import tsb_objects, k8s_objects
 
 @dataclass
 class config:
@@ -91,11 +91,7 @@ def main():
     yaml.dump(namespace_yaml, f)
     f.close()
 
-    t = open(script_path + "/templates/k8s-objects/ingress.yaml")
-    template = Template(t.read())
-    r = template.render(ns=namespace)
-    t.close()
-    save_file("generated/k8s-objects/ingress.yaml", r)
+    k8s_objects.generate_ingress(arguments, "generated/k8s-objects/ingress.yaml")
 
     certs.generate_wildcard_cert()
     certs.create_wildcard_secret(namespace, "generated/k8s-objects/secret.yaml")
@@ -130,18 +126,13 @@ def main():
     t.close()
     save_file("generated/tsb-objects/gateway.yaml", r)
 
-    service_account = "httpbin-serviceaccount"
-    t = open(script_path + "/templates/k8s-objects/role.yaml")
-    template = Template(t.read())
-    r = template.render(targetNS=namespace, clientNS=namespace, saName=service_account)
-    t.close()
-    save_file("generated/k8s-objects/role.yaml", r)
+    k8s_objects.generate_trafficgen_role(arguments, "generated/k8s-objects/role.yaml")
 
     t = open(script_path + "/templates/k8s-objects/traffic-gen-httpbin.yaml")
     template = Template(t.read())
     r = template.render(
         ns=namespace,
-        saName=service_account,
+        saName=f"{namespace}-trafficegen-sa",
         secretName=namespace + "-ca-cert",
         serviceName="tsb-gateway-" + namespace,
         content=curl_calls,

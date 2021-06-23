@@ -4,33 +4,7 @@ import argparse
 import config
 import certs
 from jinja2 import Template
-import tsb_objects
-
-script_path = os.path.dirname(os.path.realpath(__file__))
-
-def save_file(fname, content):
-    f = open(fname, "w")
-    f.write(content)
-    f.close()
-
-def generate_bookinfo_yaml(namespaces, key):
-    svc_domain = ".svc.cluster.local"
-    details_env = "details." + namespaces["reviews"] + svc_domain
-    reviews_env = "reviews." + namespaces["reviews"] + svc_domain
-    ratings_env = "ratings." + namespaces["ratings"] + svc_domain
-
-    t = open(script_path + "/templates/k8s-objects/bookinfo.yaml")
-    template = Template(t.read())
-    r = template.render(
-        reviewsns=namespaces["reviews"],
-        ratingsns=namespaces["ratings"],
-        productns=namespaces["product"],
-        detailsHostName=details_env,
-        reviewsHostName=reviews_env,
-        ratingsHostName=ratings_env,
-    )
-    t.close()
-    save_file("generated/k8s-objects/" + key + "/bookinfo.yaml", r)
+import tsb_objects, k8s_objects
 
 def gen_common_tsb_objects(arguments, key):
     # workspace
@@ -44,17 +18,6 @@ def gen_common_tsb_objects(arguments, key):
 
     # perm
     tsb_objects.generate_perm(arguments, f"generated/tsb-objects/{key}/perm.yaml")
-
-def gen_namespace_yamls(namespaces, key):
-    t = open(script_path + "/templates/k8s-objects/namespaces.yaml")
-    template = Template(t.read())
-    r = template.render(
-        reviewsns=namespaces["reviews"],
-        ratingsns=namespaces["ratings"],
-        productns=namespaces["product"],
-    )
-    t.close()
-    save_file("generated/k8s-objects/" + key + "/01namespaces.yaml", r)
 
 def gen_bridge_specific_objects(
     arguments,
@@ -170,13 +133,20 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
                 "destinationruleName": "bookinfo-destinationrule",
                 "destinationFQDN": f"productpage.{namespaces['product']}.svc.cluster.local",
                 "virtualserviceName": "bookinfo-virtualservice",
+                "ipType": "InternalIP"
+                if conf.traffic_gen_ip == "internal"
+                else "ExternalIP",
             }
 
-            generate_bookinfo_yaml(namespaces, key)
+            k8s_objects.generate_bookinfo(
+                arguments, f"generated/k8s-objects/{key}/bookinfo.yaml"
+            )
 
             gen_common_tsb_objects(arguments, key)
 
-            gen_namespace_yamls(namespaces, key)
+            k8s_objects.generate_bookinfo_namespaces(
+                arguments, f"generated/k8s-objects/{key}/01namespaces.yaml"
+            )
 
             if current_mode == "bridged":
                 gen_bridge_specific_objects(
@@ -189,56 +159,33 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
                     key,
                 )
 
-            gen_k8s_objects(
+            k8s_objects.generate_ingress(
+                arguments, f"generated/k8s-objects/{key}/ingress.yaml"
+            )
+
+            certs.create_private_key(namespaces["product"])
+            certs.create_cert(namespaces["product"])
+            certs.create_secret(
+                namespaces["product"], f"generated/k8s-objects/{key}/secret.yaml"
+            )
+
+            arguments["secretName"] = certs.create_trafficgen_secret(
                 namespaces["product"],
-                key,
-                "InternalIP" if conf.traffic_gen_ip == "internal" else "ExternalIP",
+                f"generated/k8s-objects/{key}/{namespaces['product']}-secret.yaml",
+            )
+
+            k8s_objects.generate_trafficgen_role(
+                arguments, f"generated/k8s-objects/{key}/role.yaml"
+            )
+
+            k8s_objects.generate_trafficgen(
+                arguments, f"generated/k8s-objects/{key}/traffic-gen.yaml"
             )
 
             print("Bookinfo installed\n")
             i += 1
             count += 1
     return count
-
-def gen_k8s_objects(productns, key, iptype):
-
-    certs.create_private_key(productns)
-    certs.create_cert(productns)
-    certs.create_secret(productns, "generated/k8s-objects/" + key + "/secret.yaml")
-
-    # ingress
-    t = open(script_path + "/templates/k8s-objects/ingress.yaml")
-    template = Template(t.read())
-    r = template.render(
-        ns=productns,
-    )
-    t.close()
-    save_file("generated/k8s-objects/" + key + "/ingress.yaml", r)
-
-    service_account = productns + "-trafficegen-sa"
-
-    # trafficgen
-
-    secret_name = certs.create_trafficgen_secret(
-        productns, "generated/k8s-objects/" + key + "/" + productns + "-secret.yaml"
-    )
-
-    t = open(script_path + "/templates/k8s-objects/role.yaml")
-    template = Template(t.read())
-    r = template.render(targetNS=productns, clientNS=productns, saName=service_account)
-    t.close()
-    save_file("generated/k8s-objects/" + key + "/role.yaml", r)
-
-    t = open(script_path + "/templates/k8s-objects/traffic-gen.yaml")
-    template = Template(t.read())
-    r = template.render(
-        ns=productns,
-        saName=service_account,
-        secretName=secret_name,
-        ipType=iptype,
-    )
-    t.close()
-    save_file("generated/k8s-objects/" + key + "/traffic-gen.yaml", r)
 
 def main():
     parser = argparse.ArgumentParser(description="Spin up bookinfo instances")

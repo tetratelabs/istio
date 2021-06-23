@@ -1,13 +1,14 @@
+{% set saName = namespaces["product"] or namespaces ~ "-trafficegen-sa" -%}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ saName }}
-  namespace: {{ clientNS }}
+  namespace: {{ namespaces["product"] or namespaces }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  namespace: {{ targetNS }}
+  namespace: {{ namespaces["product"] or namespaces }}
   name: trafficgen-service-reader
 rules:
 - apiGroups: [""]
@@ -17,12 +18,12 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: trafficgen-service-{{ targetNS }}
-  namespace: {{ targetNS }}
+  name: trafficgen-service-{{ namespaces["product"] or namespaces }}
+  namespace: {{ namespaces["product"] or namespaces }}
 subjects:
 - kind: ServiceAccount
   name: {{ saName }}
-  namespace: {{ clientNS }}
+  namespace: {{ namespaces["product"] or namespaces }}
 roleRef:
   kind: ClusterRole
   name: trafficgen-service-reader
