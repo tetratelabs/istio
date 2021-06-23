@@ -154,7 +154,7 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
                 "gatewayGroupName": gateway_group,
                 "trafficGroupName": traffic_group,
                 "securityGroupName": security_group,
-                "mode": mode.upper(),
+                "mode": current_mode.upper(),
                 "securitySettingName": "bookinfo-security-setting",
                 "reviewsHostFQDN": f"reviews.{namespaces['reviews']}.svc.cluster.local",
                 "serviceRouteName": "bookinfo-serviceroute",

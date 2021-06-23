@@ -7,7 +7,7 @@ metadata:
     tsb.tetrate.io/trafficGroup: {{ trafficGroupName }}
     tsb.tetrate.io/workspace: {{ workspaceName }}
   name: {{ serviceRouteName }}
-  namespace: {{ namespaces["reviews"] or namespaces['0'] }}
+  namespace: {{ namespaces["reviews"] or namespaces }}
 spec:
   gateways:
   - mesh

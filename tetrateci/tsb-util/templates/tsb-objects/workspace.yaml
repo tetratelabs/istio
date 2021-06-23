@@ -8,5 +8,9 @@ spec:
   displayName: {{ workspaceName }}
   namespaceSelector:
     names:
+    {% if namespaces is mapping -%}
     {% for ns in namespaces %}- {{ clusterName }}/{{ namespaces[ns] }}
-    {% endfor %}
+    {% endfor -%}
+    {% else -%}
+    - {{ clusterName }}/{{ namespaces }}
+    {% endif -%}

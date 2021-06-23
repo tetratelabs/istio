@@ -81,7 +81,7 @@ def main():
         "orgName": conf.org,
         "tenantName": tenant,
         "workspaceName": workspace,
-        "namespaces": {"0": namespace},
+        "namespaces": namespace,
         "clusterName": conf.cluster,
         "mode": conf.mode.upper(),
         "gatewayGroupName": gateway_group,
@@ -123,92 +123,43 @@ def main():
             f"curl https://{hostname}/productpage --connect-to {hostname}:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null"
         )
 
-        servicerouteFile = (
-            script_path + "/templates/tsb-objects/bridged/serviceroute.yaml"
-        )
+        ordered_arguments = {
+            "orgName": conf.org,
+            "tenantName": tenant,
+            "workspaceName": workspace,
+            "trafficGroupName": traffic_group,
+            "gatewayGroupName": gateway_group,
+            "reviewsHostFQDN": f"reviews-{i}.{namespace}.svc.cluster.local",
+            "serviceRouteName": f"bookinfo-serviceroute-{i}",
+            "namespaces": namespace,
+            "hostname": hostname,
+            "virtualserviceName": f"bookinfo-virtualservice-{i}",
+            "gatewayName": "tsb-gateway",
+            "destinationFQDN": f"productpage-{i}.{namespace}.svc.cluster.local",
+            "destinationruleName": f"bookinfo-destinationrule-{i}",
+        }
         if conf.mode == "bridged":
             http_routes.append(name)
-
-            t = open(servicerouteFile)
-            template = Template(t.read())
-            r = template.render(
-                orgName=conf.org,
-                tenantName=tenant,
-                workspaceName=workspace,
-                trafficGroupName=traffic_group,
-                reviewsHostFQDN="reviews-"
-                + str(i)
-                + "."
-                + namespace
-                + ".svc.cluster.local",
-                serviceRouteName="bookinfo-serviceroute-" + str(i),
-                namespaces={"0": namespace},
+            tsb_objects.generate_bridged_serviceroute(
+                ordered_arguments, f"generated/tsb-objects/serviceroute{i}.yaml"
             )
-            save_file("generated/tsb-objects/serviceroute" + str(i) + ".yaml", r)
-            t.close()
         else:
             http_routes.append(name)
 
             # virtual service for product page
-            t = open(script_path + "/templates/tsb-objects/direct/vs.yaml")
-            template = Template(t.read())
-            r = template.render(
-                orgName=conf.org,
-                tenantName=tenant,
-                workspaceName=workspace,
-                gatewayGroupName=gateway_group,
-                hostname=hostname,
-                virtualserviceName="bookinfo-virtualservice-"
-                + str(i),  # need to change
-                namespaces={"0": namespace},
-                gatewayName="tsb-gateway",
-                destinationFQDN="productpage-"
-                + str(i)
-                + "."
-                + namespace
-                + ".svc.cluster.local",
+            tsb_objects.generate_direct_vs(
+                ordered_arguments, f"generated/tsb-objects/virtualservice-{i}.yaml"
             )
-            save_file("generated/tsb-objects/virtualservice-" + str(i) + ".yaml", r)
-            t.close()
 
             # destination rules
-            t = open(script_path + "/templates/tsb-objects/direct/dr.yaml")
-            template = Template(t.read())
-            r = template.render(
-                orgName=conf.org,
-                tenantName=tenant,
-                workspaceName=workspace,
-                trafficGroupName=traffic_group,
-                reviewsHostFQDN="reviews-"
-                + str(i)
-                + "."
-                + namespace
-                + ".svc.cluster.local",
-                destinationruleName="bookinfo-destinationrule-" + str(i),
-                namespaces={"0": namespace},
+            tsb_objects.generate_direct_dr(
+                ordered_arguments, f"generated/tsb-objects/destinationrule-{i}.yaml"
             )
-            save_file("generated/tsb-objects/destinationrule-" + str(i) + ".yaml", r)
-            t.close()
 
             # reviews virtual service
-            reviews_vs = script_path + "/templates/tsb-objects/direct/reviews-vs.yaml"
-            t = open(reviews_vs)
-            template = Template(t.read())
-            r = template.render(
-                orgName=conf.org,
-                tenantName=tenant,
-                workspaceName=workspace,
-                trafficGroupName=traffic_group,
-                reviewsHostFQDN="reviews-"
-                + str(i)
-                + "."
-                + namespace
-                + ".svc.cluster.local",
-                serviceRouteName="bookinfo-reviews-" + str(i),
-                namespaces={"0": namespace},
+            tsb_objects.generate_direct_reviews_vs(
+                ordered_arguments, f"generated/tsb-objects/reviews_vs-{i}.yaml"
             )
-            save_file("generated/tsb-objects/reviews_vs-" + str(i) + ".yaml", r)
-            t.close()
 
     if conf.mode == "bridged":
         t = open(script_path + "/templates/tsb-objects/bridged/gateway-single.yaml")

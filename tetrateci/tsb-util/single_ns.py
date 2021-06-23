@@ -61,7 +61,7 @@ def main():
         "orgName": conf.org,
         "tenantName": tenant,
         "workspaceName": workspace,
-        "namespaces": {"0": namespace},
+        "namespaces": namespace,
         "clusterName": conf.cluster,
         "mode": "BRIDGED",
         "gatewayGroupName": gateway_group,
