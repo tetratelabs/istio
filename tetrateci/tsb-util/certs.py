@@ -117,7 +117,7 @@ def generate_wildcard_cert():
         )
 
 def create_wildcard_secret(ns, fname):
-    secret_name = "wilcard-credential"
+    secret_name = "wildcard-credential"
     hostname = "wildcard.tetrate.test.com"
     keyfile = open("cert/" + hostname + ".key")
     certfile = open("cert/" + hostname + ".crt")
