@@ -199,7 +199,7 @@ def main():
     template = Template(t.read())
     r = template.render(
         ns=namespace,
-        saName=f"{namespace}-trafficegen-sa",
+        saName=f"{namespace}-trafficgen-sa",
         secretName=namespace + "-ca-cert",
         serviceName="tsb-gateway-" + namespace,
         content=curl_calls,
