@@ -4,52 +4,44 @@ from jinja2 import Template
 
 script_path = os.path.dirname(os.path.realpath(__file__))
 
-def create_root_cert():
-    os.makedirs("cert/", exist_ok=True)
-    if os.path.exists("cert/tetrate.test.com.crt") and os.path.exists(
-        "cert/tetrate.test.com.key"
+def create_root_cert(folder):
+    os.makedirs(f"{folder}/cert/", exist_ok=True)
+    if os.path.exists(f"{folder}/cert/tetrate.test.com.crt") and os.path.exists(
+        f"{folder}/cert/tetrate.test.com.key"
     ):
         return
 
     os.system(
-        "openssl req -x509 -sha256 -nodes -days 365 \
+        f"openssl req -x509 -sha256 -nodes -days 365 \
         -newkey rsa:4096 -subj '/C=US/ST=CA/O=Tetrateio/CN=tetrate.test.com' \
-        -keyout cert/tetrate.test.com.key -out cert/tetrate.test.com.crt"
+        -keyout {folder}/cert/tetrate.test.com.key -out {folder}/cert/tetrate.test.com.crt"
     )
 
-def create_private_key(ns):
+def create_private_key(ns, folder):
     hostname = ns + ".tetrate.test.com"
-    if os.path.exists("cert/" + hostname + ".csr") and os.path.exists(
-        "cert/" + hostname + ".key"
+    if os.path.exists(f"{folder}/cert/{hostname}.csr") and os.path.exists(
+        f"{folder}/cert/{hostname}.key"
     ):
         return
     os.system(
-        "openssl req -out cert/"
-        + hostname
-        + ".csr -newkey rsa:2048 -nodes -keyout cert/"
-        + hostname
-        + '.key -subj "/CN='
-        + hostname
-        + '/O=bookinfo organization"'
+        f'openssl req -out {folder}/cert/{hostname}.csr -newkey rsa:2048 -nodes -keyout {folder}/cert/{hostname}.key \
+            -subj "/CN={hostname} /O=bookinfo organization"'
     )
 
-def create_cert(ns):
+def create_cert(ns, folder):
     hostname = ns + ".tetrate.test.com"
-    if os.path.exists("cert/" + hostname + ".crt"):
+    if os.path.exists(f"{folder}/cert/{hostname}.crt"):
         return
     os.system(
-        "openssl x509 -req -sha256 -days 365 -CA cert/tetrate.test.com.crt -CAkey cert/tetrate.test.com.key -set_serial 0 -in cert/"
-        + hostname
-        + ".csr -out cert/"
-        + hostname
-        + ".crt"
+        f"openssl x509 -req -sha256 -days 365 -CA {folder}/cert/tetrate.test.com.crt -CAkey \
+        {folder}/cert/tetrate.test.com.key -set_serial 0 -in {folder}/cert/{hostname}.csr -out {folder}/cert/{hostname}.crt"
     )
 
-def create_secret(ns, fname):
+def create_secret(ns, fname, folder):
     secret_name = ns + "-credential"
     hostname = ns + ".tetrate.test.com"
-    keyfile = open("cert/" + hostname + ".key")
-    certfile = open("cert/" + hostname + ".crt")
+    keyfile = open(f"{folder}/cert/{hostname}.key")
+    certfile = open(f"{folder}/cert/{hostname}.crt")
 
     t = open(script_path + "/templates/k8s-objects/secret.yaml")
     template = Template(t.read())
@@ -68,9 +60,9 @@ def create_secret(ns, fname):
     keyfile.close()
     certfile.close()
 
-def create_trafficgen_secret(ns, fname):
+def create_trafficgen_secret(ns, fname, folder):
     secret_name = ns + "-ca-cert"
-    certfile = open("cert/tetrate.test.com.crt")
+    certfile = open(f"{folder}/cert/tetrate.test.com.crt")
 
     t = open(script_path + "/templates/k8s-objects/trafficgen-secret.yaml")
     template = Template(t.read())
@@ -88,39 +80,39 @@ def create_trafficgen_secret(ns, fname):
     certfile.close()
     return secret_name
 
-def generate_wildcard_cert():
-    os.makedirs("cert/", exist_ok=True)
-    if not os.path.exists("cert/tetrate.test.com.crt") or not os.path.exists(
-        "cert/tetrate.test.com.key"
+def generate_wildcard_cert(folder):
+    os.makedirs(f"{folder}/cert/", exist_ok=True)
+    if not os.path.exists(f"{folder}/cert/tetrate.test.com.crt") or not os.path.exists(
+        f"{folder}/cert/tetrate.test.com.key"
     ):
         os.system(
-            "openssl req -x509 -sha256 -nodes -days 365 \
+            f"openssl req -x509 -sha256 -nodes -days 365 \
         -newkey rsa:4096 -subj '/C=US/ST=CA/O=Tetrateio/CN=tetrate.test.com' \
-        -keyout cert/tetrate.test.com.key -out cert/tetrate.test.com.crt"
+        -keyout {folder}/cert/tetrate.test.com.key -out {folder}/cert/tetrate.test.com.crt"
         )
 
-    if not os.path.exists("cert/wildcard.tetrate.test.com.csr") or not os.path.exists(
-        "cert/wildcard.tetrate.test.com.key"
-    ):
+    if not os.path.exists(
+        f"{folder}/cert/wildcard.tetrate.test.com.csr"
+    ) or not os.path.exists(f"{folder}/cert/wildcard.tetrate.test.com.key"):
         os.system(
-            "openssl req -out cert/wildcard.tetrate.test.com.csr -newkey rsa:2048 \
-        -nodes -keyout cert/wildcard.tetrate.test.com.key \
+            f"openssl req -out {folder}/cert/wildcard.tetrate.test.com.csr -newkey rsa:2048 \
+        -nodes -keyout {folder}/cert/wildcard.tetrate.test.com.key \
         -subj '/CN=*.tetrate.test.com/O=bookinfo organization'"
         )
 
-    if not os.path.exists("cert/wildcard.tetrate.test.com.crt"):
+    if not os.path.exists(f"{folder}/cert/wildcard.tetrate.test.com.crt"):
         os.system(
-            "openssl x509 -req -sha256 -days 365 -CA cert/tetrate.test.com.crt \
-        -CAkey cert/tetrate.test.com.key \
-        -set_serial 0 -in cert/wildcard.tetrate.test.com.csr \
-        -out cert/wildcard.tetrate.test.com.crt"
+            f"openssl x509 -req -sha256 -days 365 -CA {folder}/cert/tetrate.test.com.crt \
+        -CAkey {folder}/cert/tetrate.test.com.key \
+        -set_serial 0 -in {folder}/cert/wildcard.tetrate.test.com.csr \
+        -out {folder}/cert/wildcard.tetrate.test.com.crt"
         )
 
-def create_wildcard_secret(ns, fname):
+def create_wildcard_secret(ns, fname, folder):
     secret_name = "wildcard-credential"
     hostname = "wildcard.tetrate.test.com"
-    keyfile = open("cert/" + hostname + ".key")
-    certfile = open("cert/" + hostname + ".crt")
+    keyfile = open(f"{folder}/cert/" + hostname + ".key")
+    certfile = open(f"{folder}/cert/" + hostname + ".crt")
 
     t = open(script_path + "/templates/k8s-objects/secret.yaml")
     template = Template(t.read())
@@ -139,9 +131,9 @@ def create_wildcard_secret(ns, fname):
     keyfile.close()
     certfile.close()
 
-def create_trafficgen_wildcard_secret(ns, fname):
+def create_trafficgen_wildcard_secret(ns, fname, folder):
     secret_name = ns + "-ca-cert"
-    certfile = open("cert/tetrate.test.com.crt")
+    certfile = open(f"{folder}/cert/tetrate.test.com.crt")
 
     t = open(script_path + "/templates/k8s-objects/trafficgen-secret.yaml")
     template = Template(t.read())

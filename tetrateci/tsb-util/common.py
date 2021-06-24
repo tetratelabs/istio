@@ -1,6 +1,7 @@
 import os
 import sys
 from jinja2 import Template
+import time
 
 script_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -16,5 +17,8 @@ def generate_yaml(template, args, filepath):
             save_file(filepath, r)
     except Exception as e:
         print(e)
-        print(f'Error while rendering template and writing to yaml file - {filepath}')
+        print(f"Error while rendering template and writing to yaml file - {filepath}")
         sys.exit(1)
+
+def default_folder():
+    return int(time.time())

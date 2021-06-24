@@ -6,7 +6,7 @@ import argparse
 from dataclasses import dataclass
 from marshmallow_dataclass import class_schema, marshmallow
 import certs
-import tsb_objects, k8s_objects
+import tsb_objects, k8s_objects, common
 
 @dataclass
 class config:
@@ -27,13 +27,13 @@ def save_file(fname, content):
     f.write(content)
     f.close()
 
-def install_httpbin(index, namespace):
+def install_httpbin(index, namespace, folder):
     instance_name = "httpbin" + index
     t = open(script_path + "/templates/k8s-objects/httpbin.yaml")
     template = Template(t.read())
     r = template.render(namespace=namespace, name=instance_name)
     t.close()
-    save_file("generated/k8s-objects/httpbin" + index + ".yaml", r)
+    save_file(f"{folder}/k8s-objects/httpbin" + index + ".yaml", r)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -47,16 +47,23 @@ def main():
         "--config", help="pass the config for the install", required=True
     )
 
+    parser.add_argument(
+        "--folder",
+        help="folder where the generated files would be stored",
+        default=common.default_folder(),
+    )
     args = parser.parse_args()
+    folder = args.folder
+
     try:
         conf = read_config_yaml(args.config)
     except marshmallow.exceptions.ValidationError as e:
-        print('Validation errors in the configuration file.')
+        print("Validation errors in the configuration file.")
         print(e)
         sys.exit(1)
     except Exception as e:
         print(e)
-        print('Unable to read the config file.')
+        print("Unable to read the config file.")
         sys.exit(1)
 
     tenant = "tenant0"
@@ -85,44 +92,48 @@ def main():
         "metadata": {"labels": {"istio-injection": "enabled"}, "name": namespace},
     }
     try:
-        os.makedirs("generated/k8s-objects/", exist_ok=True)
-        os.makedirs("generated/tsb-objects/", exist_ok=True)
+        os.makedirs(f"{folder}/k8s-objects/", exist_ok=True)
+        os.makedirs(f"{folder}/tsb-objects/", exist_ok=True)
     except Exception as e:
         print(e)
-        print('Error while creating the folders for the generated scripts.')
+        print("Error while creating the folders for the generated scripts.")
         sys.exit(1)
-    
+
     try:
-        tsb_objects.generate_tenant(arguments, "generated/tsb-objects/tenant.yaml")
-        tsb_objects.generate_workspace(arguments, "generated/tsb-objects/workspaces.yaml")
-        tsb_objects.generate_groups(arguments, "generated/tsb-objects/groups.yaml")
-        tsb_objects.generate_perm(arguments, "generated/tsb-objects/perm.yaml")
+        tsb_objects.generate_tenant(arguments, f"{folder}/tsb-objects/tenant.yaml")
+        tsb_objects.generate_workspace(
+            arguments, f"{folder}/tsb-objects/workspaces.yaml"
+        )
+        tsb_objects.generate_groups(arguments, f"{folder}/tsb-objects/groups.yaml")
+        tsb_objects.generate_perm(arguments, f"{folder}/tsb-objects/perm.yaml")
         tsb_objects.generate_bridged_security(
-            arguments, "generated/tsb-objects/security.yaml"
+            arguments, f"{folder}/tsb-objects/security.yaml"
         )
 
-        f = open("generated/k8s-objects/01namespace.yaml", "w")
+        f = open(f"{folder}/k8s-objects/01namespace.yaml", "w")
         yaml.dump(namespace_yaml, f)
         f.close()
 
-        k8s_objects.generate_ingress(arguments, "generated/k8s-objects/ingress.yaml")
-    
+        k8s_objects.generate_ingress(arguments, f"{folder}/k8s-objects/ingress.yaml")
+
         try:
-            certs.generate_wildcard_cert()
-            certs.create_wildcard_secret(namespace, "generated/k8s-objects/secret.yaml")
+            certs.generate_wildcard_cert(folder)
+            certs.create_wildcard_secret(
+                namespace, f"{folder}/k8s-objects/secret.yaml", folder
+            )
             certs.create_trafficgen_wildcard_secret(
-                namespace, "generated/k8s-objects/trafficgen-secret.yaml"
+                namespace, f"{folder}/k8s-objects/trafficgen-secret.yaml", folder
             )
         except Exception as e:
             print(e)
-            print('Error while generating the certificates.')
+            print("Error while generating the certificates.")
             sys.exit(1)
 
         http_routes = []
         curl_calls = []
 
         for i in range(conf.count):
-            install_httpbin(str(i), namespace)
+            install_httpbin(str(i), namespace, folder)
             name = "httpbin" + str(i)
             hostname = name + ".tetrate.test.com"
             http_routes.append(name)
@@ -143,24 +154,26 @@ def main():
             secretName="wildcard-credential",
         )
         t.close()
-        save_file("generated/tsb-objects/gateway.yaml", r)
+        save_file(f"{folder}/tsb-objects/gateway.yaml", r)
 
-        k8s_objects.generate_trafficgen_role(arguments, "generated/k8s-objects/role.yaml")
+        k8s_objects.generate_trafficgen_role(
+            arguments, f"{folder}/k8s-objects/role.yaml"
+        )
 
         t = open(script_path + "/templates/k8s-objects/traffic-gen-httpbin.yaml")
         template = Template(t.read())
         r = template.render(
             ns=namespace,
-        saName=f"{namespace}-trafficgen-sa",
+            saName=f"{namespace}-trafficgen-sa",
             secretName=namespace + "-ca-cert",
             serviceName="tsb-gateway-" + namespace,
             content=curl_calls,
         )
         t.close()
-        save_file("generated/k8s-objects/traffic-gen.yaml", r)
+        save_file(f"{folder}/k8s-objects/traffic-gen.yaml", r)
     except Exception as e:
         print(e)
-        print('Error while generating the yamls.')
+        print("Error while generating the yamls.")
         sys.exit(1)
 
 if __name__ == "__main__":

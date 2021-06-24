@@ -3,68 +3,69 @@ import sys
 import argparse
 import config
 import certs
-import tsb_objects, k8s_objects
+import tsb_objects, k8s_objects, common
 from marshmallow_dataclass import marshmallow
 
-def gen_common_tsb_objects(arguments, key):
+def gen_common_tsb_objects(arguments, key, folder):
     # workspace
     tsb_objects.generate_workspace(
         arguments,
-        f"generated/tsb-objects/{key}/workspaces.yaml",
+        f"{folder}/tsb-objects/{key}/workspaces.yaml",
     )
     # groups
-    tsb_objects.generate_groups(arguments, f"generated/tsb-objects/{key}/groups.yaml")
+    tsb_objects.generate_groups(arguments, f"{folder}/tsb-objects/{key}/groups.yaml")
     # perm
-    tsb_objects.generate_perm(arguments, f"generated/tsb-objects/{key}/perm.yaml")
+    tsb_objects.generate_perm(arguments, f"{folder}/tsb-objects/{key}/perm.yaml")
 
-def gen_bridge_specific_objects(
-    arguments,
-    key,
-):
-    os.makedirs("generated/tsb-objects/" + key + "/bridged", exist_ok=True)
-    os.makedirs("generated/k8s-objects/" + key + "/bridged", exist_ok=True)
+def gen_bridge_specific_objects(arguments, key, folder):
+    os.makedirs(f"{folder}/tsb-objects/" + key + "/bridged", exist_ok=True)
+    os.makedirs(f"{folder}/k8s-objects/" + key + "/bridged", exist_ok=True)
 
     tsb_objects.generate_bridged_security(
-        arguments, f"generated/tsb-objects/{key}/bridged/security.yaml"
+        arguments, f"{folder}/tsb-objects/{key}/bridged/security.yaml"
     )
     tsb_objects.generate_bridged_serviceroute(
-        arguments, f"generated/tsb-objects/{key}/bridged/serviceroute.yaml"
+        arguments, f"{folder}/tsb-objects/{key}/bridged/serviceroute.yaml"
     )
     tsb_objects.generate_bridged_gateway(
-        arguments, f"generated/tsb-objects/{key}/bridged/gateway.yaml"
+        arguments, f"{folder}/tsb-objects/{key}/bridged/gateway.yaml"
     )
     tsb_objects.generate_brigded_servicerouteeditor(
-        arguments, f"generated/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
+        arguments, f"{folder}/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
     )
 
-def gen_direct_specific_objects(
-    arguments,
-    key,
-):
-    os.makedirs(f"generated/tsb-objects/{key}/direct", exist_ok=True)
-    os.makedirs(f"generated/k8s-objects/{key}/direct", exist_ok=True)
+def gen_direct_specific_objects(arguments, key, folder):
+    os.makedirs(f"{folder}/tsb-objects/{key}/direct", exist_ok=True)
+    os.makedirs(f"{folder}/k8s-objects/{key}/direct", exist_ok=True)
 
     # reviews virtual service
     tsb_objects.generate_direct_reviews_vs(
-        arguments, f"generated/tsb-objects/{key}/direct/reviews_vs.yaml"
+        arguments, f"{folder}/tsb-objects/{key}/direct/reviews_vs.yaml"
     )
     tsb_objects.generate_direct_servicerouteeditor(
-        arguments, f"generated/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
+        arguments, f"{folder}/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
     )
     # destination rules
     tsb_objects.generate_direct_dr(
-        arguments, f"generated/tsb-objects/{key}/direct/destinationrule.yaml"
+        arguments, f"{folder}/tsb-objects/{key}/direct/destinationrule.yaml"
     )
     # virtual service for product page
     tsb_objects.generate_direct_vs(
-        arguments, f"generated/tsb-objects/{key}/direct/virtualservice.yaml"
+        arguments, f"{folder}/tsb-objects/{key}/direct/virtualservice.yaml"
     )
     # gateway
     tsb_objects.generate_direct_gateway(
-        arguments, f"generated/tsb-objects/{key}/direct/gateway.yaml"
+        arguments, f"{folder}/tsb-objects/{key}/direct/gateway.yaml"
     )
 
-def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
+def install_bookinfo(
+    conf,
+    password,
+    org,
+    provider="others",
+    tctl_ver="1.2.0",
+    folder=common.default_folder(),
+):
     count = 0
     for replica in conf.replicas:
         i = 0
@@ -82,14 +83,15 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
             mode = "d" if current_mode == "direct" else "b"
             workspace_name = f"bkift{tenant_id}ws{count}"
 
-            os.makedirs("generated/k8s-objects/" + key, exist_ok=True)
-            os.makedirs("generated/tsb-objects/" + key, exist_ok=True)
-            os.makedirs("generated/tsb-k8s-objects/" + key, exist_ok=True)
+            os.makedirs(f"{folder}/k8s-objects/{key}", exist_ok=True)
+            os.makedirs(f"{folder}/tsb-objects/{key}", exist_ok=True)
+            os.makedirs(f"{folder}/tsb-k8s-objects/{key}", exist_ok=True)
+            print(folder)
 
             namespaces = {
-                "product": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}f0",
-                "ratings": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}m0",
-                "reviews": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}b0",
+                "product": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}0f",
+                "ratings": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}0m",
+                "reviews": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}0b",
             }
 
             gateway_group = f"bkift{tenant_id}w{count}{mode}gg0"
@@ -127,47 +129,42 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
             }
 
             k8s_objects.generate_bookinfo(
-                arguments, f"generated/k8s-objects/{key}/bookinfo.yaml"
+                arguments, f"{folder}/k8s-objects/{key}/bookinfo.yaml"
             )
 
-            gen_common_tsb_objects(arguments, key)
+            gen_common_tsb_objects(arguments, key, folder)
 
             k8s_objects.generate_bookinfo_namespaces(
-                arguments, f"generated/k8s-objects/{key}/01namespaces.yaml"
+                arguments, f"{folder}/k8s-objects/{key}/01namespaces.yaml"
             )
 
             if current_mode == "bridged":
-                gen_bridge_specific_objects(
-                    arguments,
-                    key,
-                )
+                gen_bridge_specific_objects(arguments, key, folder)
             else:
-                gen_direct_specific_objects(
-                    arguments,
-                    key,
-                )
+                gen_direct_specific_objects(arguments, key, folder)
 
             k8s_objects.generate_ingress(
-                arguments, f"generated/k8s-objects/{key}/ingress.yaml"
+                arguments, f"{folder}/k8s-objects/{key}/ingress.yaml"
             )
 
-            certs.create_private_key(namespaces["product"])
-            certs.create_cert(namespaces["product"])
+            certs.create_private_key(namespaces["product"], folder)
+            certs.create_cert(namespaces["product"], folder)
             certs.create_secret(
-                namespaces["product"], f"generated/k8s-objects/{key}/secret.yaml"
+                namespaces["product"], f"{folder}/k8s-objects/{key}/secret.yaml", folder
             )
 
             arguments["secretName"] = certs.create_trafficgen_secret(
                 namespaces["product"],
-                f"generated/k8s-objects/{key}/{namespaces['product']}-secret.yaml",
+                f"{folder}/k8s-objects/{key}/{namespaces['product']}-secret.yaml",
+                folder,
             )
 
             k8s_objects.generate_trafficgen_role(
-                arguments, f"generated/k8s-objects/{key}/role.yaml"
+                arguments, f"{folder}/k8s-objects/{key}/role.yaml"
             )
 
             k8s_objects.generate_trafficgen(
-                arguments, f"generated/k8s-objects/{key}/traffic-gen.yaml"
+                arguments, f"{folder}/k8s-objects/{key}/traffic-gen.yaml"
             )
 
             print("Bookinfo installed\n")
@@ -188,16 +185,22 @@ def main():
         help="password for the admin user in the tsb instance",
         default="admin",
     )
+    parser.add_argument(
+        "--folder",
+        help="folder where the {folder} files would be stored",
+        default=common.default_folder(),
+    )
     args = parser.parse_args()
+    folder = args.folder
     try:
         configs = config.read_config_yaml(args.config)
     except marshmallow.exceptions.ValidationError as e:
-        print('Validation errors in the configuration file.')
+        print("Validation errors in the configuration file.")
         print(e)
         sys.exit(1)
     except Exception as e:
         print(e)
-        print('Unable to read the config file.')
+        print("Unable to read the config file.")
         sys.exit(1)
 
     if configs.provider not in ["aws", "others"]:
@@ -207,17 +210,15 @@ def main():
         sys.exit(1)
 
     try:
-        certs.create_root_cert()
+        certs.create_root_cert(folder)
     except Exception as e:
         print(e)
-        print('Error while generating certs')
+        print("Error while generating certs")
         sys.exit(1)
 
     try:
-        os.makedirs("generated/", exist_ok=True)
         tenant_set = set()
         cluster_list = []
-
 
         for appconfig in configs.app:
             for replica in appconfig.replicas:
@@ -230,20 +231,22 @@ def main():
             tenant_name = f"tenant{tenant_id}"
             tsb_objects.generate_tenant(
                 {"orgName": configs.org, "tenantName": tenant_name},
-                f"generated/tenant{tenant_id}.yaml",
+                f"{folder}/tenant{tenant_id}.yaml",
             )
 
         for appconfig in configs.app:
+            print("ye")
             install_bookinfo(
                 appconfig,
                 args.password,
                 configs.org,
                 configs.provider,
                 configs.tctl_version,
+                folder,
             )
     except Exception as e:
         print(e)
-        print('Unknown error occurred while installing bookinfo.')
+        print("Unknown error occurred while installing bookinfo.")
         sys.exit(1)
 
 if __name__ == "__main__":
