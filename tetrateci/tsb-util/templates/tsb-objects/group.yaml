@@ -42,5 +42,5 @@ spec:
     {% endfor -%}
     {% else -%}
     - {{ clusterName }}/{{ namespaces }}
-    {% endif -%}
+    {% endif %}
   configMode: {{ mode }}

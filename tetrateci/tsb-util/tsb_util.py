@@ -40,8 +40,8 @@ def gen_direct_specific_objects(
     arguments,
     key,
 ):
-    os.makedirs("generated/tsb-objects/" + key + "/direct", exist_ok=True)
-    os.makedirs("generated/k8s-objects/" + key + "/direct", exist_ok=True)
+    os.makedirs(f"generated/tsb-objects/{key}/direct", exist_ok=True)
+    os.makedirs(f"generated/k8s-objects/{key}/direct", exist_ok=True)
 
     # reviews virtual service
     tsb_objects.generate_direct_reviews_vs(
@@ -114,7 +114,7 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
                 "productHostFQDN": f"productpage.{namespaces['product']}.svc.cluster.local",
                 "password": password,
                 "servicerouteSAName": f"{namespaces['reviews']}-editor",
-                "serviceRouteEditorPodName": f"{namespaces['reviews']}-editorpod",
+                "servicerouteEditorPodName": f"{namespaces['reviews']}-editorpod",
                 "provider": provider,
                 "tctlVersion": tctl_ver,
                 "destinationruleName": "bookinfo-destinationrule",

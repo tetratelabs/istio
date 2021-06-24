@@ -1,4 +1,4 @@
-{% set saName = namespaces["product"] or namespaces ~ "-trafficegen-sa" -%}
+{% set saName = (namespaces["product"] or namespaces) ~ "-trafficgen-sa" -%}
 apiVersion: v1
 kind: ServiceAccount
 metadata:

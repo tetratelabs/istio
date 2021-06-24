@@ -71,4 +71,4 @@ spec:
         secret:
           defaultMode: 420
           secretName: {{ secretName }}
-      serviceAccountName: {{ namespaces["product"] }}-trafficegen-sa
+      serviceAccountName: {{ namespaces["product"] }}-trafficgen-sa
