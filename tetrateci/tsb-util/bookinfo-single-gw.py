@@ -1,9 +1,10 @@
 import os
+import sys
 from jinja2 import Template
 import yaml
 import argparse
 from dataclasses import dataclass
-from marshmallow_dataclass import class_schema
+from marshmallow_dataclass import class_schema, marshmallow
 import certs
 import tsb_objects, k8s_objects
 
@@ -59,7 +60,16 @@ def main():
     )
 
     args = parser.parse_args()
-    conf = read_config_yaml(args.config)
+    try:
+        conf = read_config_yaml(args.config)
+    except marshmallow.exceptions.ValidationError as e:
+        print('Validation errors in the configuration file.')
+        print(e)
+        sys.exit(1)
+    except Exception as e:
+        print(e)
+        print('Unable to read the config file.')
+        sys.exit(1)
 
     tenant = "tenant0"
     workspace = "bkift0ws0"
@@ -68,8 +78,13 @@ def main():
     traffic_group = f"bkift0w0btg0"
     security_group = f"bkift0w0bsg0"
 
-    os.makedirs("generated/k8s-objects/", exist_ok=True)
-    os.makedirs("generated/tsb-objects/", exist_ok=True)
+    try:
+        os.makedirs("generated/k8s-objects/", exist_ok=True)
+        os.makedirs("generated/tsb-objects/", exist_ok=True)
+    except Exception as e:
+        print(e)
+        print('Error while creating the folders for the generated scripts.')
+        sys.exit(1)
 
     namespace_yaml = {
         "apiVersion": "v1",
@@ -89,125 +104,132 @@ def main():
         "securityGroupName": security_group,
         "securitySettingName": f"bookinfo-security-setting-{namespace}",
     }
+    try:
+        tsb_objects.generate_tenant(arguments, "generated/tsb-objects/tenant.yaml")
+        tsb_objects.generate_workspace(arguments, "generated/tsb-objects/workspaces.yaml")
+        tsb_objects.generate_groups(arguments, "generated/tsb-objects/groups.yaml")
+        tsb_objects.generate_perm(arguments, "generated/tsb-objects/perm.yaml")
 
-    tsb_objects.generate_tenant(arguments, "generated/tsb-objects/tenant.yaml")
-    tsb_objects.generate_workspace(arguments, "generated/tsb-objects/workspaces.yaml")
-    tsb_objects.generate_groups(arguments, "generated/tsb-objects/groups.yaml")
-    tsb_objects.generate_perm(arguments, "generated/tsb-objects/perm.yaml")
+        f = open("generated/k8s-objects/01namespace.yaml", "w")
+        yaml.dump(namespace_yaml, f)
+        f.close()
 
-    f = open("generated/k8s-objects/01namespace.yaml", "w")
-    yaml.dump(namespace_yaml, f)
-    f.close()
+        k8s_objects.generate_ingress(arguments, "generated/k8s-objects/ingress.yaml")
+        try:
+            certs.generate_wildcard_cert()
+            certs.create_wildcard_secret(namespace, "generated/k8s-objects/secret.yaml")
+            certs.create_trafficgen_wildcard_secret(
+                namespace, "generated/k8s-objects/trafficgen-secret.yaml"
+            )
+        except Exception as e:
+            print(e)
+            print('Error while generating the certificates.')
+            sys.exit(1)
+        http_routes = []
+        curl_calls = []
 
-    k8s_objects.generate_ingress(arguments, "generated/k8s-objects/ingress.yaml")
+        for i in range(conf.count):
+            install_bookinfo(namespace, str(i))
+            name = "productpage-" + str(i)
+            hostname = name + ".tetrate.test.com"
 
-    certs.generate_wildcard_cert()
-    certs.create_wildcard_secret(namespace, "generated/k8s-objects/secret.yaml")
-    certs.create_trafficgen_wildcard_secret(
-        namespace, "generated/k8s-objects/trafficgen-secret.yaml"
-    )
+            curl_calls.append(
+                f"curl https://{hostname}/productpage --connect-to {hostname}:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null"
+            )
 
-    http_routes = []
-    curl_calls = []
+            ordered_arguments = {
+                "orgName": conf.org,
+                "tenantName": tenant,
+                "workspaceName": workspace,
+                "trafficGroupName": traffic_group,
+                "gatewayGroupName": gateway_group,
+                "reviewsHostFQDN": f"reviews-{i}.{namespace}.svc.cluster.local",
+                "serviceRouteName": f"bookinfo-serviceroute-{i}",
+                "namespaces": namespace,
+                "hostname": hostname,
+                "virtualserviceName": f"bookinfo-virtualservice-{i}",
+                "gatewayName": "tsb-gateway",
+                "destinationFQDN": f"productpage-{i}.{namespace}.svc.cluster.local",
+                "destinationruleName": f"bookinfo-destinationrule-{i}",
+            }
+            if conf.mode == "bridged":
+                http_routes.append(name)
+                tsb_objects.generate_bridged_serviceroute(
+                    ordered_arguments, f"generated/tsb-objects/serviceroute{i}.yaml"
+                )
+            else:
+                http_routes.append(name)
 
-    for i in range(conf.count):
-        install_bookinfo(namespace, str(i))
-        name = "productpage-" + str(i)
-        hostname = name + ".tetrate.test.com"
+                # virtual service for product page
+                tsb_objects.generate_direct_vs(
+                    ordered_arguments, f"generated/tsb-objects/virtualservice-{i}.yaml"
+                )
 
-        curl_calls.append(
-            f"curl https://{hostname}/productpage --connect-to {hostname}:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null"
-        )
+                # destination rules
+                tsb_objects.generate_direct_dr(
+                    ordered_arguments, f"generated/tsb-objects/destinationrule-{i}.yaml"
+                )
 
-        ordered_arguments = {
-            "orgName": conf.org,
-            "tenantName": tenant,
-            "workspaceName": workspace,
-            "trafficGroupName": traffic_group,
-            "gatewayGroupName": gateway_group,
-            "reviewsHostFQDN": f"reviews-{i}.{namespace}.svc.cluster.local",
-            "serviceRouteName": f"bookinfo-serviceroute-{i}",
-            "namespaces": namespace,
-            "hostname": hostname,
-            "virtualserviceName": f"bookinfo-virtualservice-{i}",
-            "gatewayName": "tsb-gateway",
-            "destinationFQDN": f"productpage-{i}.{namespace}.svc.cluster.local",
-            "destinationruleName": f"bookinfo-destinationrule-{i}",
-        }
+                # reviews virtual service
+                tsb_objects.generate_direct_reviews_vs(
+                    ordered_arguments, f"generated/tsb-objects/reviews_vs-{i}.yaml"
+                )
+
         if conf.mode == "bridged":
-            http_routes.append(name)
-            tsb_objects.generate_bridged_serviceroute(
-                ordered_arguments, f"generated/tsb-objects/serviceroute{i}.yaml"
+            t = open(script_path + "/templates/tsb-objects/bridged/gateway-single.yaml")
+            template = Template(t.read())
+            r = template.render(
+                orgName=conf.org,
+                tenantName=tenant,
+                workspaceName=workspace,
+                gatewayGroupName=gateway_group,
+                gatewayName="tsb-gateway",
+                ns=namespace,
+                entries=http_routes,
+                secretName="wildcard-credential",
             )
+            t.close()
+            save_file("generated/tsb-objects/gateway.yaml", r)
+
+            tsb_objects.generate_bridged_security(
+                arguments, "generated/tsb-objects/security.yaml"
+            )
+
         else:
-            http_routes.append(name)
-
-            # virtual service for product page
-            tsb_objects.generate_direct_vs(
-                ordered_arguments, f"generated/tsb-objects/virtualservice-{i}.yaml"
+            t = open(script_path + "/templates/tsb-objects/direct/gw-single.yaml")
+            template = Template(t.read())
+            r = template.render(
+                orgName=conf.org,
+                tenantName=tenant,
+                workspaceName=workspace,
+                gatewayGroupName=gateway_group,
+                gatewayName="tsb-gateway",
+                ns=namespace,
+                entries=http_routes,
+                gwSecretName="wildcard-credential",
             )
+            t.close()
+            save_file("generated/tsb-objects/gateway.yaml", r)
 
-            # destination rules
-            tsb_objects.generate_direct_dr(
-                ordered_arguments, f"generated/tsb-objects/destinationrule-{i}.yaml"
-            )
+        k8s_objects.generate_trafficgen_role(arguments, "generated/k8s-objects/role.yaml")
 
-            # reviews virtual service
-            tsb_objects.generate_direct_reviews_vs(
-                ordered_arguments, f"generated/tsb-objects/reviews_vs-{i}.yaml"
-            )
-
-    if conf.mode == "bridged":
-        t = open(script_path + "/templates/tsb-objects/bridged/gateway-single.yaml")
+        t = open(script_path + "/templates/k8s-objects/traffic-gen-httpbin.yaml")
         template = Template(t.read())
         r = template.render(
-            orgName=conf.org,
-            tenantName=tenant,
-            workspaceName=workspace,
-            gatewayGroupName=gateway_group,
-            gatewayName="tsb-gateway",
             ns=namespace,
-            entries=http_routes,
-            secretName="wildcard-credential",
-        )
-        t.close()
-        save_file("generated/tsb-objects/gateway.yaml", r)
-
-        tsb_objects.generate_bridged_security(
-            arguments, "generated/tsb-objects/security.yaml"
-        )
-
-    else:
-        t = open(script_path + "/templates/tsb-objects/direct/gw-single.yaml")
-        template = Template(t.read())
-        r = template.render(
-            orgName=conf.org,
-            tenantName=tenant,
-            workspaceName=workspace,
-            gatewayGroupName=gateway_group,
-            gatewayName="tsb-gateway",
-            ns=namespace,
-            entries=http_routes,
-            gwSecretName="wildcard-credential",
-        )
-        t.close()
-        save_file("generated/tsb-objects/gateway.yaml", r)
-
-    k8s_objects.generate_trafficgen_role(arguments, "generated/k8s-objects/role.yaml")
-
-    t = open(script_path + "/templates/k8s-objects/traffic-gen-httpbin.yaml")
-    template = Template(t.read())
-    r = template.render(
-        ns=namespace,
         saName=f"{namespace}-trafficgen-sa",
-        secretName=namespace + "-ca-cert",
-        serviceName="tsb-gateway-" + namespace,
-        content=curl_calls,
-    )
-    t.close()
-    save_file("generated/k8s-objects/traffic-gen.yaml", r)
+            secretName=namespace + "-ca-cert",
+            serviceName="tsb-gateway-" + namespace,
+            content=curl_calls,
+        )
+        t.close()
+        save_file("generated/k8s-objects/traffic-gen.yaml", r)
 
-    pass
+        pass
+    except Exception as e:
+        print(e)
+        print('Error while generating the yamls.')
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

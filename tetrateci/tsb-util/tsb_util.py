@@ -4,6 +4,7 @@ import argparse
 import config
 import certs
 import tsb_objects, k8s_objects
+from marshmallow_dataclass import marshmallow
 
 def gen_common_tsb_objects(arguments, key):
     # workspace
@@ -188,8 +189,16 @@ def main():
         default="admin",
     )
     args = parser.parse_args()
-
-    configs = config.read_config_yaml(args.config)
+    try:
+        configs = config.read_config_yaml(args.config)
+    except marshmallow.exceptions.ValidationError as e:
+        print('Validation errors in the configuration file.')
+        print(e)
+        sys.exit(1)
+    except Exception as e:
+        print(e)
+        print('Unable to read the config file.')
+        sys.exit(1)
 
     if configs.provider not in ["aws", "others"]:
         print(
@@ -197,34 +206,45 @@ def main():
         )
         sys.exit(1)
 
-    certs.create_root_cert()
+    try:
+        certs.create_root_cert()
+    except Exception as e:
+        print(e)
+        print('Error while generating certs')
+        sys.exit(1)
 
-    os.makedirs("generated/", exist_ok=True)
-    tenant_set = set()
-    cluster_list = []
+    try:
+        os.makedirs("generated/", exist_ok=True)
+        tenant_set = set()
+        cluster_list = []
 
-    for appconfig in configs.app:
-        for replica in appconfig.replicas:
-            tenant_set.add(replica.tenant_id)
-        if appconfig.cluster_name in cluster_list:
-            print("Multiple entries for the same cluster found, please fix.")
-        cluster_list.append(appconfig.cluster_name)
 
-    for tenant_id in tenant_set:
-        tenant_name = f"tenant{tenant_id}"
-        tsb_objects.generate_tenant(
-            {"orgName": configs.org, "tenantName": tenant_name},
-            f"generated/tenant{tenant_id}.yaml",
-        )
+        for appconfig in configs.app:
+            for replica in appconfig.replicas:
+                tenant_set.add(replica.tenant_id)
+            if appconfig.cluster_name in cluster_list:
+                print("Multiple entries for the same cluster found, please fix.")
+            cluster_list.append(appconfig.cluster_name)
 
-    for appconfig in configs.app:
-        install_bookinfo(
-            appconfig,
-            args.password,
-            configs.org,
-            configs.provider,
-            configs.tctl_version,
-        )
+        for tenant_id in tenant_set:
+            tenant_name = f"tenant{tenant_id}"
+            tsb_objects.generate_tenant(
+                {"orgName": configs.org, "tenantName": tenant_name},
+                f"generated/tenant{tenant_id}.yaml",
+            )
+
+        for appconfig in configs.app:
+            install_bookinfo(
+                appconfig,
+                args.password,
+                configs.org,
+                configs.provider,
+                configs.tctl_version,
+            )
+    except Exception as e:
+        print(e)
+        print('Unknown error occurred while installing bookinfo.')
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
