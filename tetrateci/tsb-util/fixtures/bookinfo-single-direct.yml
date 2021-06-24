@@ -1,0 +1,4 @@
+count: 3
+org: "tetrate"
+cluster: "demo"
+mode: "direct"
