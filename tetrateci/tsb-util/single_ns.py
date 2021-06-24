@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from marshmallow_dataclass import class_schema, marshmallow
 import certs
 import tsb_objects, k8s_objects, common
+import shutil
 
 @dataclass
 class config:
@@ -54,7 +55,8 @@ def main():
     )
     args = parser.parse_args()
     folder = args.folder
-
+    os.makedirs(f"{folder}", exist_ok=True)
+    shutil.copy2(args.config, f"{folder}/config.yaml")
     try:
         conf = read_config_yaml(args.config)
     except marshmallow.exceptions.ValidationError as e:

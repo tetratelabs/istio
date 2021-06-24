@@ -5,6 +5,7 @@ import config
 import certs
 import tsb_objects, k8s_objects, common
 from marshmallow_dataclass import marshmallow
+import shutil
 
 def gen_common_tsb_objects(arguments, key, folder):
     # workspace
@@ -192,6 +193,8 @@ def main():
     )
     args = parser.parse_args()
     folder = args.folder
+    os.makedirs(f"{folder}", exist_ok=True)
+    shutil.copy2(args.config, f"{folder}/config.yaml")
     try:
         configs = config.read_config_yaml(args.config)
     except marshmallow.exceptions.ValidationError as e:
