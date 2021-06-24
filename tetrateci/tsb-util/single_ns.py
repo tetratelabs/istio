@@ -51,7 +51,7 @@ def main():
 
     tenant = "tenant0"
     workspace = "htbnt0ws0"
-    namespace = f"t0w0{conf.cluster}htbnfnb0"
+    namespace = f"t0w0{conf.cluster}htbnnb0f"
     gateway_group = "htbnt0w0bgg0"
     traffic_group = "htbnt0w0btg0"
     security_group = "htbnt0w0bsg0"
@@ -131,7 +131,7 @@ def main():
     template = Template(t.read())
     r = template.render(
         ns=namespace,
-        saName=f"{namespace}-trafficegen-sa",
+        saName=f"{namespace}-trafficgen-sa",
         secretName=namespace + "-ca-cert",
         serviceName="tsb-gateway-" + namespace,
         content=curl_calls,
