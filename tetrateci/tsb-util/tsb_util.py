@@ -86,9 +86,9 @@ def install_bookinfo(conf, password, org, provider="others", tctl_ver="1.2.0"):
             os.makedirs("generated/tsb-k8s-objects/" + key, exist_ok=True)
 
             namespaces = {
-                "product": f"t{tenant_id}w{count}{conf.cluster_name}bkiffn{mode}0",
-                "ratings": f"t{tenant_id}w{count}{conf.cluster_name}bkifmn{mode}0",
-                "reviews": f"t{tenant_id}w{count}{conf.cluster_name}bkifbn{mode}0",
+                "product": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}f0",
+                "ratings": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}m0",
+                "reviews": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}b0",
             }
 
             gateway_group = f"bkift{tenant_id}w{count}{mode}gg0"

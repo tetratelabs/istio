@@ -63,7 +63,7 @@ def main():
 
     tenant = "tenant0"
     workspace = "bkift0ws0"
-    namespace = f"t0w0{conf.cluster}bkiffn{'d' if conf.mode == 'direct' else 'b'}0"
+    namespace = f"t0w0{conf.cluster}bkifn{'d' if conf.mode == 'direct' else 'b'}0f"
     gateway_group = f"bkifot0w0bgg0"
     traffic_group = f"bkift0w0btg0"
     security_group = f"bkift0w0bsg0"
