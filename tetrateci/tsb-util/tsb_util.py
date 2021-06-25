@@ -188,7 +188,7 @@ def main():
     )
     parser.add_argument(
         "--folder",
-        help="folder where the {folder} files would be stored",
+        help="folder where the generated files would be stored",
         default=common.default_folder(),
     )
     args = parser.parse_args()
