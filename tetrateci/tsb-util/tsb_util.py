@@ -19,8 +19,8 @@ def gen_common_tsb_objects(arguments, key, folder):
     tsb_objects.generate_perm(arguments, f"{folder}/tsb-objects/{key}/perm.yaml")
 
 def gen_bridge_specific_objects(arguments, key, folder):
-    os.makedirs(f"{folder}/tsb-objects/" + key + "/bridged", exist_ok=True)
-    os.makedirs(f"{folder}/k8s-objects/" + key + "/bridged", exist_ok=True)
+    os.makedirs(f"{folder}/tsb-objects/{key}/bridged", exist_ok=True)
+    os.makedirs(f"{folder}/k8s-objects/{key}", exist_ok=True)
 
     tsb_objects.generate_bridged_security(
         arguments, f"{folder}/tsb-objects/{key}/bridged/security.yaml"
@@ -37,7 +37,7 @@ def gen_bridge_specific_objects(arguments, key, folder):
 
 def gen_direct_specific_objects(arguments, key, folder):
     os.makedirs(f"{folder}/tsb-objects/{key}/direct", exist_ok=True)
-    os.makedirs(f"{folder}/k8s-objects/{key}/direct", exist_ok=True)
+    os.makedirs(f"{folder}/k8s-objects/{key}", exist_ok=True)
 
     # reviews virtual service
     tsb_objects.generate_direct_reviews_vs(
