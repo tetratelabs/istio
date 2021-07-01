@@ -1,3 +1,4 @@
 count: 4
 org: "tetrate"
 cluster: "demo"
+mode: "direct"

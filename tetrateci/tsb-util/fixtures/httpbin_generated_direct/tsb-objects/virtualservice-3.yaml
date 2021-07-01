@@ -1,0 +1,23 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  annotations:
+    tsb.tetrate.io/gatewayGroup: htbnt0w0dgg0
+    tsb.tetrate.io/tenant: tenant0
+    tsb.tetrate.io/organization: tetrate
+    tsb.tetrate.io/workspace: htbnt0ws0
+  name: httpbin-virtualservice-3
+  namespace: t0w0demohtdnnb0f
+spec:
+  exportTo:
+  - .
+  gateways:
+  - t0w0demohtdnnb0f/tsb-gateway
+  hosts:
+  - httpbin3.tetrate.test.com
+  http:
+  - name: http
+    route:
+    - destination:
+        host: httpbin3.t0w0demohtdnnb0f.svc.cluster.local
+      weight: 100

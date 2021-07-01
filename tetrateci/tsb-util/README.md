@@ -66,8 +66,9 @@ Same as above `config` is mandatory, though the configuration is far simpler tha
 count: 4
 org: "tetrate"
 cluster: "demo"
+mode: "bridged" # can be "direct" or "bridged"
 ```
-Number of instances of helloworld we want, the organisation and the cluster name.
+Number of instances of helloworld we want, the organisation and the cluster name. In addition to that, we get an option to chose modes in the config.
 
 The difference between this script and the previous one is, this just installs a single service called httpbin multiple times in a single namespace with different names. It also uses a single gateway and the traffic is routed based on the hostname provided. For SSL it uses a wildcard certificate just to make things a bit simpler to understand. And unlike previous one, it dumps everything on `tsb_objects` and `k8s_objects` no need to distinguish between different installs.
 
@@ -76,7 +77,7 @@ The difference between this script and the previous one is, this just installs a
 ```bash
 pipenv run python bookinfo-single-gw.py --config bookinfo-single.example.yml --folder mango
 ```
-It is exactly the same thing as httpbin one but for bookinfo. In addition to that, we get an option to chose modes in the config.
+It is exactly the same thing as httpbin one but for bookinfo.
 ```yaml
 count: 3
 org: "tetrate"

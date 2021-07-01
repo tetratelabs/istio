@@ -56,18 +56,35 @@ def main():
     print(">> 1. tsb_utils test completed successfully.")
     # Doing clean up
     shutil.rmtree(generated_folder)
+
     shutil.copytree("./fixtures/test_cert", generated_folder + "/cert")
     # testing single_ns.py
     os.system(
-        "python single_ns.py --config ./fixtures/httpbin-config.yml --folder "
+        "python single_ns.py --config ./fixtures/httpbin-config-direct.yml --folder "
         + generated_folder
     )
     assert (
-        are_dir_trees_equal("./fixtures/httpbin_generated", generated_folder) == True
-    ), "single_ns.py test failed."
-    print(">> 2. single_ns.py test completed successfully.")
+        are_dir_trees_equal("./fixtures/httpbin_generated_direct", generated_folder)
+        == True
+    ), "single_ns.py direct test failed."
+    print(">> 2. single_ns.py direct test completed successfully.")
     # Doing clean up
     shutil.rmtree(generated_folder)
+
+    shutil.copytree("./fixtures/test_cert", generated_folder + "/cert")
+    # testing single_ns.py
+    os.system(
+        "python single_ns.py --config ./fixtures/httpbin-config-bridged.yml --folder "
+        + generated_folder
+    )
+    assert (
+        are_dir_trees_equal("./fixtures/httpbin_generated_bridged", generated_folder)
+        == True
+    ), "single_ns.py bridged test failed."
+    print(">> 2. single_ns.py bridged test completed successfully.")
+    # Doing clean up
+    shutil.rmtree(generated_folder)
+
     shutil.copytree("./fixtures/test_cert", generated_folder + "/cert")
     # testing bookinfo-single-gw.py
     os.system(
@@ -83,6 +100,7 @@ def main():
     print(">> 3.1 bookinfo-single.yaml direct mode test completed successfully.")
     # Doing clean up
     shutil.rmtree(generated_folder)
+
     shutil.copytree("./fixtures/test_cert", generated_folder + "/cert")
     os.system(
         "python bookinfo-single-gw.py --config ./fixtures/bookinfo-single-bridged.yml --folder "
