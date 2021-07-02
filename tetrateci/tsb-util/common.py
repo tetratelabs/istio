@@ -2,6 +2,7 @@ import os
 import sys
 from jinja2 import Template
 import time
+import yaml
 
 script_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -22,3 +23,7 @@ def generate_yaml(template, args, filepath):
 
 def default_folder():
     return int(time.time())
+
+def dump_yaml(fname, content):
+    with open(fname, "w") as f:
+        yaml.dump(content, f)

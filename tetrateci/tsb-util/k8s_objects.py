@@ -19,3 +19,7 @@ def generate_trafficgen(arguments, filepath):
 def generate_bookinfo_namespaces(arguments, filepath):
     template = f"{script_path}/templates/k8s-objects/namespaces.yaml"
     generate_yaml(template, arguments, filepath)
+
+def generate_httpbin(arguments, filepath):
+    template = f"{script_path}/templates/k8s-objects/httpbin.yaml"
+    generate_yaml(template, arguments, filepath)

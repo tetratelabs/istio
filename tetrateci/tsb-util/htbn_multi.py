@@ -25,31 +25,15 @@ def gen_bridge_specific_objects(arguments, key, folder):
     tsb_objects.generate_bridged_security(
         arguments, f"{folder}/tsb-objects/{key}/bridged/security.yaml"
     )
-    tsb_objects.generate_bridged_serviceroute(
-        arguments, f"{folder}/tsb-objects/{key}/bridged/serviceroute.yaml"
-    )
+
     tsb_objects.generate_bridged_gateway(
         arguments, f"{folder}/tsb-objects/{key}/bridged/gateway.yaml"
-    )
-    tsb_objects.generate_brigded_servicerouteeditor(
-        arguments, f"{folder}/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
     )
 
 def gen_direct_specific_objects(arguments, key, folder):
     os.makedirs(f"{folder}/tsb-objects/{key}/direct", exist_ok=True)
     os.makedirs(f"{folder}/k8s-objects/{key}", exist_ok=True)
 
-    # reviews virtual service
-    tsb_objects.generate_direct_reviews_vs(
-        arguments, f"{folder}/tsb-objects/{key}/direct/reviews_vs.yaml"
-    )
-    tsb_objects.generate_direct_servicerouteeditor(
-        arguments, f"{folder}/tsb-k8s-objects/{key}/servicerouteeditor.yaml"
-    )
-    # destination rules
-    tsb_objects.generate_direct_dr(
-        arguments, f"{folder}/tsb-objects/{key}/direct/destinationrule.yaml"
-    )
     # virtual service for product page
     tsb_objects.generate_direct_vs(
         arguments, f"{folder}/tsb-objects/{key}/direct/virtualservice.yaml"
@@ -59,12 +43,9 @@ def gen_direct_specific_objects(arguments, key, folder):
         arguments, f"{folder}/tsb-objects/{key}/direct/gateway.yaml"
     )
 
-def install_bookinfo(
+def install_httpbin(
     conf,
-    password,
     org,
-    provider="others",
-    tctl_ver="1.2.0",
     folder=common.default_folder(),
 ):
     count = 0
@@ -89,12 +70,7 @@ def install_bookinfo(
             os.makedirs(f"{folder}/tsb-k8s-objects/{key}", exist_ok=True)
             print(folder)
 
-            namespaces = {
-                "product": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}0f",
-                "ratings": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}0m",
-                "reviews": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}0b",
-            }
-
+            namespaces = f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}0f"
             gateway_group = f"bkift{tenant_id}w{count}{mode}gg0"
             traffic_group = f"bkift{tenant_id}w{count}{mode}tg0"
             security_group = f"bkift{tenant_id}w{count}{mode}sg0"
@@ -109,34 +85,37 @@ def install_bookinfo(
                 "trafficGroupName": traffic_group,
                 "securityGroupName": security_group,
                 "mode": current_mode.upper(),
-                "securitySettingName": "bookinfo-security-setting",
-                "reviewsHostFQDN": f"reviews.{namespaces['reviews']}.svc.cluster.local",
-                "serviceRouteName": "bookinfo-serviceroute",
-                "gatewayName": f"{namespaces['product']}-gateway",
-                "hostname": f"{namespaces['product']}.tetrate.test.com",
-                "gwSecretName": f"{namespaces['product']}-credential",
-                "productHostFQDN": f"productpage.{namespaces['product']}.svc.cluster.local",
-                "password": password,
-                "servicerouteSAName": f"{namespaces['reviews']}-editor",
-                "servicerouteEditorPodName": f"{namespaces['reviews']}-editorpod",
-                "provider": provider,
-                "tctlVersion": tctl_ver,
-                "destinationruleName": "bookinfo-destinationrule",
-                "destinationFQDN": f"productpage.{namespaces['product']}.svc.cluster.local",
-                "virtualserviceName": "bookinfo-virtualservice",
+                "securitySettingName": "httpbin-security-setting",
+                "gatewayName": f"{namespaces}-gateway",
+                "hostname": f"{namespaces}.tetrate.test.com",
+                "gwSecretName": f"{namespaces}-credential",
+                "productHostFQDN": f"httpbin.{namespaces}.svc.cluster.local",
+                "destinationFQDN": f"httpbin.{namespaces}.svc.cluster.local",
+                "virtualserviceName": "httpbin-virtualservice",
                 "ipType": "InternalIP"
                 if conf.traffic_gen_ip == "internal"
                 else "ExternalIP",
+                "name": "httpbin",
+                "namespace": namespaces,
             }
 
-            k8s_objects.generate_bookinfo(
-                arguments, f"{folder}/k8s-objects/{key}/bookinfo.yaml"
+            k8s_objects.generate_httpbin(
+                arguments, f"{folder}/k8s-objects/{key}/httpbin.yaml"
             )
 
             gen_common_tsb_objects(arguments, key, folder)
 
-            k8s_objects.generate_bookinfo_namespaces(
-                arguments, f"{folder}/k8s-objects/{key}/01namespaces.yaml"
+            namespace_yaml = {
+                "apiVersion": "v1",
+                "kind": "Namespace",
+                "metadata": {
+                    "labels": {"istio-injection": "enabled"},
+                    "name": namespaces,
+                },
+            }
+
+            common.dump_yaml(
+                f"{folder}/k8s-objects/{key}/01namespace.yaml", namespace_yaml
             )
 
             if current_mode == "bridged":
@@ -148,15 +127,15 @@ def install_bookinfo(
                 arguments, f"{folder}/k8s-objects/{key}/ingress.yaml"
             )
 
-            certs.create_private_key(namespaces["product"], folder)
-            certs.create_cert(namespaces["product"], folder)
+            certs.create_private_key(namespaces, folder)
+            certs.create_cert(namespaces, folder)
             certs.create_secret(
-                namespaces["product"], f"{folder}/k8s-objects/{key}/secret.yaml", folder
+                namespaces, f"{folder}/k8s-objects/{key}/secret.yaml", folder
             )
 
             arguments["secretName"] = certs.create_trafficgen_secret(
-                namespaces["product"],
-                f"{folder}/k8s-objects/{key}/{namespaces['product']}-secret.yaml",
+                namespaces,
+                f"{folder}/k8s-objects/{key}/{namespaces}-secret.yaml",
                 folder,
             )
 
@@ -174,18 +153,14 @@ def install_bookinfo(
     return count
 
 def main():
-    parser = argparse.ArgumentParser(description="Spin up bookinfo instances")
+    parser = argparse.ArgumentParser(description="Spin up httpbin instances")
 
     parser.add_argument(
         "--config",
-        help="the yaml configuration for the bookinfo instances",
+        help="the yaml configuration for the httpbin instances",
         required=True,
     )
-    parser.add_argument(
-        "--password",
-        help="password for the admin user in the tsb instance",
-        default="admin",
-    )
+
     parser.add_argument(
         "--folder",
         help="folder where the generated files would be stored",
@@ -238,25 +213,15 @@ def main():
             )
 
         for appconfig in configs.app:
-            install_bookinfo(
+            install_httpbin(
                 appconfig,
-                args.password,
                 configs.org,
-                configs.provider,
-                configs.tctl_version,
                 folder,
             )
     except Exception as e:
         print(e)
-        print("Unknown error occurred while installing bookinfo.")
+        print("Unknown error occurred while installing httpbin.")
         sys.exit(1)
 
 if __name__ == "__main__":
     main()
-
-"""
-tenant = tenant-<id>
-workspace = <app>-t<tenant_id>-ws<id>
-groups = <app>-t<tenant_id>-w<id>-<mode>-<type><id>
-namespace = t<tenant_id>-w<workspace_id>-<cluster_name>-<mode>-<app>-<type>-n<id>
-"""
