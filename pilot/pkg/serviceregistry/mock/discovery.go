@@ -47,11 +47,12 @@ func NewDiscovery(services map[host.Name]*model.Service, versions int) *ServiceD
 }
 
 // MakeService creates a memory service
-func MakeService(hostname host.Name, address string, serviceAccounts []string) *model.Service {
+func MakeService(hostname host.Name, address string, serviceAccounts []string, clusterID string) *model.Service {
 	return &model.Service{
 		CreationTime:    time.Now(),
 		Hostname:        hostname,
 		Address:         address,
+		ClusterVIPs:     map[string]string{clusterID: address},
 		ServiceAccounts: serviceAccounts,
 		Ports: []*model.Port{
 			{
@@ -219,7 +220,6 @@ func (sd *ServiceDiscovery) GetProxyServiceInstances(node *model.Proxy) []*model
 					}
 				}
 			}
-
 		}
 	}
 	return out
@@ -245,18 +245,14 @@ func (sd *ServiceDiscovery) GetIstioServiceAccounts(svc *model.Service, ports []
 
 func (sd *ServiceDiscovery) NetworkGateways() map[string][]*model.Gateway {
 	// TODO use logic from kube controller if needed
-	panic("implement me")
+	return map[string][]*model.Gateway{}
 }
 
 type Controller struct{}
 
-func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) error {
-	return nil
-}
+func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) {}
 
-func (c *Controller) AppendWorkloadHandler(f func(*model.WorkloadInstance, model.Event)) error {
-	return nil
-}
+func (c *Controller) AppendWorkloadHandler(f func(*model.WorkloadInstance, model.Event)) {}
 
 func (c *Controller) Run(<-chan struct{}) {}
 

@@ -18,7 +18,6 @@ package vm
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -26,11 +25,10 @@ import (
 	"google.golang.org/genproto/googleapis/devtools/cloudtrace/v1"
 	loggingpb "google.golang.org/genproto/googleapis/logging/v2"
 	monitoring "google.golang.org/genproto/googleapis/monitoring/v3"
-	"gopkg.in/d4l3k/messagediff.v1"
 
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/echo"
-	edgespb "istio.io/istio/pkg/test/framework/components/stackdriver/edges"
+	"istio.io/istio/pkg/test/framework/components/stackdriver"
 	"istio.io/istio/pkg/test/util/retry"
 	"istio.io/pkg/log"
 )
@@ -59,14 +57,11 @@ func TestVMTelemetry(t *testing.T) {
 				// Verify log entry
 				gotLogs := gotLogEntry(wantLogEntry)
 
-				// Verify edges
-				gotEdges := gotTrafficAssertion(wantTrafficAssertion)
-
 				// verify traces
 				gotTraces := gotTrace(wantTrace)
 
-				if !(gotMetrics && gotLogs && gotEdges && gotTraces) {
-					return fmt.Errorf("did not receive all expected telemetry; status: metrics=%t, logs=%t, edges=%t, traces=%t", gotMetrics, gotLogs, gotEdges, gotTraces)
+				if !(gotMetrics && gotLogs && gotTraces) {
+					return fmt.Errorf("did not receive all expected telemetry; status: metrics=%t, logs=%t, traces=%t", gotMetrics, gotLogs, gotTraces)
 				}
 
 				return nil
@@ -125,11 +120,17 @@ func gotRequestCountMetrics(wantClient, wantServer *monitoring.TimeSeries) bool 
 		}
 	}
 
+	if !gotServer {
+		log.Errorf("incorrect metric: got %v\n want client %v\n", ts, wantServer)
+	}
+	if !gotClient {
+		log.Errorf("incorrect metric: got %v\n want client %v\n", ts, wantClient)
+	}
 	return gotServer && gotClient
 }
 
 func gotLogEntry(want *loggingpb.LogEntry) bool {
-	entries, err := sdInst.ListLogEntries()
+	entries, err := sdInst.ListLogEntries(stackdriver.ServerAccessLog)
 	if err != nil {
 		log.Errorf("failed to get list of log entries from stackdriver: %v", err)
 		return false
@@ -142,36 +143,6 @@ func gotLogEntry(want *loggingpb.LogEntry) bool {
 		}
 		log.Errorf("incorrect log: got %v\nwant %v", l, want)
 	}
-	return false
-}
-
-func gotTrafficAssertion(want *edgespb.TrafficAssertion) bool {
-	edges, err := sdInst.ListTrafficAssertions()
-	if err != nil {
-		log.Errorf("failed to get traffic assertions from stackdriver: %v", err)
-		return false
-	}
-
-	for _, ta := range edges {
-		srcUID := ta.Source.Uid
-		dstUID := ta.Destination.Uid
-
-		ta.Source.Location = ""
-		ta.Source.ClusterName = ""
-		ta.Source.Uid = ""
-		ta.Destination.Uid = ""
-
-		if diff, equal := messagediff.PrettyDiff(ta, want); !equal {
-			log.Errorf("different edge found: %v", diff)
-			continue
-		}
-
-		if strings.HasPrefix(dstUID, "//compute.googleapis.com/projects/test-project/zones/us-west1-c/instances/server-v1-") &&
-			strings.HasPrefix(srcUID, "kubernetes://client-v1-") {
-			return true
-		}
-	}
-
 	return false
 }
 

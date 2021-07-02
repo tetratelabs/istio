@@ -18,44 +18,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
-	"time"
 
 	. "github.com/onsi/gomega"
-	kubeApiAdmission "k8s.io/api/admissionregistration/v1beta1"
-	kubeApiCore "k8s.io/api/core/v1"
+	kubeApiAdmission "k8s.io/api/admissionregistration/v1"
 	kubeErrors "k8s.io/apimachinery/pkg/api/errors"
 	kubeApiMeta "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	dfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
-	kubeTypedAdmission "k8s.io/client-go/kubernetes/typed/admissionregistration/v1beta1"
+	kubeTypedAdmission "k8s.io/client-go/kubernetes/typed/admissionregistration/v1"
 	ktesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 
+	"istio.io/client-go/pkg/apis/networking/v1alpha3"
+	istiofake "istio.io/client-go/pkg/clientset/versioned/fake"
+	"istio.io/istio/pilot/pkg/keycertbundle"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/testcerts"
-	"istio.io/pkg/filewatcher"
 )
 
 var (
 	failurePolicyFail   = kubeApiAdmission.Fail
 	failurePolicyIgnore = kubeApiAdmission.Ignore
-
-	istiodEndpoint = &kubeApiCore.Endpoints{
-		ObjectMeta: kubeApiMeta.ObjectMeta{
-			Name:      istiod,
-			Namespace: namespace,
-		},
-		Subsets: []kubeApiCore.EndpointSubset{{
-			Addresses: []kubeApiCore.EndpointAddress{{
-				IP: "192.168.1.1",
-			}},
-		}},
-	}
 
 	unpatchedWebhookConfig = &kubeApiAdmission.ValidatingWebhookConfiguration{
 		TypeMeta: kubeApiMeta.TypeMeta{
@@ -160,91 +145,51 @@ func init() {
 type fakeController struct {
 	*Controller
 
-	endpointStore cache.Store
-	configStore   cache.Store
+	configStore cache.Store
 
-	caChangedCh chan bool
+	injectedMu sync.Mutex
 
-	injectedMu       sync.Mutex
-	injectedCABundle []byte
-
-	fakeWatcher *filewatcher.FakeWatcher
 	*fake.Clientset
-	dFakeClient     *dfake.FakeDynamicClient
-	reconcileDoneCh chan struct{}
+	istioFakeClient *istiofake.Clientset
 	client          kube.Client
 }
 
 const (
 	namespace = "istio-system"
 	istiod    = "istiod"
-	caPath    = "fakeCAPath"
 )
 
 func createTestController(t *testing.T) *fakeController {
 	fakeClient := kube.NewFakeClient()
+	watcher := &keycertbundle.Watcher{}
 	o := Options{
 		WatchedNamespace:  namespace,
-		ResyncPeriod:      time.Minute,
-		CAPath:            caPath,
 		WebhookConfigName: istiod,
 		ServiceName:       istiod,
+		CABundleWatcher:   watcher,
 	}
-
-	caChanged := make(chan bool, 10)
-	changed := func(path string, added bool) {
-		switch path {
-		case o.CAPath:
-			caChanged <- added
-		}
-	}
-
-	newFileWatcher, fakeWatcher := filewatcher.NewFakeWatcher(changed)
+	watcher.SetAndNotify(nil, nil, caBundle0)
 
 	fc := &fakeController{
-		caChangedCh:      caChanged,
-		injectedCABundle: caBundle0,
-		fakeWatcher:      fakeWatcher,
-		client:           fakeClient,
-		Clientset:        fakeClient.Kube().(*fake.Clientset),
-		dFakeClient:      fakeClient.Dynamic().(*dfake.FakeDynamicClient),
-		reconcileDoneCh:  make(chan struct{}, 100),
-	}
-
-	readFile := func(filename string) ([]byte, error) {
-		fc.injectedMu.Lock()
-		defer fc.injectedMu.Unlock()
-
-		switch filename {
-		case o.CAPath:
-			return fc.injectedCABundle, nil
-		}
-		return nil, os.ErrNotExist
-	}
-
-	reconcileDone := func() {
-		select {
-		case fc.reconcileDoneCh <- struct{}{}:
-		default:
-			t.Fatal("reconcile completion channel is stuck")
-		}
+		client:          fakeClient,
+		Clientset:       fakeClient.Kube().(*fake.Clientset),
+		istioFakeClient: fakeClient.Istio().(*istiofake.Clientset),
 	}
 
 	var err error
-	fc.Controller, err = newController(o, fakeClient, newFileWatcher, readFile, reconcileDone)
+	fc.Controller, err = newController(o, fakeClient)
 	if err != nil {
 		t.Fatalf("failed to create test controller: %v", err)
 	}
 	fakeClient.RunAndWait(make(chan struct{}))
 
-	fc.endpointStore = fakeClient.KubeInformer().Core().V1().Endpoints().Informer().GetStore()
-	fc.configStore = fakeClient.KubeInformer().Admissionregistration().V1beta1().ValidatingWebhookConfigurations().Informer().GetStore()
+	fc.configStore = fakeClient.KubeInformer().Admissionregistration().V1().ValidatingWebhookConfigurations().Informer().GetStore()
 
 	return fc
 }
 
 func (fc *fakeController) ValidatingWebhookConfigurations() kubeTypedAdmission.ValidatingWebhookConfigurationInterface {
-	return fc.client.AdmissionregistrationV1beta1().ValidatingWebhookConfigurations()
+	return fc.client.AdmissionregistrationV1().ValidatingWebhookConfigurations()
 }
 
 func reconcileHelper(t *testing.T, c *fakeController) {
@@ -268,19 +213,17 @@ func TestGreenfield(t *testing.T) {
 	g.Expect(c.ValidatingWebhookConfigurations().Get(context.TODO(), istiod, kubeApiMeta.GetOptions{})).
 		Should(Equal(webhookConfigWithCABundleIgnore), "no config update when endpoint not present")
 
-	_ = c.endpointStore.Add(istiodEndpoint)
-
 	// verify the webhook isn't updated if invalid config is accepted.
-	c.dFakeClient.PrependReactor("create", "gateways", func(action ktesting.Action) (bool, runtime.Object, error) {
-		return true, &unstructured.Unstructured{}, nil
+	c.istioFakeClient.PrependReactor("create", "gateways", func(action ktesting.Action) (bool, runtime.Object, error) {
+		return true, &v1alpha3.Gateway{}, nil
 	})
 	reconcileHelper(t, c)
 	g.Expect(c.ValidatingWebhookConfigurations().Get(context.TODO(), istiod, kubeApiMeta.GetOptions{})).
 		Should(Equal(webhookConfigWithCABundleIgnore), "no config update when endpoint invalid config is accepted")
 
 	// verify the webhook is updated after the controller can confirm invalid config is rejected.
-	c.dFakeClient.PrependReactor("create", "gateways", func(action ktesting.Action) (bool, runtime.Object, error) {
-		return true, &unstructured.Unstructured{}, kubeErrors.NewInternalError(errors.New("unknown error"))
+	c.istioFakeClient.PrependReactor("create", "gateways", func(action ktesting.Action) (bool, runtime.Object, error) {
+		return true, &v1alpha3.Gateway{}, kubeErrors.NewInternalError(errors.New("unknown error"))
 	})
 	reconcileHelper(t, c)
 	g.Expect(c.ValidatingWebhookConfigurations().Get(context.TODO(), istiod, kubeApiMeta.GetOptions{})).
@@ -288,8 +231,8 @@ func TestGreenfield(t *testing.T) {
 			"no config update when endpoint invalid config is rejected for an unknown reason")
 
 	// verify the webhook is updated after the controller can confirm invalid config is rejected.
-	c.dFakeClient.PrependReactor("create", "gateways", func(action ktesting.Action) (bool, runtime.Object, error) {
-		return true, &unstructured.Unstructured{}, kubeErrors.NewInternalError(errors.New(deniedRequestMessageFragment))
+	c.istioFakeClient.PrependReactor("create", "gateways", func(action ktesting.Action) (bool, runtime.Object, error) {
+		return true, &v1alpha3.Gateway{}, kubeErrors.NewInternalError(errors.New(deniedRequestMessageFragment))
 	})
 	reconcileHelper(t, c)
 	g.Expect(c.Actions()[0].Matches("update", "validatingwebhookconfigurations")).Should(BeTrue())
@@ -304,9 +247,8 @@ func TestCABundleChange(t *testing.T) {
 
 	_, _ = c.ValidatingWebhookConfigurations().Create(context.TODO(), unpatchedWebhookConfig, kubeApiMeta.CreateOptions{})
 	_ = c.configStore.Add(unpatchedWebhookConfig)
-	_ = c.endpointStore.Add(istiodEndpoint)
-	c.dFakeClient.PrependReactor("create", "gateways", func(action ktesting.Action) (bool, runtime.Object, error) {
-		return true, &unstructured.Unstructured{}, kubeErrors.NewInternalError(errors.New(deniedRequestMessageFragment))
+	c.istioFakeClient.PrependReactor("create", "gateways", func(action ktesting.Action) (bool, runtime.Object, error) {
+		return true, &v1alpha3.Gateway{}, kubeErrors.NewInternalError(errors.New(deniedRequestMessageFragment))
 	})
 	reconcileHelper(t, c)
 	g.Expect(c.ValidatingWebhookConfigurations().Get(context.TODO(), istiod, kubeApiMeta.GetOptions{})).
@@ -316,7 +258,7 @@ func TestCABundleChange(t *testing.T) {
 
 	// verify the config updates after injecting a cafile change
 	c.injectedMu.Lock()
-	c.injectedCABundle = caBundle1
+	c.o.CABundleWatcher.SetAndNotify(nil, nil, caBundle1)
 	c.injectedMu.Unlock()
 
 	webhookConfigAfterCAUpdate := webhookConfigWithCABundleFail.DeepCopyObject().(*kubeApiAdmission.ValidatingWebhookConfiguration)

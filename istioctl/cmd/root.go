@@ -51,9 +51,6 @@ const (
 	// Location to read istioctl defaults from
 	defaultIstioctlConfig = "$HOME/.istioctl/config.yaml"
 
-	//deprection messages to be suffixed to the deprecated commands
-	deprecatedMsg = "[Deprecated, it will be removed in Istio 1.9]"
-
 	// ExperimentalMsg indicate active development and not for production use warning.
 	ExperimentalMsg = `THIS COMMAND IS UNDER ACTIVE DEVELOPMENT AND NOT READY FOR PRODUCTION USE.`
 )
@@ -160,27 +157,19 @@ debug and diagnose their Istio mesh.
 
 	// Attach the Istio logging options to the command.
 	loggingOptions.AttachCobraFlags(rootCmd)
-	hiddenFlags := []string{"log_as_json", "log_rotate", "log_rotate_max_age", "log_rotate_max_backups",
-		"log_rotate_max_size", "log_stacktrace_level", "log_target", "log_caller", "log_output_level"}
+	hiddenFlags := []string{
+		"log_as_json", "log_rotate", "log_rotate_max_age", "log_rotate_max_backups",
+		"log_rotate_max_size", "log_stacktrace_level", "log_target", "log_caller", "log_output_level",
+	}
 	for _, opt := range hiddenFlags {
 		_ = rootCmd.PersistentFlags().MarkHidden(opt)
 	}
 
 	cmd.AddFlags(rootCmd)
-	registerCmd := register()
-	deprecate(registerCmd)
-	rootCmd.AddCommand(registerCmd)
-	deprecate(deregisterCmd)
-	rootCmd.AddCommand(deregisterCmd)
 
 	kubeInjectCmd := injectCommand()
 	hideInheritedFlags(kubeInjectCmd, "namespace")
 	rootCmd.AddCommand(kubeInjectCmd)
-
-	postInstallCmd := &cobra.Command{
-		Use:   "post-install",
-		Short: "Commands related to post-install",
-	}
 
 	experimentalCmd := &cobra.Command{
 		Use:     "experimental",
@@ -219,11 +208,10 @@ debug and diagnose their Istio mesh.
 
 	rootCmd.AddCommand(experimentalCmd)
 	rootCmd.AddCommand(proxyConfig())
-	experimentalCmd.AddCommand(istiodConfig())
+	rootCmd.AddCommand(adminCmd())
 	experimentalCmd.AddCommand(injectorCommand())
 
 	rootCmd.AddCommand(install.NewVerifyCommand())
-	experimentalCmd.AddCommand(install.NewPrecheckCommand())
 	experimentalCmd.AddCommand(AuthZ())
 	rootCmd.AddCommand(seeExperimentalCmd("authz"))
 	experimentalCmd.AddCommand(uninjectCommand())
@@ -231,26 +219,17 @@ debug and diagnose their Istio mesh.
 	experimentalCmd.AddCommand(describe())
 	experimentalCmd.AddCommand(addToMeshCmd())
 	experimentalCmd.AddCommand(removeFromMeshCmd())
-	vmBootstrapCmd := vmBootstrapCommand()
-	deprecate(vmBootstrapCmd)
-	experimentalCmd.AddCommand(vmBootstrapCmd)
 	experimentalCmd.AddCommand(waitCmd())
 	experimentalCmd.AddCommand(mesh.UninstallCmd(loggingOptions))
 	experimentalCmd.AddCommand(configCmd())
-	postInstallWebhookCmd := Webhook()
-	deprecate(postInstallWebhookCmd)
-	postInstallCmd.AddCommand(postInstallWebhookCmd)
 	experimentalCmd.AddCommand(workloadCommands())
-	experimentalCmd.AddCommand(postInstallCmd)
+	experimentalCmd.AddCommand(revisionCommand())
+	experimentalCmd.AddCommand(debugCommand())
+	experimentalCmd.AddCommand(preCheck())
 
 	analyzeCmd := Analyze()
 	hideInheritedFlags(analyzeCmd, "istioNamespace")
 	rootCmd.AddCommand(analyzeCmd)
-
-	convertIngressCmd := convertIngress()
-	deprecate(convertIngressCmd)
-	hideInheritedFlags(convertIngressCmd, "namespace", "istioNamespace")
-	rootCmd.AddCommand(convertIngressCmd)
 
 	dashboardCmd := dashboard()
 	hideInheritedFlags(dashboardCmd, "namespace", "istioNamespace")
@@ -261,7 +240,7 @@ debug and diagnose their Istio mesh.
 	rootCmd.AddCommand(manifestCmd)
 
 	operatorCmd := mesh.OperatorCmd()
-	hideInheritedFlags(operatorCmd, "charts")
+	hideInheritedFlags(operatorCmd, "namespace", "istioNamespace", "charts")
 	rootCmd.AddCommand(operatorCmd)
 
 	installCmd := mesh.InstallCmd(loggingOptions)
@@ -281,9 +260,6 @@ debug and diagnose their Istio mesh.
 	rootCmd.AddCommand(bugReportCmd)
 
 	experimentalCmd.AddCommand(multicluster.NewCreateRemoteSecretCommand())
-	multiclusterCmd := multicluster.NewMulticlusterCommand()
-	deprecate(multiclusterCmd)
-	experimentalCmd.AddCommand(multiclusterCmd)
 
 	rootCmd.AddCommand(collateral.CobraCommand(rootCmd, &doc.GenManHeader{
 		Title:   "Istio Control",
@@ -291,7 +267,7 @@ debug and diagnose their Istio mesh.
 		Manual:  "Istio Control",
 	}))
 
-	validateCmd := validate.NewValidateCommand(&istioNamespace)
+	validateCmd := validate.NewValidateCommand(&istioNamespace, &namespace)
 	hideInheritedFlags(validateCmd, "kubeconfig")
 	rootCmd.AddCommand(validateCmd)
 
@@ -385,9 +361,4 @@ func seeExperimentalCmd(name string) *cobra.Command {
 			return errors.New(msg)
 		},
 	}
-}
-
-// deprecate adds a suffix to command to indicate the command as Deprecated.
-func deprecate(cmd *cobra.Command) {
-	cmd.Short += " " + deprecatedMsg
 }

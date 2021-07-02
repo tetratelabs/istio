@@ -54,12 +54,12 @@ func (s *tcpInstance) Start(onReady OnReadyFunc) error {
 		}
 		config := &tls.Config{Certificates: []tls.Certificate{cert}}
 		// Listen on the given port and update the port if it changed from what was passed in.
-		listener, port, err = listenOnPortTLS(s.Port.Port, config)
+		listener, port, err = listenOnAddressTLS(s.ListenerIP, s.Port.Port, config)
 		// Store the actual listening port back to the argument.
 		s.Port.Port = port
 	} else {
 		// Listen on the given port and update the port if it changed from what was passed in.
-		listener, port, err = listenOnPort(s.Port.Port)
+		listener, port, err = listenOnAddress(s.ListenerIP, s.Port.Port)
 		// Store the actual listening port back to the argument.
 		s.Port.Port = port
 	}
@@ -139,12 +139,15 @@ func (s *tcpInstance) echo(conn net.Conn) {
 }
 
 func (s *tcpInstance) writeResponse(conn net.Conn) {
+	ip, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
 	// Write non-request fields specific to the instance
 	respFields := map[response.Field]string{
 		response.StatusCodeField:     response.StatusCodeOK,
 		response.ClusterField:        s.Cluster,
+		response.IstioVersionField:   s.IstioVersion,
 		response.ServiceVersionField: s.Version,
 		response.ServicePortField:    strconv.Itoa(s.Port.Port),
+		response.IPField:             ip,
 	}
 	for field, val := range respFields {
 		val := fmt.Sprintf("%s=%s\n", string(field), val)

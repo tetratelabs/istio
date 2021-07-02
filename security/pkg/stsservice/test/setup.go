@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc"
 
 	istioEnv "istio.io/istio/pkg/test/env"
+	"istio.io/istio/pkg/test/envoy"
 	xdsService "istio.io/istio/security/pkg/stsservice/mock"
 	stsServer "istio.io/istio/security/pkg/stsservice/server"
 	"istio.io/istio/security/pkg/stsservice/tokenmanager"
@@ -44,7 +45,7 @@ const (
 
 // Env manages test setup and teardown.
 type Env struct {
-	ProxySetup *istioEnv.TestSetup
+	ProxySetup *envoy.TestSetup
 	AuthServer *tokenBackend.AuthorizationServer
 
 	stsServer           *stsServer.Server
@@ -106,7 +107,7 @@ func SetupTest(t *testing.T, cb *xdsService.XDSCallbacks, testID uint16, enableC
 		initialToken: jwtToken,
 	}
 	// Set up test environment for Proxy
-	proxySetup := istioEnv.NewTestSetup(testID, t)
+	proxySetup := envoy.NewTestSetup(testID, t)
 	proxySetup.EnvoyTemplate = getDataFromFile(istioEnv.IstioSrc+"/security/pkg/stsservice/test/testdata/bootstrap.yaml", t)
 	// Set up credential files for bootstrap config
 	if err := WriteDataToFile(proxySetup.JWTTokenPath(), jwtToken); err != nil {
@@ -145,9 +146,11 @@ func SetupTest(t *testing.T, cb *xdsService.XDSCallbacks, testID uint16, enableC
 	env.ProxyListenerPort = int(proxySetup.Ports().ClientProxyPort)
 	ls := &xdsService.DynamicListener{Port: env.ProxyListenerPort}
 	xds, err := xdsService.StartXDSServer(
-		xdsService.XDSConf{Port: int(proxySetup.Ports().DiscoveryPort),
+		xdsService.XDSConf{
+			Port:     int(proxySetup.Ports().DiscoveryPort),
 			CertFile: istioEnv.IstioSrc + "/security/pkg/stsservice/test/testdata/server-certificate.crt",
-			KeyFile:  istioEnv.IstioSrc + "/security/pkg/stsservice/test/testdata/server-key.key"}, cb, ls, true)
+			KeyFile:  istioEnv.IstioSrc + "/security/pkg/stsservice/test/testdata/server-key.key",
+		}, cb, ls, true)
 	if err != nil {
 		t.Fatalf("failed to start XDS server: %v", err)
 	}
@@ -242,7 +245,7 @@ func setupSTS(stsPort int, backendURL string, enableCache bool) (*stsServer.Serv
 	// Create token exchange Google plugin
 	tokenExchangePlugin, _ := google.CreateTokenManagerPlugin(nil, tokenBackend.FakeTrustDomain,
 		tokenBackend.FakeProjectNum, tokenBackend.FakeGKEClusterURL, enableCache)
-	federatedTokenTestingEndpoint := backendURL + "/v1/identitybindingtoken"
+	federatedTokenTestingEndpoint := backendURL + "/v1/token"
 	accessTokenTestingEndpoint := backendURL + "/v1/projects/-/serviceAccounts/service-%s@gcp-sa-meshdataplane.iam.gserviceaccount.com:generateAccessToken"
 	tokenExchangePlugin.SetEndpoints(federatedTokenTestingEndpoint, accessTokenTestingEndpoint)
 	// Create token manager

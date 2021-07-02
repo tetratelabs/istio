@@ -18,15 +18,14 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	klabels "k8s.io/apimachinery/pkg/labels"
-	coreinformers "k8s.io/client-go/informers/core/v1"
 	listerv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry/kube"
+	"istio.io/istio/pilot/pkg/serviceregistry/kube/controller/filter"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/labels"
-	"istio.io/pkg/log"
 )
 
 type endpointsController struct {
@@ -35,14 +34,14 @@ type endpointsController struct {
 
 var _ kubeEndpointsController = &endpointsController{}
 
-func newEndpointsController(c *Controller, informer coreinformers.EndpointsInformer) *endpointsController {
+func newEndpointsController(c *Controller, informer filter.FilteredSharedIndexInformer) *endpointsController {
 	out := &endpointsController{
 		kubeEndpoints: kubeEndpoints{
 			c:        c,
-			informer: informer.Informer(),
+			informer: informer,
 		},
 	}
-	registerHandlers(informer.Informer(), c.queue, "Endpoints", out.onEvent, endpointsEqual)
+	c.registerHandlers(informer, "Endpoints", out.onEvent, endpointsEqual)
 	return out
 }
 
@@ -70,8 +69,7 @@ func endpointServiceInstances(c *Controller, endpoints *v1.Endpoints, proxy *mod
 	c.RUnlock()
 
 	if svc != nil {
-		podIP := proxy.IPAddresses[0]
-		pod := c.pods.getPodByIP(podIP)
+		pod := c.pods.getPodByProxy(proxy)
 		builder := NewEndpointBuilder(c, pod)
 
 		for _, ss := range endpoints.Subsets {
@@ -106,7 +104,7 @@ func endpointServiceInstances(c *Controller, endpoints *v1.Endpoints, proxy *mod
 }
 
 func (e *endpointsController) InstancesByPort(c *Controller, svc *model.Service, reqSvcPort int, labelsList labels.Collection) []*model.ServiceInstance {
-	item, exists, err := e.informer.GetStore().GetByKey(kube.KeyFunc(svc.Attributes.Name, svc.Attributes.Namespace))
+	item, exists, err := e.informer.GetIndexer().GetByKey(kube.KeyFunc(svc.Attributes.Name, svc.Attributes.Namespace))
 	if err != nil {
 		log.Infof("get endpoints(%s, %s) => error %v", svc.Attributes.Name, svc.Attributes.Namespace, err)
 		return nil
@@ -125,7 +123,8 @@ func (e *endpointsController) InstancesByPort(c *Controller, svc *model.Service,
 	for _, ss := range ep.Subsets {
 		for _, ea := range ss.Addresses {
 			var podLabels labels.Instance
-			pod := c.pods.getPodByIP(ea.IP)
+			// TODO(@hzxuzhonghu): handle pod occurs later than endpoint
+			pod := c.getPod(ea.IP, &ep.ObjectMeta, ea.TargetRef)
 			if pod != nil {
 				podLabels = pod.Labels
 			}
@@ -155,7 +154,7 @@ func (e *endpointsController) InstancesByPort(c *Controller, svc *model.Service,
 	return out
 }
 
-func (e *endpointsController) getInformer() cache.SharedIndexInformer {
+func (e *endpointsController) getInformer() filter.FilteredSharedIndexInformer {
 	return e.informer
 }
 
@@ -174,10 +173,10 @@ func (e *endpointsController) onEvent(curr interface{}, event model.Event) error
 		}
 	}
 
-	return processEndpointEvent(e.c, e, ep.Name, ep.Namespace, event, curr)
+	return processEndpointEvent(e.c, e, ep.Name, ep.Namespace, event, ep)
 }
 
-func (e *endpointsController) forgetEndpoint(endpoint interface{}) {
+func (e *endpointsController) forgetEndpoint(endpoint interface{}) []*model.IstioEndpoint {
 	ep := endpoint.(*v1.Endpoints)
 	key := kube.KeyFunc(ep.Name, ep.Namespace)
 	for _, ss := range ep.Subsets {
@@ -185,6 +184,7 @@ func (e *endpointsController) forgetEndpoint(endpoint interface{}) {
 			e.c.pods.endpointDeleted(key, ea.IP)
 		}
 	}
+	return nil
 }
 
 func (e *endpointsController) buildIstioEndpoints(endpoint interface{}, host host.Name) []*model.IstioEndpoint {

@@ -22,7 +22,6 @@ import (
 
 	envoy_corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	xdsapi "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	"github.com/golang/protobuf/ptypes"
 	structpb "github.com/golang/protobuf/ptypes/struct"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -75,12 +74,12 @@ func getRemoteInfoWrapper(pc **cobra.Command, opts *clioptions.ControlPlaneOptio
 	return func() (*istioVersion.MeshInfo, error) {
 		remInfo, err := getRemoteInfo(*opts)
 		if err != nil {
-			fmt.Fprintf((*pc).OutOrStdout(), "%v\n", err)
+			fmt.Fprintf((*pc).OutOrStderr(), "%v\n", err)
 			// Return nil so that the client version is printed
 			return nil, nil
 		}
 		if remInfo == nil {
-			fmt.Fprintf((*pc).OutOrStdout(), "Istio is not present in the cluster with namespace %q\n", istioNamespace)
+			fmt.Fprintf((*pc).OutOrStderr(), "Istio is not present in the cluster with namespace %q\n", istioNamespace)
 		}
 		return remInfo, err
 	}
@@ -197,7 +196,7 @@ func xdsProxyVersionWrapper(xdsResponse **xdsapi.DiscoveryResponse) func() (*[]i
 			switch resource.TypeUrl {
 			case "type.googleapis.com/envoy.config.core.v3.Node":
 				node := envoy_corev3.Node{}
-				err := ptypes.UnmarshalAny(resource, &node)
+				err := resource.UnmarshalTo(&node)
 				if err != nil {
 					return nil, fmt.Errorf("could not unmarshal Node: %w", err)
 				}

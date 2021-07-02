@@ -33,16 +33,10 @@ var (
 
 	validationWebhookConfigName = env.RegisterStringVar("VALIDATION_WEBHOOK_CONFIG_NAME", validationWebhookConfigNameTemplate,
 		"Name of validatingwebhookconfiguration to patch. Empty will skip using cluster admin to patch.")
-
-	validationEnabled = env.RegisterBoolVar("VALIDATION_ENABLED", true, "Enable config validation handler.")
 )
 
 func (s *Server) initConfigValidation(args *PilotArgs) error {
 	if s.kubeClient == nil {
-		return nil
-	}
-
-	if !validationEnabled.Get() {
 		return nil
 	}
 
@@ -68,13 +62,9 @@ func (s *Server) initConfigValidation(args *PilotArgs) error {
 			webhookConfigName = strings.ReplaceAll(validationWebhookConfigNameTemplate, validationWebhookConfigNameTemplateVar, args.Namespace)
 		}
 
-		caBundlePath := s.caBundlePath
-		if hasCustomTLSCerts(args.ServerOptions.TLSOptions) {
-			caBundlePath = args.ServerOptions.TLSOptions.CaCertFile
-		}
 		o := controller.Options{
 			WatchedNamespace:  args.Namespace,
-			CAPath:            caBundlePath,
+			CABundleWatcher:   s.istiodCertBundleWatcher,
 			WebhookConfigName: webhookConfigName,
 			ServiceName:       "istiod",
 		}

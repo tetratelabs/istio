@@ -25,6 +25,7 @@ const (
 	ExportToNamespaceLocal    = "."
 	ExportToAllNamespaces     = "*"
 	IstioProxyName            = "istio-proxy"
+	IstioOperator             = "istio-operator"
 	MeshGateway               = "mesh"
 	Wildcard                  = "*"
 	MeshConfigName            = "istio"
@@ -32,6 +33,4 @@ const (
 	InjectionLabelEnableValue = "enabled"
 )
 
-var (
-	fqdnPattern = regexp.MustCompile(`^(.+)\.(.+)\.svc\.cluster\.local$`)
-)
+var fqdnPattern = regexp.MustCompile(`^(.+)\.(.+)\.svc\.cluster\.local$`)

@@ -20,13 +20,16 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	istioKube "istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/test/env"
+	"istio.io/istio/pkg/test/framework/components/cluster"
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/resource"
 	testKube "istio.io/istio/pkg/test/kube"
@@ -37,6 +40,99 @@ const (
 	appName    = "zipkin"
 	tracesAPI  = "/api/v2/traces?limit=%d&spanName=%s&annotationQuery=%s"
 	zipkinPort = 9411
+
+	remoteZipkinEntry = `
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: tracing-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http-tracing
+      protocol: HTTP
+    hosts:
+    - "tracing.{INGRESS_DOMAIN}"
+  - port:
+      number: 9411
+      name: http-tracing-span
+      protocol: HTTP
+    hosts:
+    - "tracing.{INGRESS_DOMAIN}"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: tracing-vs
+  namespace: istio-system
+spec:
+  hosts:
+  - "tracing.{INGRESS_DOMAIN}"
+  gateways:
+  - tracing-gateway
+  http:
+  - match:
+    - port: 80
+    route:
+    - destination:
+        host: tracing
+        port:
+          number: 80
+  - match:
+    - port: 9411
+    route:
+    - destination:
+        host: tracing
+        port:
+          number: 9411
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: tracing
+  namespace: istio-system
+spec:
+  host: tracing
+  trafficPolicy:
+    tls:
+      mode: DISABLE
+---`
+
+	extServiceEntry = `
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: zipkin
+spec:
+  hosts:
+  # must be of form name.namespace.global
+  - zipkin.istio-system.global
+  # Treat remote cluster services as part of the service mesh
+  # as all clusters in the service mesh share the same root of trust.
+  location: MESH_INTERNAL
+  ports:
+  - name: http-tracing-span
+    number: 9411
+    protocol: http
+  resolution: DNS
+  addresses:
+  # the IP address to which zipkin.istio-system.global will resolve to
+  # must be unique for each remote service, within a given cluster.
+  # This address need not be routable. Traffic for this IP will be captured
+  # by the sidecar and routed appropriately.
+  - 240.0.0.2
+  endpoints:
+  # This is the routable address of the ingress gateway in cluster1 that
+  # sits in front of zipkin service. Traffic from the sidecar will be
+  # routed to this address.
+  - address: {INGRESS_DOMAIN}
+    ports:
+      http-tracing-span: 15443 # Do not change this port value
+`
 )
 
 var (
@@ -48,8 +144,7 @@ type kubeComponent struct {
 	id        resource.ID
 	address   string
 	forwarder istioKube.PortForwarder
-	cluster   resource.Cluster
-	close     func()
+	cluster   cluster.Cluster
 }
 
 func getZipkinYaml() (string, error) {
@@ -69,12 +164,19 @@ func installZipkin(ctx resource.Context, ns string) error {
 	return ctx.Config().ApplyYAML(ns, yaml)
 }
 
-func removeZipkin(ctx resource.Context, ns string) error {
-	yaml, err := getZipkinYaml()
+func installServiceEntry(ctx resource.Context, ns, ingressAddr string) error {
+	// Setup remote access to zipkin in cluster
+	yaml := strings.ReplaceAll(remoteZipkinEntry, "{INGRESS_DOMAIN}", ingressAddr)
+	err := ctx.Config().ApplyYAML(ns, yaml)
 	if err != nil {
 		return err
 	}
-	return ctx.Config().DeleteYAML(ns, yaml)
+	yaml = strings.ReplaceAll(extServiceEntry, "{INGRESS_DOMAIN}", ingressAddr)
+	err = ctx.Config().ApplyYAML(ns, yaml)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func newKube(ctx resource.Context, cfgIn Config) (Instance, error) {
@@ -91,10 +193,6 @@ func newKube(ctx resource.Context, cfgIn Config) (Instance, error) {
 
 	if err := installZipkin(ctx, cfg.TelemetryNamespace); err != nil {
 		return nil, err
-	}
-
-	c.close = func() {
-		_ = removeZipkin(ctx, cfg.TelemetryNamespace)
 	}
 
 	fetchFn := testKube.NewSinglePodFetch(c.cluster, cfg.SystemNamespace, fmt.Sprintf("app=%s", appName))
@@ -115,7 +213,18 @@ func newKube(ctx resource.Context, cfgIn Config) (Instance, error) {
 	c.forwarder = forwarder
 	scopes.Framework.Debugf("initialized zipkin port forwarder: %v", forwarder.Address())
 
-	c.address = fmt.Sprintf("http://%s", forwarder.Address())
+	isIP := net.ParseIP(cfgIn.IngressAddr).String() != "<nil>"
+	ingressDomain := cfgIn.IngressAddr
+	if isIP {
+		ingressDomain = fmt.Sprintf("%s.nip.io", cfgIn.IngressAddr)
+	}
+
+	c.address = fmt.Sprintf("http://tracing.%s", ingressDomain)
+	scopes.Framework.Debugf("Zipkin address: %s ", c.address)
+	err = installServiceEntry(ctx, cfg.TelemetryNamespace, ingressDomain)
+	if err != nil {
+		return nil, err
+	}
 	return c, nil
 }
 
@@ -152,9 +261,6 @@ func (c *kubeComponent) QueryTraces(limit int, spanName, annotationQuery string)
 
 // Close implements io.Closer.
 func (c *kubeComponent) Close() error {
-	if c.close != nil {
-		c.close()
-	}
 	c.forwarder.Close()
 	return nil
 }

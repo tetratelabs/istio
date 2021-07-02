@@ -48,7 +48,6 @@ func TestEventConsistency(t *testing.T) {
 	lock := sync.Mutex{}
 
 	controller.RegisterEventHandler(collections.Mock.Resource().GroupVersionKind(), func(_, config config.Config, event model.Event) {
-
 		lock.Lock()
 		tc := testConfig
 		lock.Unlock()
@@ -90,7 +89,7 @@ func TestEventConsistency(t *testing.T) {
 
 	// Test Delete Event
 	testEvent = model.EventDelete
-	if err := controller.Delete(collections.Mock.Resource().GroupVersionKind(), testConfig.Name, TestNamespace); err != nil {
+	if err := controller.Delete(collections.Mock.Resource().GroupVersionKind(), testConfig.Name, TestNamespace, nil); err != nil {
 		t.Error(err)
 		return
 	}

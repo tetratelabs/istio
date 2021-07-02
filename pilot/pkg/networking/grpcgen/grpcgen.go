@@ -33,19 +33,6 @@ import (
 	"istio.io/pkg/log"
 )
 
-const (
-	typePrefix = "type.googleapis.com/envoy.api.v2."
-
-	// Constants used for XDS
-
-	// ClusterType is used for cluster discovery. Typically first request received
-	ClusterType = typePrefix + "Cluster"
-	// ListenerType is sent after clusters and endpoints.
-	ListenerType = typePrefix + "Listener"
-	// RouteType is sent after listeners.
-	RouteType = typePrefix + "RouteConfiguration"
-)
-
 // Support generation of 'ApiListener' LDS responses, used for native support of gRPC.
 // The same response can also be used by other apps using XDS directly.
 
@@ -62,22 +49,20 @@ const (
 // using the generic structures. "Classical" CDS/LDS/RDS/EDS use separate logic -
 // this is used for the API-based LDS and generic messages.
 
-type GrpcConfigGenerator struct {
-}
+type GrpcConfigGenerator struct{}
 
-func (g *GrpcConfigGenerator) Generate(proxy *model.Proxy, push *model.PushContext, w *model.WatchedResource, req *model.PushRequest) model.Resources {
-	// TODO: Eventhough grpc-go supports v3 at the transport layer, it still sends v2 types
-	// in the requests. Fix this when it starts sending v3 types.
+func (g *GrpcConfigGenerator) Generate(proxy *model.Proxy, push *model.PushContext,
+	w *model.WatchedResource, updates *model.PushRequest) (model.Resources, error) {
 	switch w.TypeUrl {
-	case ListenerType, v3.ListenerType:
-		return g.BuildListeners(proxy, push, w.ResourceNames)
-	case ClusterType, v3.ClusterType:
-		return g.BuildClusters(proxy, push, w.ResourceNames)
-	case RouteType, v3.RouteType:
-		return g.BuildHTTPRoutes(proxy, push, w.ResourceNames)
+	case v3.ListenerType:
+		return g.BuildListeners(proxy, push, w.ResourceNames), nil
+	case v3.ClusterType:
+		return g.BuildClusters(proxy, push, w.ResourceNames), nil
+	case v3.RouteType:
+		return g.BuildHTTPRoutes(proxy, push, w.ResourceNames), nil
 	}
 
-	return nil
+	return nil, nil
 }
 
 // handleLDSApiType handles a LDS request, returning listeners of ApiListener type.
@@ -135,9 +120,6 @@ func (g *GrpcConfigGenerator) BuildListeners(node *model.Proxy, push *model.Push
 					},
 				}
 				hcmAny := util.MessageToAny(hcm)
-				// TODO: grpc-go still expects the v2 Http connection manager TypeUrl. Fix this when it is changed.
-				// https://github.com/grpc/grpc-go/blob/master/xds/internal/version/version.go#L48.
-				hcmAny.TypeUrl = "type.googleapis.com/envoy.config.filter.network.http_connection_manager.v2.HttpConnectionManager"
 				// TODO: for TCP listeners don't generate RDS, but some indication of cluster name.
 				ll.ApiListener = &listener.ApiListener{
 					ApiListener: hcmAny,
@@ -159,7 +141,7 @@ func (g *GrpcConfigGenerator) BuildClusters(node *model.Proxy, push *model.PushC
 	for _, n := range names {
 		hn, portn, err := net.SplitHostPort(n)
 		if err != nil {
-			log.Warna("Failed to parse ", n, " ", err)
+			log.Warn("Failed to parse ", n, " ", err)
 			continue
 		}
 		rc := &cluster.Cluster{
@@ -190,12 +172,12 @@ func (g *GrpcConfigGenerator) BuildHTTPRoutes(node *model.Proxy, push *model.Pus
 	for _, n := range routeNames {
 		hn, portn, err := net.SplitHostPort(n)
 		if err != nil {
-			log.Warna("Failed to parse ", n, " ", err)
+			log.Warn("Failed to parse ", n, " ", err)
 			continue
 		}
 		port, err := strconv.Atoi(portn)
 		if err != nil {
-			log.Warna("Failed to parse port ", n, " ", err)
+			log.Warn("Failed to parse port ", n, " ", err)
 			continue
 		}
 		el := node.SidecarScope.GetEgressListenerForRDS(port, "")

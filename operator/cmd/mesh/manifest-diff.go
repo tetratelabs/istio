@@ -71,7 +71,10 @@ func manifestDiffCmd(rootArgs *rootArgs, diffArgs *manifestDiffArgs) *cobra.Comm
 	cmd := &cobra.Command{
 		Use:   "diff <file|dir> <file|dir>",
 		Short: "Compare manifests and generate diff",
-		Long:  "The diff subcommand compares manifests from two files or directories.",
+		Long: "The diff subcommand compares manifests from two files or directories. The output is a list of\n" +
+			"changed paths with the value changes shown as OLD-VALUE -> NEW-VALUE.\n" +
+			"List order changes are shown as [OLD-INDEX->NEW-INDEX], with ? used where a list item is added or\n" +
+			"removed.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 2 {
 				return fmt.Errorf("diff requires two files or directories")
@@ -102,11 +105,12 @@ func manifestDiffCmd(rootArgs *rootArgs, diffArgs *manifestDiffArgs) *cobra.Comm
 				os.Exit(1)
 			}
 			return nil
-		}}
+		},
+	}
 	return cmd
 }
 
-//compareManifestsFromFiles compares two manifest files
+// compareManifestsFromFiles compares two manifest files
 func compareManifestsFromFiles(rootArgs *rootArgs, args []string, verbose bool,
 	renameResources, selectResources, ignoreResources string) (bool, error) {
 	initLogsOrExit(rootArgs)
@@ -138,7 +142,7 @@ func yamlFileFilter(path string) bool {
 	return filepath.Ext(path) == YAMLSuffix
 }
 
-//compareManifestsFromDirs compares manifests from two directories
+// compareManifestsFromDirs compares manifests from two directories
 func compareManifestsFromDirs(rootArgs *rootArgs, verbose bool, dirName1, dirName2,
 	renameResources, selectResources, ignoreResources string) (bool, error) {
 	initLogsOrExit(rootArgs)

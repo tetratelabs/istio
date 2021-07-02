@@ -97,7 +97,6 @@ func retMap(filename, text string, err error) (map[string]string, error) {
 	return map[string]string{
 		filename: text,
 	}, nil
-
 }
 
 // GetK8sResources returns all k8s cluster resources.
@@ -145,8 +144,14 @@ func GetClusterInfo(p *Params) (map[string]string, error) {
 }
 
 // GetClusterContext returns the cluster context.
-func GetClusterContext() (string, error) {
-	return kubectlcmd.RunCmd("config current-context", "", false)
+func GetClusterContext(kubeConfig string) (string, error) {
+	return kubectlcmd.RunCmd(fmt.Sprintf("--kubeconfig=%s config current-context", kubeConfig), "", false)
+}
+
+// GetNodeInfo returns node information.
+func GetNodeInfo(p *Params) (map[string]string, error) {
+	out, err := kubectlcmd.RunCmd("describe nodes", "", p.DryRun)
+	return retMap("nodes", out, err)
 }
 
 // GetDescribePods returns describe pods for istioNamespace.
@@ -278,7 +283,7 @@ func GetCoredumps(p *Params) (map[string]string, error) {
 	for idx, cd := range cds {
 		outStr, err := kubectlcmd.Cat(p.Client, p.Namespace, p.Pod, p.Container, cd, p.DryRun)
 		if err != nil {
-			log.Warna(err)
+			log.Warn(err)
 			continue
 		}
 		ret[fmt.Sprint(idx)+".core"] = outStr

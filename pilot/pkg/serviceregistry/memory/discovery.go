@@ -34,19 +34,16 @@ type ServiceController struct {
 	sync.RWMutex
 }
 
-func (c *ServiceController) AppendWorkloadHandler(f func(*model.WorkloadInstance, model.Event)) error {
-	// Memory does not support workload handlers; everything is done in terms of instances
-	return nil
-}
-
 var _ model.Controller = &ServiceController{}
 
+// Memory does not support workload handlers; everything is done in terms of instances
+func (c *ServiceController) AppendWorkloadHandler(f func(*model.WorkloadInstance, model.Event)) {}
+
 // AppendServiceHandler appends a service handler to the controller
-func (c *ServiceController) AppendServiceHandler(f func(*model.Service, model.Event)) error {
+func (c *ServiceController) AppendServiceHandler(f func(*model.Service, model.Event)) {
 	c.Lock()
 	c.svcHandlers = append(c.svcHandlers, f)
 	c.Unlock()
-	return nil
 }
 
 // Run will run the controller
@@ -181,7 +178,6 @@ func (sd *ServiceDiscovery) AddEndpoint(service host.Name, servicePortName strin
 
 // SetEndpoints update the list of endpoints for a service, similar with K8S controller.
 func (sd *ServiceDiscovery) SetEndpoints(service string, namespace string, endpoints []*model.IstioEndpoint) {
-
 	sh := host.Name(service)
 
 	sd.mutex.Lock()

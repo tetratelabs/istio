@@ -22,10 +22,12 @@ import (
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/golang/protobuf/ptypes/any"
 
+	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/secrets"
 	authnmodel "istio.io/istio/pilot/pkg/security/model"
+	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/schema/gvk"
 )
 
@@ -40,10 +42,16 @@ type SecretResource struct {
 	Name         string
 	Namespace    string
 	ResourceName string
+	Cluster      string
 }
 
 func (sr SecretResource) Key() string {
-	return "sds://" + sr.ResourceName
+	return "sds://" + sr.Type + "/" + sr.Name + "/" + sr.Namespace + "/" + sr.Cluster
+}
+
+// DependentTypes is not needed; we know exactly which configs impact SDS, so we can scope at DependentConfigs level
+func (sr SecretResource) DependentTypes() []config.GroupVersionKind {
+	return nil
 }
 
 func (sr SecretResource) DependentConfigs() []model.ConfigKey {
@@ -56,7 +64,7 @@ func (sr SecretResource) Cacheable() bool {
 
 var _ model.XdsCacheEntry = SecretResource{}
 
-func parseResourceName(resource, defaultNamespace string) (SecretResource, error) {
+func parseResourceName(resource, defaultNamespace, cluster string) (SecretResource, error) {
 	sep := "/"
 	if strings.HasPrefix(resource, authnmodel.KubernetesSecretTypeURI) {
 		res := strings.TrimPrefix(resource, authnmodel.KubernetesSecretTypeURI)
@@ -67,7 +75,7 @@ func parseResourceName(resource, defaultNamespace string) (SecretResource, error
 			namespace = split[0]
 			name = split[1]
 		}
-		return SecretResource{Type: authnmodel.KubernetesSecretType, Name: name, Namespace: namespace, ResourceName: resource}, nil
+		return SecretResource{Type: authnmodel.KubernetesSecretType, Name: name, Namespace: namespace, ResourceName: resource, Cluster: cluster}, nil
 	}
 	return SecretResource{}, fmt.Errorf("unknown resource type: %v", resource)
 }
@@ -94,32 +102,34 @@ func (s *SecretGen) proxyAuthorizedForSecret(proxy *model.Proxy, sr SecretResour
 	return nil
 }
 
-func (s *SecretGen) Generate(proxy *model.Proxy, _ *model.PushContext, w *model.WatchedResource, req *model.PushRequest) model.Resources {
+func (s *SecretGen) Generate(proxy *model.Proxy, push *model.PushContext, w *model.WatchedResource, req *model.PushRequest) (model.Resources, error) {
 	if proxy.VerifiedIdentity == nil {
-		adsLog.Warnf("proxy %v is not authorized to receive secrets. Ensure you are connecting over TLS port and are authenticated.", proxy.ID)
-		return nil
+		log.Warnf("proxy %v is not authorized to receive secrets. Ensure you are connecting over TLS port and are authenticated.", proxy.ID)
+		return nil, nil
 	}
 	secrets, err := s.secrets.ForCluster(proxy.Metadata.ClusterID)
 	if err != nil {
-		adsLog.Warnf("proxy %v is from an unknown cluster, cannot retrieve certificates: %v", proxy.ID, err)
-		return nil
+		log.Warnf("proxy %v is from an unknown cluster, cannot retrieve certificates: %v", proxy.ID, err)
+		return nil, nil
 	}
 	if err := secrets.Authorize(proxy.VerifiedIdentity.ServiceAccount, proxy.VerifiedIdentity.Namespace); err != nil {
-		adsLog.Warnf("proxy %v is not authorized to receive secrets: %v", proxy.ID, err)
-		return nil
+		log.Warnf("proxy %v is not authorized to receive secrets: %v", proxy.ID, err)
+		return nil, nil
 	}
 	if req == nil || !needsUpdate(proxy, req.ConfigsUpdated) {
-		return nil
+		return nil, nil
 	}
 	var updatedSecrets map[model.ConfigKey]struct{}
 	if !req.Full {
 		updatedSecrets = model.ConfigsOfKind(req.ConfigsUpdated, gvk.Secret)
 	}
 	results := model.Resources{}
+	cached, regenerated := 0, 0
 	for _, resource := range w.ResourceNames {
-		sr, err := parseResourceName(resource, proxy.ConfigNamespace)
+		sr, err := parseResourceName(resource, proxy.ConfigNamespace, proxy.Metadata.ClusterID)
 		if err != nil {
-			adsLog.Warnf("error parsing resource name: %v", err)
+			pilotSDSCertificateErrors.Increment()
+			log.Warnf("error parsing resource name: %v", err)
 			continue
 		}
 
@@ -131,14 +141,19 @@ func (s *SecretGen) Generate(proxy *model.Proxy, _ *model.PushContext, w *model.
 		}
 
 		if err := s.proxyAuthorizedForSecret(proxy, sr); err != nil {
-			adsLog.Warnf("requested secret %v not accessible for proxy %v: %v", sr.ResourceName, proxy.ID, err)
+			pilotSDSCertificateErrors.Increment()
+			log.Warnf("requested secret %v not accessible for proxy %v: %v", sr.ResourceName, proxy.ID, err)
 			continue
 		}
-		if cached, f := s.cache.Get(sr); f {
+		cachedItem, token, f := s.cache.Get(sr)
+		if f && !features.EnableUnsafeAssertions {
 			// If it is in the Cache, add it and continue
-			results = append(results, cached)
+			// We skip cache if assertions are enabled, so that the cache will assert our eviction logic is correct
+			results = append(results, cachedItem)
+			cached++
 			continue
 		}
+		regenerated++
 
 		isCAOnlySecret := strings.HasSuffix(sr.Name, GatewaySdsCaSuffix)
 		if isCAOnlySecret {
@@ -146,22 +161,26 @@ func (s *SecretGen) Generate(proxy *model.Proxy, _ *model.PushContext, w *model.
 			if secret != nil {
 				res := toEnvoyCaSecret(sr.ResourceName, secret)
 				results = append(results, res)
-				s.cache.Add(sr, res)
+				s.cache.Add(sr, token, res)
 			} else {
-				adsLog.Warnf("failed to fetch ca certificate for %v", sr.ResourceName)
+				pilotSDSCertificateErrors.Increment()
+				log.Warnf("failed to fetch ca certificate for %v", sr.ResourceName)
 			}
 		} else {
 			key, cert := secrets.GetKeyAndCert(sr.Name, sr.Namespace)
 			if key != nil && cert != nil {
 				res := toEnvoyKeyCertSecret(sr.ResourceName, key, cert)
 				results = append(results, res)
-				s.cache.Add(sr, res)
+				s.cache.Add(sr, token, res)
 			} else {
-				adsLog.Warnf("failed to fetch key and certificate for %v", sr.ResourceName)
+				pilotSDSCertificateErrors.Increment()
+				log.Warnf("failed to fetch key and certificate for %v", sr.ResourceName)
 			}
 		}
 	}
-	return results
+	log.Infof("SDS: PUSH for node:%s resources:%d size:%s cached:%v/%v",
+		proxy.ID, len(results), util.ByteCount(ResourceSize(results)), cached, cached+regenerated)
+	return results, nil
 }
 
 func toEnvoyCaSecret(name string, cert []byte) *any.Any {

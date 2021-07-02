@@ -30,9 +30,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 
+	meshconfig "istio.io/api/mesh/v1alpha1"
+	"istio.io/api/meta/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/config/memory"
+	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pilot/pkg/model/status"
 	"istio.io/istio/pilot/pkg/serviceregistry"
 	kubecontroller "istio.io/istio/pilot/pkg/serviceregistry/kube/controller"
 	"istio.io/istio/pilot/pkg/serviceregistry/serviceentry"
@@ -41,6 +45,7 @@ import (
 	"istio.io/istio/pilot/test/xdstest"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/host"
+	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/config/schema/collections"
 	"istio.io/istio/pkg/config/schema/gvk"
 	kubeclient "istio.io/istio/pkg/kube"
@@ -120,7 +125,14 @@ func setupTest(t *testing.T) (
 	xdsUpdater := &FakeXdsUpdater{
 		Events: eventch,
 	}
-	kc := kubecontroller.NewController(client, kubecontroller.Options{XDSUpdater: xdsUpdater, DomainSuffix: "cluster.local"})
+	kc := kubecontroller.NewController(
+		client,
+		kubecontroller.Options{
+			XDSUpdater:   xdsUpdater,
+			DomainSuffix: "cluster.local",
+			MeshWatcher:  mesh.NewFixedWatcher(&meshconfig.MeshConfig{}),
+		},
+	)
 	configController := memory.NewController(memory.Make(collections.Pilot))
 
 	stop := make(chan struct{})
@@ -130,21 +142,22 @@ func setupTest(t *testing.T) (
 	go configController.Run(stop)
 
 	istioStore := model.MakeIstioStore(configController)
-	wc := serviceentry.NewServiceDiscovery(configController, istioStore, xdsUpdater)
+	se := serviceentry.NewServiceDiscovery(configController, istioStore, xdsUpdater)
 	client.RunAndWait(stop)
 
-	kc.AppendWorkloadHandler(wc.WorkloadInstanceHandler)
-	wc.AppendWorkloadHandler(kc.WorkloadInstanceHandler)
+	kc.AppendWorkloadHandler(se.WorkloadInstanceHandler)
+	se.AppendWorkloadHandler(kc.WorkloadInstanceHandler)
 
 	go kc.Run(stop)
-	go wc.Run(stop)
+	go se.Run(stop)
 
-	return kc, wc, configController, client.Kube(), xdsUpdater
+	return kc, se, configController, client.Kube(), xdsUpdater
 }
 
 // TestWorkloadInstances is effectively an integration test of composing the Kubernetes service registry with the
 // external service registry, which have cross-references by workload instances.
 func TestWorkloadInstances(t *testing.T) {
+	features.WorkloadEntryHealthChecks = true
 	port := &networking.Port{
 		Name:     "http",
 		Number:   80,
@@ -226,6 +239,10 @@ func TestWorkloadInstances(t *testing.T) {
 		Ports: []*model.Port{{
 			Name:     "http",
 			Port:     80,
+			Protocol: "http",
+		}, {
+			Name:     "http2",
+			Port:     90,
 			Protocol: "http",
 		}},
 		Attributes: model.ServiceAttributes{
@@ -509,23 +526,30 @@ func TestWorkloadInstances(t *testing.T) {
 	})
 
 	t.Run("Service selects WorkloadEntry with targetPort number", func(t *testing.T) {
-		kc, _, store, kube, _ := setupTest(t)
-		makeService(t, kube, &v1.Service{
+		s := xds.NewFakeDiscoveryServer(t, xds.FakeOptions{})
+		makeService(t, s.KubeClient(), &v1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "service",
 				Namespace: namespace,
 			},
 			Spec: v1.ServiceSpec{
-				Ports: []v1.ServicePort{{
-					Name:       "http",
-					Port:       80,
-					TargetPort: intstr.FromInt(8080),
-				}},
+				Ports: []v1.ServicePort{
+					{
+						Name:       "http",
+						Port:       80,
+						TargetPort: intstr.FromInt(8080),
+					},
+					{
+						Name:       "http2",
+						Port:       90,
+						TargetPort: intstr.FromInt(9090),
+					},
+				},
 				Selector:  labels,
 				ClusterIP: "9.9.9.9",
 			},
 		})
-		makeIstioObject(t, store, config.Config{
+		makeIstioObject(t, s.Store(), config.Config{
 			Meta: config.Meta{
 				Name:             "workload",
 				Namespace:        namespace,
@@ -544,7 +568,16 @@ func TestWorkloadInstances(t *testing.T) {
 			Address:    workloadEntry.Spec.(*networking.WorkloadEntry).Address,
 			Port:       8080,
 		}}
-		expectServiceInstances(t, kc, expectedSvc, 80, instances)
+		expectServiceInstances(t, s.KubeRegistry, expectedSvc, 80, instances)
+		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"2.3.4.5:8080"})
+		instances = []ServiceInstanceResponse{{
+			Hostname:   expectedSvc.Hostname,
+			Namestring: expectedSvc.Attributes.Namespace,
+			Address:    workloadEntry.Spec.(*networking.WorkloadEntry).Address,
+			Port:       9090,
+		}}
+		expectServiceInstances(t, s.KubeRegistry, expectedSvc, 90, instances)
+		expectEndpoints(t, s, "outbound|90||service.namespace.svc.cluster.local", []string{"2.3.4.5:9090"})
 	})
 
 	t.Run("ServiceEntry selects Pod", func(t *testing.T) {
@@ -558,6 +591,35 @@ func TestWorkloadInstances(t *testing.T) {
 			Address:    pod.Status.PodIP,
 			Port:       80,
 		}}
+		expectServiceInstances(t, wc, expectedSvc, 80, instances)
+	})
+
+	t.Run("ServiceEntry selects Pod that is in transit states", func(t *testing.T) {
+		_, wc, store, kube, _ := setupTest(t)
+		makeIstioObject(t, store, serviceEntry)
+		makePod(t, kube, pod)
+
+		instances := []ServiceInstanceResponse{{
+			Hostname:   expectedSvc.Hostname,
+			Namestring: expectedSvc.Attributes.Namespace,
+			Address:    pod.Status.PodIP,
+			Port:       80,
+		}}
+		expectServiceInstances(t, wc, expectedSvc, 80, instances)
+
+		// when pods become unready, we should see the instances being removed from the registry
+		setPodUnready(pod)
+		_, err := kube.CoreV1().Pods(pod.Namespace).UpdateStatus(context.TODO(), pod, metav1.UpdateOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectServiceInstances(t, wc, expectedSvc, 80, []ServiceInstanceResponse{})
+
+		setPodReady(pod)
+		_, err = kube.CoreV1().Pods(pod.Namespace).UpdateStatus(context.TODO(), pod, metav1.UpdateOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
 		expectServiceInstances(t, wc, expectedSvc, 80, instances)
 	})
 
@@ -650,7 +712,7 @@ func TestWorkloadInstances(t *testing.T) {
 
 		_ = kube.CoreV1().Pods(pod.Namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
 		_ = kube.CoreV1().Endpoints(pod.Namespace).Delete(context.TODO(), "service", metav1.DeleteOptions{})
-		_ = store.Delete(gvk.WorkloadEntry, workloadEntry.Name, workloadEntry.Namespace)
+		_ = store.Delete(gvk.WorkloadEntry, workloadEntry.Name, workloadEntry.Namespace, nil)
 		expectServiceInstances(t, wc, expectedSvc, 80, []ServiceInstanceResponse{})
 		expectServiceInstances(t, kc, expectedSvc, 80, []ServiceInstanceResponse{})
 	})
@@ -689,7 +751,7 @@ func TestWorkloadInstances(t *testing.T) {
 		makeIstioObject(t, s.Store(), newWE)
 		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"3.4.5.6:80"})
 
-		if err := s.Store().Delete(gvk.WorkloadEntry, newWE.Name, newWE.Namespace); err != nil {
+		if err := s.Store().Delete(gvk.WorkloadEntry, newWE.Name, newWE.Namespace, nil); err != nil {
 			t.Fatal(err)
 		}
 		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
@@ -722,7 +784,7 @@ func TestWorkloadInstances(t *testing.T) {
 		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
 		expectEndpoints(t, s, "outbound|9090||service.namespace.svc.cluster.local", []string{"1.2.3.4:9091"})
 
-		if err := s.Store().Delete(gvk.ServiceEntry, newSE.Name, newSE.Namespace); err != nil {
+		if err := s.Store().Delete(gvk.ServiceEntry, newSE.Name, newSE.Namespace, nil); err != nil {
 			t.Fatal(err)
 		}
 		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
@@ -744,6 +806,77 @@ func TestWorkloadInstances(t *testing.T) {
 			t.Fatal(err)
 		}
 		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
+	})
+
+	t.Run("ServiceEntry selects Pod: deleting pod", func(t *testing.T) {
+		s := xds.NewFakeDiscoveryServer(t, xds.FakeOptions{})
+		makeIstioObject(t, s.Store(), serviceEntry)
+		makePod(t, s.KubeClient(), pod)
+		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
+
+		// Simulate pod being deleted by setting deletion timestamp
+		newPod := pod.DeepCopy()
+		newPod.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+		makePod(t, s.KubeClient(), newPod)
+		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
+
+		if err := s.KubeClient().CoreV1().Pods(newPod.Namespace).Delete(context.Background(), newPod.Name, metav1.DeleteOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
+	})
+
+	t.Run("Service selects WorkloadEntry: health status", func(t *testing.T) {
+		kc, _, store, kube, _ := setupTest(t)
+		makeService(t, kube, service)
+
+		// Start as unhealthy, should have no instances
+		makeIstioObject(t, store, setHealth(workloadEntry, false))
+		instances := []ServiceInstanceResponse{}
+		expectServiceInstances(t, kc, expectedSvc, 80, instances)
+
+		// Mark healthy, get instances
+		makeIstioObject(t, store, setHealth(workloadEntry, true))
+		instances = []ServiceInstanceResponse{{
+			Hostname:   expectedSvc.Hostname,
+			Namestring: expectedSvc.Attributes.Namespace,
+			Address:    workloadEntry.Spec.(*networking.WorkloadEntry).Address,
+			Port:       80,
+		}}
+		expectServiceInstances(t, kc, expectedSvc, 80, instances)
+
+		// Set back to unhealthy
+		makeIstioObject(t, store, setHealth(workloadEntry, false))
+		instances = []ServiceInstanceResponse{}
+		expectServiceInstances(t, kc, expectedSvc, 80, instances)
+
+		// Remove health status entirely
+		makeIstioObject(t, store, workloadEntry)
+		instances = []ServiceInstanceResponse{{
+			Hostname:   expectedSvc.Hostname,
+			Namestring: expectedSvc.Attributes.Namespace,
+			Address:    workloadEntry.Spec.(*networking.WorkloadEntry).Address,
+			Port:       80,
+		}}
+		expectServiceInstances(t, kc, expectedSvc, 80, instances)
+	})
+}
+
+func setHealth(cfg config.Config, healthy bool) config.Config {
+	cfg = cfg.DeepCopy()
+	if cfg.Annotations == nil {
+		cfg.Annotations = map[string]string{}
+	}
+	cfg.Annotations[status.WorkloadEntryHealthCheckAnnotation] = "true"
+	if healthy {
+		return status.UpdateConfigCondition(cfg, &v1alpha1.IstioCondition{
+			Type:   status.ConditionHealthy,
+			Status: status.StatusTrue,
+		})
+	}
+	return status.UpdateConfigCondition(cfg, &v1alpha1.IstioCondition{
+		Type:   status.ConditionHealthy,
+		Status: status.StatusFalse,
 	})
 }
 
@@ -827,6 +960,47 @@ func TestEndpointsDeduping(t *testing.T) {
 	}, 80, []ServiceInstanceResponse{})
 }
 
+func TestSameIPEndpointSlicing(t *testing.T) {
+	s := xds.NewFakeDiscoveryServer(t, xds.FakeOptions{
+		KubernetesEndpointMode: kubecontroller.EndpointSliceOnly,
+	})
+	namespace := "namespace"
+	labels := map[string]string{
+		"app": "bar",
+	}
+	makeService(t, s.KubeClient(), &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "service",
+			Namespace: namespace,
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Name: "http",
+				Port: 80,
+			}, {
+				Name: "http-other",
+				Port: 90,
+			}},
+			Selector:  labels,
+			ClusterIP: "9.9.9.9",
+		},
+	})
+	_, _, _, _, xdsUpdater := setupTest(t)
+
+	// Delete endpoints with same IP
+	createEndpointSlice(t, s.KubeClient(), "slice1", "service", namespace, []v1.EndpointPort{{Name: "http", Port: 80}}, []string{"1.2.3.4"})
+	createEndpointSlice(t, s.KubeClient(), "slice2", "service", namespace, []v1.EndpointPort{{Name: "http", Port: 80}}, []string{"1.2.3.4"})
+	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
+
+	// delete slice 1, it should still exist
+	s.KubeClient().DiscoveryV1beta1().EndpointSlices(namespace).Delete(context.TODO(), "slice1", metav1.DeleteOptions{})
+	xdsUpdater.Wait("eds")
+	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
+	s.KubeClient().DiscoveryV1beta1().EndpointSlices(namespace).Delete(context.TODO(), "slice2", metav1.DeleteOptions{})
+	xdsUpdater.Wait("eds")
+	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
+}
+
 type ServiceInstanceResponse struct {
 	Hostname   host.Name
 	Namestring string
@@ -892,6 +1066,26 @@ func jsonBytes(t *testing.T, v interface{}) []byte {
 	return data
 }
 
+func setPodReady(pod *v1.Pod) {
+	pod.Status.Conditions = []v1.PodCondition{
+		{
+			Type:               v1.PodReady,
+			Status:             v1.ConditionTrue,
+			LastTransitionTime: metav1.Now(),
+		},
+	}
+}
+
+func setPodUnready(pod *v1.Pod) {
+	pod.Status.Conditions = []v1.PodCondition{
+		{
+			Type:               v1.PodReady,
+			Status:             v1.ConditionFalse,
+			LastTransitionTime: metav1.Now(),
+		},
+	}
+}
+
 func makePod(t *testing.T, c kubernetes.Interface, pod *v1.Pod) {
 	t.Helper()
 	newPod, err := c.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
@@ -905,6 +1099,9 @@ func makePod(t *testing.T, c kubernetes.Interface, pod *v1.Pod) {
 	// events - since PodIP will be "".
 	newPod.Status.PodIP = pod.Status.PodIP
 	newPod.Status.Phase = v1.PodRunning
+
+	// Also need to sets the pod to be ready as now we only add pod into service entry endpoint when it's ready
+	setPodReady(newPod)
 	_, err = c.CoreV1().Pods(pod.Namespace).UpdateStatus(context.TODO(), newPod, metav1.UpdateOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -938,7 +1135,7 @@ func createEndpoints(t *testing.T, c kubernetes.Interface, name, namespace strin
 	for _, ip := range ips {
 		eas = append(eas, v1.EndpointAddress{IP: ip, TargetRef: &v1.ObjectReference{
 			Kind:      "Pod",
-			Name:      name,
+			Name:      "pod",
 			Namespace: namespace,
 		}})
 	}

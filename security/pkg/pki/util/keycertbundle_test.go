@@ -176,13 +176,14 @@ func TestCertOptionsAndRetrieveID(t *testing.T) {
 			rootCertFile:  ecRootCertFile,
 			certOptions: &CertOptions{
 				Host:     "watt",
-				TTL:      365 * 24 * time.Hour,
+				TTL:      10 * 365 * 24 * time.Hour,
 				Org:      "Juju org",
 				IsCA:     false,
 				ECSigAlg: EcdsaSigAlg,
 			},
 			expectedErr: "",
-		}}
+		},
+	}
 	for id, tc := range testCases {
 		k, err := NewVerifiedKeyCertBundleFromFile(tc.caCertFile, tc.caKeyFile, tc.certChainFile, tc.rootCertFile)
 		if err != nil {

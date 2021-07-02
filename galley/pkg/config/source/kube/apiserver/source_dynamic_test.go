@@ -20,11 +20,12 @@ import (
 
 	"github.com/gogo/protobuf/types"
 	. "github.com/onsi/gomega"
-	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	extfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8sRuntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic/fake"
 	k8sTesting "k8s.io/client-go/testing"
@@ -367,7 +368,10 @@ func TestSource_WatcherFailsCreatingInformer(t *testing.T) {
 	addCrdEvents(wcrd, r.All())
 
 	// Now start properly and get events
-	cl := fake.NewSimpleDynamicClient(k8sRuntime.NewScheme())
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		{Group: "testdata.istio.io", Version: "v1alpha1", Resource: "Kind1s"}: "Kind1List",
+	}
+	cl := fake.NewSimpleDynamicClientWithCustomListKinds(k8sRuntime.NewScheme(), gvrToListKind)
 	k.AddResponse(cl, nil)
 	w := mockWatch(cl)
 
@@ -458,7 +462,10 @@ func addCrdEvents(w *mock.Watch, res []collection.Schema) {
 }
 
 func fakeClient(k *mock.Kube) *fake.FakeDynamicClient {
-	cl := fake.NewSimpleDynamicClient(k8sRuntime.NewScheme())
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		{Group: "testdata.istio.io", Version: "v1alpha1", Resource: "Kind1s"}: "Kind1List",
+	}
+	cl := fake.NewSimpleDynamicClientWithCustomListKinds(k8sRuntime.NewScheme(), gvrToListKind)
 	k.AddResponse(cl, nil)
 	return cl
 }
@@ -494,26 +501,26 @@ func toEntry(obj *unstructured.Unstructured, schema resource2.Schema) *resource.
 	}
 }
 
-func toCrd(schema collection.Schema) *v1beta1.CustomResourceDefinition {
+func toCrd(schema collection.Schema) *apiextensions.CustomResourceDefinition {
 	r := schema.Resource()
-	return &v1beta1.CustomResourceDefinition{
+	return &apiextensions.CustomResourceDefinition{
 		ObjectMeta: v1.ObjectMeta{
 			Name:            r.Plural() + "." + r.Group(),
 			ResourceVersion: "v1",
 		},
 
-		Spec: v1beta1.CustomResourceDefinitionSpec{
+		Spec: apiextensions.CustomResourceDefinitionSpec{
 			Group: r.Group(),
-			Names: v1beta1.CustomResourceDefinitionNames{
+			Names: apiextensions.CustomResourceDefinitionNames{
 				Plural: r.Plural(),
 				Kind:   r.Kind(),
 			},
-			Versions: []v1beta1.CustomResourceDefinitionVersion{
+			Versions: []apiextensions.CustomResourceDefinitionVersion{
 				{
 					Name: r.Version(),
 				},
 			},
-			Scope: v1beta1.NamespaceScoped,
+			Scope: apiextensions.NamespaceScoped,
 		},
 	}
 }

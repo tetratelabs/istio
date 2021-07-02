@@ -38,10 +38,15 @@ var (
 
 	bindAddress = ""
 
+	// open browser or not, default is true
+	browser = true
+
 	// label selector
 	labelSelector = ""
 
 	addonNamespace = ""
+
+	envoyDashNs = ""
 )
 
 // port-forward to Istio System Prometheus; open browser
@@ -73,7 +78,7 @@ func promDashCmd() *cobra.Command {
 
 			// only use the first pod in the list
 			return portForward(pl.Items[0].Name, addonNamespace, "Prometheus",
-				"http://%s", bindAddress, 9090, client, cmd.OutOrStdout())
+				"http://%s", bindAddress, 9090, client, cmd.OutOrStdout(), browser)
 		},
 	}
 
@@ -109,7 +114,7 @@ func grafanaDashCmd() *cobra.Command {
 
 			// only use the first pod in the list
 			return portForward(pl.Items[0].Name, addonNamespace, "Grafana",
-				"http://%s", bindAddress, 3000, client, cmd.OutOrStdout())
+				"http://%s", bindAddress, 3000, client, cmd.OutOrStdout(), browser)
 		},
 	}
 
@@ -145,7 +150,7 @@ func kialiDashCmd() *cobra.Command {
 
 			// only use the first pod in the list
 			return portForward(pl.Items[0].Name, addonNamespace, "Kiali",
-				"http://%s/kiali", bindAddress, 20001, client, cmd.OutOrStdout())
+				"http://%s/kiali", bindAddress, 20001, client, cmd.OutOrStdout(), browser)
 		},
 	}
 
@@ -181,7 +186,7 @@ func jaegerDashCmd() *cobra.Command {
 
 			// only use the first pod in the list
 			return portForward(pl.Items[0].Name, addonNamespace, "Jaeger",
-				"http://%s", bindAddress, 16686, client, cmd.OutOrStdout())
+				"http://%s", bindAddress, 16686, client, cmd.OutOrStdout(), browser)
 		},
 	}
 
@@ -217,7 +222,7 @@ func zipkinDashCmd() *cobra.Command {
 
 			// only use the first pod in the list
 			return portForward(pl.Items[0].Name, addonNamespace, "Zipkin",
-				"http://%s", bindAddress, 9411, client, cmd.OutOrStdout())
+				"http://%s", bindAddress, 9411, client, cmd.OutOrStdout(), browser)
 		},
 	}
 
@@ -258,7 +263,7 @@ func envoyDashCmd() *cobra.Command {
 
 			var podName, ns string
 			if labelSelector != "" {
-				pl, err := client.PodsForSelector(context.TODO(), handlers.HandleNamespace(namespace, defaultNamespace), labelSelector)
+				pl, err := client.PodsForSelector(context.TODO(), handlers.HandleNamespace(envoyDashNs, defaultNamespace), labelSelector)
 				if err != nil {
 					return fmt.Errorf("not able to locate pod with selector %s: %v", labelSelector, err)
 				}
@@ -276,7 +281,7 @@ func envoyDashCmd() *cobra.Command {
 				ns = pl.Items[0].Namespace
 			} else {
 				podName, ns, err = handlers.InferPodInfoFromTypedResource(args[0],
-					handlers.HandleNamespace(namespace, defaultNamespace),
+					handlers.HandleNamespace(envoyDashNs, defaultNamespace),
 					client.UtilFactory())
 				if err != nil {
 					return err
@@ -284,7 +289,7 @@ func envoyDashCmd() *cobra.Command {
 			}
 
 			return portForward(podName, ns, fmt.Sprintf("Envoy sidecar %s", podName),
-				"http://%s", bindAddress, 15000, client, c.OutOrStdout())
+				"http://%s", bindAddress, 15000, client, c.OutOrStdout(), browser)
 		},
 	}
 
@@ -300,6 +305,9 @@ func controlZDashCmd() *cobra.Command {
 		Long:  `Open the ControlZ web UI for a pod in the Istio control plane`,
 		Example: `  # Open ControlZ web UI for the istiod-123-456.istio-system pod
   istioctl dashboard controlz istiod-123-456.istio-system
+
+  # Open ControlZ web UI for the istiod-56dd66799-jfdvs pod in a custom namespace
+  istioctl dashboard controlz istiod-123-456 -n custom-ns
 
   # Open ControlZ web UI for any Istiod pod
   istioctl dashboard controlz deployment/istiod.istio-system
@@ -326,7 +334,7 @@ func controlZDashCmd() *cobra.Command {
 
 			var podName, ns string
 			if labelSelector != "" {
-				pl, err := client.PodsForSelector(context.TODO(), handlers.HandleNamespace(namespace, defaultNamespace), labelSelector)
+				pl, err := client.PodsForSelector(context.TODO(), handlers.HandleNamespace(addonNamespace, defaultNamespace), labelSelector)
 				if err != nil {
 					return fmt.Errorf("not able to locate pod with selector %s: %v", labelSelector, err)
 				}
@@ -344,7 +352,7 @@ func controlZDashCmd() *cobra.Command {
 				ns = pl.Items[0].Namespace
 			} else {
 				podName, ns, err = handlers.InferPodInfoFromTypedResource(args[0],
-					handlers.HandleNamespace(namespace, defaultNamespace),
+					handlers.HandleNamespace(addonNamespace, defaultNamespace),
 					client.UtilFactory())
 				if err != nil {
 					return err
@@ -352,7 +360,7 @@ func controlZDashCmd() *cobra.Command {
 			}
 
 			return portForward(podName, ns, fmt.Sprintf("ControlZ %s", podName),
-				"http://%s", bindAddress, controlZport, client, c.OutOrStdout())
+				"http://%s", bindAddress, controlZport, client, c.OutOrStdout(), browser)
 		},
 	}
 
@@ -361,8 +369,7 @@ func controlZDashCmd() *cobra.Command {
 
 // portForward first tries to forward localhost:remotePort to podName:remotePort, falls back to dynamic local port
 func portForward(podName, namespace, flavor, urlFormat, localAddress string, remotePort int,
-	client kube.ExtendedClient, writer io.Writer) error {
-
+	client kube.ExtendedClient, writer io.Writer, browser bool) error {
 	// port preference:
 	// - If --listenPort is specified, use it
 	// - without --listenPort, prefer the remotePort but fall back to a random port
@@ -389,7 +396,7 @@ func portForward(podName, namespace, flavor, urlFormat, localAddress string, rem
 		closePortForwarderOnInterrupt(fw)
 
 		log.Debugf(fmt.Sprintf("port-forward to %s pod ready", flavor))
-		openBrowser(fmt.Sprintf(urlFormat, fw.Address()), writer)
+		openBrowser(fmt.Sprintf(urlFormat, fw.Address()), writer, browser)
 
 		// Wait for stop
 		fw.WaitForStop()
@@ -409,10 +416,16 @@ func closePortForwarderOnInterrupt(fw kube.PortForwarder) {
 		fw.Close()
 	}()
 }
-func openBrowser(url string, writer io.Writer) {
+
+func openBrowser(url string, writer io.Writer, browser bool) {
 	var err error
 
 	fmt.Fprintf(writer, "%s\n", url)
+
+	if !browser {
+		fmt.Fprint(writer, "skipping opening a browser")
+		return
+	}
 
 	switch runtime.GOOS {
 	case "linux":
@@ -428,7 +441,6 @@ func openBrowser(url string, writer io.Writer) {
 	if err != nil {
 		fmt.Fprintf(writer, "Failed to open browser; open %s in your browser.\n", url)
 	}
-
 }
 
 func dashboard() *cobra.Command {
@@ -451,7 +463,10 @@ func dashboard() *cobra.Command {
 		"Address to listen on. Only accepts IP address or localhost as a value. "+
 			"When localhost is supplied, istioctl will try to bind on both 127.0.0.1 and ::1 "+
 			"and will fail if neither of these address are available to bind.")
-	dashboardCmd.PersistentFlags().StringVar(&addonNamespace, "namespace", istioNamespace,
+	dashboardCmd.PersistentFlags().BoolVar(&browser, "browser", true,
+		"When --browser is supplied as false, istioctl dashboard will not open the browser. "+
+			"Default is true which means istioctl dashboard will always open a browser to view the dashboard.")
+	dashboardCmd.PersistentFlags().StringVarP(&addonNamespace, "namespace", "n", istioNamespace,
 		"Namespace where the addon is running, if not specified, istio-system would be used")
 
 	dashboardCmd.AddCommand(kialiDashCmd())
@@ -462,11 +477,15 @@ func dashboard() *cobra.Command {
 
 	envoy := envoyDashCmd()
 	envoy.PersistentFlags().StringVarP(&labelSelector, "selector", "l", "", "Label selector")
+	envoy.PersistentFlags().StringVarP(&envoyDashNs, "namespace", "n", defaultNamespace,
+		"Namespace where the addon is running, if not specified, istio-system would be used")
 	dashboardCmd.AddCommand(envoy)
 
 	controlz := controlZDashCmd()
 	controlz.PersistentFlags().IntVar(&controlZport, "ctrlz_port", 9876, "ControlZ port")
 	controlz.PersistentFlags().StringVarP(&labelSelector, "selector", "l", "", "Label selector")
+	controlz.PersistentFlags().StringVarP(&addonNamespace, "namespace", "n", istioNamespace,
+		"Namespace where the addon is running, if not specified, istio-system would be used")
 	dashboardCmd.AddCommand(controlz)
 
 	return dashboardCmd

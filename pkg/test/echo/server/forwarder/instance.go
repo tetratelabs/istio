@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -36,7 +37,6 @@ const maxConcurrency = 20
 type Config struct {
 	Request *proto.ForwardEchoRequest
 	UDS     string
-	TLSCert string
 	Dialer  common.Dialer
 }
 
@@ -85,7 +85,8 @@ func New(cfg Config) (*Instance, error) {
 // Run the forwarder and collect the responses.
 func (i *Instance) Run(ctx context.Context) (*proto.ForwardEchoResponse, error) {
 	g := multierror.Group{}
-	responses := make([]string, i.count)
+	responsesMu := sync.RWMutex{}
+	responses, responseTimes := make([]string, i.count), make([]time.Duration, i.count)
 
 	var throttle *time.Ticker
 
@@ -94,6 +95,14 @@ func (i *Instance) Run(ctx context.Context) (*proto.ForwardEchoResponse, error) 
 		fwLog.Debugf("Sleeping %v between requests", sleepTime)
 		throttle = time.NewTicker(sleepTime)
 	}
+
+	// make the timeout apply to the entire set of requests
+	ctx, cancel := context.WithTimeout(ctx, i.timeout)
+	var canceled bool
+	defer func() {
+		cancel()
+		canceled = true
+	}()
 
 	sem := semaphore.NewWeighted(maxConcurrency)
 	for reqIndex := 0; reqIndex < i.count; reqIndex++ {
@@ -112,21 +121,54 @@ func (i *Instance) Run(ctx context.Context) (*proto.ForwardEchoResponse, error) 
 		}
 
 		if err := sem.Acquire(ctx, 1); err != nil {
-			return nil, fmt.Errorf("failed acquiring semaphore: %v", err)
+			// this should only occur for a timeout, fallthrough to the ctx.Done() select case
+			break
 		}
 		g.Go(func() error {
 			defer sem.Release(1)
+			if canceled {
+				return fmt.Errorf("request set timed out")
+			}
+			st := time.Now()
 			resp, err := i.p.makeRequest(ctx, &r)
+			rt := time.Since(st)
 			if err != nil {
 				return err
 			}
+			responsesMu.Lock()
 			responses[r.RequestID] = resp
+			responseTimes[r.RequestID] = rt
+			responsesMu.Unlock()
 			return nil
 		})
 	}
 
-	if err := g.Wait(); err != nil {
-		return nil, fmt.Errorf("%d/%d requests had errors; first error: %v", err.Len(), i.count, err.Errors[0])
+	requestsDone := make(chan *multierror.Error)
+	go func() {
+		requestsDone <- g.Wait()
+	}()
+
+	select {
+	case err := <-requestsDone:
+		if err != nil {
+			return nil, fmt.Errorf("%d/%d requests had errors; first error: %v", err.Len(), i.count, err.Errors[0])
+		}
+	case <-ctx.Done():
+		responsesMu.RLock()
+		defer responsesMu.RUnlock()
+		var c int
+		var tt time.Duration
+		for id, res := range responses {
+			if res != "" && responseTimes[id] != 0 {
+				c++
+				tt += responseTimes[id]
+			}
+		}
+		var avgTime time.Duration
+		if c > 0 {
+			avgTime = tt / time.Duration(c)
+		}
+		return nil, fmt.Errorf("request set timed out after %v and only %d/%d requests completed (%v avg)", i.timeout, c, i.count, avgTime)
 	}
 
 	return &proto.ForwardEchoResponse{

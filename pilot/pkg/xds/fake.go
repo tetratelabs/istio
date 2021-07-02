@@ -1,3 +1,4 @@
+// +build !agent
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,20 +19,19 @@ import (
 	"context"
 	"net"
 	"strings"
-	"sync"
 	"time"
 
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/cache"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pilot/pkg/config/kube/ingress"
+	"istio.io/istio/pilot/pkg/controller/workloadentry"
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/core/v1alpha3"
@@ -46,8 +46,10 @@ import (
 	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/config/schema/collections"
 	"istio.io/istio/pkg/config/schema/gvk"
+	"istio.io/istio/pkg/keepalive"
 	kubelib "istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/test"
+	"istio.io/istio/pkg/test/util/retry"
 )
 
 type FakeOptions struct {
@@ -68,6 +70,15 @@ type FakeOptions struct {
 	// If provided, this mesh config will be used
 	MeshConfig      *meshconfig.MeshConfig
 	NetworksWatcher mesh.NetworksWatcher
+
+	// Callback to modify the server before it is started
+	DiscoveryServerModifier func(s *DiscoveryServer)
+	// Callback to modify the kube client before it is started
+	KubeClientModifier func(c kubelib.Client)
+
+	// Time to debounce
+	// By default, set to 0s to speed up tests
+	DebounceTime time.Duration
 }
 
 type FakeDiscoveryServer struct {
@@ -92,7 +103,12 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 	}
 
 	// Init with a dummy environment, since we have a circular dependency with the env creation.
-	s := NewDiscoveryServer(&model.Environment{PushContext: model.NewPushContext()}, []string{plugin.Authn, plugin.Authz}, "pilot-123")
+	s := NewDiscoveryServer(&model.Environment{PushContext: model.NewPushContext()}, []string{plugin.AuthzCustom, plugin.Authn, plugin.Authz},
+		"pilot-123", "istio-system")
+	t.Cleanup(func() {
+		s.JwtKeyResolver.Close()
+		s.pushQueue.ShutDown()
+	})
 
 	serviceHandler := func(svc *model.Service, _ model.Event) {
 		pushReq := &model.PushRequest{
@@ -111,8 +127,19 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 	var defaultKubeClient kubelib.Client
 	var defaultKubeController *kube.FakeController
 	var registries []serviceregistry.Instance
+	if opts.NetworksWatcher != nil {
+		opts.NetworksWatcher.AddNetworksHandler(func() {
+			s.ConfigUpdate(&model.PushRequest{
+				Full:   true,
+				Reason: []model.TriggerReason{model.NetworksTrigger},
+			})
+		})
+	}
 	for cluster, objs := range k8sObjects {
 		client := kubelib.NewFakeClient(objs...)
+		if opts.KubeClientModifier != nil {
+			opts.KubeClientModifier(client)
+		}
 		k8s, _ := kube.NewFakeControllerWithOptions(kube.FakeControllerOptions{
 			ServiceHandler:  serviceHandler,
 			Client:          client,
@@ -121,6 +148,9 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 			XDSUpdater:      s,
 			NetworksWatcher: opts.NetworksWatcher,
 			Mode:            opts.KubernetesEndpointMode,
+			// we wait for the aggregate to sync
+			SkipCacheSyncWait: true,
+			Stop:              stop,
 		})
 		// start default client informers after creating ingress/secret controllers
 		if defaultKubeClient == nil || cluster == "Kubernetes" {
@@ -132,8 +162,8 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 		registries = append(registries, k8s)
 	}
 
-	sc := kubesecrets.NewMulticluster(defaultKubeClient, "", "")
-	s.Generators[v3.SecretType] = NewSecretGen(sc, &model.DisabledCache{})
+	sc := kubesecrets.NewMulticluster(defaultKubeClient, "", "", stop)
+	s.Generators[v3.SecretType] = NewSecretGen(sc, s.Cache)
 	defaultKubeClient.RunAndWait(stop)
 
 	ingr := ingress.NewController(defaultKubeClient, mesh.NewFixedWatcher(m), kube.Options{
@@ -152,13 +182,11 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 		ConfigStoreCaches:   []model.ConfigStoreCache{ingr},
 		SkipRun:             true,
 	})
-	if err := cg.ServiceEntryRegistry.AppendServiceHandler(serviceHandler); err != nil {
-		t.Fatal(err)
-	}
+	cg.ServiceEntryRegistry.AppendServiceHandler(serviceHandler)
 	s.updateMutex.Lock()
 	s.Env = cg.Env()
 	// Disable debounce to reduce test times
-	s.debounceOptions.debounceAfter = 0
+	s.debounceOptions.debounceAfter = opts.DebounceTime
 	s.MemRegistry = cg.MemRegistry
 	s.MemRegistry.EDSUpdater = s
 	s.updateMutex.Unlock()
@@ -199,12 +227,13 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 		if !ok {
 			continue
 		}
-		if err := cg.ServiceEntryRegistry.AppendWorkloadHandler(k8s.WorkloadInstanceHandler); err != nil {
-			t.Fatal(err)
-		}
-		if err := k8s.AppendWorkloadHandler(cg.ServiceEntryRegistry.WorkloadInstanceHandler); err != nil {
-			t.Fatal(err)
-		}
+		cg.ServiceEntryRegistry.AppendWorkloadHandler(k8s.WorkloadInstanceHandler)
+		k8s.AppendWorkloadHandler(cg.ServiceEntryRegistry.WorkloadInstanceHandler)
+	}
+	s.WorkloadEntryController = workloadentry.NewController(cg.Store(), "test", keepalive.Infinity)
+
+	if opts.DiscoveryServerModifier != nil {
+		opts.DiscoveryServerModifier(s)
 	}
 
 	// Start in memory gRPC listener
@@ -220,15 +249,29 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 	t.Cleanup(func() {
 		grpcServer.Stop()
 	})
-
-	cg.ServiceEntryRegistry.XdsUpdater = s
 	// Start the discovery server
-	s.CachesSynced()
 	s.Start(stop)
+	cg.ServiceEntryRegistry.XdsUpdater = s
+	cache.WaitForCacheSync(stop,
+		cg.Registry.HasSynced,
+		cg.Store().HasSynced)
 	cg.ServiceEntryRegistry.ResyncEDS()
+
+	// Send an update. This ensures that even if there are no configs provided, the push context is
+	// initialized.
+	s.ConfigUpdate(&model.PushRequest{Full: true})
 
 	// Now that handlers are added, get everything started
 	cg.Run()
+
+	// Wait until initial updates are committed
+	c := s.InboundUpdates.Load()
+	retry.UntilOrFail(t, func() bool {
+		return s.CommittedUpdates.Load() >= c
+	}, retry.Delay(time.Millisecond))
+
+	// Mark ourselves ready
+	s.CachesSynced()
 
 	fake := &FakeDiscoveryServer{
 		t:             t,
@@ -238,10 +281,6 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 		kubeClient:    defaultKubeClient,
 		KubeRegistry:  defaultKubeController,
 	}
-
-	// currently meshNetworks gateways are stored on the push context
-	fake.refreshPushContext()
-	cg.Env().AddNetworksHandler(fake.refreshPushContext)
 
 	return fake
 }
@@ -264,28 +303,18 @@ func (f *FakeDiscoveryServer) ConnectADS() *AdsTest {
 	if err != nil {
 		f.t.Fatalf("failed to connect: %v", err)
 	}
-	xds := discovery.NewAggregatedDiscoveryServiceClient(conn)
-	client, err := xds.StreamAggregatedResources(context.Background())
+	return NewAdsTest(f.t, conn)
+}
+
+// ConnectDeltaADS starts a Delta ADS connection to the server. It will automatically be cleaned up when the test ends
+func (f *FakeDiscoveryServer) ConnectDeltaADS() *DeltaAdsTest {
+	conn, err := grpc.Dial("buffcon", grpc.WithInsecure(), grpc.WithBlock(), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+		return f.Listener.Dial()
+	}))
 	if err != nil {
-		f.t.Fatalf("stream resources failed: %s", err)
+		f.t.Fatalf("failed to connect: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-
-	resp := &AdsTest{
-		client:        client,
-		conn:          conn,
-		context:       ctx,
-		cancelContext: cancel,
-		t:             f.t,
-		ID:            "sidecar~1.1.1.1~test.default~default.svc.cluster.local",
-		Type:          v3.ClusterType,
-		responses:     make(chan *discovery.DiscoveryResponse),
-	}
-	f.t.Cleanup(resp.Cleanup)
-
-	go resp.adsReceiveChannel()
-
-	return resp
+	return NewDeltaAdsTest(f.t, conn)
 }
 
 // Connect starts an ADS connection to the server using adsc. It will automatically be cleaned up when the test ends
@@ -307,14 +336,17 @@ func (f *FakeDiscoveryServer) Connect(p *model.Proxy, watch []string, wait []str
 	}
 	adscConn, err := adsc.New("buffcon", &adsc.Config{
 		IP:                       p.IPAddresses[0],
+		NodeType:                 string(p.Type),
 		Meta:                     p.Metadata.ToStruct(),
 		Locality:                 p.Locality,
 		Namespace:                p.ConfigNamespace,
 		InitialDiscoveryRequests: initialWatch,
-		GrpcOpts: []grpc.DialOption{grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
-			return f.Listener.Dial()
-		}),
-			grpc.WithInsecure()},
+		GrpcOpts: []grpc.DialOption{
+			grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+				return f.Listener.Dial()
+			}),
+			grpc.WithInsecure(),
+		},
 	})
 	if err != nil {
 		f.t.Fatalf("Error connecting: %v", err)
@@ -341,16 +373,6 @@ func (f *FakeDiscoveryServer) Endpoints(p *model.Proxy) []*endpoint.ClusterLoadA
 		loadAssignments = append(loadAssignments, f.Discovery.generateEndpoints(NewEndpointBuilder(c, p, f.PushContext())))
 	}
 	return loadAssignments
-}
-
-func (f *FakeDiscoveryServer) refreshPushContext() {
-	_, err := f.Discovery.initPushContext(&model.PushRequest{
-		Full:   true,
-		Reason: []model.TriggerReason{model.GlobalUpdate},
-	}, nil)
-	if err != nil {
-		f.t.Fatal(err)
-	}
 }
 
 func getKubernetesObjects(t test.Failer, opts FakeOptions) map[string][]runtime.Object {
@@ -383,124 +405,4 @@ func getKubernetesObjects(t test.Failer, opts FakeOptions) map[string][]runtime.
 	}
 
 	return objects
-}
-
-type AdsTest struct {
-	client    discovery.AggregatedDiscoveryService_StreamAggregatedResourcesClient
-	responses chan *discovery.DiscoveryResponse
-	t         test.Failer
-	conn      *grpc.ClientConn
-
-	ID   string
-	Type string
-
-	cancelOnce    sync.Once
-	context       context.Context
-	cancelContext context.CancelFunc
-}
-
-func (a *AdsTest) Cleanup() {
-	// Place in once to avoid race when two callers attempt to cleanup
-	a.cancelOnce.Do(func() {
-		a.cancelContext()
-		_ = a.client.CloseSend()
-		_ = a.conn.Close()
-	})
-}
-
-func (a *AdsTest) adsReceiveChannel() {
-	go func() {
-		<-a.context.Done()
-		a.Cleanup()
-	}()
-	for {
-		resp, err := a.client.Recv()
-		if err != nil {
-			return
-		}
-		a.responses <- resp
-	}
-}
-
-// ExpectResponse waits until a response is received and returns it
-func (a *AdsTest) ExpectResponse() *discovery.DiscoveryResponse {
-	a.t.Helper()
-	select {
-	case <-time.After(time.Second):
-		a.t.Fatalf("did not get response in time")
-	case resp := <-a.responses:
-		if resp == nil || len(resp.Resources) == 0 {
-			a.t.Fatalf("got empty response")
-		}
-		return resp
-	}
-	return nil
-}
-
-// ExpectNoResponse waits a short period of time and ensures no response is received
-func (a *AdsTest) ExpectNoResponse() {
-	a.t.Helper()
-	select {
-	case <-time.After(time.Millisecond * 100):
-		return
-	case resp := <-a.responses:
-		a.t.Fatalf("got unexpected response: %v", resp)
-	}
-}
-
-func (a *AdsTest) fillInRequestDefaults(req *discovery.DiscoveryRequest) *discovery.DiscoveryRequest {
-	if req == nil {
-		req = &discovery.DiscoveryRequest{}
-	}
-	if req.TypeUrl == "" {
-		req.TypeUrl = a.Type
-	}
-	if req.Node == nil {
-		req.Node = &core.Node{
-			Id: a.ID,
-		}
-	}
-	return req
-}
-
-func (a *AdsTest) Request(req *discovery.DiscoveryRequest) {
-	req = a.fillInRequestDefaults(req)
-	if err := a.client.Send(req); err != nil {
-		a.t.Fatal(err)
-	}
-}
-
-// RequestResponseAck does a full XDS exchange: Send a request, get a response, and ACK the response
-func (a *AdsTest) RequestResponseAck(req *discovery.DiscoveryRequest) *discovery.DiscoveryResponse {
-	a.t.Helper()
-	req = a.fillInRequestDefaults(req)
-	a.Request(req)
-	resp := a.ExpectResponse()
-	req.ResponseNonce = resp.Nonce
-	a.Request(req)
-	return resp
-}
-
-// RequestResponseAck does a full XDS exchange with an error: Send a request, get a response, and NACK the response
-func (a *AdsTest) RequestResponseNack(req *discovery.DiscoveryRequest) *discovery.DiscoveryResponse {
-	a.t.Helper()
-	if req == nil {
-		req = &discovery.DiscoveryRequest{}
-	}
-	a.Request(req)
-	resp := a.ExpectResponse()
-	req.ResponseNonce = resp.Nonce
-	req.ErrorDetail = &status.Status{Message: "Test request NACK"}
-	a.Request(req)
-	return resp
-}
-
-func (a *AdsTest) WithID(id string) *AdsTest {
-	a.ID = id
-	return a
-}
-
-func (a *AdsTest) WithType(typeURL string) *AdsTest {
-	a.Type = typeURL
-	return a
 }

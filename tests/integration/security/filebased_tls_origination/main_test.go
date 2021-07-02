@@ -25,22 +25,15 @@ import (
 	"istio.io/istio/tests/integration/security/util/cert"
 )
 
-var (
-	inst istio.Instance
-)
+var inst istio.Instance
 
 func TestMain(m *testing.M) {
 	framework.
 		NewSuite(m).
-		RequireSingleCluster().
 		Label(label.CustomSetup).
-
-		// SDS requires Kubernetes 1.13
-		RequireEnvironmentVersion("1.13").
 		Label("CustomSetup").
 		Setup(istio.Setup(&inst, setupConfig, cert.CreateCustomEgressSecret)).
 		Run()
-
 }
 
 func setupConfig(_ resource.Context, cfg *istio.Config) {

@@ -15,6 +15,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,8 @@ import (
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"istio.io/istio/galley/pkg/config/analysis"
 	"istio.io/istio/galley/pkg/config/analysis/analyzers"
@@ -39,7 +42,6 @@ import (
 	"istio.io/istio/pkg/config/schema"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/url"
-	"istio.io/pkg/env"
 )
 
 // AnalyzerFoundIssuesError indicates that at least one analyzer found problems.
@@ -74,8 +76,6 @@ var (
 	suppress          []string
 	analysisTimeout   time.Duration
 	recursive         bool
-
-	termEnvVar = env.RegisterStringVar("TERM", "", "Specifies terminal type.  Use 'dumb' to suppress color output")
 
 	fileExtensions = []string{".json", ".yaml", ".yml"}
 )
@@ -129,6 +129,19 @@ func Analyze() *cobra.Command {
 			// We use the "namespace" arg that's provided as part of root istioctl as a flag for specifying what namespace to use
 			// for file resources that don't have one specified.
 			selectedNamespace = handlers.HandleNamespace(namespace, defaultNamespace)
+
+			// check whether selected namespace exists.
+			if namespace != "" && useKube {
+				client, err := kube.NewExtendedClient(kube.BuildClientCmd(kubeconfig, configContext), "")
+				if err != nil {
+					return err
+				}
+				_, err = client.CoreV1().Namespaces().Get(context.TODO(), namespace, v1.GetOptions{})
+				if errors.IsNotFound(err) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "namespace %q not found\n", namespace)
+					return nil
+				}
+			}
 
 			// If we've explicitly asked for all namespaces, blank the selectedNamespace var out
 			if allNamespaces {
@@ -202,7 +215,6 @@ func Analyze() *cobra.Command {
 
 			// Do the analysis
 			result, err := sa.Analyze(cancel)
-
 			if err != nil {
 				return err
 			}
@@ -239,7 +251,15 @@ func Analyze() *cobra.Command {
 			// An extra message on success
 			if len(outputMessages) == 0 {
 				if parseErrors == 0 {
-					fmt.Fprintf(cmd.ErrOrStderr(), "\u2714 No validation issues found when analyzing %s.\n", analyzeTargetAsString())
+					if len(readers) > 0 {
+						var files []string
+						for _, r := range readers {
+							files = append(files, r.Name)
+						}
+						fmt.Fprintf(cmd.ErrOrStderr(), "\u2714 No validation issues found when analyzing %s.\n", strings.Join(files, "\n"))
+					} else {
+						fmt.Fprintf(cmd.ErrOrStderr(), "\u2714 No validation issues found when analyzing %s.\n", analyzeTargetAsString())
+					}
 				} else {
 					fileOrFiles := "files"
 					if parseErrors == 1 {
@@ -271,7 +291,7 @@ func Analyze() *cobra.Command {
 		"List the analyzers available to run. Suppresses normal execution.")
 	analysisCmd.PersistentFlags().BoolVarP(&useKube, "use-kube", "k", true,
 		"Use live Kubernetes cluster for analysis. Set --use-kube=false to analyze files only.")
-	analysisCmd.PersistentFlags().BoolVar(&colorize, "color", istioctlColorDefault(analysisCmd),
+	analysisCmd.PersistentFlags().BoolVar(&colorize, "color", formatting.IstioctlColorDefault(analysisCmd.OutOrStdout()),
 		"Default true.  Disable with '=false' or set $TERM to dumb")
 	analysisCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false,
 		"Enable verbose output")
@@ -376,21 +396,6 @@ func gatherFilesInDirectory(cmd *cobra.Command, dir string) ([]local.ReaderSourc
 		return nil
 	})
 	return readers, err
-}
-
-func istioctlColorDefault(cmd *cobra.Command) bool {
-	if strings.EqualFold(termEnvVar.Get(), "dumb") {
-		return false
-	}
-
-	file, ok := cmd.OutOrStdout().(*os.File)
-	if ok {
-		if !isatty.IsTerminal(file.Fd()) {
-			return false
-		}
-	}
-
-	return true
 }
 
 func errorIfMessagesExceedThreshold(messages []diag.Message) error {

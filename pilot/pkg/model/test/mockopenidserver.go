@@ -84,6 +84,12 @@ type MockOpenIDDiscoveryServer struct {
 	// this is used to simulate network errors and test the refresh logic in jwks resolver.
 	ReturnErrorAfterFirstNumHits uint64
 
+	// The mock server will start to return a successful response after the first number of hits for public key,
+	// this is used to simulate network errors and test the refresh logic in jwks resolver. Note the idea is to
+	// use this in combination with ReturnErrorAfterFirstNumHits to simulate something like this:
+	// { success, success, error, error, success, success }
+	ReturnSuccessAfterFirstNumHits uint64
+
 	// The mock server will start to return an error after the first number of hits for public key,
 	// this is used to simulate network errors and test the refresh logic in jwks resolver.
 	ReturnReorderedKeyAfterFirstNumHits uint64
@@ -171,14 +177,15 @@ func (ms *MockOpenIDDiscoveryServer) Start() error {
 	wait := 10 * time.Millisecond
 	for try := 0; try < 10; try++ {
 		// Try to call the server
-		if _, err := httpClient.Get(fmt.Sprintf("%s/.well-known/openid-configuration", ms.URL)); err != nil {
+		res, err := httpClient.Get(fmt.Sprintf("%s/.well-known/openid-configuration", ms.URL))
+		if err != nil {
 			log.Infof("Server not yet serving: %v", err)
 			// Retry after some sleep.
 			wait *= 2
 			time.Sleep(wait)
 			continue
 		}
-
+		res.Body.Close()
 		log.Infof("Successfully serving on %s", ms.URL)
 		atomic.StoreUint64(&ms.OpenIDHitNum, 0)
 		atomic.StoreUint64(&ms.PubKeyHitNum, 0)
@@ -208,6 +215,12 @@ func (ms *MockOpenIDDiscoveryServer) openIDCfg(w http.ResponseWriter, req *http.
 
 func (ms *MockOpenIDDiscoveryServer) jwtPubKey(w http.ResponseWriter, req *http.Request) {
 	atomic.AddUint64(&ms.PubKeyHitNum, 1)
+
+	if ms.ReturnSuccessAfterFirstNumHits > 0 && atomic.LoadUint64(&ms.PubKeyHitNum) >= ms.ReturnSuccessAfterFirstNumHits {
+		fmt.Fprintf(w, "%v", JwtPubKey1)
+		return
+	}
+
 	if ms.ReturnErrorAfterFirstNumHits != 0 && atomic.LoadUint64(&ms.PubKeyHitNum) > ms.ReturnErrorAfterFirstNumHits {
 		w.WriteHeader(http.StatusForbidden)
 		fmt.Fprintf(w, "Mock server configured to return error after %d hits", ms.ReturnErrorAfterFirstNumHits)

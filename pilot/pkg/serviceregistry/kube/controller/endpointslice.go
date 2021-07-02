@@ -21,16 +21,15 @@ import (
 	discovery "k8s.io/api/discovery/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	klabels "k8s.io/apimachinery/pkg/labels"
-	discoveryinformer "k8s.io/client-go/informers/discovery/v1beta1"
 	discoverylister "k8s.io/client-go/listers/discovery/v1beta1"
 	"k8s.io/client-go/tools/cache"
 
 	"istio.io/api/label"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry/kube"
+	"istio.io/istio/pilot/pkg/serviceregistry/kube/controller/filter"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/labels"
-	"istio.io/pkg/log"
 )
 
 type endpointSliceController struct {
@@ -40,21 +39,21 @@ type endpointSliceController struct {
 
 var _ kubeEndpointsController = &endpointSliceController{}
 
-func newEndpointSliceController(c *Controller, informer discoveryinformer.EndpointSliceInformer) *endpointSliceController {
+func newEndpointSliceController(c *Controller, informer filter.FilteredSharedIndexInformer) *endpointSliceController {
 	// TODO Endpoints has a special cache, to filter out irrelevant updates to kube-system
 	// Investigate if we need this, or if EndpointSlice is makes this not relevant
 	out := &endpointSliceController{
 		kubeEndpoints: kubeEndpoints{
 			c:        c,
-			informer: informer.Informer(),
+			informer: informer,
 		},
 		endpointCache: newEndpointSliceCache(),
 	}
-	registerHandlers(informer.Informer(), c.queue, "EndpointSlice", out.onEvent, nil)
+	c.registerHandlers(informer, "EndpointSlice", out.onEvent, nil)
 	return out
 }
 
-func (esc *endpointSliceController) getInformer() cache.SharedIndexInformer {
+func (esc *endpointSliceController) getInformer() filter.FilteredSharedIndexInformer {
 	return esc.informer
 }
 
@@ -73,7 +72,7 @@ func (esc *endpointSliceController) onEvent(curr interface{}, event model.Event)
 		}
 	}
 
-	return processEndpointEvent(esc.c, esc, ep.Labels[discovery.LabelServiceName], ep.Namespace, event, curr)
+	return processEndpointEvent(esc.c, esc, ep.Labels[discovery.LabelServiceName], ep.Namespace, event, ep)
 }
 
 // GetProxyServiceInstances returns service instances co-located with a given proxy
@@ -106,8 +105,7 @@ func sliceServiceInstances(c *Controller, ep *discovery.EndpointSlice, proxy *mo
 		return out
 	}
 
-	podIP := proxy.IPAddresses[0]
-	pod := c.pods.getPodByIP(podIP)
+	pod := c.pods.getPodByProxy(proxy)
 	builder := NewEndpointBuilder(c, pod)
 
 	for _, port := range ep.Ports {
@@ -118,7 +116,6 @@ func sliceServiceInstances(c *Controller, ep *discovery.EndpointSlice, proxy *mo
 		if !exists {
 			continue
 		}
-
 		// consider multiple IP scenarios
 		for _, ip := range proxy.IPAddresses {
 			for _, ep := range ep.Endpoints {
@@ -143,7 +140,7 @@ func sliceServiceInstances(c *Controller, ep *discovery.EndpointSlice, proxy *mo
 	return out
 }
 
-func (esc *endpointSliceController) forgetEndpoint(endpoint interface{}) {
+func (esc *endpointSliceController) forgetEndpoint(endpoint interface{}) []*model.IstioEndpoint {
 	slice := endpoint.(*discovery.EndpointSlice)
 	key := kube.KeyFunc(slice.Name, slice.Namespace)
 	for _, e := range slice.Endpoints {
@@ -154,6 +151,7 @@ func (esc *endpointSliceController) forgetEndpoint(endpoint interface{}) {
 	host, _, _ := esc.getServiceInfo(slice)
 	// endpointSlice cache update
 	esc.endpointCache.Delete(host, slice.Name)
+	return esc.endpointCache.Get(host)
 }
 
 func (esc *endpointSliceController) buildIstioEndpoints(es interface{}, host host.Name) []*model.IstioEndpoint {
@@ -234,7 +232,8 @@ func (esc *endpointSliceController) InstancesByPort(c *Controller, svc *model.Se
 		for _, e := range slice.Endpoints {
 			for _, a := range e.Addresses {
 				var podLabels labels.Instance
-				pod := c.pods.getPodByIP(a)
+				// TODO(@hzxuzhonghu): handle pod occurs later than endpoint
+				pod := c.getPod(a, &metav1.ObjectMeta{Name: slice.Labels[discovery.LabelServiceName], Namespace: slice.Namespace}, e.TargetRef)
 				if pod != nil {
 					podLabels = pod.Labels
 				}
@@ -286,8 +285,8 @@ func getLocalityFromTopology(topology map[string]string) string {
 	if _, f := topology[NodeZoneLabelGA]; f {
 		locality += "/" + topology[NodeZoneLabelGA]
 	}
-	if _, f := topology[label.IstioSubZone]; f {
-		locality += "/" + topology[label.IstioSubZone]
+	if _, f := topology[label.TopologySubzone.Name]; f {
+		locality += "/" + topology[label.TopologySubzone.Name]
 	}
 	return locality
 }

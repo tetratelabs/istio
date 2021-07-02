@@ -15,9 +15,11 @@
 package bootstrap
 
 import (
+	"os"
 	"reflect"
 	"testing"
 
+	. "github.com/onsi/gomega"
 	"k8s.io/kubectl/pkg/util/fieldpath"
 )
 
@@ -70,4 +72,27 @@ other: setting`,
 			}
 		})
 	}
+}
+
+func TestGetNodeMetaData(t *testing.T) {
+	inputOwner := "test"
+	inputWorkloadName := "workload"
+
+	expectOwner := "test"
+	expectWorkloadName := "workload"
+
+	os.Setenv(IstioMetaPrefix+"OWNER", inputOwner)
+	os.Setenv(IstioMetaPrefix+"WORKLOAD_NAME", inputWorkloadName)
+
+	node, err := GetNodeMetaData(MetadataOptions{
+		ID:   "test",
+		Envs: os.Environ(),
+	})
+
+	g := NewWithT(t)
+	g.Expect(err).Should(BeNil())
+	g.Expect(node.Metadata.Owner).To(Equal(expectOwner))
+	g.Expect(node.Metadata.WorkloadName).To(Equal(expectWorkloadName))
+	g.Expect(node.RawMetadata["OWNER"]).To(Equal(expectOwner))
+	g.Expect(node.RawMetadata["WORKLOAD_NAME"]).To(Equal(expectWorkloadName))
 }

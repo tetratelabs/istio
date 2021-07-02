@@ -114,9 +114,9 @@ func (m *Monitor) Start(stop <-chan struct{}) {
 
 func (m *Monitor) checkAndUpdate() {
 	newConfigs, err := m.getSnapshotFunc()
-	//If an error exists then log it and return to running the check and update
-	//Do not edit the local []*model.config until the connection has been reestablished
-	//The error will only come from a directory read error or a gRPC connection error
+	// If an error exists then log it and return to running the check and update
+	// Do not edit the local []*model.config until the connection has been reestablished
+	// The error will only come from a directory read error or a gRPC connection error
 	if err != nil {
 		log.Warnf("checkAndUpdate Error Caught %s: %v\n", m.name, err)
 		return
@@ -174,9 +174,10 @@ func (m *Monitor) createConfig(c *config.Config) {
 }
 
 func (m *Monitor) updateConfig(c *config.Config) {
-	// Set the resource version based on the existing config.
+	// Set the resource version and create timestamp based on the existing config.
 	if prev := m.store.Get(c.GroupVersionKind, c.Name, c.Namespace); prev != nil {
 		c.ResourceVersion = prev.ResourceVersion
+		c.CreationTimestamp = prev.CreationTimestamp
 	}
 
 	if _, err := m.store.Update(*c); err != nil {
@@ -185,7 +186,7 @@ func (m *Monitor) updateConfig(c *config.Config) {
 }
 
 func (m *Monitor) deleteConfig(c *config.Config) {
-	if err := m.store.Delete(c.GroupVersionKind, c.Name, c.Namespace); err != nil {
+	if err := m.store.Delete(c.GroupVersionKind, c.Name, c.Namespace, nil); err != nil {
 		log.Warnf("Failed to delete config (%+v): %v ", *c, err)
 	}
 }

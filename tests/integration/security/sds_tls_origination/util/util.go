@@ -22,7 +22,6 @@ import (
 	"html/template"
 	"io/ioutil"
 	"path"
-	"testing"
 	"time"
 
 	envoyAdmin "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
@@ -30,12 +29,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"istio.io/istio/pkg/config/protocol"
+	"istio.io/istio/pkg/test"
+	"istio.io/istio/pkg/test/echo/client"
 	"istio.io/istio/pkg/test/echo/common"
+	"istio.io/istio/pkg/test/echo/common/scheme"
 	"istio.io/istio/pkg/test/env"
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/echo"
 	"istio.io/istio/pkg/test/framework/components/echo/echoboot"
-	"istio.io/istio/pkg/test/framework/components/environment/kube"
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/resource"
@@ -43,7 +44,25 @@ import (
 	"istio.io/istio/pkg/test/util/structpath"
 )
 
-func MustReadCert(t *testing.T, f string) string {
+const (
+	CallsPerCluster = 5
+	ServerSvc       = "server"
+)
+
+type EchoDeployments struct {
+	All             echo.Instances
+	Server          echo.Instance
+	ClientNamespace namespace.Instance
+	ServerNamespace namespace.Instance
+}
+
+type TestCase struct {
+	Response        string
+	CredentialToUse string
+	Gateway         bool // true if the request is expected to be routed through gateway
+}
+
+func MustReadCert(t test.Failer, f string) string {
 	b, err := ioutil.ReadFile(path.Join(env.IstioSrc, "tests/testdata/certs/dns", f))
 	if err != nil {
 		t.Fatalf("failed to read %v: %v", f, err)
@@ -87,7 +106,7 @@ func CreateKubeSecret(ctx framework.TestContext, credNames []string,
 		return
 	}
 	// Create Kubernetes secret for gateway
-	cluster := ctx.Environment().(*kube.Environment).KubeClusters[0]
+	cluster := ctx.Clusters().Default()
 	for _, cn := range credNames {
 		secret := createSecret(credentialType, cn, systemNS.Name(), egressCred, isNotGeneric)
 		_, err := cluster.CoreV1().Secrets(systemNS.Name()).Create(context.TODO(), secret, metav1.CreateOptions{})
@@ -150,32 +169,44 @@ func createSecret(credentialType string, cn, ns string, ic TLSCredential, isNotG
 	}
 }
 
-// SetupEcho creates two namespaces client and server. It also brings up two echo instances server and
-// client in respective namespaces. HTTP and HTTPS port on the server echo are set up. Egress Gateway is set up in the
+// SetupEcho creates two namespaces client and server. It also brings up echo instances server and
+// clients in respective namespaces. HTTP and HTTPS port on the server echo are set up. Egress Gateway is set up in the
 // service namespace to handle egress for "external" calls.
-func SetupEcho(t *testing.T, ctx resource.Context) (echo.Instance, echo.Instance, namespace.Instance, namespace.Instance) {
-	clientNamespace := namespace.NewOrFail(t, ctx, namespace.Config{
+func SetupEcho(t test.Failer, ctx resource.Context, apps *EchoDeployments) {
+	apps.ClientNamespace = namespace.NewOrFail(t, ctx, namespace.Config{
 		Prefix: "client",
 		Inject: true,
 	})
-	serverNamespace := namespace.NewOrFail(t, ctx, namespace.Config{
+	apps.ServerNamespace = namespace.NewOrFail(t, ctx, namespace.Config{
 		Prefix: "server",
 		Inject: true,
 	})
-
-	var internalClient, externalServer echo.Instance
-	echoboot.NewBuilder(ctx).
+	cluster := ctx.Clusters().Default()
+	var internalClient, internalVM, externalServer echo.Instance
+	echos := echoboot.NewBuilder(ctx).
 		With(&internalClient, echo.Config{
-			Service:   "client",
-			Namespace: clientNamespace,
+			Cluster:   cluster,
+			Service:   "a",
+			Namespace: apps.ClientNamespace,
 			Ports:     []echo.Port{},
 			Subsets: []echo.SubsetConfig{{
 				Version: "v1",
 			}},
 		}).
+		With(&internalVM, echo.Config{
+			Cluster:   cluster,
+			Service:   "vm",
+			Namespace: apps.ClientNamespace,
+			Ports:     []echo.Port{},
+			Subsets: []echo.SubsetConfig{{
+				Version: "v1",
+			}},
+			DeployAsVM: true,
+		}).
 		With(&externalServer, echo.Config{
-			Service:   "server",
-			Namespace: serverNamespace,
+			Cluster:   cluster,
+			Service:   ServerSvc,
+			Namespace: apps.ServerNamespace,
 			Ports: []echo.Port{
 				{
 					// Plain HTTP port only used to route request to egress gateway
@@ -209,14 +240,14 @@ func SetupEcho(t *testing.T, ctx resource.Context) (echo.Instance, echo.Instance
 		}).
 		BuildOrFail(t)
 
+	apps.All = echos
+	apps.Server = externalServer
 	// Apply Egress Gateway for service namespace to originate external traffic
-	createGateway(t, ctx, clientNamespace, serverNamespace)
+	createGateway(t, ctx, apps.ClientNamespace, apps.ServerNamespace)
 
 	if err := WaitUntilNotCallable(internalClient, externalServer); err != nil {
 		t.Fatalf("failed to apply sidecar, %v", err)
 	}
-
-	return internalClient, externalServer, clientNamespace, serverNamespace
 }
 
 const (
@@ -297,7 +328,7 @@ spec:
 // We want to test out TLS origination at Gateway, to do so traffic from client in client namespace is first
 // routed to egress-gateway service in istio-system namespace and then from egress-gateway to server in server namespace.
 // TLS origination at Gateway happens using DestinationRule with CredentialName reading k8s secret at the gateway proxy.
-func createGateway(t *testing.T, ctx resource.Context, clientNamespace namespace.Instance, serverNamespace namespace.Instance) {
+func createGateway(t test.Failer, ctx resource.Context, clientNamespace namespace.Instance, serverNamespace namespace.Instance) {
 	tmplGateway, err := template.New("Gateway").Parse(Gateway)
 	if err != nil {
 		t.Fatalf("failed to create template: %v", err)
@@ -307,7 +338,7 @@ func createGateway(t *testing.T, ctx resource.Context, clientNamespace namespace
 	if err := tmplGateway.Execute(&bufGateway, map[string]string{"ServerNamespace": serverNamespace.Name()}); err != nil {
 		t.Fatalf("failed to create template: %v", err)
 	}
-	if err := ctx.Config().ApplyYAML(clientNamespace.Name(), bufGateway.String()); err != nil {
+	if err := ctx.Config(ctx.Clusters().Default()).ApplyYAML(clientNamespace.Name(), bufGateway.String()); err != nil {
 		t.Fatalf("failed to apply gateway: %v. template: %v", err, bufGateway.String())
 	}
 
@@ -323,7 +354,7 @@ func createGateway(t *testing.T, ctx resource.Context, clientNamespace namespace
 	if err := tmplVS.Execute(&bufVS, map[string]string{"ServerNamespace": serverNamespace.Name()}); err != nil {
 		t.Fatalf("failed to create template: %v", err)
 	}
-	if err := ctx.Config().ApplyYAML(clientNamespace.Name(), bufVS.String()); err != nil {
+	if err := ctx.Config(ctx.Clusters().Default()).ApplyYAML(clientNamespace.Name(), bufVS.String()); err != nil {
 		t.Fatalf("failed to apply gateway: %v. template: %v", err, bufVS.String())
 	}
 }
@@ -349,19 +380,20 @@ spec:
 )
 
 // Create the DestinationRule for TLS origination at Gateway by reading secret in istio-system namespace.
-func CreateDestinationRule(t *testing.T, serverNamespace namespace.Instance,
+func CreateDestinationRule(t test.Failer, serverNamespace namespace.Instance,
 	destinationRuleMode string, credentialName string) bytes.Buffer {
-
 	destinationRuleToParse := DestinationRuleConfig
 
 	tmpl, err := template.New("DestinationRule").Parse(destinationRuleToParse)
 	if err != nil {
-		t.Errorf("failed to create template: %v", err)
+		t.Fatalf("failed to create template: %v", err)
 	}
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, map[string]string{"ServerNamespace": serverNamespace.Name(),
-		"Mode": destinationRuleMode, "CredentialName": credentialName}); err != nil {
+	if err := tmpl.Execute(&buf, map[string]string{
+		"ServerNamespace": serverNamespace.Name(),
+		"Mode":            destinationRuleMode, "CredentialName": credentialName,
+	}); err != nil {
 		t.Fatalf("failed to create template: %v", err)
 	}
 	return buf
@@ -400,4 +432,33 @@ func WaitUntilNotCallable(c echo.Instance, dest echo.Instance) error {
 func clusterName(target echo.Instance, port echo.Port) string {
 	cfg := target.Config()
 	return fmt.Sprintf("outbound|%d||%s.%s.svc.%s", port.ServicePort, cfg.Service, cfg.Namespace.Name(), cfg.Domain)
+}
+
+func CallOpts(dest echo.Instance, host, name string, tc TestCase) echo.CallOptions {
+	return echo.CallOptions{
+		Target:   dest,
+		Count:    CallsPerCluster,
+		PortName: "http",
+		Scheme:   scheme.HTTP,
+		Headers: map[string][]string{
+			"Host": {host},
+		},
+		Validator: echo.And(echo.ValidatorFunc(
+			func(responses client.ParsedResponses, err error) error {
+				if err != nil {
+					return fmt.Errorf("request failed: %v", err)
+				}
+				for _, r := range responses {
+					if r.Code != tc.Response {
+						return fmt.Errorf("got code %s, expected %s", r.Code, tc.Response)
+					}
+				}
+				for _, r := range responses {
+					if _, f := r.RawResponse["Handled-By-Egress-Gateway"]; tc.Gateway && !f {
+						return fmt.Errorf("expected to be handled by gateway. response: %+v", r.RawResponse)
+					}
+				}
+				return nil
+			})),
+	}
 }

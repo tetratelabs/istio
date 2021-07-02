@@ -35,15 +35,12 @@ type MeshNetworksAnalyzer struct{}
 
 var _ analysis.Analyzer = &MeshNetworksAnalyzer{}
 
-var (
-	// Service Registries that are known to istio.
-	serviceRegistries = []serviceregistry.ProviderID{
-		serviceregistry.Mock,
-		serviceregistry.Kubernetes,
-		serviceregistry.MCP,
-		serviceregistry.External,
-	}
-)
+// Service Registries that are known to istio.
+var serviceRegistries = []serviceregistry.ProviderID{
+	serviceregistry.Mock,
+	serviceregistry.Kubernetes,
+	serviceregistry.External,
+}
 
 // Metadata implements Analyzer
 func (s *MeshNetworksAnalyzer) Metadata() analysis.Metadata {
@@ -96,5 +93,4 @@ func (s *MeshNetworksAnalyzer) Analyze(c analysis.Context) {
 		}
 		return true
 	})
-
 }

@@ -17,7 +17,6 @@ package bootstrap
 import (
 	"fmt"
 
-	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry"
 	"istio.io/istio/pilot/pkg/serviceregistry/aggregate"
@@ -25,6 +24,7 @@ import (
 	"istio.io/istio/pilot/pkg/serviceregistry/mock"
 	"istio.io/istio/pilot/pkg/serviceregistry/serviceentry"
 	"istio.io/istio/pkg/config/host"
+	"istio.io/istio/pkg/kube/secretcontroller"
 	"istio.io/pkg/log"
 )
 
@@ -35,6 +35,13 @@ func (s *Server) ServiceController() *aggregate.Controller {
 // initServiceControllers creates and initializes the service controllers
 func (s *Server) initServiceControllers(args *PilotArgs) error {
 	serviceControllers := s.ServiceController()
+
+	s.serviceEntryStore = serviceentry.NewServiceDiscovery(
+		s.configController, s.environment.IstioConfigStore, s.XDSServer,
+		serviceentry.WithClusterID(s.clusterID),
+	)
+	serviceControllers.AddRegistry(s.serviceEntryStore)
+
 	registered := make(map[serviceregistry.ProviderID]bool)
 	for _, r := range args.RegistryOptions.Registries {
 		serviceRegistry := serviceregistry.ProviderID(r)
@@ -46,27 +53,14 @@ func (s *Server) initServiceControllers(args *PilotArgs) error {
 		log.Infof("Adding %s registry adapter", serviceRegistry)
 		switch serviceRegistry {
 		case serviceregistry.Kubernetes:
-			if err := s.initKubeRegistry(serviceControllers, args); err != nil {
+			if err := s.initKubeRegistry(args); err != nil {
 				return err
 			}
 		case serviceregistry.Mock:
-			s.initMockRegistry(serviceControllers)
+			s.initMockRegistry()
 		default:
 			return fmt.Errorf("service registry %s is not supported", r)
 		}
-	}
-
-	s.serviceEntryStore = serviceentry.NewServiceDiscovery(s.configController, s.environment.IstioConfigStore, s.XDSServer)
-	serviceControllers.AddRegistry(s.serviceEntryStore)
-
-	if features.EnableServiceEntrySelectPods && s.kubeRegistry != nil {
-		// Add an instance handler in the kubernetes registry to notify service entry store about pod events
-		_ = s.kubeRegistry.AppendWorkloadHandler(s.serviceEntryStore.WorkloadInstanceHandler)
-	}
-
-	if features.EnableK8SServiceSelectWorkloadEntries && s.kubeRegistry != nil {
-		// Add an instance handler in the service entry store to notify kubernetes about workload entry events
-		_ = s.serviceEntryStore.AppendWorkloadHandler(s.kubeRegistry.WorkloadInstanceHandler)
 	}
 
 	// Defer running of the service controllers.
@@ -79,21 +73,57 @@ func (s *Server) initServiceControllers(args *PilotArgs) error {
 }
 
 // initKubeRegistry creates all the k8s service controllers under this pilot
-func (s *Server) initKubeRegistry(serviceControllers *aggregate.Controller, args *PilotArgs) (err error) {
+func (s *Server) initKubeRegistry(args *PilotArgs) (err error) {
 	args.RegistryOptions.KubeOptions.ClusterID = s.clusterID
 	args.RegistryOptions.KubeOptions.Metrics = s.environment
 	args.RegistryOptions.KubeOptions.XDSUpdater = s.XDSServer
 	args.RegistryOptions.KubeOptions.NetworksWatcher = s.environment.NetworksWatcher
+	args.RegistryOptions.KubeOptions.MeshWatcher = s.environment.Watcher
 	args.RegistryOptions.KubeOptions.SystemNamespace = args.Namespace
 
-	log.Infof("Initializing Kubernetes service registry %q", args.RegistryOptions.KubeOptions.ClusterID)
-	kubeRegistry := kubecontroller.NewController(s.kubeClient, args.RegistryOptions.KubeOptions)
-	s.kubeRegistry = kubeRegistry
-	serviceControllers.AddRegistry(kubeRegistry)
+	mc := kubecontroller.NewMulticluster(args.PodName,
+		s.kubeClient,
+		args.RegistryOptions.ClusterRegistriesNamespace,
+		args.RegistryOptions.KubeOptions,
+		s.ServiceController(),
+		s.serviceEntryStore,
+		s.istiodCertBundleWatcher,
+		args.Revision,
+		s.fetchCARoot,
+		s.environment,
+		s.environment.ClusterLocal(),
+		s.server)
+
+	// initialize the "main" cluster registry before starting controllers for remote clusters
+	s.addStartFunc(func(stop <-chan struct{}) error {
+		writableStop := make(chan struct{})
+		go func() {
+			<-stop
+			close(writableStop)
+		}()
+		if err := mc.AddMemberCluster(args.RegistryOptions.KubeOptions.ClusterID, &secretcontroller.Cluster{
+			Client: s.kubeClient,
+			Stop:   writableStop,
+		}); err != nil {
+			return fmt.Errorf("failed initializing registry for %s: %v", args.RegistryOptions.KubeOptions.ClusterID, err)
+		}
+		return nil
+	})
+
+	// Start the multicluster controller and wait for it to shutdown before exiting the server.
+	s.addTerminatingStartFunc(mc.Run)
+
+	// start remote cluster controllers
+	s.addStartFunc(func(stop <-chan struct{}) error {
+		mc.InitSecretController(stop)
+		return nil
+	})
+
+	s.multicluster = mc
 	return
 }
 
-func (s *Server) initMockRegistry(serviceControllers *aggregate.Controller) {
+func (s *Server) initMockRegistry() {
 	// MemServiceDiscovery implementation
 	discovery := mock.NewDiscovery(map[host.Name]*model.Service{}, 2)
 
@@ -103,5 +133,5 @@ func (s *Server) initMockRegistry(serviceControllers *aggregate.Controller) {
 		Controller:       &mock.Controller{},
 	}
 
-	serviceControllers.AddRegistry(registry)
+	s.ServiceController().AddRegistry(registry)
 }

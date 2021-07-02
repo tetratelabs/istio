@@ -33,6 +33,7 @@ import (
 
 	//  to avoid 'No Auth Provider found for name "gcp"'
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/clientcmd/api/latest"
 
@@ -42,6 +43,7 @@ import (
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/secretcontroller"
+	"istio.io/pkg/log"
 )
 
 var (
@@ -75,10 +77,6 @@ const (
 
 func remoteSecretNameFromClusterName(clusterName string) string {
 	return remoteSecretPrefix + clusterName
-}
-
-func clusterNameFromRemoteSecretName(name string) string {
-	return strings.TrimPrefix(name, remoteSecretPrefix)
 }
 
 // NewCreateRemoteSecretCommand creates a new command for joining two contexts
@@ -198,6 +196,9 @@ func createRemoteSecretFromPlugin(
 
 	// Create a Kubeconfig to access the remote cluster using the auth provider plugin.
 	kubeconfig := createPluginKubeconfig(caData, clusterName, server, authProviderConfig)
+	if err := clientcmd.Validate(*kubeconfig); err != nil {
+		return nil, fmt.Errorf("invalid kubeconfig: %v", err)
+	}
 
 	// Encode the Kubeconfig in a secret that can be loaded by Istio to dynamically discover and access the remote cluster.
 	return createRemoteServiceAccountSecret(kubeconfig, clusterName, secName)
@@ -220,6 +221,9 @@ func createRemoteSecretFromTokenAndServer(tokenSecret *v1.Secret, clusterName, s
 
 	// Create a Kubeconfig to access the remote cluster using the remote service account credentials.
 	kubeconfig := createBearerTokenKubeconfig(caData, token, clusterName, server)
+	if err := clientcmd.Validate(*kubeconfig); err != nil {
+		return nil, fmt.Errorf("invalid kubeconfig: %v", err)
+	}
 
 	// Encode the Kubeconfig in a secret that can be loaded by Istio to dynamically discover and access the remote cluster.
 	return createRemoteServiceAccountSecret(kubeconfig, clusterName, secName)
@@ -232,13 +236,35 @@ func getServiceAccountSecret(client kube.ExtendedClient, opt RemoteSecretOptions
 		return nil, err
 	}
 
-	if len(serviceAccount.Secrets) != 1 {
-		return nil, fmt.Errorf("wrong number of secrets (%v) in serviceaccount %s/%s",
-			len(serviceAccount.Secrets), opt.Namespace, opt.ServiceAccountName)
+	if len(serviceAccount.Secrets) == 0 {
+		return nil, fmt.Errorf("no secret found in the service account: %s", serviceAccount)
 	}
 
-	secretName := serviceAccount.Secrets[0].Name
-	secretNamespace := serviceAccount.Secrets[0].Namespace
+	secretName := ""
+	secretNamespace := ""
+	if opt.SecretName != "" {
+		found := false
+		for _, secret := range serviceAccount.Secrets {
+			if secret.Name == opt.SecretName {
+				found = true
+				secretName = secret.Name
+				secretNamespace = secret.Namespace
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("provided secret does not exist: %s", opt.SecretName)
+		}
+	} else {
+		if len(serviceAccount.Secrets) == 1 {
+			secretName = serviceAccount.Secrets[0].Name
+			secretNamespace = serviceAccount.Secrets[0].Namespace
+		} else {
+			return nil, fmt.Errorf("wrong number of secrets (%v) in serviceaccount %s/%s, please use --secret-name to specify one",
+				len(serviceAccount.Secrets), opt.Namespace, opt.ServiceAccountName)
+		}
+	}
+
 	if secretNamespace == "" {
 		secretNamespace = opt.Namespace
 	}
@@ -275,10 +301,7 @@ func getOrCreateServiceAccount(client kube.ExtendedClient, opt RemoteSecretOptio
 
 func createServiceAccount(client kube.ExtendedClient, opt RemoteSecretOptions) error {
 	// Create a renderer for the base installation.
-	r, err := helm.NewHelmRenderer(opt.ManifestsPath, "base", "Base", opt.Namespace)
-	if err != nil {
-		return fmt.Errorf("failed creating Helm renderer: %v", err)
-	}
+	r := helm.NewHelmRenderer(opt.ManifestsPath, "base", "Base", opt.Namespace)
 
 	if err := r.Run(); err != nil {
 		return fmt.Errorf("failed running Helm renderer: %v", err)
@@ -290,6 +313,7 @@ global:
   istiod:
     enableAnalysis: false
   configValidation: false
+  externalIstiod: true
 base:
   enableCRDTemplates: false
 `, opt.Namespace)
@@ -360,6 +384,10 @@ func getServerFromKubeconfig(context string, config *api.Config) (string, error)
 	if !ok {
 		return "", fmt.Errorf("could not find server for context %q", context)
 	}
+	if strings.Contains(cluster.Server, "127.0.0.1") || strings.Contains(cluster.Server, "localhost") {
+		log.Warnf("Server in Kubeconfig is %s. This is likely not reachable from inside the cluster.\n"+
+			"If you're using Kubernetes in Docker, pass --server with the container IP for the API Server.", cluster.Server)
+	}
 	return cluster.Server, nil
 }
 
@@ -393,8 +421,10 @@ func makeOutputWriter() writer {
 var makeOutputWriterTestHook = makeOutputWriter
 
 // RemoteSecretAuthType is a strongly typed authentication type suitable for use with pflags.Var().
-type RemoteSecretAuthType string
-type SecretType string
+type (
+	RemoteSecretAuthType string
+	SecretType           string
+)
 
 var _ pflag.Value = (*RemoteSecretAuthType)(nil)
 
@@ -454,6 +484,12 @@ type RemoteSecretOptions struct {
 	// or URL with a release tgz. This is only used when no reader service account exists and has
 	// to be created.
 	ManifestsPath string
+
+	// ServerOverride overrides the server IP/hostname field from the Kubeconfig
+	ServerOverride string
+
+	// SecretName selects a specific secret from the remote service account, if there are multiple
+	SecretName string
 }
 
 func (o *RemoteSecretOptions) addFlags(flagset *pflag.FlagSet) {
@@ -468,6 +504,10 @@ func (o *RemoteSecretOptions) addFlags(flagset *pflag.FlagSet) {
 		"Name of the local cluster whose credentials are stored "+
 			"in the secret. If a name is not specified the kube-system namespace's UUID of "+
 			"the local cluster will be used.")
+	flagset.StringVar(&o.ServerOverride, "server", "",
+		"The address and port of the Kubernetes API server.")
+	flagset.StringVar(&o.SecretName, "secret-name", "",
+		"The name of the specific secret to use from the service-account. Needed when there are multiple secrets in the service account.")
 	var supportedAuthType []string
 	for _, at := range []RemoteSecretAuthType{RemoteSecretAuthTypeBearerToken, RemoteSecretAuthTypePlugin} {
 		supportedAuthType = append(supportedAuthType, string(at))
@@ -488,7 +528,6 @@ func (o *RemoteSecretOptions) addFlags(flagset *pflag.FlagSet) {
 	flagset.Var(&o.Type, "type",
 		fmt.Sprintf("Type of the generated secret. supported values = %v", supportedSecretType))
 	flagset.StringVarP(&o.ManifestsPath, "manifests", "d", "", mesh.ManifestsFlagHelpStr)
-
 }
 
 func (o *RemoteSecretOptions) prepare(flags *pflag.FlagSet) error {
@@ -532,9 +571,14 @@ func createRemoteSecret(opt RemoteSecretOptions, client kube.ExtendedClient, env
 		return nil, fmt.Errorf("could not get access token to read resources from local kube-apiserver: %v", err)
 	}
 
-	server, err := getServerFromKubeconfig(opt.Context, env.GetConfig())
-	if err != nil {
-		return nil, err
+	var server string
+	if opt.ServerOverride != "" {
+		server = opt.ServerOverride
+	} else {
+		server, err = getServerFromKubeconfig(opt.Context, env.GetConfig())
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var remoteSecret *v1.Secret

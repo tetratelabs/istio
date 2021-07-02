@@ -26,8 +26,10 @@ import (
 	"istio.io/istio/galley/pkg/config/analysis/analyzers/multicluster"
 	"istio.io/istio/galley/pkg/config/analysis/analyzers/schema"
 	"istio.io/istio/galley/pkg/config/analysis/analyzers/service"
+	"istio.io/istio/galley/pkg/config/analysis/analyzers/serviceentry"
 	"istio.io/istio/galley/pkg/config/analysis/analyzers/sidecar"
 	"istio.io/istio/galley/pkg/config/analysis/analyzers/virtualservice"
+	"istio.io/istio/galley/pkg/config/analysis/analyzers/webhook"
 )
 
 // All returns all analyzers
@@ -37,8 +39,10 @@ func All() []analysis.Analyzer {
 		&annotations.K8sAnalyzer{},
 		&authz.AuthorizationPoliciesAnalyzer{},
 		&deployment.ServiceAssociationAnalyzer{},
+		&deployment.ApplicationUIDAnalyzer{},
 		&deprecation.FieldAnalyzer{},
 		&gateway.IngressGatewayPortAnalyzer{},
+		&gateway.CertificateAnalyzer{},
 		&gateway.SecretAnalyzer{},
 		&injection.Analyzer{},
 		&injection.ImageAnalyzer{},
@@ -51,8 +55,9 @@ func All() []analysis.Analyzer {
 		&virtualservice.DestinationRuleAnalyzer{},
 		&virtualservice.GatewayAnalyzer{},
 		&virtualservice.RegexAnalyzer{},
-		&virtualservice.MatchesAnalyzer{},
 		&destinationrule.CaCertificateAnalyzer{},
+		&serviceentry.ProtocolAdressesAnalyzer{},
+		&webhook.Analyzer{},
 	}
 
 	analyzers = append(analyzers, schema.AllValidationAnalyzers()...)

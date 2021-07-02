@@ -48,9 +48,7 @@ const (
 	HelmValuesTagSubpath = "tag"
 )
 
-var (
-	scope = log.RegisterScope("translator", "API translator", 0)
-)
+var scope = log.RegisterScope("translator", "API translator", 0)
 
 // Translator is a set of mappings to translate between API paths, charts, values.yaml and k8s paths.
 type Translator struct {
@@ -353,7 +351,7 @@ func applyGatewayTranslations(iop []byte, componentName name.ComponentName, comp
 		if len(gwSpec.Label) != 0 {
 			setYAMLNodeByMapPath(iopt, util.PathFromString("gateways.istio-ingressgateway.labels"), gwSpec.Label)
 		}
-		if k8s != nil && k8s.Service != nil {
+		if k8s != nil && k8s.Service != nil && k8s.Service.Ports != nil {
 			setYAMLNodeByMapPath(iopt, util.PathFromString("gateways.istio-ingressgateway.ports"), k8s.Service.Ports)
 		}
 	case name.EgressComponentName:
@@ -361,7 +359,7 @@ func applyGatewayTranslations(iop []byte, componentName name.ComponentName, comp
 		if len(gwSpec.Label) != 0 {
 			setYAMLNodeByMapPath(iopt, util.PathFromString("gateways.istio-egressgateway.labels"), gwSpec.Label)
 		}
-		if k8s != nil && k8s.Service != nil {
+		if k8s != nil && k8s.Service != nil && k8s.Service.Ports != nil {
 			setYAMLNodeByMapPath(iopt, util.PathFromString("gateways.istio-egressgateway.ports"), k8s.Service.Ports)
 		}
 	}
@@ -684,7 +682,7 @@ func MergeK8sObject(base *object.K8sObject, overlayNode interface{}, path util.P
 		return nil, err
 	}
 
-	return newObj, nil
+	return newObj.ResolveK8sConflict(), nil
 }
 
 // createPatchObjectFromPath constructs patch object for node with path, returns nil object and error if the path is invalid.

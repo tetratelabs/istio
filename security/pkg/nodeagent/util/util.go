@@ -18,12 +18,18 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path"
 	"time"
 
 	"go.opencensus.io/stats/view"
+
+	"istio.io/istio/pkg/file"
+	"istio.io/pkg/env"
 )
+
+var k8sInCluster = env.RegisterStringVar("KUBERNETES_SERVICE_HOST", "",
+	"Kuberenetes service host, set automatically when running in-cluster")
 
 // ParseCertAndGetExpiryTimestamp parses the first certificate in certByte and returns cert expire
 // time, or return error if fails to parse certificate.
@@ -39,8 +45,8 @@ func ParseCertAndGetExpiryTimestamp(certByte []byte) (time.Time, error) {
 	return cert.NotAfter, nil
 }
 
-// GetMetricsCounterValue returns counter value in float64. For test purpose only.
-func GetMetricsCounterValue(metricName string) (float64, error) {
+// GetMetricsCounterValueWithTags returns counter value in float64. For test purpose only.
+func GetMetricsCounterValueWithTags(metricName string, tags map[string]string) (float64, error) {
 	rows, err := view.RetrieveData(metricName)
 	if err != nil {
 		return float64(0), err
@@ -48,12 +54,18 @@ func GetMetricsCounterValue(metricName string) (float64, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
-	if len(rows) > 1 {
-		return float64(0), fmt.Errorf("unexpected number of data for view %s: %d",
-			metricName, len(rows))
+	for _, row := range rows {
+		need := len(tags)
+		for _, t := range row.Tags {
+			if tags[t.Key.Name()] == t.Value {
+				need--
+			}
+		}
+		if need == 0 {
+			return rows[0].Data.(*view.SumData).Value, nil
+		}
 	}
-
-	return rows[0].Data.(*view.SumData).Value, nil
+	return float64(0), fmt.Errorf("no metrics matched tags %s: %d", metricName, len(rows))
 }
 
 // Output the key and certificate to the given directory.
@@ -62,23 +74,31 @@ func OutputKeyCertToDir(dir string, privateKey, certChain, rootCert []byte) erro
 	if len(dir) == 0 {
 		return nil
 	}
+
+	certFileMode := os.FileMode(0o600)
+	if k8sInCluster.Get() != "" {
+		// If this is running on k8s, give more permission to the file certs.
+		// This is typically used to share the certs with non-proxy containers in the pod which does not run as root or 1337.
+		// For example, prometheus server could use proxy provisioned certs to scrape application metrics through mTLS.
+		certFileMode = os.FileMode(0o644)
+	}
 	// Depending on the SDS resource to output, some fields may be nil
 	if privateKey == nil && certChain == nil && rootCert == nil {
 		return fmt.Errorf("the input private key, cert chain, and root cert are nil")
 	}
 
 	if privateKey != nil {
-		if err := ioutil.WriteFile(path.Join(dir, "key.pem"), privateKey, 0777); err != nil {
+		if err := file.AtomicWrite(path.Join(dir, "key.pem"), privateKey, certFileMode); err != nil {
 			return fmt.Errorf("failed to write private key to file: %v", err)
 		}
 	}
 	if certChain != nil {
-		if err := ioutil.WriteFile(path.Join(dir, "cert-chain.pem"), certChain, 0777); err != nil {
+		if err := file.AtomicWrite(path.Join(dir, "cert-chain.pem"), certChain, certFileMode); err != nil {
 			return fmt.Errorf("failed to write cert chain to file: %v", err)
 		}
 	}
 	if rootCert != nil {
-		if err := ioutil.WriteFile(path.Join(dir, "root-cert.pem"), rootCert, 0777); err != nil {
+		if err := file.AtomicWrite(path.Join(dir, "root-cert.pem"), rootCert, certFileMode); err != nil {
 			return fmt.Errorf("failed to write root cert to file: %v", err)
 		}
 	}

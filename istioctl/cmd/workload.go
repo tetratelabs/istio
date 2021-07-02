@@ -18,9 +18,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ghodss/yaml"
@@ -29,21 +32,28 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"istio.io/api/annotation"
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networkingv1alpha3 "istio.io/api/networking/v1alpha3"
 	clientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	"istio.io/istio/istioctl/pkg/clioptions"
 	"istio.io/istio/istioctl/pkg/multicluster"
+	"istio.io/istio/operator/pkg/util"
+	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry/kube/controller"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/schema/collections"
 	"istio.io/istio/pkg/config/validation"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/inject"
+	"istio.io/istio/pkg/url"
 	"istio.io/istio/pkg/util/gogoprotomarshal"
+	"istio.io/istio/pkg/util/shellescape"
+	"istio.io/pkg/log"
 )
 
 var (
+	// TODO refactor away from package vars and add more UTs
 	tokenDuration  int64
 	name           string
 	serviceAccount string
@@ -53,11 +63,15 @@ var (
 	ingressIP      string
 	ingressSvc     string
 	autoRegister   bool
+	dnsCapture     bool
 	ports          []string
+	labels         []string
+	annotations    []string
+	svcAcctAnn     string
 )
 
 const (
-	filePerms = os.FileMode(0744)
+	filePerms = os.FileMode(0o744)
 )
 
 func workloadCommands() *cobra.Command {
@@ -205,7 +219,7 @@ Configure requires either the WorkloadGroup artifact path or its location on the
 					return fmt.Errorf("workloadgroup %s not found in namespace %s: %v", name, namespace, err)
 				}
 			}
-			if err = createConfig(kubeClient, wg, clusterID, ingressIP, outputDir); err != nil {
+			if err = createConfig(kubeClient, wg, clusterID, ingressIP, outputDir, cmd.OutOrStderr()); err != nil {
 				return err
 			}
 			fmt.Printf("configuration generation into directory %s was successful\n", outputDir)
@@ -222,6 +236,7 @@ Configure requires either the WorkloadGroup artifact path or its location on the
 		" used as the ingress gateway, in the format <service>.<namespace>. If no namespace is provided, the default "+istioNamespace+" namespace will be used.")
 	configureCmd.PersistentFlags().StringVar(&ingressIP, "ingressIP", "", "IP address of the ingress gateway")
 	configureCmd.PersistentFlags().BoolVar(&autoRegister, "autoregister", false, "Creates a WorkloadEntry upon connection to istiod (if enabled in pilot).")
+	configureCmd.PersistentFlags().BoolVar(&dnsCapture, "capture-dns", true, "Enables the capture of outgoing DNS packets on port 53, redirecting to istio-agent")
 	opts.AttachControlPlaneFlags(configureCmd)
 	return configureCmd
 }
@@ -251,17 +266,22 @@ func readWorkloadGroup(filename string, wg *clientv1alpha3.WorkloadGroup) error 
 }
 
 // Creates all the relevant config for the given workload group and cluster
-func createConfig(kubeClient kube.ExtendedClient, wg *clientv1alpha3.WorkloadGroup, clusterID, ingressIP, outputDir string) error {
+func createConfig(kubeClient kube.ExtendedClient, wg *clientv1alpha3.WorkloadGroup, clusterID, ingressIP,
+	outputDir string, out io.Writer) error {
 	if err := os.MkdirAll(outputDir, filePerms); err != nil {
 		return err
 	}
-	if err := createClusterEnv(wg, outputDir); err != nil {
+	var (
+		err         error
+		proxyConfig *meshconfig.ProxyConfig
+	)
+	if proxyConfig, err = createMeshConfig(kubeClient, wg, clusterID, outputDir); err != nil {
 		return err
 	}
-	if err := createCertsTokens(kubeClient, wg, outputDir); err != nil {
+	if err := createClusterEnv(wg, proxyConfig, outputDir); err != nil {
 		return err
 	}
-	if err := createMeshConfig(kubeClient, wg, clusterID, outputDir); err != nil {
+	if err := createCertsTokens(kubeClient, wg, outputDir, out); err != nil {
 		return err
 	}
 	if err := createHosts(kubeClient, ingressIP, outputDir); err != nil {
@@ -271,7 +291,7 @@ func createConfig(kubeClient kube.ExtendedClient, wg *clientv1alpha3.WorkloadGro
 }
 
 // Write cluster.env into the given directory
-func createClusterEnv(wg *clientv1alpha3.WorkloadGroup, dir string) error {
+func createClusterEnv(wg *clientv1alpha3.WorkloadGroup, config *meshconfig.ProxyConfig, dir string) error {
 	we := wg.Spec.Template
 	ports := []string{}
 	for _, v := range we.Ports {
@@ -283,21 +303,36 @@ func createClusterEnv(wg *clientv1alpha3.WorkloadGroup, dir string) error {
 		portBehavior = strings.Join(ports, ",")
 	}
 
-	// default attributes and service name, namespace, ports, service account, service CIDR
-	clusterEnv := map[string]string{
-		"ISTIO_INBOUND_PORTS": portBehavior,
-		"ISTIO_NAMESPACE":     wg.Namespace,
-		"ISTIO_SERVICE":       fmt.Sprintf("%s.%s", wg.Name, wg.Namespace),
-		"ISTIO_SERVICE_CIDR":  "*",
-		"SERVICE_ACCOUNT":     we.ServiceAccount,
+	excludePorts := "15090,15021"
+	if config.StatusPort != 15090 && config.StatusPort != 15021 && config.StatusPort != 0 {
+		excludePorts += fmt.Sprintf(",%d", config.StatusPort)
 	}
+	// default attributes and service name, namespace, ports, service account, service CIDR
+	overrides := map[string]string{
+		"ISTIO_INBOUND_PORTS":       portBehavior,
+		"ISTIO_NAMESPACE":           wg.Namespace,
+		"ISTIO_SERVICE":             fmt.Sprintf("%s.%s", wg.Name, wg.Namespace),
+		"ISTIO_SERVICE_CIDR":        "*",
+		"ISTIO_LOCAL_EXCLUDE_PORTS": excludePorts,
+		"SERVICE_ACCOUNT":           we.ServiceAccount,
+	}
+
+	// clusterEnv will use proxyMetadata from the proxyConfig + overrides specific to the WorkloadGroup and cmd args
+	// this is similar to the way the injector sets all values proxyConfig.proxyMetadata to the Pod's env
+	clusterEnv := map[string]string{}
+	for _, metaMap := range []map[string]string{config.ProxyMetadata, overrides} {
+		for k, v := range metaMap {
+			clusterEnv[k] = v
+		}
+	}
+
 	return ioutil.WriteFile(filepath.Join(dir, "cluster.env"), []byte(mapToString(clusterEnv)), filePerms)
 }
 
 // Get and store the needed certificate and token. The certificate comes from the CA root cert, and
 // the token is generated by kubectl under the workload group's namespace and service account
 // TODO: Make the following accurate when using the Kubernetes certificate signer
-func createCertsTokens(kubeClient kube.ExtendedClient, wg *clientv1alpha3.WorkloadGroup, dir string) error {
+func createCertsTokens(kubeClient kube.ExtendedClient, wg *clientv1alpha3.WorkloadGroup, dir string, out io.Writer) error {
 	rootCert, err := kubeClient.CoreV1().ConfigMaps(wg.Namespace).Get(context.Background(), controller.CACertNamespaceConfigMap, metav1.GetOptions{})
 	// errors if the requested configmap does not exist in the given namespace
 	if err != nil {
@@ -307,38 +342,66 @@ func createCertsTokens(kubeClient kube.ExtendedClient, wg *clientv1alpha3.Worklo
 		return err
 	}
 
+	serviceAccount := wg.Spec.Template.ServiceAccount
+	tokenPath := filepath.Join(dir, "istio-token")
+	jwtPolicy, err := util.DetectSupportedJWTPolicy(kubeClient)
+	if err != nil {
+		fmt.Fprintf(out, "Failed to determine JWT policy support: %v", err)
+	}
+	if jwtPolicy == util.FirstPartyJWT {
+		fmt.Fprintf(out, "Warning: cluster does not support third party JWT authentication. "+
+			"Falling back to less secure first party JWT. "+
+			"See "+url.ConfigureSAToken+" for details."+"\n")
+		sa, err := kubeClient.CoreV1().ServiceAccounts(wg.Namespace).Get(context.TODO(), serviceAccount, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		secret, err := kubeClient.CoreV1().Secrets(wg.Namespace).Get(context.TODO(), sa.Secrets[0].Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if err := ioutil.WriteFile(tokenPath, secret.Data["token"], filePerms); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Warning: a security token for namespace %q and service account %q has been generated "+
+			"and stored at %q\n", wg.Namespace, serviceAccount, tokenPath)
+		return nil
+	}
 	token := &authenticationv1.TokenRequest{
+		// ObjectMeta isn't required in real k8s, but needed for tests
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceAccount,
+			Namespace: wg.Namespace,
+		},
 		Spec: authenticationv1.TokenRequestSpec{
 			Audiences:         []string{"istio-ca"},
 			ExpirationSeconds: &tokenDuration,
 		},
 	}
-	serviceAccount := wg.Spec.Template.ServiceAccount
 	tokenReq, err := kubeClient.CoreV1().ServiceAccounts(wg.Namespace).CreateToken(context.Background(), serviceAccount, token, metav1.CreateOptions{})
 	// errors if the token could not be created with the given service account in the given namespace
 	if err != nil {
 		return fmt.Errorf("could not create a token under service account %s in namespace %s: %v", serviceAccount, wg.Namespace, err)
 	}
-	tokenPath := filepath.Join(dir, "istio-token")
 	if err := ioutil.WriteFile(tokenPath, []byte(tokenReq.Status.Token), filePerms); err != nil {
 		return err
 	}
-	fmt.Printf("warning: a security token for namespace %s and service account %s has been generated and stored at %s\n", wg.Namespace, serviceAccount, tokenPath)
+	fmt.Fprintf(out, "Warning: a security token for namespace %q and service account %q has been generated and "+
+		"stored at %q\n", wg.Namespace, serviceAccount, tokenPath)
 	return nil
 }
 
-// TODO: Support the proxy.istio.io/config annotation
-func createMeshConfig(kubeClient kube.ExtendedClient, wg *clientv1alpha3.WorkloadGroup, clusterID, dir string) error {
+func createMeshConfig(kubeClient kube.ExtendedClient, wg *clientv1alpha3.WorkloadGroup, clusterID, dir string) (*meshconfig.ProxyConfig, error) {
 	istioCM := "istio"
 	// Case with multiple control planes
 	revision := kubeClient.Revision()
-	if revision != "" {
+	if revision != "" && revision != "default" {
 		istioCM = fmt.Sprintf("%s-%s", istioCM, revision)
 	}
 	istio, err := kubeClient.CoreV1().ConfigMaps(istioNamespace).Get(context.Background(), istioCM, metav1.GetOptions{})
 	// errors if the requested configmap does not exist in the given namespace
 	if err != nil {
-		return fmt.Errorf("configmap %s was not found in namespace %s: %v", istioCM, istioNamespace, err)
+		return nil, fmt.Errorf("configmap %s was not found in namespace %s: %v", istioCM, istioNamespace, err)
 	}
 	// fill some fields before applying the yaml to prevent errors later
 	meshConfig := &meshconfig.MeshConfig{
@@ -347,8 +410,25 @@ func createMeshConfig(kubeClient kube.ExtendedClient, wg *clientv1alpha3.Workloa
 		},
 	}
 	if err := gogoprotomarshal.ApplyYAML(istio.Data[configMapKey], meshConfig); err != nil {
-		return err
+		return nil, err
 	}
+
+	// performing separate map-merge, apply seems to completely overwrite all metadata
+	proxyMetadata := meshConfig.DefaultConfig.ProxyMetadata
+
+	// support proxy.istio.io/config on the WorkloadGroup, in the WorkloadGroup spec
+	for _, annotations := range []map[string]string{wg.Annotations, wg.Spec.Metadata.Annotations} {
+		if pcYaml, ok := annotations[annotation.ProxyConfig.Name]; ok {
+			if err := gogoprotomarshal.ApplyYAML(pcYaml, meshConfig.DefaultConfig); err != nil {
+				return nil, err
+			}
+			for k, v := range meshConfig.DefaultConfig.ProxyMetadata {
+				proxyMetadata[k] = v
+			}
+		}
+	}
+
+	meshConfig.DefaultConfig.ProxyMetadata = proxyMetadata
 
 	labels := map[string]string{}
 	for k, v := range wg.Spec.Metadata.Labels {
@@ -362,9 +442,14 @@ func createMeshConfig(kubeClient kube.ExtendedClient, wg *clientv1alpha3.Workloa
 			labels[k] = v
 		}
 	}
+
+	meshConfig.DefaultConfig.ReadinessProbe = wg.Spec.Probe
+
 	md := meshConfig.DefaultConfig.ProxyMetadata
+	if md == nil {
+		md = map[string]string{}
+	}
 	md["CANONICAL_SERVICE"], md["CANONICAL_REVISION"] = inject.ExtractCanonicalServiceLabels(labels, wg.Name)
-	md["DNS_AGENT"] = ""
 	md["POD_NAMESPACE"] = wg.Namespace
 	md["SERVICE_ACCOUNT"] = we.ServiceAccount
 	md["TRUST_DOMAIN"] = meshConfig.TrustDomain
@@ -372,7 +457,7 @@ func createMeshConfig(kubeClient kube.ExtendedClient, wg *clientv1alpha3.Workloa
 	md["ISTIO_META_CLUSTER_ID"] = clusterID
 	md["ISTIO_META_MESH_ID"] = meshConfig.DefaultConfig.MeshId
 	md["ISTIO_META_NETWORK"] = we.Network
-	if portsJSON, err := json.Marshal(we.Ports); err == nil {
+	if portsJSON, err := json.Marshal(workloadEntryToPodPortsMeta(we.Ports)); err == nil {
 		md["ISTIO_META_POD_PORTS"] = string(portsJSON)
 	}
 	md["ISTIO_META_WORKLOAD_NAME"] = wg.Name
@@ -382,15 +467,33 @@ func createMeshConfig(kubeClient kube.ExtendedClient, wg *clientv1alpha3.Workloa
 		md["ISTIO_METAJSON_LABELS"] = string(labelsJSON)
 	}
 
+	// TODO the defaults should be controlled by meshConfig/proxyConfig; if flags not given to the command proxyCOnfig takes precedence
+	if dnsCapture {
+		md["ISTIO_META_DNS_CAPTURE"] = strconv.FormatBool(dnsCapture)
+	}
 	if autoRegister {
 		md["ISTIO_META_AUTO_REGISTER_GROUP"] = wg.Name
 	}
 
-	proxyYAML, err := gogoprotomarshal.ToYAML(meshConfig.DefaultConfig)
+	proxyConfig, err := gogoprotomarshal.ToJSONMap(meshConfig.DefaultConfig)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return ioutil.WriteFile(filepath.Join(dir, "mesh.yaml"), []byte(proxyYAML), filePerms)
+
+	proxyYAML, err := yaml.Marshal(map[string]interface{}{"defaultConfig": proxyConfig})
+	if err != nil {
+		return nil, err
+	}
+
+	return meshConfig.DefaultConfig, ioutil.WriteFile(filepath.Join(dir, "mesh.yaml"), proxyYAML, filePerms)
+}
+
+func workloadEntryToPodPortsMeta(p map[string]uint32) model.PodPortList {
+	var out model.PodPortList
+	for name, port := range p {
+		out = append(out, model.PodPort{Name: name, ContainerPort: int(port)})
+	}
+	return out
 }
 
 // Retrieves the external IP of the ingress-gateway for the hosts file additions
@@ -417,20 +520,23 @@ func createHosts(kubeClient kube.ExtendedClient, ingressIP, dir string) error {
 	var hosts string
 	istiod := "istiod"
 	revision := kubeClient.Revision()
-	if revision != "" {
+	if revision != "" && revision != "default" {
 		istiod = fmt.Sprintf("%s-%s", istiod, revision)
 	}
 	if ingressIP != "" {
 		hosts = fmt.Sprintf("%s %s.%s.svc\n", ingressIP, istiod, istioNamespace)
+	} else {
+		log.Warnf("Could not auto-detect IP for %s.%s. Use --ingressIP to manually specify the Gateway address to reach istiod from the VM.", istiod, istioNamespace)
 	}
 	return ioutil.WriteFile(filepath.Join(dir, "hosts"), []byte(hosts), filePerms)
 }
 
 // Returns a map with each k,v entry on a new line
 func mapToString(m map[string]string) string {
-	var b strings.Builder
+	lines := []string{}
 	for k, v := range m {
-		fmt.Fprintf(&b, "%s=%s\n", k, v)
+		lines = append(lines, fmt.Sprintf("%s=%s", k, shellescape.Quote(v)))
 	}
-	return b.String()
+	sort.Strings(lines)
+	return strings.Join(lines, "\n") + "\n"
 }

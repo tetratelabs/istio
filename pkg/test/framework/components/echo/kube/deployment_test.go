@@ -18,27 +18,28 @@ import (
 
 	testutil "istio.io/istio/pilot/test/util"
 	"istio.io/istio/pkg/config/protocol"
+	"istio.io/istio/pkg/test/framework/components/cluster"
+	"istio.io/istio/pkg/test/framework/components/cluster/clusterboot"
 	"istio.io/istio/pkg/test/framework/components/echo"
-	"istio.io/istio/pkg/test/framework/components/environment/kube"
+	"istio.io/istio/pkg/test/framework/components/echo/common"
+	"istio.io/istio/pkg/test/framework/config"
 	"istio.io/istio/pkg/test/framework/image"
 	"istio.io/istio/pkg/test/framework/resource"
-	kubetest "istio.io/istio/pkg/test/kube"
 )
 
-var (
-	settings = &image.Settings{
-		Hub:        "testing.hub",
-		Tag:        "latest",
-		PullPolicy: "Always",
-	}
-)
+var settings = &image.Settings{
+	Hub:             "testing.hub",
+	Tag:             "latest",
+	PullPolicy:      "Always",
+	ImagePullSecret: "testdata/secret.yaml",
+}
 
 func TestDeploymentYAML(t *testing.T) {
-
 	testCase := []struct {
 		name         string
 		wantFilePath string
 		config       echo.Config
+		revVerMap    resource.RevVerMap
 	}{
 		{
 			name:         "basic",
@@ -134,17 +135,50 @@ func TestDeploymentYAML(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:         "multiple-istio-versions",
+			wantFilePath: "testdata/multiple-istio-versions.yaml",
+			config: echo.Config{
+				Service: "foo",
+				Version: "bar",
+				Ports: []echo.Port{
+					{
+						Name:         "http",
+						Protocol:     protocol.HTTP,
+						InstancePort: 8090,
+						ServicePort:  8090,
+					},
+				},
+			},
+			revVerMap: resource.RevVerMap{
+				"rev-a": resource.IstioVersion("1.8.2"),
+				"rev-b": resource.IstioVersion("1.9.0"),
+			},
+		},
 	}
 	for _, tc := range testCase {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.config.Cluster = resource.FakeCluster{
-				NameValue: "cluster-0",
-			}
-			serviceYAML, deploymentYAML, err := generateYAMLWithSettings(nil, tc.config, settings, kube.Cluster{
-				ExtendedClient: kubetest.MockClient{},
-			})
+			clusters, err := clusterboot.NewFactory().With(cluster.Config{
+				Kind: cluster.Fake, Name: "cluster-0",
+				Meta: config.Map{"majorVersion": 1, "minorVersion": 16},
+			}).Build()
 			if err != nil {
-				t.Errorf("failed to generate yaml %v", err)
+				t.Fatal(err)
+			}
+			tc.config.Cluster = clusters[0]
+			if err := common.FillInDefaults(nil, &tc.config); err != nil {
+				t.Errorf("failed filling in defaults: %v", err)
+			}
+			if !config.Parsed() {
+				config.Parse()
+			}
+			serviceYAML, err := GenerateService(tc.config)
+			if err != nil {
+				t.Errorf("failed to generate service %v", err)
+			}
+			deploymentYAML, err := GenerateDeployment(tc.config, settings, tc.revVerMap)
+			if err != nil {
+				t.Errorf("failed to generate deployment %v", err)
 			}
 			gotBytes := []byte(serviceYAML + "---" + deploymentYAML)
 			wantedBytes := testutil.ReadGoldenFile(gotBytes, tc.wantFilePath, t)
@@ -152,9 +186,7 @@ func TestDeploymentYAML(t *testing.T) {
 			wantBytes := testutil.StripVersion(wantedBytes)
 			gotBytes = testutil.StripVersion(gotBytes)
 
-			if testutil.Refresh() {
-				testutil.RefreshGoldenFile(gotBytes, tc.wantFilePath, t)
-			}
+			testutil.RefreshGoldenFile(gotBytes, tc.wantFilePath, t)
 
 			testutil.CompareBytes(gotBytes, wantBytes, tc.wantFilePath, t)
 		})

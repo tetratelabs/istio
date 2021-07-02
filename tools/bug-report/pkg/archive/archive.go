@@ -25,11 +25,12 @@ import (
 )
 
 const (
-	bugReportSubdir     = "bug-report"
-	proxyLogsPathSubdir = "proxies"
-	istioLogsPathSubdir = "istio"
-	clusterInfoSubdir   = "cluster"
-	analyzeSubdir       = "analyze"
+	bugReportSubdir        = "bug-report"
+	proxyLogsPathSubdir    = "proxies"
+	istioLogsPathSubdir    = "istio"
+	clusterInfoSubdir      = "cluster"
+	analyzeSubdir          = "analyze"
+	operatorLogsPathSubdir = "operator"
 )
 
 var (
@@ -55,6 +56,10 @@ func IstiodPath(rootDir, namespace, pod string) string {
 	return filepath.Join(getRootDir(rootDir), istioLogsPathSubdir, namespace, pod)
 }
 
+func OperatorPath(rootDir, namespace, pod string) string {
+	return filepath.Join(getRootDir(rootDir), operatorLogsPathSubdir, namespace, pod)
+}
+
 func AnalyzePath(rootDir, namespace string) string {
 	return filepath.Join(getRootDir(rootDir), analyzeSubdir, namespace)
 }
@@ -69,7 +74,7 @@ func Create(srcDir, outPath string) error {
 	if err != nil {
 		return err
 	}
-
+	defer mw.Close()
 	gzw := gzip.NewWriter(mw)
 	defer gzw.Close()
 
@@ -88,6 +93,9 @@ func Create(srcDir, outPath string) error {
 			return err
 		}
 		header.Name = strings.TrimPrefix(strings.Replace(file, srcDir, "", -1), string(filepath.Separator))
+		header.Size = fi.Size()
+		header.Mode = int64(fi.Mode())
+		header.ModTime = fi.ModTime()
 		if err := tw.WriteHeader(header); err != nil {
 			return err
 		}

@@ -83,6 +83,10 @@ const (
 
 	// DefaultProfileName is the name of the default profile.
 	DefaultProfileName = "default"
+
+	// installedSpecCRPrefix is the prefix of any IstioOperator CR stored in the cluster that is a copy of the CR used
+	// in the last install operation.
+	InstalledSpecCRPrefix = "installed-state"
 )
 
 // ComponentName is a component name string, typed to constrain allowed values.
@@ -206,7 +210,6 @@ func (cn ComponentName) IsGateway() bool {
 // Namespace assumes that controlPlaneSpec has been validated.
 // TODO: remove extra validations when comfort level is high enough.
 func Namespace(componentName ComponentName, controlPlaneSpec *v1alpha1.IstioOperatorSpec) (string, error) {
-
 	defaultNamespace := iop.Namespace(controlPlaneSpec)
 
 	componentNodeI, found, err := tpath.GetFromStructPath(controlPlaneSpec, "Components."+string(componentName)+".Namespace")

@@ -15,6 +15,7 @@
 package taint
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"testing"
@@ -30,7 +31,7 @@ import (
 	"istio.io/istio/pkg/test/util/retry"
 )
 
-//simplified taintsetter controller build upon fake sourcer, return controller and namespace, label based sourcer created by configmap
+// simplified taintsetter controller build upon fake sourcer, return controller and namespace, label based sourcer created by configmap
 func newMockTaintSetterController(ts *Setter,
 	nodeSource *fcache.FakeControllerSource) (c *Controller,
 	sourcer map[string]map[string]*fcache.FakeControllerSource) {
@@ -41,7 +42,7 @@ func newMockTaintSetterController(ts *Setter,
 		taintsetter:     ts,
 		cachedPodsStore: make(map[string]map[string]cache.Store),
 	}
-	//construct a series of pod controller according to the configmaps' namespace and labelselector
+	// construct a series of pod controller according to the configmaps' namespace and labelselector
 	c.podController = []cache.Controller{}
 	sourcer = make(map[string]map[string]*fcache.FakeControllerSource)
 	for _, config := range ts.configs {
@@ -53,7 +54,7 @@ func newMockTaintSetterController(ts *Setter,
 		tempcontroller := buildPodController(c, config, podSource)
 		c.podController = append(c.podController, tempcontroller)
 	}
-	c.nodeStore, c.nodeController = buildNodeControler(c, nodeSource)
+	c.nodeStore, c.nodeController = buildNodeController(c, nodeSource)
 	return c, sourcer
 }
 
@@ -65,7 +66,7 @@ type podInfo struct {
 	readiness bool
 }
 
-//generate a pod based on its nodename, label, namespace, and its readiness
+// generate a pod based on its nodename, label, namespace, and its readiness
 func mockPodGenerator(podArg podInfo) *v1.Pod {
 	labelMap := make(map[string]string)
 	for _, label := range podArg.labels {
@@ -134,6 +135,7 @@ func mockNodeGenerator(nodeArgs nodeInfo) v1.Node {
 	}
 	return makeNodeWithTaint(makeNodeArgs{NodeName: nodeArgs.nodeName, Taints: []v1.Taint{taint}, NodeCondition: []v1.NodeCondition{nodeReadiness}})
 }
+
 func TestController_ListAllNode(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -185,7 +187,8 @@ func TestController_ListAllNode(t *testing.T) {
 		})
 	}
 }
-func TestController_RegistTaints(t *testing.T) {
+
+func TestController_RegisterTaints(t *testing.T) {
 	tests := []struct {
 		name      string
 		client    kubernetes.Interface
@@ -212,10 +215,12 @@ func TestController_RegistTaints(t *testing.T) {
 			tc, _ := newMockTaintSetterController(&ts, source)
 			stop := make(chan struct{})
 			for _, name := range tt.nodeNames {
-				source.Add(&v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}})
+				node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}
+				source.Add(node)
+				tt.client.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
 			}
 			go tc.Run(stop)
-			tc.RegistTaints()
+			tc.RegisterTaints()
 			// Let's wait for the controller to finish processing the things we just added.
 			err := retry.UntilSuccess(func() error {
 				if len(tc.ListAllNode()) != len(tt.nodeNames) {
@@ -263,13 +268,14 @@ func TestController_CheckNodeReadiness(t *testing.T) {
 			name:   "node with at least a pod satisfies critical label",
 			client: fakeClientset([]v1.Pod{}, []v1.Node{}, []v1.ConfigMap{}),
 			args: args{
-				podInfos: []podInfo{{
-					podName:   "pod1",
-					nodeName:  "testing",
-					labels:    []string{"app=istio"},
-					namespace: "kube-system",
-					readiness: true,
-				},
+				podInfos: []podInfo{
+					{
+						podName:   "pod1",
+						nodeName:  "testing",
+						labels:    []string{"app=istio"},
+						namespace: "kube-system",
+						readiness: true,
+					},
 				},
 				configs: []ConfigSettings{
 					{
@@ -290,13 +296,14 @@ func TestController_CheckNodeReadiness(t *testing.T) {
 			name:   "node with one critical label not satisfied",
 			client: fakeClientset([]v1.Pod{}, []v1.Node{}, []v1.ConfigMap{}),
 			args: args{
-				podInfos: []podInfo{{
-					podName:   "pod1",
-					nodeName:  "testing",
-					labels:    []string{"app=others"},
-					namespace: "kube-system",
-					readiness: true,
-				},
+				podInfos: []podInfo{
+					{
+						podName:   "pod1",
+						nodeName:  "testing",
+						labels:    []string{"app=others"},
+						namespace: "kube-system",
+						readiness: true,
+					},
 					{
 						podName:   "pod2",
 						nodeName:  "testing",
@@ -345,13 +352,14 @@ func TestController_CheckNodeReadiness(t *testing.T) {
 			name:   "satisfy some labels but not all labels",
 			client: fakeClientset([]v1.Pod{}, []v1.Node{}, []v1.ConfigMap{}),
 			args: args{
-				podInfos: []podInfo{{
-					podName:   "pod1",
-					nodeName:  "testing",
-					labels:    []string{"app=istio"},
-					namespace: "kube-system",
-					readiness: true,
-				},
+				podInfos: []podInfo{
+					{
+						podName:   "pod1",
+						nodeName:  "testing",
+						labels:    []string{"app=istio"},
+						namespace: "kube-system",
+						readiness: true,
+					},
 					{
 						podName:   "pod2",
 						nodeName:  "testing",
@@ -391,13 +399,14 @@ func TestController_CheckNodeReadiness(t *testing.T) {
 			name:   "satisfy all labels",
 			client: fakeClientset([]v1.Pod{}, []v1.Node{}, []v1.ConfigMap{}),
 			args: args{
-				podInfos: []podInfo{{
-					podName:   "pod1",
-					nodeName:  "testing",
-					labels:    []string{"app=istio"},
-					namespace: "kube-system",
-					readiness: true,
-				},
+				podInfos: []podInfo{
+					{
+						podName:   "pod1",
+						nodeName:  "testing",
+						labels:    []string{"app=istio"},
+						namespace: "kube-system",
+						readiness: true,
+					},
 					{
 						podName:   "pod2",
 						nodeName:  "testing",

@@ -30,7 +30,6 @@ import (
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/validation"
 	"istio.io/istio/pkg/util/gogoprotomarshal"
-	"istio.io/pkg/filewatcher"
 	"istio.io/pkg/log"
 )
 
@@ -39,7 +38,6 @@ func DefaultProxyConfig() meshconfig.ProxyConfig {
 	// TODO: include revision based on REVISION env
 	// TODO: set default namespace based on POD_NAMESPACE env
 	return meshconfig.ProxyConfig{
-		// missing: ConnectTimeout: 10 * time.Second,
 		ConfigPath:               constants.ConfigPathDir,
 		ServiceCluster:           constants.ServiceClusterName,
 		DrainDuration:            types.DurationProto(45 * time.Second),
@@ -58,13 +56,9 @@ func DefaultProxyConfig() meshconfig.ProxyConfig {
 		},
 
 		// Code defaults
-		BinaryPath:            constants.BinaryPathFilename,
-		StatsdUdpAddress:      "",
-		EnvoyMetricsService:   &meshconfig.RemoteService{Address: ""},
-		EnvoyAccessLogService: &meshconfig.RemoteService{Address: ""},
-		CustomConfigFile:      "",
-		StatNameLength:        189,
-		StatusPort:            15020,
+		BinaryPath:     constants.BinaryPathFilename,
+		StatNameLength: 189,
+		StatusPort:     15020,
 	}
 }
 
@@ -111,9 +105,13 @@ func DefaultMeshConfig() meshconfig.MeshConfig {
 // will not be modified.
 func ApplyProxyConfig(yaml string, meshConfig meshconfig.MeshConfig) (*meshconfig.MeshConfig, error) {
 	mc := proto.Clone(&meshConfig).(*meshconfig.MeshConfig)
+
+	origMetadata := meshConfig.DefaultConfig.ProxyMetadata
 	if err := gogoprotomarshal.ApplyYAML(yaml, mc.DefaultConfig); err != nil {
 		return nil, fmt.Errorf("could not parse proxy config: %v", err)
 	}
+	newMetadata := mc.DefaultConfig.ProxyMetadata
+	mc.DefaultConfig.ProxyMetadata = mergeMap(origMetadata, newMetadata)
 	return mc, nil
 }
 
@@ -155,10 +153,16 @@ func ApplyMeshConfig(yaml string, defaultConfig meshconfig.MeshConfig) (*meshcon
 		return nil, multierror.Prefix(err, "failed to extract proxy config")
 	}
 	if pc != "" {
+		origMetadata := defaultConfig.DefaultConfig.ProxyMetadata
 		// Apply proxy config yaml on to the merged mesh config. This gives us "merge" semantics for proxy config
 		if err := gogoprotomarshal.ApplyYAML(pc, defaultConfig.DefaultConfig); err != nil {
 			return nil, multierror.Prefix(err, "failed to convert to proto.")
 		}
+		newMetadata := defaultConfig.DefaultConfig.ProxyMetadata
+		// we do a deep merge on proxy metadata to allow mesh-wide proxy config settings while still allowing
+		// additional pod-level options.
+		// For users that want to unset an option, they can set the key explicitly to ""
+		defaultConfig.DefaultConfig.ProxyMetadata = mergeMap(origMetadata, newMetadata)
 	}
 
 	if err := validation.ValidateMeshConfig(&defaultConfig); err != nil {
@@ -166,6 +170,19 @@ func ApplyMeshConfig(yaml string, defaultConfig meshconfig.MeshConfig) (*meshcon
 	}
 
 	return &defaultConfig, nil
+}
+
+func mergeMap(original map[string]string, merger map[string]string) map[string]string {
+	if original == nil && merger == nil {
+		return nil
+	}
+	if original == nil {
+		original = map[string]string{}
+	}
+	for k, v := range merger {
+		original[k] = v
+	}
+	return original
 }
 
 // ApplyMeshConfigDefaults returns a new MeshConfig decoded from the
@@ -225,6 +242,15 @@ func ReadMeshConfig(filename string) (*meshconfig.MeshConfig, error) {
 	return ApplyMeshConfigDefaults(string(yaml))
 }
 
+// ReadMeshConfigData gets mesh configuration yaml from a config file
+func ReadMeshConfigData(filename string) (string, error) {
+	yaml, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return "", multierror.Prefix(err, "cannot read mesh config file")
+	}
+	return string(yaml), nil
+}
+
 // ResolveHostsInNetworksConfig will go through the Gateways addresses for all
 // networks in the config and if it's not an IP address it will try to lookup
 // that hostname and replace it with the IP address in the config
@@ -248,27 +274,4 @@ func ResolveHostsInNetworksConfig(config *meshconfig.MeshNetworks) {
 			}
 		}
 	}
-}
-
-// Add to the FileWatcher the provided file and execute the provided function
-// on any change event for this file.
-// Using a debouncing mechanism to avoid calling the callback multiple times
-// per event.
-func addFileWatcher(fileWatcher filewatcher.FileWatcher, file string, callback func()) {
-	_ = fileWatcher.Add(file)
-	go func() {
-		var timerC <-chan time.Time
-		for {
-			select {
-			case <-timerC:
-				timerC = nil
-				callback()
-			case <-fileWatcher.Events(file):
-				// Use a timer to debounce configuration updates
-				if timerC == nil {
-					timerC = time.After(100 * time.Millisecond)
-				}
-			}
-		}
-	}()
 }

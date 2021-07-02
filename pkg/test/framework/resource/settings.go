@@ -60,6 +60,13 @@ type Settings struct {
 	// The label selector that the user has specified.
 	SelectorString string
 
+	// The regex specifying which tests to skip. This follows inverted semantics of golang's
+	// -test.run flag, which only supports positive match. If an entire package is meant to be
+	// excluded, it can be filtered with `go list` and explicitly passing the list of desired
+	// packages. For example: `go test $(go list ./... | grep -v bad-package)`.
+	SkipString  arrayFlags
+	SkipMatcher *Matcher
+
 	// The label selector, in parsed form.
 	Selector label.Selector
 
@@ -70,6 +77,17 @@ type Settings struct {
 	// The revision label on a namespace for injection webhook.
 	// If set to XXX, all the namespaces created with istio-injection=enabled will be replaced with istio.io/rev=XXX.
 	Revision string
+
+	// Skip VM related parts for all the tests.
+	SkipVM bool
+
+	// Revisions maps the Istio revisions that are available to each cluster to their corresponding versions.
+	// This flag must be used with --istio.test.kube.deploy=false with the versions pre-installed.
+	// This flag should be passed in as comma-separated values, such as "rev-a=1.7.3,rev-b=1.8.2,rev-c=1.9.0", and the test framework will
+	// spin up pods pointing to these revisions for each echo instance and skip tests accordingly.
+	// To configure it so that an Istio revision is on the latest version simply list the revision name without the version (i.e. "rev-a,rev-b")
+	// If using this flag with --istio.test.revision, this flag will take precedence.
+	Revisions RevVerMap
 }
 
 // RunDir is the name of the dir to output, for this particular run.
@@ -112,5 +130,8 @@ func (s *Settings) String() string {
 	result += fmt.Sprintf("CIMode:            %v\n", s.CIMode)
 	result += fmt.Sprintf("Retries:           %v\n", s.Retries)
 	result += fmt.Sprintf("StableNamespaces:  %v\n", s.StableNamespaces)
+	result += fmt.Sprintf("Revision:          %v\n", s.Revision)
+	result += fmt.Sprintf("SkipVM:            %v\n", s.SkipVM)
+	result += fmt.Sprintf("Revisions:         %v\n", s.Revisions.String())
 	return result
 }

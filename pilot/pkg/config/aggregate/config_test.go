@@ -15,7 +15,6 @@
 package aggregate
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -76,7 +75,8 @@ func TestAggregateStoreGet(t *testing.T) {
 		},
 	}
 
-	store1.Create(*configReturn)
+	_, err := store1.Create(*configReturn)
+	g.Expect(err).NotTo(gomega.HaveOccurred())
 
 	stores := []model.ConfigStore{store1, store2}
 
@@ -192,7 +192,7 @@ func TestAggregateStoreFails(t *testing.T) {
 	t.Run("Fails to Delete", func(t *testing.T) {
 		g := gomega.NewWithT(t)
 
-		err = store.Delete(config.GroupVersionKind{Kind: "not"}, "gonna", "work")
+		err = store.Delete(config.GroupVersionKind{Kind: "not"}, "gonna", "work", nil)
 		g.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("unsupported operation")))
 	})
 
@@ -238,18 +238,17 @@ func TestAggregateStoreCache(t *testing.T) {
 			handled.Store(true)
 		})
 
-		controller1.Create(config.Config{
+		_, err := controller1.Create(config.Config{
 			Meta: config.Meta{
 				GroupVersionKind: collections.K8SServiceApisV1Alpha1Httproutes.Resource().GroupVersionKind(),
 				Name:             "another",
 			},
 		})
-		retry.UntilSuccessOrFail(t, func() error {
-			if !handled.Load() {
-				return fmt.Errorf("not handled")
-			}
-			return nil
-		}, retry.Timeout(time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		retry.UntilOrFail(t, handled.Load, retry.Timeout(time.Second))
 	})
 }
 

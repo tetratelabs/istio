@@ -40,9 +40,7 @@ type IstioControlPlaneInstance struct {
 	Info istioversion.BuildInfo
 }
 
-var (
-	controlPlane *corev3.ControlPlane
-)
+var controlPlane *corev3.ControlPlane
 
 // ControlPlane identifies the instance and Istio version.
 func ControlPlane() *corev3.ControlPlane {
@@ -58,13 +56,14 @@ func init() {
 		Info:      istioversion.Info,
 	})
 	if err != nil {
-		adsLog.Warnf("XDS: Could not serialize control plane id: %v", err)
+		log.Warnf("XDS: Could not serialize control plane id: %v", err)
 	}
 	controlPlane = &corev3.ControlPlane{Identifier: string(byVersion)}
 }
 
 var SkipLogTypes = map[string]struct{}{
 	v3.EndpointType: {},
+	v3.SecretType:   {},
 }
 
 func (s *DiscoveryServer) findGenerator(typeURL string, con *Connection) model.XdsResourceGenerator {
@@ -101,39 +100,49 @@ func (s *DiscoveryServer) pushXds(con *Connection, push *model.PushContext,
 
 	t0 := time.Now()
 
-	cl := gen.Generate(con.proxy, push, w, req)
-	if cl == nil {
+	res, err := gen.Generate(con.proxy, push, w, req)
+	if err != nil || res == nil {
 		// If we have nothing to send, report that we got an ACK for this version.
 		if s.StatusReporter != nil {
-			s.StatusReporter.RegisterEvent(con.ConID, w.TypeUrl, push.Version)
+			s.StatusReporter.RegisterEvent(con.ConID, w.TypeUrl, push.LedgerVersion)
 		}
-		return nil // No push needed.
+		return err
 	}
 	defer func() { recordPushTime(w.TypeUrl, time.Since(t0)) }()
 
 	resp := &discovery.DiscoveryResponse{
-		TypeUrl:     w.TypeUrl,
-		VersionInfo: currentVersion,
-		Nonce:       nonce(push.Version),
-		Resources:   cl,
+		ControlPlane: ControlPlane(),
+		TypeUrl:      w.TypeUrl,
+		VersionInfo:  currentVersion,
+		Nonce:        nonce(push.LedgerVersion),
+		Resources:    res,
 	}
 
-	// Approximate size by looking at the Any marshaled size. This avoids high cost
-	// proto.Size, at the expense of slightly under counting.
-	size := 0
-	for _, r := range cl {
-		size += len(r.Value)
-	}
-
-	err := con.send(resp)
-	if err != nil {
+	if err := con.send(resp); err != nil {
 		recordSendError(w.TypeUrl, con.ConID, err)
 		return err
 	}
 
 	// Some types handle logs inside Generate, skip them here
 	if _, f := SkipLogTypes[w.TypeUrl]; !f {
-		adsLog.Infof("%s: PUSH for node:%s resources:%d size:%s", v3.GetShortType(w.TypeUrl), con.proxy.ID, len(cl), util.ByteCount(size))
+		if log.DebugEnabled() {
+			// Add additional information to logs when debug mode enabled
+			log.Infof("%s: PUSH%s for node:%s resources:%d size:%s nonce:%v version:%v",
+				v3.GetShortType(w.TypeUrl), req.PushReason(), con.proxy.ID, len(res), util.ByteCount(ResourceSize(res)), resp.Nonce, resp.VersionInfo)
+		} else {
+			log.Infof("%s: PUSH%s for node:%s resources:%d size:%s",
+				v3.GetShortType(w.TypeUrl), req.PushReason(), con.proxy.ID, len(res), util.ByteCount(ResourceSize(res)))
+		}
 	}
 	return nil
+}
+
+func ResourceSize(r model.Resources) int {
+	// Approximate size by looking at the Any marshaled size. This avoids high cost
+	// proto.Size, at the expense of slightly under counting.
+	size := 0
+	for _, r := range r {
+		size += len(r.Value)
+	}
+	return size
 }

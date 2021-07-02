@@ -25,7 +25,7 @@ import (
 )
 
 func TestStaticCollections(t *testing.T) {
-	var cases = []struct {
+	cases := []struct {
 		packageName string
 		m           *ast.Metadata
 		err         string
@@ -162,7 +162,9 @@ var (
 		t.Run("", func(t *testing.T) {
 			g := NewWithT(t)
 
-			s, err := StaticCollections(c.packageName, c.m)
+			s, err := StaticCollections(c.packageName, c.m, func(name string) bool {
+				return true
+			}, "")
 			if c.err != "" {
 				g.Expect(err).NotTo(BeNil())
 				g.Expect(err.Error()).To(Equal(s))

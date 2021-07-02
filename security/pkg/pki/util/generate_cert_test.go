@@ -16,6 +16,10 @@ package util
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -71,7 +75,7 @@ func TestGenCertKeyFromOptions(t *testing.T) {
 
 	rsaCaCertPem, rsaCaPrivPem, err := GenCertKeyFromOptions(rsaCaCertOptions)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	// Options to generate a CA cert with EC.
@@ -91,7 +95,7 @@ func TestGenCertKeyFromOptions(t *testing.T) {
 
 	ecCaCertPem, ecCaPrivPem, err := GenCertKeyFromOptions(ecCaCertOptions)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	fields := &VerifyFields{
@@ -104,31 +108,31 @@ func TestGenCertKeyFromOptions(t *testing.T) {
 		Host:        host,
 	}
 	if VerifyCertificate(rsaCaPrivPem, rsaCaCertPem, rsaCaCertPem, fields) != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	if VerifyCertificate(ecCaPrivPem, ecCaCertPem, ecCaCertPem, fields) != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	rsaCaCert, err := ParsePemEncodedCertificate(rsaCaCertPem)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	ecCaCert, err := ParsePemEncodedCertificate(ecCaCertPem)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	rsaCaPriv, err := ParsePemEncodedKey(rsaCaPrivPem)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
-	ecCaPriv, err := ParsePemEncodedKey(rsaCaPrivPem)
+	ecCaPriv, err := ParsePemEncodedKey(ecCaPrivPem)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	notBefore := now.Add(-5 * time.Minute)
@@ -556,7 +560,11 @@ func TestGenCertKeyFromOptions(t *testing.T) {
 
 			for _, host := range strings.Split(certOptions.Host, ",") {
 				c.verifyFields.Host = host
-				if err := VerifyCertificate(privPem, certPem, rsaCaCertPem, c.verifyFields); err != nil {
+				root := rsaCaCertPem
+				if c.certOptions.ECSigAlg != "" {
+					root = ecCaCertPem
+				}
+				if err := VerifyCertificate(privPem, certPem, root, c.verifyFields); err != nil {
 					t.Errorf("[%s] cert verification error: %v", id, err)
 				}
 			}
@@ -574,7 +582,15 @@ func TestGenCertFromCSR(t *testing.T) {
 	signingCert, signingKey, _, _ := keycert.GetAll()
 
 	// Then generates signee's key pairs.
-	signeeKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	rsaSigneeKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Errorf("failed to generate signee key pair %v", err)
+	}
+	ecdsaSigneeKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Errorf("failed to generate signee key pair %v", err)
+	}
+	_, ed25519SigneeKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Errorf("failed to generate signee key pair %v", err)
 	}
@@ -582,11 +598,13 @@ func TestGenCertFromCSR(t *testing.T) {
 	cases := []struct {
 		name        string
 		subjectIDs  []string
+		signeeKey   crypto.Signer
 		csrTemplate *x509.CertificateRequest
 	}{
 		{
 			name:       "Single subject ID",
 			subjectIDs: []string{"spiffe://test.com/abc/def"},
+			signeeKey:  rsaSigneeKey,
 			csrTemplate: &x509.CertificateRequest{
 				SignatureAlgorithm: x509.SHA256WithRSA,
 				DNSNames:           []string{"name_in_csr"},
@@ -596,6 +614,7 @@ func TestGenCertFromCSR(t *testing.T) {
 		{
 			name:       "Two subject IDs",
 			subjectIDs: []string{"spiffe://test.com/abc/def", "test.com"},
+			signeeKey:  rsaSigneeKey,
 			csrTemplate: &x509.CertificateRequest{
 				SignatureAlgorithm: x509.SHA256WithRSA,
 				DNSNames:           []string{"name_in_csr"},
@@ -605,6 +624,7 @@ func TestGenCertFromCSR(t *testing.T) {
 		{
 			name:       "Common name in CSR",
 			subjectIDs: []string{"test.com"},
+			signeeKey:  rsaSigneeKey,
 			csrTemplate: &x509.CertificateRequest{
 				Subject:            pkix.Name{CommonName: "common_name"},
 				SignatureAlgorithm: x509.SHA256WithRSA,
@@ -612,18 +632,40 @@ func TestGenCertFromCSR(t *testing.T) {
 				Version:            3,
 			},
 		},
+		{
+			name:       "Use ECDSA Signee Key",
+			subjectIDs: []string{"test.com"},
+			signeeKey:  ecdsaSigneeKey,
+			csrTemplate: &x509.CertificateRequest{
+				Subject:            pkix.Name{CommonName: "common_name"},
+				SignatureAlgorithm: x509.ECDSAWithSHA256,
+				DNSNames:           []string{"name_in_csr"},
+				Version:            3,
+			},
+		},
+		{
+			name:       "Use ED25519 Signee Key",
+			subjectIDs: []string{"test.com"},
+			signeeKey:  ed25519SigneeKey,
+			csrTemplate: &x509.CertificateRequest{
+				Subject:            pkix.Name{CommonName: "common_name"},
+				SignatureAlgorithm: x509.PureEd25519,
+				DNSNames:           []string{"name_in_csr"},
+				Version:            3,
+			},
+		},
 	}
 
 	for _, c := range cases {
-		derBytes, err := x509.CreateCertificateRequest(rand.Reader, c.csrTemplate, signeeKey)
+		derBytes, err := x509.CreateCertificateRequest(rand.Reader, c.csrTemplate, c.signeeKey)
 		if err != nil {
-			t.Error("failed to create certificate request")
+			t.Errorf("failed to create certificate request %v", err)
 		}
 		csr, err := x509.ParseCertificateRequest(derBytes)
 		if err != nil {
 			t.Errorf("failed to parse certificate request %v", err)
 		}
-		derBytes, err = GenCertFromCSR(csr, signingCert, &signeeKey.PublicKey, *signingKey, c.subjectIDs, time.Hour, false)
+		derBytes, err = GenCertFromCSR(csr, signingCert, c.signeeKey.Public(), *signingKey, c.subjectIDs, time.Hour, false)
 		if err != nil {
 			t.Errorf("failed to GenCertFromCSR, error %v", err)
 		}

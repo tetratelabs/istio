@@ -23,18 +23,19 @@ import (
 	"time"
 )
 
-// IsJwtExpired checks if the JWT token is expired compared with the given time, without validating it.
-func IsJwtExpired(token string, now time.Time) (bool, error) {
+// GetExp returns token expiration time, or error on failures.
+func GetExp(token string) (time.Time, error) {
 	claims, err := parseJwtClaims(token)
 	if err != nil {
-		return true, err
+		return time.Time{}, err
+	}
+
+	if claims["exp"] == nil {
+		// The JWT doesn't have "exp", so it's always valid. E.g., the K8s first party JWT.
+		return time.Time{}, nil
 	}
 
 	var expiration time.Time
-	if claims["exp"] == nil {
-		// The JWT doesn't have "exp", so it's always valid. E.g., the K8s first party JWT.
-		return false, nil
-	}
 	switch exp := claims["exp"].(type) {
 	case float64:
 		expiration = time.Unix(int64(exp), 0)
@@ -42,11 +43,7 @@ func IsJwtExpired(token string, now time.Time) (bool, error) {
 		v, _ := exp.Int64()
 		expiration = time.Unix(v, 0)
 	}
-	if now.After(expiration) {
-		return true, nil
-	}
-	return false, nil
-
+	return expiration, nil
 }
 
 // GetAud returns the claim `aud` from the token. Returns nil if not found.
@@ -93,24 +90,35 @@ type jwtPayload struct {
 // Clients should not use unbound tokens except in cases where
 // bound tokens are not possible.
 func IsK8SUnbound(jwt string) bool {
+	aud, f := ExtractJwtAud(jwt)
+	if !f {
+		return false // unbound tokens are valid JWT
+	}
+
+	return len(aud) == 0
+}
+
+// ExtractJwtAud extracts the audiences from a JWT token. If aud cannot be parse, the bool will be set
+// to false. This distinguishes aud=[] from not parsed.
+func ExtractJwtAud(jwt string) ([]string, bool) {
 	jwtSplit := strings.Split(jwt, ".")
 	if len(jwtSplit) != 3 {
-		return false // unbound tokens are valid JWT
+		return nil, false
 	}
 	payload := jwtSplit[1]
 
 	payloadBytes, err := base64.RawStdEncoding.DecodeString(payload)
 	if err != nil {
-		return false // unbound tokens are valid JWT
+		return nil, false
 	}
 
 	structuredPayload := &jwtPayload{}
 	err = json.Unmarshal(payloadBytes, &structuredPayload)
 	if err != nil {
-		return false
+		return nil, false
 	}
 
-	return len(structuredPayload.Aud) == 0
+	return structuredPayload.Aud, true
 }
 
 func parseJwtClaims(token string) (map[string]interface{}, error) {

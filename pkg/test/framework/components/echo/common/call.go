@@ -22,6 +22,8 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
+	"time"
 
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/test/echo/client"
@@ -30,6 +32,7 @@ import (
 	"istio.io/istio/pkg/test/echo/proto"
 	"istio.io/istio/pkg/test/echo/server/forwarder"
 	"istio.io/istio/pkg/test/framework/components/echo"
+	"istio.io/istio/pkg/test/scopes"
 	"istio.io/istio/pkg/test/util/retry"
 )
 
@@ -37,19 +40,21 @@ type sendFunc func(req *proto.ForwardEchoRequest) (client.ParsedResponses, error
 
 func callInternal(srcName string, opts *echo.CallOptions, send sendFunc,
 	doRetry bool, retryOptions ...retry.Option) (client.ParsedResponses, error) {
-
 	if err := fillInCallOptions(opts); err != nil {
 		return nil, err
 	}
 
-	// Forward a request from 'this' service to the destination service.
+	var targetURL string
 	port := opts.Port.ServicePort
 	addressAndPort := net.JoinHostPort(opts.Address, strconv.Itoa(port))
-	var targetURL string
-	if opts.Scheme != scheme.TCP {
-		targetURL = fmt.Sprintf("%s://%s%s", string(opts.Scheme), addressAndPort, opts.Path)
-	} else {
+	// Forward a request from 'this' service to the destination service.
+	switch opts.Scheme {
+	case scheme.DNS:
+		targetURL = fmt.Sprintf("%s://%s", string(opts.Scheme), opts.Address)
+	case scheme.TCP:
 		targetURL = fmt.Sprintf("%s://%s", string(opts.Scheme), addressAndPort)
+	default:
+		targetURL = fmt.Sprintf("%s://%s%s", string(opts.Scheme), addressAndPort, opts.Path)
 	}
 
 	// Copy all the headers.
@@ -59,17 +64,24 @@ func callInternal(srcName string, opts *echo.CallOptions, send sendFunc,
 	}
 
 	req := &proto.ForwardEchoRequest{
-		Url:           targetURL,
-		Count:         int32(opts.Count),
-		Headers:       protoHeaders,
-		TimeoutMicros: common.DurationToMicros(opts.Timeout),
-		Message:       opts.Message,
-		Http2:         opts.HTTP2,
-		Method:        opts.Method,
-		ServerFirst:   opts.Port.ServerFirst,
-		Cert:          opts.Cert,
-		Key:           opts.Key,
-		CaCert:        opts.CaCert,
+		Url:                targetURL,
+		Count:              int32(opts.Count),
+		Headers:            protoHeaders,
+		TimeoutMicros:      common.DurationToMicros(opts.Timeout),
+		Message:            opts.Message,
+		Http2:              opts.HTTP2,
+		Method:             opts.Method,
+		ServerFirst:        opts.Port.ServerFirst,
+		Cert:               opts.Cert,
+		Key:                opts.Key,
+		CaCert:             opts.CaCert,
+		CertFile:           opts.CertFile,
+		KeyFile:            opts.KeyFile,
+		CaCertFile:         opts.CaCertFile,
+		InsecureSkipVerify: opts.InsecureSkipVerify,
+		FollowRedirects:    opts.FollowRedirects,
+		ServerName:         opts.ServerName,
+		Alpn:               opts.Alpn,
 	}
 
 	var responses client.ParsedResponses
@@ -103,8 +115,10 @@ func callInternal(srcName string, opts *echo.CallOptions, send sendFunc,
 		return responses, formatError(err)
 	}
 
+	t0 := time.Now()
 	// Retry not enabled for this call.
 	err := sendAndValidate()
+	scopes.Framework.Debugf("echo call complete with duration %v", time.Since(t0))
 	return responses, formatError(err)
 }
 
@@ -122,17 +136,38 @@ func CallEcho(opts *echo.CallOptions, retry bool, retryOptions ...retry.Option) 
 		if err != nil {
 			return nil, err
 		}
-		resp := client.ParseForwardedResponse(ret)
+		resp := client.ParseForwardedResponse(req, ret)
 		return resp, nil
 	}
 	return callInternal("TestRunner", opts, send, retry, retryOptions...)
 }
 
-func ForwardEcho(srcName string, c *client.Instance, opts *echo.CallOptions,
+// EchoClientProvider provides dynamic creation of Echo clients. This allows retries to potentially make
+// use of different (ready) workloads for forward requests.
+type EchoClientProvider func() (*client.Instance, error)
+
+func ForwardEcho(srcName string, clientProvider EchoClientProvider, opts *echo.CallOptions,
 	retry bool, retryOptions ...retry.Option) (client.ParsedResponses, error) {
-	return callInternal(srcName, opts, func(req *proto.ForwardEchoRequest) (client.ParsedResponses, error) {
+	res, err := callInternal(srcName, opts, func(req *proto.ForwardEchoRequest) (client.ParsedResponses, error) {
+		c, err := clientProvider()
+		if err != nil {
+			return nil, err
+		}
 		return c.ForwardEcho(context.Background(), req)
 	}, retry, retryOptions...)
+	if err != nil {
+		if opts.Port != nil {
+			err = fmt.Errorf("failed calling %s->'%s://%s:%d/%s': %v",
+				srcName,
+				strings.ToLower(string(opts.Port.Protocol)),
+				opts.Address,
+				opts.Port.ServicePort,
+				opts.Path,
+				err)
+		}
+		return nil, err
+	}
+	return res, nil
 }
 
 func fillInCallOptions(opts *echo.CallOptions) error {
@@ -170,8 +205,14 @@ func fillInCallOptions(opts *echo.CallOptions) error {
 				return fmt.Errorf("callOptions: no port named %s available in Target Instance", opts.PortName)
 			}
 		}
-	} else if opts.Port == nil || opts.Port.ServicePort == 0 || opts.Port.Protocol == "" || opts.Address == "" {
-		return fmt.Errorf("if target is not set, then port.servicePort, port.protocol, and host must be set")
+	} else if opts.Scheme == scheme.DNS {
+		// Just need address
+		if opts.Address == "" {
+			return fmt.Errorf("for DNS, address must be set")
+		}
+		opts.Port = &echo.Port{}
+	} else if opts.Port == nil || opts.Port.ServicePort == 0 || (opts.Port.Protocol == "" && opts.Scheme == "") || opts.Address == "" {
+		return fmt.Errorf("if target is not set, then port.servicePort, port.protocol or schema, and address must be set")
 	}
 
 	if opts.Scheme == "" {

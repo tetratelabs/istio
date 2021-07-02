@@ -1,3 +1,4 @@
+// +build !agent
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +17,6 @@ package v1alpha3
 
 import (
 	"bytes"
-	"errors"
 	"sync"
 	"text/template"
 	"time"
@@ -100,7 +100,7 @@ func NewConfigGenTest(t test.Failer, opts TestOptions) *ConfigGenTest {
 	})
 
 	configs := getConfigs(t, opts)
-	configStore := memory.MakeSkipValidation(collections.Pilot, true)
+	configStore := memory.MakeSkipValidation(collections.Pilot)
 
 	cc := memory.NewSyncController(configStore)
 	controllers := []model.ConfigStoreCache{cc}
@@ -133,17 +133,17 @@ func NewConfigGenTest(t test.Failer, opts TestOptions) *ConfigGenTest {
 	}
 
 	env := &model.Environment{}
-	env.PushContext = model.NewPushContext()
-	env.ServiceDiscovery = serviceDiscovery
-	env.IstioConfigStore = model.MakeIstioStore(configController)
 	env.Watcher = mesh.NewFixedWatcher(m)
 	if opts.NetworksWatcher == nil {
 		opts.NetworksWatcher = mesh.NewFixedNetworksWatcher(nil)
 	}
+	env.ServiceDiscovery = serviceDiscovery
+	env.IstioConfigStore = model.MakeIstioStore(configController)
 	env.NetworksWatcher = opts.NetworksWatcher
+	env.Init()
 
 	if opts.Plugins == nil {
-		opts.Plugins = registry.NewPlugins([]string{plugin.Authn, plugin.Authz})
+		opts.Plugins = registry.NewPlugins([]string{plugin.AuthzCustom, plugin.Authn, plugin.Authz})
 	}
 
 	fake := &ConfigGenTest{
@@ -160,6 +160,10 @@ func NewConfigGenTest(t test.Failer, opts TestOptions) *ConfigGenTest {
 	}
 	if !opts.SkipRun {
 		fake.Run()
+		env.PushContext = model.NewPushContext()
+		if err := env.PushContext.InitContext(env, nil, nil); err != nil {
+			t.Fatalf("Failed to initialize push context: %v", err)
+		}
 	}
 	return fake
 }
@@ -175,17 +179,10 @@ func (f *ConfigGenTest) Run() {
 
 	// TODO allow passing event handlers for controller
 
-	retry.UntilSuccessOrFail(f.t, func() error {
-		if !f.Registry.HasSynced() {
-			return errors.New("not synced")
-		}
-		return nil
-	})
+	retry.UntilOrFail(f.t, f.store.HasSynced, retry.Delay(time.Millisecond))
+	retry.UntilOrFail(f.t, f.Registry.HasSynced, retry.Delay(time.Millisecond))
 
 	f.ServiceEntryRegistry.ResyncEDS()
-	if err := f.PushContext().InitContext(f.env, nil, nil); err != nil {
-		f.t.Fatalf("Failed to initialize push context: %v", err)
-	}
 }
 
 // SetupProxy initializes a proxy for the current environment. This should generally be used when creating
@@ -199,7 +196,9 @@ func (f *ConfigGenTest) SetupProxy(p *model.Proxy) *model.Proxy {
 		p.Metadata = &model.NodeMetadata{}
 	}
 	if p.Metadata.IstioVersion == "" {
-		p.Metadata.IstioVersion = "1.8.0"
+		p.Metadata.IstioVersion = "1.9.0"
+	}
+	if p.IstioVersion == nil {
 		p.IstioVersion = model.ParseIstioVersion(p.Metadata.IstioVersion)
 	}
 	if p.Type == "" {
@@ -207,6 +206,9 @@ func (f *ConfigGenTest) SetupProxy(p *model.Proxy) *model.Proxy {
 	}
 	if p.ConfigNamespace == "" {
 		p.ConfigNamespace = "default"
+	}
+	if p.Metadata.Namespace == "" {
+		p.Metadata.Namespace = p.ConfigNamespace
 	}
 	if p.ID == "" {
 		p.ID = "app.test"

@@ -23,11 +23,11 @@ import (
 	"sort"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	ingress "k8s.io/api/networking/v1beta1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/informers/networking/v1beta1"
-	"k8s.io/client-go/kubernetes"
 	listerv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
@@ -70,11 +70,9 @@ import (
 //   If we need more flexibility - we can add it (but likely we'll deprecate ingress support first)
 // -
 
-var (
-	schemas = collection.SchemasFor(
-		collections.IstioNetworkingV1Alpha3Virtualservices,
-		collections.IstioNetworkingV1Alpha3Gateways)
-)
+var schemas = collection.SchemasFor(
+	collections.IstioNetworkingV1Alpha3Virtualservices,
+	collections.IstioNetworkingV1Alpha3Gateways)
 
 // Control needs RBAC permissions to write to Pods.
 
@@ -93,21 +91,36 @@ type controller struct {
 	classes v1beta1.IngressClassInformer
 }
 
-var (
-	// TODO: move to features ( and remove in 1.2 )
-	ingressNamespace = env.RegisterStringVar("K8S_INGRESS_NS", "", "").Get()
-)
+// TODO: move to features ( and remove in 1.2 )
+var ingressNamespace = env.RegisterStringVar("K8S_INGRESS_NS", "", "").Get()
 
-var (
-	errUnsupportedOp = errors.New("unsupported operation: the ingress config store is a read-only view")
-)
+var errUnsupportedOp = errors.New("unsupported operation: the ingress config store is a read-only view")
+
+// Check if the "networking/v1" Ingress is available. Implementation borrowed from ingress-nginx
+func V1Available(client kube.Client) bool {
+	// check kubernetes version to use new ingress package or not
+	version119, _ := version.ParseGeneric("v1.19.0")
+
+	serverVersion, err := client.GetKubernetesVersion()
+	if err != nil {
+		return false
+	}
+
+	runningVersion, err := version.ParseGeneric(serverVersion.String())
+	if err != nil {
+		log.Errorf("unexpected error parsing running Kubernetes version: %v", err)
+		return false
+	}
+
+	return runningVersion.AtLeast(version119)
+}
 
 // Check if the "networking" group Ingress is available. Implementation borrowed from ingress-nginx
-func NetworkingIngressAvailable(client kubernetes.Interface) bool {
+func NetworkingIngressAvailable(client kube.Client) bool {
 	// check kubernetes version to use new ingress package or not
 	version118, _ := version.ParseGeneric("v1.18.0")
 
-	serverVersion, err := client.Discovery().ServerVersion()
+	serverVersion, err := client.GetKubernetesVersion()
 	if err != nil {
 		return false
 	}
@@ -124,7 +137,6 @@ func NetworkingIngressAvailable(client kubernetes.Interface) bool {
 // NewController creates a new Kubernetes controller
 func NewController(client kube.Client, meshWatcher mesh.Holder,
 	options kubecontroller.Options) model.ConfigStoreCache {
-
 	// queue requires a time duration for a retry delay after a handler error
 	q := queue.NewQueue(1 * time.Second)
 
@@ -272,6 +284,17 @@ func (c *controller) RegisterEventHandler(kind config.GroupVersionKind, f func(c
 	}
 }
 
+func (c *controller) SetWatchErrorHandler(handler func(r *cache.Reflector, err error)) error {
+	var errs error
+	if err := c.serviceInformer.SetWatchErrorHandler(handler); err != nil {
+		errs = multierror.Append(err, errs)
+	}
+	if err := c.ingressInformer.SetWatchErrorHandler(handler); err != nil {
+		errs = multierror.Append(err, errs)
+	}
+	return errs
+}
+
 func (c *controller) HasSynced() bool {
 	return c.ingressInformer.HasSynced() && c.serviceInformer.HasSynced() &&
 		(c.classes == nil || c.classes.Informer().HasSynced())
@@ -286,7 +309,7 @@ func (c *controller) Run(stop <-chan struct{}) {
 }
 
 func (c *controller) Schemas() collection.Schemas {
-	//TODO: are these two config descriptors right?
+	// TODO: are these two config descriptors right?
 	return schemas
 }
 
@@ -366,10 +389,10 @@ func (c *controller) UpdateStatus(config.Config) (string, error) {
 	return "", errUnsupportedOp
 }
 
-func (c *controller) Patch(_ config.GroupVersionKind, _, _ string, _ config.PatchFunc) (string, error) {
+func (c *controller) Patch(_ config.Config, _ config.PatchFunc) (string, error) {
 	return "", errUnsupportedOp
 }
 
-func (c *controller) Delete(_ config.GroupVersionKind, _, _ string) error {
+func (c *controller) Delete(_ config.GroupVersionKind, _, _ string, _ *string) error {
 	return errUnsupportedOp
 }

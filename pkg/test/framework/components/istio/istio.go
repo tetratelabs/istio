@@ -16,8 +16,10 @@ package istio
 
 import (
 	"net"
+	"time"
 
 	"istio.io/istio/pkg/test"
+	"istio.io/istio/pkg/test/framework/components/cluster"
 	"istio.io/istio/pkg/test/framework/components/environment/kube"
 	"istio.io/istio/pkg/test/framework/components/istio/ingress"
 	"istio.io/istio/pkg/test/framework/resource"
@@ -30,15 +32,15 @@ type Instance interface {
 
 	// IngressFor returns an ingress used for reaching workloads in the given cluster.
 	// The ingress's service name will be "istio-ingressgateway" and the istio label will be "ingressgateway".
-	IngressFor(cluster resource.Cluster) ingress.Instance
+	IngressFor(cluster cluster.Cluster) ingress.Instance
 	// CustomIngressFor returns an ingress with a specific service name and "istio" label used for reaching workloads
 	// in the given cluster.
-	CustomIngressFor(cluster resource.Cluster, serviceName, istioLabel string) ingress.Instance
+	CustomIngressFor(cluster cluster.Cluster, serviceName, istioLabel string) ingress.Instance
 
 	// RemoteDiscoveryAddressFor returns the external address of the discovery server that controls
 	// the given cluster. This allows access to the discovery server from
 	// outside its cluster.
-	RemoteDiscoveryAddressFor(cluster resource.Cluster) (net.TCPAddr, error)
+	RemoteDiscoveryAddressFor(cluster cluster.Cluster) (net.TCPAddr, error)
 
 	Settings() Config
 }
@@ -87,6 +89,7 @@ func Setup(i *Instance, cfn SetupConfigFn, ctxFns ...SetupContextFn) resource.Se
 				scopes.Framework.Info("=== SUCCESS: context setup function ===")
 			}
 		}
+
 		ins, err := Deploy(ctx, &cfg)
 		if err != nil {
 			return err
@@ -109,15 +112,20 @@ func Deploy(ctx resource.Context, cfg *Config) (i Instance, err error) {
 		cfg = &c
 	}
 
+	t0 := time.Now()
 	scopes.Framework.Infof("=== BEGIN: Deploy Istio [Suite=%s] ===", ctx.Settings().TestID)
 	defer func() {
 		if err != nil {
-			scopes.Framework.Infof("=== FAILED: Deploy Istio [Suite=%s] ===", ctx.Settings().TestID)
+			scopes.Framework.Infof("=== FAILED: Deploy Istio in %v [Suite=%s] ===", time.Since(t0), ctx.Settings().TestID)
 		} else {
-			scopes.Framework.Infof("=== SUCCEEDED: Deploy Istio [Suite=%s]===", ctx.Settings().TestID)
+			scopes.Framework.Infof("=== SUCCEEDED: Deploy Istio in %v [Suite=%s]===", time.Since(t0), ctx.Settings().TestID)
 		}
 	}()
 
-	i, err = deploy(ctx, ctx.Environment().(*kube.Environment), *cfg)
+	if cfg.DeployHelm {
+		i, err = deployWithHelm(ctx, ctx.Environment().(*kube.Environment), *cfg)
+	} else {
+		i, err = deploy(ctx, ctx.Environment().(*kube.Environment), *cfg)
+	}
 	return
 }

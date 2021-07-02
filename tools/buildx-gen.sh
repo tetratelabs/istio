@@ -23,6 +23,21 @@ out="${1}"
 config="${out}/docker-bake.hcl"
 shift
 
+function to_platform_list() {
+  image="${1}"
+  platforms="${2}"
+  # Allow list images verified to work with multi architecture
+  # Eventually this should be everything but the testing images (app_sidecar_)
+  if [[ "${image}" == base || "${image}" == distroless ]]; then
+    # convert CSV to "foo","bar" list
+    # shellcheck disable=SC2001
+    echo "\"$(echo "${platforms}" | sed 's/,/","/g')\""
+  else
+    echo '"linux/amd64"'
+  fi
+}
+
+
 
 variants=\"$(for i in ${DOCKER_ALL_VARIANTS}; do echo "\"${i}\""; done | xargs | sed -e 's/ /\", \"/g')\"
 cat <<EOF > "${config}"
@@ -33,7 +48,7 @@ EOF
 
 # Generate the top header. This defines a group to build all images for each variant
 for variant in ${DOCKER_ALL_VARIANTS}; do
-  # Get all images. Transform from `docker.target` to `"target"` as a comma seperated list
+  # Get all images. Transform from `docker.target` to `"target"` as a comma separated list
   images=\"$(for i in "$@"; do
     if ! "${WD}/skip-image.sh" "$i" "$variant"; then echo "\"${i#docker.}-${variant}\""; fi
   done | xargs | sed -e 's/ /\", \"/g')\"
@@ -72,11 +87,20 @@ for file in "$@"; do
       VM_IMAGE_VERSION="${split[-1]}"
     fi
 
+    # Create a list of tags by iterating over HUBs
+    tags=""
+    for hub in ${HUBS};
+    do
+      tags=${tags}"\"${hub}/${image}:${tag}\", "
+    done
+    tags="${tags%, *}" # remove training ', '
+
     cat <<EOF >> "${config}"
 target "$image-$variant" {
     context = "${out}/${file}"
     dockerfile = "Dockerfile.$image"
-    tags = ["${HUB}/${image}:${tag}"]
+    tags = [${tags}]
+    platforms = [$(to_platform_list "${image}" "${DOCKER_ARCHITECTURES}")]
     args = {
       BASE_VERSION = "${BASE_VERSION}"
       BASE_DISTRIBUTION = "${variant}"

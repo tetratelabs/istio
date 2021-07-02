@@ -16,13 +16,12 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
-	"google.golang.org/grpc/grpclog"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"istio.io/istio/pilot/pkg/bootstrap"
@@ -30,17 +29,10 @@ import (
 	"istio.io/istio/pilot/pkg/serviceregistry"
 	"istio.io/istio/pkg/cmd"
 	"istio.io/istio/pkg/config/constants"
-	"istio.io/istio/pkg/config/validation"
 	"istio.io/pkg/collateral"
 	"istio.io/pkg/ctrlz"
 	"istio.io/pkg/log"
 	"istio.io/pkg/version"
-)
-
-const (
-	defaultMCPMaxMessageSize        = 1024 * 1024 * 4 // default gRPC maximum message size
-	defaultMCPInitialConnWindowSize = 1024 * 1024     // default gRPC InitialWindowSize
-	defaultMCPInitialWindowSize     = 1024 * 1024     // default gRPC ConnWindowSize
 )
 
 var (
@@ -61,9 +53,7 @@ var (
 		Args:              cobra.ExactArgs(0),
 		PersistentPreRunE: configureLogging,
 		PreRunE: func(c *cobra.Command, args []string) error {
-			// If keepaliveMaxServerConnectionAge is negative, istiod crash
-			// https://github.com/istio/istio/issues/27257
-			if err := validation.ValidateMaxServerConnectionAge(serverArgs.KeepaliveOptions.MaxServerConnectionAge); err != nil {
+			if err := ValidateFlags(serverArgs); err != nil {
 				return err
 			}
 			return nil
@@ -73,6 +63,10 @@ var (
 
 			// Create the stop channel for all of the servers.
 			stop := make(chan struct{})
+
+			if err := serverArgs.Complete(); err != nil {
+				return err
+			}
 
 			// Create the server for the discovery service.
 			discoveryServer, err := bootstrap.NewServer(serverArgs)
@@ -95,7 +89,6 @@ var (
 )
 
 func configureLogging(_ *cobra.Command, _ []string) error {
-	grpclog.SetLoggerV2(grpclog.NewLoggerV2(ioutil.Discard, ioutil.Discard, ioutil.Discard))
 	if err := log.Configure(loggingOptions); err != nil {
 		return err
 	}
@@ -103,7 +96,6 @@ func configureLogging(_ *cobra.Command, _ []string) error {
 }
 
 func init() {
-
 	serverArgs = bootstrap.NewPilotArgs(func(p *bootstrap.PilotArgs) {
 		// Set Defaults
 		p.CtrlZOptions = ctrlz.DefaultOptions()
@@ -131,14 +123,6 @@ func init() {
 	discoveryCmd.PersistentFlags().StringSliceVar(&serverArgs.Plugins, "plugins", bootstrap.DefaultPlugins,
 		"comma separated list of networking plugins to enable")
 
-	// MCP client flags
-	discoveryCmd.PersistentFlags().IntVar(&serverArgs.MCPOptions.MaxMessageSize, "mcpMaxMsgSize", defaultMCPMaxMessageSize,
-		"Max message size received by MCP's gRPC client")
-	discoveryCmd.PersistentFlags().IntVar(&serverArgs.MCPOptions.InitialWindowSize, "mcpInitialWindowSize", defaultMCPInitialWindowSize,
-		"Initial window size for MCP's gRPC connection")
-	discoveryCmd.PersistentFlags().IntVar(&serverArgs.MCPOptions.InitialConnWindowSize, "mcpInitialConnWindowSize", defaultMCPInitialConnWindowSize,
-		"Initial connection window size for MCP's gRPC connection")
-
 	// RegistryOptions Controller options
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.RegistryOptions.FileDir, "configDir", "",
 		"Directory to watch for updates to config yaml files. If specified, the files will be used as the source of config, rather than a CRD client.")
@@ -150,9 +134,6 @@ func init() {
 		"DNS domain suffix")
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.RegistryOptions.KubeOptions.ClusterID, "clusterID", features.ClusterName,
 		"The ID of the cluster that this Istiod instance resides")
-	// Deprecated - use mesh config
-	discoveryCmd.PersistentFlags().StringVar(&serverArgs.RegistryOptions.KubeOptions.TrustDomain, "trust-domain", "",
-		"The domain serves to identify the system with spiffe")
 
 	// using address, so it can be configured as localhost:.. (possibly UDS in future)
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.ServerOptions.HTTPAddr, "httpAddr", ":8080",
@@ -175,11 +156,16 @@ func init() {
 		"File containing the x509 Server Certificate")
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.ServerOptions.TLSOptions.KeyFile, "tlsKeyFile", "",
 		"File containing the x509 private key matching --tlsCertFile")
+	discoveryCmd.PersistentFlags().StringSliceVar(&serverArgs.ServerOptions.TLSOptions.TLSCipherSuites, "tls-cipher-suites", nil,
+		"Comma-separated list of cipher suites for istiod TLS server. "+
+			"If omitted, the default Go cipher suites will be used. \n"+
+			"Preferred values: "+strings.Join(secureTLSCipherNames(), ", ")+". \n"+
+			"Insecure values: "+strings.Join(insecureTLSCipherNames(), ", ")+".")
 
-	discoveryCmd.PersistentFlags().Float32Var(&serverArgs.RegistryOptions.KubeOptions.KubernetesAPIQPS, "kubernetesApiQPS", 20.0,
+	discoveryCmd.PersistentFlags().Float32Var(&serverArgs.RegistryOptions.KubeOptions.KubernetesAPIQPS, "kubernetesApiQPS", 80.0,
 		"Maximum QPS when communicating with the kubernetes API")
 
-	discoveryCmd.PersistentFlags().IntVar(&serverArgs.RegistryOptions.KubeOptions.KubernetesAPIBurst, "kubernetesApiBurst", 40,
+	discoveryCmd.PersistentFlags().IntVar(&serverArgs.RegistryOptions.KubeOptions.KubernetesAPIBurst, "kubernetesApiBurst", 160,
 		"Maximum burst for throttle when communicating with the kubernetes API")
 
 	// Attach the Istio logging options to the command.
@@ -200,12 +186,11 @@ func init() {
 		Section: "pilot-discovery CLI",
 		Manual:  "Istio Pilot Discovery",
 	}))
-
 }
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		log.Errora(err)
+		log.Error(err)
 		os.Exit(-1)
 	}
 }

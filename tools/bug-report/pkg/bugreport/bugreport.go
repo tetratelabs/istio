@@ -109,10 +109,15 @@ func runBugReportCommand(_ *cobra.Command, logOpts *log.Options) error {
 	if err != nil {
 		return err
 	}
-
-	clusterCtxStr, err := content.GetClusterContext()
-	if err != nil {
-		return err
+	clusterCtxStr := ""
+	if config.Context == "" {
+		var err error
+		clusterCtxStr, err = content.GetClusterContext(config.KubeConfigPath)
+		if err != nil {
+			return err
+		}
+	} else {
+		clusterCtxStr = config.Context
 	}
 
 	common.LogAndPrintf("\nTarget cluster context: %s\n", clusterCtxStr)
@@ -143,7 +148,7 @@ func runBugReportCommand(_ *cobra.Command, logOpts *log.Options) error {
 
 	gatherInfo(client, config, resources, paths)
 	if len(gErrors) != 0 {
-		log.Errora(gErrors.ToError())
+		log.Error(gErrors.ToError())
 	}
 
 	// TODO: sort by importance and discard any over the size limit.
@@ -161,7 +166,7 @@ func runBugReportCommand(_ *cobra.Command, logOpts *log.Options) error {
 		log.Errorf("using ./ to write archive: %s", err.Error())
 		outDir = "."
 	}
-	outPath := filepath.Join(outDir, "bug-report.tgz")
+	outPath := filepath.Join(outDir, "bug-report.tar.gz")
 	common.LogAndPrintf("Creating an archive at %s.\n", outPath)
 
 	archiveDir := archive.DirToArchive(tempDir)
@@ -269,6 +274,7 @@ func gatherInfo(client kube.ExtendedClient, config *config.BugReportConfig, reso
 	getFromCluster(content.GetCRs, params, clusterDir, &mandatoryWg)
 	getFromCluster(content.GetEvents, params, clusterDir, &mandatoryWg)
 	getFromCluster(content.GetClusterInfo, params, clusterDir, &mandatoryWg)
+	getFromCluster(content.GetNodeInfo, params, clusterDir, &mandatoryWg)
 	getFromCluster(content.GetSecrets, params.SetVerbose(config.FullSecrets), clusterDir, &mandatoryWg)
 	getFromCluster(content.GetDescribePods, params.SetIstioNamespace(config.IstioNamespace), clusterDir, &mandatoryWg)
 
@@ -294,6 +300,8 @@ func gatherInfo(client kube.ExtendedClient, config *config.BugReportConfig, reso
 			getFromCluster(content.GetIstiodInfo, cp, archive.IstiodPath(tempDir, namespace, pod), &mandatoryWg)
 			getIstiodLogs(client, config, resources, namespace, pod, &mandatoryWg)
 
+		case common.IsOperatorContainer(params.ClusterVersion, container):
+			getOperatorLogs(client, config, resources, namespace, pod, &optionalWg)
 		}
 	}
 
@@ -364,6 +372,20 @@ func getIstiodLogs(client kube.ExtendedClient, config *config.BugReportConfig, r
 	}()
 }
 
+// getOperatorLogs fetches istio-operator logs for the given namespace/pod and writes the output.
+func getOperatorLogs(client kube.ExtendedClient, config *config.BugReportConfig, resources *cluster2.Resources,
+	namespace, pod string, wg *sync.WaitGroup) {
+	wg.Add(1)
+	log.Infof("Waiting on logs %s", pod)
+	go func() {
+		defer wg.Done()
+		clog, _, _, err := getLog(client, resources, config, namespace, pod, common.OperatorContainerName)
+		appendGlobalErr(err)
+		writeFile(filepath.Join(archive.OperatorPath(tempDir, namespace, pod), "operator.log"), clog)
+		log.Infof("Done with logs %s", pod)
+	}()
+}
+
 // getLog fetches the logs for the given namespace/pod/container and returns the log text and stats for it.
 func getLog(client kube.ExtendedClient, resources *cluster2.Resources, config *config.BugReportConfig,
 	namespace, pod, container string) (string, *processlog.Stats, int, error) {
@@ -412,13 +434,13 @@ func writeFile(path, text string) {
 		return
 	}
 	mkdirOrExit(path)
-	if err := ioutil.WriteFile(path, []byte(text), 0644); err != nil {
+	if err := ioutil.WriteFile(path, []byte(text), 0o644); err != nil {
 		log.Errorf(err.Error())
 	}
 }
 
 func mkdirOrExit(fpath string) {
-	if err := os.MkdirAll(path.Dir(fpath), 0755); err != nil {
+	if err := os.MkdirAll(path.Dir(fpath), 0o755); err != nil {
 		fmt.Printf("Could not create output directories: %s", err)
 		os.Exit(-1)
 	}

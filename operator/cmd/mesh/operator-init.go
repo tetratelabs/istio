@@ -15,6 +15,9 @@
 package mesh
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
@@ -23,6 +26,7 @@ import (
 	"istio.io/istio/operator/pkg/name"
 	"istio.io/istio/operator/pkg/translate"
 	"istio.io/istio/operator/pkg/util/clog"
+	"istio.io/istio/pkg/config/labels"
 	buildversion "istio.io/pkg/version"
 )
 
@@ -46,15 +50,13 @@ func addOperatorInitFlags(cmd *cobra.Command, args *operatorInitArgs) {
 	cmd.PersistentFlags().StringVar(&args.context, "context", "", ContextFlagHelpStr)
 	cmd.PersistentFlags().StringVar(&args.common.hub, "hub", hub, HubFlagHelpStr)
 	cmd.PersistentFlags().StringVar(&args.common.tag, "tag", tag, TagFlagHelpStr)
+	cmd.PersistentFlags().StringSliceVar(&args.common.imagePullSecrets, "imagePullSecrets", nil, ImagePullSecretsHelpStr)
 	cmd.PersistentFlags().StringVar(&args.common.operatorNamespace, "operatorNamespace", operatorDefaultNamespace, OperatorNamespaceHelpstr)
-	cmd.PersistentFlags().StringVar(&args.common.istioNamespace, "istioNamespace", istioDefaultNamespace,
-		"The namespace Istio is installed into. Deprecated, use '--watchedNamespaces' instead.")
 	cmd.PersistentFlags().StringVar(&args.common.watchedNamespaces, "watchedNamespaces", istioDefaultNamespace,
 		"The namespaces the operator controller watches, could be namespace list separated by comma, eg. 'ns1,ns2'")
 	cmd.PersistentFlags().StringVarP(&args.common.manifestsPath, "charts", "", "", ChartsDeprecatedStr)
 	cmd.PersistentFlags().StringVarP(&args.common.manifestsPath, "manifests", "d", "", ManifestsFlagHelpStr)
-	cmd.PersistentFlags().StringVarP(&args.common.revision, "revision", "r", "",
-		revisionFlagHelpStr)
+	cmd.PersistentFlags().StringVarP(&args.common.revision, "revision", "r", "", OperatorRevFlagHelpStr)
 }
 
 func operatorInitCmd(rootArgs *rootArgs, oiArgs *operatorInitArgs) *cobra.Command {
@@ -63,10 +65,17 @@ func operatorInitCmd(rootArgs *rootArgs, oiArgs *operatorInitArgs) *cobra.Comman
 		Short: "Installs the Istio operator controller in the cluster.",
 		Long:  "The init subcommand installs the Istio operator controller in the cluster.",
 		Args:  cobra.ExactArgs(0),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if !labels.IsDNS1123Label(oiArgs.common.revision) && cmd.PersistentFlags().Changed("revision") {
+				return fmt.Errorf("invalid revision specified: %v", oiArgs.common.revision)
+			}
+			return nil
+		},
 		Run: func(cmd *cobra.Command, args []string) {
 			l := clog.NewConsoleLogger(cmd.OutOrStdout(), cmd.ErrOrStderr(), installerScope)
 			operatorInit(rootArgs, oiArgs, l)
-		}}
+		},
+	}
 }
 
 // operatorInit installs the Istio operator controller into the cluster.
@@ -118,15 +127,23 @@ func operatorInit(args *rootArgs, oiArgs *operatorInitArgs, l clog.Logger) {
 		}
 	}
 
+	// create watched namespaces
+	namespaces := strings.Split(oiArgs.common.watchedNamespaces, ",")
+	// if the namespace in the CR is provided, consider creating it too.
+	if istioNamespace != "" {
+		namespaces = append(namespaces, istioNamespace)
+	}
+	for _, ns := range namespaces {
+		if err := createNamespace(clientset, ns, ""); err != nil {
+			l.LogAndFatal(err)
+		}
+	}
+
 	if err := applyManifest(restConfig, client, mstr, name.IstioOperatorComponentName, opts, iop, l); err != nil {
 		l.LogAndFatal(err)
 	}
 
 	if customResource != "" {
-		if err := createNamespace(clientset, istioNamespace, ""); err != nil {
-			l.LogAndFatal(err)
-
-		}
 		if err := applyManifest(restConfig, client, customResource, name.IstioOperatorComponentName, opts, iop, l); err != nil {
 			l.LogAndFatal(err)
 		}

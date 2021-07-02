@@ -15,6 +15,7 @@
 package kube
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -96,7 +97,6 @@ func ConvertService(svc coreV1.Service, domainSuffix string, clusterID string) *
 		}
 	}
 	sort.Strings(serviceaccounts)
-
 	istioService := &model.Service{
 		Hostname:        ServiceHostname(svc.Name, svc.Namespace, domainSuffix),
 		Ports:           ports,
@@ -105,6 +105,7 @@ func ConvertService(svc coreV1.Service, domainSuffix string, clusterID string) *
 		MeshExternal:    meshExternal,
 		Resolution:      resolution,
 		CreationTime:    svc.CreationTimestamp.Time,
+		ClusterVIPs:     map[string]string{clusterID: addr},
 		Attributes: model.ServiceAttributes{
 			ServiceRegistry: string(serviceregistry.Kubernetes),
 			Name:            svc.Name,
@@ -210,6 +211,16 @@ func KeyFunc(name, namespace string) string {
 		return name
 	}
 	return namespace + "/" + name
+}
+
+// SplitKey returns namespace and name
+func SplitKey(key string) (namespace string, name string, err error) {
+	parts := strings.Split(key, "/")
+	if len(parts) == 2 {
+		return parts[0], parts[1], nil
+	}
+
+	return "", "", fmt.Errorf("unexpected key format: %q", key)
 }
 
 func formatUID(namespace, name string) string {

@@ -29,9 +29,7 @@ import (
 	"istio.io/istio/pkg/config/event"
 	"istio.io/istio/pkg/config/schema"
 	"istio.io/istio/pkg/config/schema/collection"
-	"istio.io/istio/pkg/mcp/monitoring"
 	"istio.io/istio/pkg/mcp/snapshot"
-	"istio.io/pkg/log"
 )
 
 // Processing component is the main config processing component that will listen to a config source and publish
@@ -43,9 +41,8 @@ type Processing struct {
 
 	k kube.Interfaces
 
-	runtime  *processing.Runtime
-	reporter monitoring.Reporter
-	stopCh   chan struct{}
+	runtime *processing.Runtime
+	stopCh  chan struct{}
 }
 
 // NewProcessing returns a new processing component.
@@ -63,8 +60,13 @@ func (p *Processing) Start() (err error) {
 	var src event.Source
 	var updater snapshotter.StatusUpdater
 
-	if mesh, err = meshcfgNewFS(p.args.MeshConfigFile); err != nil {
-		return
+	if p.args.MeshSource != nil {
+		mesh = p.args.MeshSource
+	} else {
+		mesh, err = meshcfgNewFS(p.args.MeshConfigFile)
+		if err != nil {
+			return
+		}
 	}
 
 	m := schema.MustGet()
@@ -112,8 +114,6 @@ func (p *Processing) Start() (err error) {
 
 	p.stopCh = make(chan struct{})
 
-	p.reporter = mcpMetricReporter("galley")
-
 	p.runtime.Start()
 
 	return nil
@@ -129,7 +129,6 @@ func (p *Processing) getKubeInterfaces() (k kube.Interfaces, err error) {
 
 func (p *Processing) createSourceAndStatusUpdater(schemas collection.Schemas) (
 	src event.Source, updater snapshotter.StatusUpdater, err error) {
-
 	var k kube.Interfaces
 	if k, err = p.getKubeInterfaces(); err != nil {
 		return
@@ -165,12 +164,4 @@ func (p *Processing) Stop() {
 		p.runtime.Stop()
 		p.runtime = nil
 	}
-
-	if p.reporter != nil {
-		_ = p.reporter.Close()
-		p.reporter = nil
-	}
-
-	// final attempt to purge buffered logs
-	_ = log.Sync()
 }

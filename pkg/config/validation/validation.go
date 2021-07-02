@@ -15,6 +15,7 @@
 package validation
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -25,10 +26,18 @@ import (
 	"strings"
 	"time"
 
+	udpaa "github.com/cncf/xds/go/udpa/annotations"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/gogo/protobuf/types"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/any"
 	"github.com/hashicorp/go-multierror"
+	"github.com/lestrrat-go/jwx/jwt"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
 
+	"istio.io/api/annotation"
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
 	security_beta "istio.io/api/security/v1beta1"
@@ -43,6 +52,7 @@ import (
 	"istio.io/istio/pkg/config/security"
 	"istio.io/istio/pkg/config/visibility"
 	"istio.io/istio/pkg/config/xds"
+	"istio.io/istio/pkg/kube/apimirror"
 	"istio.io/pkg/log"
 )
 
@@ -71,6 +81,8 @@ var (
 		"retriable-4xx":          true,
 		"refused-stream":         true,
 		"retriable-status-codes": true,
+		"retriable-headers":      true,
+		"envoy-ratelimited":      true,
 
 		// 'x-envoy-retry-grpc-on' supported policies:
 		// https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#x-envoy-retry-grpc-on
@@ -113,6 +125,12 @@ type Validation struct {
 	Warning Warning
 }
 
+type AnalysisAwareError struct {
+	Type       string
+	Msg        string
+	Parameters []interface{}
+}
+
 var _ error = Validation{}
 
 // WrapError turns an error into a Validation
@@ -150,8 +168,41 @@ func GetValidateFunc(name string) ValidateFunc {
 }
 
 func registerValidateFunc(name string, f ValidateFunc) ValidateFunc {
-	validateFuncs[name] = f
-	return f
+	// Wrap the original validate function with an extra validate function for the annotation "istio.io/dry-run".
+	validate := validateAnnotationDryRun(f)
+	validateFuncs[name] = validate
+	return validate
+}
+
+func validateAnnotationDryRun(f ValidateFunc) ValidateFunc {
+	return func(config config.Config) (Warning, error) {
+		_, isAuthz := config.Spec.(*security_beta.AuthorizationPolicy)
+		// Only the AuthorizationPolicy supports the annotation "istio.io/dry-run".
+		if err := checkDryRunAnnotation(config, isAuthz); err != nil {
+			return nil, err
+		}
+		return f(config)
+	}
+}
+
+func checkDryRunAnnotation(cfg config.Config, allowed bool) error {
+	if val, found := cfg.Annotations[annotation.IoIstioDryRun.Name]; found {
+		if !allowed {
+			return fmt.Errorf("%s/%s has unsupported annotation %s, please remove the annotation", cfg.Namespace, cfg.Name, annotation.IoIstioDryRun.Name)
+		}
+		if spec, ok := cfg.Spec.(*security_beta.AuthorizationPolicy); ok {
+			switch spec.Action {
+			case security_beta.AuthorizationPolicy_ALLOW, security_beta.AuthorizationPolicy_DENY:
+				if _, err := strconv.ParseBool(val); err != nil {
+					return fmt.Errorf("%s/%s has annotation %s with invalid value (%s): %v", cfg.Namespace, cfg.Name, annotation.IoIstioDryRun.Name, val, err)
+				}
+			default:
+				return fmt.Errorf("the annotation %s currently only supports action ALLOW/DENY, found action %v in %s/%s",
+					annotation.IoIstioDryRun.Name, spec.Action, cfg.Namespace, cfg.Name)
+			}
+		}
+	}
+	return nil
 }
 
 // ValidatePort checks that the network port is in range
@@ -240,6 +291,45 @@ func ValidateHTTPHeaderName(name string) error {
 	return nil
 }
 
+// ValidateHTTPHeaderWithAuthorityOperationName validates a header name when used to add/set in request.
+func ValidateHTTPHeaderWithAuthorityOperationName(name string) error {
+	if name == "" {
+		return fmt.Errorf("header name cannot be empty")
+	}
+	// Authority header is validated later
+	if isInternalHeader(name) && !isAuthorityHeader(name) {
+		return fmt.Errorf(`invalid header %q: header cannot have ":" prefix`, name)
+	}
+	return nil
+}
+
+// ValidateHTTPHeaderWithHostOperationName validates a header name when used to destination specific add/set in request.
+// TODO(https://github.com/envoyproxy/envoy/issues/16775) merge with ValidateHTTPHeaderWithAuthorityOperationName
+func ValidateHTTPHeaderWithHostOperationName(name string) error {
+	if name == "" {
+		return fmt.Errorf("header name cannot be empty")
+	}
+	// Authority header is validated later
+	if isInternalHeader(name) && !strings.EqualFold(name, "host") {
+		return fmt.Errorf(`invalid header %q: header cannot have ":" prefix`, name)
+	}
+	return nil
+}
+
+// ValidateHTTPHeaderOperationName validates a header name when used to remove from request or modify response.
+func ValidateHTTPHeaderOperationName(name string) error {
+	if name == "" {
+		return fmt.Errorf("header name cannot be empty")
+	}
+	if strings.EqualFold(name, "host") {
+		return fmt.Errorf(`invalid header %q: cannot set Host header`, name)
+	}
+	if isInternalHeader(name) {
+		return fmt.Errorf(`invalid header %q: header cannot have ":" prefix`, name)
+	}
+	return nil
+}
+
 // ValidateHTTPHeaderValue validates a header value for Envoy
 // Valid: "foo", "%HOSTNAME%", "100%%", "prefix %HOSTNAME% suffix"
 // Invalid: "abc%123"
@@ -319,23 +409,24 @@ func ValidateUnixAddress(addr string) error {
 
 // ValidateGateway checks gateway specifications
 var ValidateGateway = registerValidateFunc("ValidateGateway",
-	func(cfg config.Config) (warnings Warning, errs error) {
+	func(cfg config.Config) (Warning, error) {
 		name := cfg.Name
+		v := Validation{}
 		// Gateway name must conform to the DNS label format (no dots)
 		if !labels.IsDNS1123Label(name) {
-			errs = appendErrors(errs, fmt.Errorf("invalid gateway name: %q", name))
+			v = appendValidation(v, fmt.Errorf("invalid gateway name: %q", name))
 		}
 		value, ok := cfg.Spec.(*networking.Gateway)
 		if !ok {
-			errs = appendErrors(errs, fmt.Errorf("cannot cast to gateway: %#v", cfg.Spec))
-			return
+			v = appendValidation(v, fmt.Errorf("cannot cast to gateway: %#v", cfg.Spec))
+			return v.Unwrap()
 		}
 
 		if len(value.Servers) == 0 {
-			errs = appendErrors(errs, fmt.Errorf("gateway must have at least one server"))
+			v = appendValidation(v, fmt.Errorf("gateway must have at least one server"))
 		} else {
 			for _, server := range value.Servers {
-				errs = appendErrors(errs, validateServer(server))
+				v = appendValidation(v, validateServer(server))
 			}
 		}
 
@@ -344,18 +435,21 @@ var ValidateGateway = registerValidateFunc("ValidateGateway",
 
 		for _, s := range value.Servers {
 			if s == nil {
-				errs = appendErrors(errs, fmt.Errorf("server may not be nil"))
+				v = appendValidation(v, fmt.Errorf("server may not be nil"))
 				continue
 			}
 			if s.Port != nil {
 				if portNames[s.Port.Name] {
-					errs = appendErrors(errs, fmt.Errorf("port names in servers must be unique: duplicate name %s", s.Port.Name))
+					v = appendValidation(v, fmt.Errorf("port names in servers must be unique: duplicate name %s", s.Port.Name))
 				}
 				portNames[s.Port.Name] = true
+				if !protocol.Parse(s.Port.Protocol).IsHTTP() && s.GetTls().GetHttpsRedirect() {
+					v = appendValidation(v, WrapWarning(fmt.Errorf("tls.httpsRedirect should only be used with http servers")))
+				}
 			}
 		}
 
-		return nil, errs
+		return v.Unwrap()
 	})
 
 func validateServer(server *networking.Server) (errs error) {
@@ -373,6 +467,7 @@ func validateServer(server *networking.Server) (errs error) {
 	if portErr != nil {
 		errs = appendErrors(errs, portErr)
 	}
+	errs = appendErrors(errs, validateServerBind(server.Port, server.Bind))
 	errs = appendErrors(errs, validateTLSOptions(server.Tls))
 
 	// If port is HTTPS or TLS, make sure that server has TLS options
@@ -408,6 +503,18 @@ func validateServerPort(port *networking.Port) (errs error) {
 
 	if port.Name == "" {
 		errs = appendErrors(errs, fmt.Errorf("port name must be set: %v", port))
+	}
+	return
+}
+
+func validateServerBind(port *networking.Port, bind string) (errs error) {
+	if strings.HasPrefix(bind, UnixAddressPrefix) {
+		errs = appendErrors(errs, ValidateUnixAddress(strings.TrimPrefix(bind, UnixAddressPrefix)))
+		if port != nil && port.Number != 0 {
+			errs = appendErrors(errs, fmt.Errorf("port number must be 0 for unix domain socket: %v", port))
+		}
+	} else if len(bind) != 0 {
+		errs = appendErrors(errs, ValidateIPAddress(bind))
 	}
 	return
 }
@@ -469,9 +576,28 @@ var ValidateDestinationRule = registerValidateFunc("ValidateDestinationRule",
 		}
 
 		v := Validation{}
-		v = appendValidation(v,
-			ValidateWildcardDomain(rule.Host),
-			validateTrafficPolicy(rule.TrafficPolicy))
+		if features.EnableDestinationRuleInheritance {
+			if rule.Host == "" {
+				if len(rule.Subsets) != 0 {
+					v = appendValidation(v,
+						fmt.Errorf("mesh/namespace destination rule cannot have subsets"))
+				}
+				if len(rule.ExportTo) != 0 {
+					v = appendValidation(v,
+						fmt.Errorf("mesh/namespace destination rule cannot have exportTo configured"))
+				}
+				if rule.TrafficPolicy != nil && len(rule.TrafficPolicy.PortLevelSettings) != 0 {
+					v = appendValidation(v,
+						fmt.Errorf("mesh/namespace destination rule cannot have portLevelSettings configured"))
+				}
+			} else {
+				v = appendValidation(v, ValidateWildcardDomain(rule.Host))
+			}
+		} else {
+			v = appendValidation(v, ValidateWildcardDomain(rule.Host))
+		}
+
+		v = appendValidation(v, validateTrafficPolicy(rule.TrafficPolicy))
 
 		for _, subset := range rule.Subsets {
 			if subset == nil {
@@ -612,6 +738,11 @@ var ValidateEnvoyFilter = registerValidateFunc("ValidateEnvoyFilter",
 					listenerMatch := cp.Match.GetListener()
 					if listenerMatch.FilterChain != nil {
 						if listenerMatch.FilterChain.Filter != nil {
+							if cp.ApplyTo == networking.EnvoyFilter_LISTENER || cp.ApplyTo == networking.EnvoyFilter_FILTER_CHAIN {
+								// This would be an error but is a warning for backwards compatibility
+								errs = appendValidation(errs, WrapWarning(
+									fmt.Errorf("Envoy filter: filter match has no effect when used with %v", cp.ApplyTo))) // nolint: golint,stylecheck
+							}
 							// filter names are required if network filter matches are being made
 							if listenerMatch.FilterChain.Filter.Name == "" {
 								errs = appendValidation(errs, fmt.Errorf("Envoy filter: filter match has no name to match on")) // nolint: golint,stylecheck
@@ -634,6 +765,9 @@ var ValidateEnvoyFilter = registerValidateFunc("ValidateEnvoyFilter",
 									continue
 								}
 							}
+
+							errs = appendValidation(errs, validateListenerMatchName(listenerMatch.FilterChain.Filter.GetName()))
+							errs = appendValidation(errs, validateListenerMatchName(listenerMatch.FilterChain.Filter.GetSubFilter().GetName()))
 						}
 					}
 				}
@@ -658,14 +792,81 @@ var ValidateEnvoyFilter = registerValidateFunc("ValidateEnvoyFilter",
 			} else {
 				// Run with strict validation, and emit warnings. This helps capture cases like unknown fields
 				// We do not want to reject in case the proto is valid but our libraries are outdated
-				if _, err := xds.BuildXDSObjectFromStruct(cp.ApplyTo, cp.Patch.Value, true); err != nil {
+				obj, err := xds.BuildXDSObjectFromStruct(cp.ApplyTo, cp.Patch.Value, true)
+				if err != nil {
 					errs = appendValidation(errs, WrapWarning(err))
 				}
+
+				// Append any deprecation notices
+				errs = appendValidation(errs, validateDeprecatedFilterTypes(obj))
 			}
 		}
 
 		return errs.Unwrap()
 	})
+
+func validateListenerMatchName(name string) error {
+	if newName, f := xds.ReverseDeprecatedFilterNames[name]; f {
+		return WrapWarning(fmt.Errorf("using deprecated filter name %q; use %q instead", name, newName))
+	}
+	return nil
+}
+
+func recurseDeprecatedTypes(message protoreflect.Message) ([]string, error) {
+	var topError error
+	var deprecatedTypes []string
+	if message == nil {
+		return nil, nil
+	}
+	message.Range(func(descriptor protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+		m, isMessage := value.Interface().(protoreflect.Message)
+		if isMessage {
+			anyMessage, isAny := m.Interface().(*any.Any)
+			if isAny {
+				mt, err := protoregistry.GlobalTypes.FindMessageByURL(anyMessage.TypeUrl)
+				if err != nil {
+					topError = err
+					return false
+				}
+				var fileOpts proto.Message = mt.Descriptor().ParentFile().Options().(*descriptorpb.FileOptions)
+				if proto.HasExtension(fileOpts, udpaa.E_FileStatus) {
+					ext, err := proto.GetExtension(fileOpts, udpaa.E_FileStatus)
+					if err != nil {
+						topError = err
+						return false
+					}
+					udpaext, ok := ext.(*udpaa.StatusAnnotation)
+					if !ok {
+						topError = fmt.Errorf("extension was of wrong type: %T", ext)
+						return false
+					}
+					if udpaext.PackageVersionStatus == udpaa.PackageVersionStatus_FROZEN {
+						deprecatedTypes = append(deprecatedTypes, anyMessage.TypeUrl)
+					}
+				}
+			}
+			newTypes, err := recurseDeprecatedTypes(m)
+			if err != nil {
+				topError = err
+				return false
+			}
+			deprecatedTypes = append(deprecatedTypes, newTypes...)
+		}
+		return true
+	})
+	return deprecatedTypes, topError
+}
+
+func validateDeprecatedFilterTypes(obj proto.Message) error {
+	deprecated, err := recurseDeprecatedTypes(proto.MessageReflect(obj))
+	if err != nil {
+		return fmt.Errorf("failed to find deprecated types: %v", err)
+	}
+	if len(deprecated) > 0 {
+		return WrapWarning(fmt.Errorf("using deprecated type_url(s); %v", strings.Join(deprecated, ", ")))
+	}
+	return nil
+}
 
 // validates that hostname in ns/<hostname> is a valid hostname according to
 // API specs
@@ -735,8 +936,8 @@ var ValidateSidecar = registerValidateFunc("ValidateSidecar",
 			return nil, err
 		}
 
-		if len(rule.Egress) == 0 {
-			return nil, fmt.Errorf("sidecar: missing egress")
+		if len(rule.Egress) == 0 && len(rule.Ingress) == 0 && rule.OutboundTrafficPolicy == nil {
+			return nil, fmt.Errorf("sidecar: empty configuration provided")
 		}
 
 		portMap := make(map[uint32]struct{})
@@ -758,19 +959,17 @@ var ValidateSidecar = registerValidateFunc("ValidateSidecar",
 			}
 			portMap[i.Port.Number] = struct{}{}
 
-			if len(i.DefaultEndpoint) == 0 {
-				errs = appendErrors(errs, fmt.Errorf("sidecar: default endpoint must be set for all ingress listeners"))
-			} else {
+			if len(i.DefaultEndpoint) != 0 {
 				if strings.HasPrefix(i.DefaultEndpoint, UnixAddressPrefix) {
 					errs = appendErrors(errs, ValidateUnixAddress(strings.TrimPrefix(i.DefaultEndpoint, UnixAddressPrefix)))
 				} else {
 					// format should be 127.0.0.1:port or :port
 					parts := strings.Split(i.DefaultEndpoint, ":")
 					if len(parts) < 2 {
-						errs = appendErrors(errs, fmt.Errorf("sidecar: defaultEndpoint must be of form 127.0.0.1:<port>"))
+						errs = appendErrors(errs, fmt.Errorf("sidecar: defaultEndpoint must be of form 127.0.0.1:<port> or 0.0.0.0:<port>"))
 					} else {
-						if len(parts[0]) > 0 && parts[0] != "127.0.0.1" {
-							errs = appendErrors(errs, fmt.Errorf("sidecar: defaultEndpoint must be of form 127.0.0.1:<port>"))
+						if len(parts[0]) > 0 && parts[0] != "127.0.0.1" && parts[0] != "0.0.0.0" {
+							errs = appendErrors(errs, fmt.Errorf("sidecar: defaultEndpoint must be of form 127.0.0.1:<port> or 0.0.0.0:<port>"))
 						}
 
 						port, err := strconv.Atoi(parts[1])
@@ -863,7 +1062,6 @@ func validateSidecarOutboundTrafficPolicy(tp *networking.OutboundTrafficPolicy) 
 
 func validateSidecarEgressPortBindAndCaptureMode(port *networking.Port, bind string,
 	captureMode networking.CaptureMode) (errs error) {
-
 	// Port name is optional. Validate if exists.
 	if len(port.Name) > 0 {
 		errs = appendErrors(errs, ValidatePortName(port.Name))
@@ -898,7 +1096,6 @@ func validateSidecarEgressPortBindAndCaptureMode(port *networking.Port, bind str
 }
 
 func validateSidecarIngressPortAndBind(port *networking.Port, bind string) (errs error) {
-
 	// Port name is optional. Validate if exists.
 	if len(port.Name) > 0 {
 		errs = appendErrors(errs, ValidatePortName(port.Name))
@@ -1066,7 +1263,6 @@ func validatePortTrafficPolicies(pls []*networking.TrafficPolicy_PortTrafficPoli
 			t.LoadBalancer == nil && t.Tls == nil {
 			errs = appendErrors(errs, fmt.Errorf("port traffic policy must have at least one field"))
 		} else {
-
 			errs = appendErrors(errs, validateOutlierDetection(t.OutlierDetection),
 				validateConnectionPool(t.ConnectionPool),
 				validateLoadBalancer(t.LoadBalancer),
@@ -1198,7 +1394,7 @@ func ValidateLightstepCollector(ls *meshconfig.Tracing_Lightstep) error {
 
 // ValidateZipkinCollector validates the configuration for sending envoy spans to Zipkin
 func ValidateZipkinCollector(z *meshconfig.Tracing_Zipkin) error {
-	return ValidateProxyAddress(z.GetAddress())
+	return ValidateProxyAddress(strings.Replace(z.GetAddress(), "$(HOST_IP)", "127.0.0.1", 1))
 }
 
 // ValidateDatadogCollector validates the configuration for sending envoy spans to Datadog
@@ -1281,6 +1477,10 @@ func ValidateMeshConfig(mesh *meshconfig.MeshConfig) (errs error) {
 
 	if err := validateTrustDomainConfig(mesh); err != nil {
 		errs = multierror.Append(errs, err)
+	}
+
+	if err := validateExtensionProvider(mesh); err != nil {
+		scope.Warnf("found invalid extension provider (can be ignored if the given extension provider is not used): %v", err)
 	}
 
 	return
@@ -1425,39 +1625,76 @@ var ValidateAuthorizationPolicy = registerValidateFunc("ValidateAuthorizationPol
 		if !ok {
 			return nil, fmt.Errorf("cannot cast to AuthorizationPolicy")
 		}
-		name := cfg.Name
-		namespace := cfg.Namespace
 
+		var errs error
 		if err := validateWorkloadSelector(in.Selector); err != nil {
-			return nil, err
+			errs = appendErrors(errs, err)
+		}
+
+		if in.Action == security_beta.AuthorizationPolicy_CUSTOM {
+			if in.Rules == nil {
+				errs = appendErrors(errs, fmt.Errorf("CUSTOM action without `rules` is meaningless as it will never be triggered, "+
+					"add an empty rule `{}` if you want it be triggered for every request"))
+			} else {
+				if in.GetProvider() == nil || in.GetProvider().GetName() == "" {
+					errs = appendErrors(errs, fmt.Errorf("`provider.name` must not be empty"))
+				}
+			}
+			// TODO(yangminzhu): Add support for more matching rules.
+			for _, rule := range in.GetRules() {
+				check := func(invalid bool, name string) error {
+					if invalid {
+						return fmt.Errorf("%s is currently not supported with CUSTOM action", name)
+					}
+					return nil
+				}
+				for _, from := range rule.GetFrom() {
+					if src := from.GetSource(); src != nil {
+						errs = appendErrors(errs, check(len(src.Namespaces) != 0, "From.Namespaces"))
+						errs = appendErrors(errs, check(len(src.NotNamespaces) != 0, "From.NotNamespaces"))
+						errs = appendErrors(errs, check(len(src.Principals) != 0, "From.Principals"))
+						errs = appendErrors(errs, check(len(src.NotPrincipals) != 0, "From.NotPrincipals"))
+						errs = appendErrors(errs, check(len(src.RequestPrincipals) != 0, "From.RequestPrincipals"))
+						errs = appendErrors(errs, check(len(src.NotRequestPrincipals) != 0, "From.NotRequestPrincipals"))
+					}
+				}
+				for _, when := range rule.GetWhen() {
+					errs = appendErrors(errs, check(when.Key == "source.namespace", when.Key))
+					errs = appendErrors(errs, check(when.Key == "source.principal", when.Key))
+					errs = appendErrors(errs, check(strings.HasPrefix(when.Key, "request.auth."), when.Key))
+				}
+			}
+		}
+		if in.GetProvider() != nil && in.Action != security_beta.AuthorizationPolicy_CUSTOM {
+			errs = appendErrors(errs, fmt.Errorf("`provider` must not be with non CUSTOM action, found %s", in.Action))
 		}
 
 		if in.Action == security_beta.AuthorizationPolicy_DENY && in.Rules == nil {
-			return nil, fmt.Errorf("a deny policy without `rules` is meaningless and has no effect, found in %s.%s", name, namespace)
+			errs = appendErrors(errs, fmt.Errorf("DENY action without `rules` is meaningless as it will never be triggered, "+
+				"add an empty rule `{}` if you want it be triggered for every request"))
 		}
 
-		var errs error
 		for i, rule := range in.GetRules() {
 			if rule == nil {
-				errs = appendErrors(errs, fmt.Errorf("`rule` must not be null, found at rule %d in %s.%s", i, name, namespace))
+				errs = appendErrors(errs, fmt.Errorf("`rule` must not be nil, found at rule %d", i))
 				continue
 			}
 			if rule.From != nil && len(rule.From) == 0 {
-				errs = appendErrors(errs, fmt.Errorf("`from` must not be empty, found at rule %d in %s.%s", i, name, namespace))
+				errs = appendErrors(errs, fmt.Errorf("`from` must not be empty, found at rule %d", i))
 			}
 			for _, from := range rule.From {
 				if from == nil {
-					errs = appendErrors(errs, fmt.Errorf("`from` must not be null, found at rule %d in %s.%s", i, name, namespace))
+					errs = appendErrors(errs, fmt.Errorf("`from` must not be nil, found at rule %d", i))
 					continue
 				}
 				if from.Source == nil {
-					errs = appendErrors(errs, fmt.Errorf("`from.source` must not be nil, found at rule %d in %s.%s", i, name, namespace))
+					errs = appendErrors(errs, fmt.Errorf("`from.source` must not be nil, found at rule %d", i))
 				} else {
 					src := from.Source
 					if len(src.Principals) == 0 && len(src.RequestPrincipals) == 0 && len(src.Namespaces) == 0 && len(src.IpBlocks) == 0 &&
 						len(src.RemoteIpBlocks) == 0 && len(src.NotPrincipals) == 0 && len(src.NotRequestPrincipals) == 0 && len(src.NotNamespaces) == 0 &&
 						len(src.NotIpBlocks) == 0 && len(src.NotRemoteIpBlocks) == 0 {
-						errs = appendErrors(errs, fmt.Errorf("`from.source` must not be empty, found at rule %d in %s.%s", i, name, namespace))
+						errs = appendErrors(errs, fmt.Errorf("`from.source` must not be empty, found at rule %d", i))
 					}
 					errs = appendErrors(errs, security.ValidateIPs(from.Source.GetIpBlocks()))
 					errs = appendErrors(errs, security.ValidateIPs(from.Source.GetNotIpBlocks()))
@@ -1476,20 +1713,20 @@ var ValidateAuthorizationPolicy = registerValidateFunc("ValidateAuthorizationPol
 				}
 			}
 			if rule.To != nil && len(rule.To) == 0 {
-				errs = appendErrors(errs, fmt.Errorf("`to` must not be empty, found at rule %d in %s.%s", i, name, namespace))
+				errs = appendErrors(errs, fmt.Errorf("`to` must not be empty, found at rule %d", i))
 			}
 			for _, to := range rule.To {
 				if to == nil {
-					errs = appendErrors(errs, fmt.Errorf("`to` must not be nil, found at rule %d in %s.%s", i, name, namespace))
+					errs = appendErrors(errs, fmt.Errorf("`to` must not be nil, found at rule %d", i))
 					continue
 				}
 				if to.Operation == nil {
-					errs = appendErrors(errs, fmt.Errorf("`to.operation` must not be nil, found at rule %d in %s.%s", i, name, namespace))
+					errs = appendErrors(errs, fmt.Errorf("`to.operation` must not be nil, found at rule %d", i))
 				} else {
 					op := to.Operation
 					if len(op.Ports) == 0 && len(op.Methods) == 0 && len(op.Paths) == 0 && len(op.Hosts) == 0 &&
 						len(op.NotPorts) == 0 && len(op.NotMethods) == 0 && len(op.NotPaths) == 0 && len(op.NotHosts) == 0 {
-						errs = appendErrors(errs, fmt.Errorf("`to.operation` must not be empty, found at rule %d in %s.%s", i, name, namespace))
+						errs = appendErrors(errs, fmt.Errorf("`to.operation` must not be empty, found at rule %d", i))
 					}
 					errs = appendErrors(errs, security.ValidatePorts(to.Operation.GetPorts()))
 					errs = appendErrors(errs, security.ValidatePorts(to.Operation.GetNotPorts()))
@@ -1506,23 +1743,23 @@ var ValidateAuthorizationPolicy = registerValidateFunc("ValidateAuthorizationPol
 			for _, condition := range rule.GetWhen() {
 				key := condition.GetKey()
 				if key == "" {
-					errs = appendErrors(errs, fmt.Errorf("`key` must not be empty, found in %s.%s", name, namespace))
+					errs = appendErrors(errs, fmt.Errorf("`key` must not be empty"))
 				} else {
 					if len(condition.GetValues()) == 0 && len(condition.GetNotValues()) == 0 {
-						errs = appendErrors(errs, fmt.Errorf("at least one of `values` or `notValues` must be set for key %s, found in %s.%s",
-							key, name, namespace))
+						errs = appendErrors(errs, fmt.Errorf("at least one of `values` or `notValues` must be set for key %s",
+							key))
 					} else {
 						if err := security.ValidateAttribute(key, condition.GetValues()); err != nil {
-							errs = appendErrors(errs, fmt.Errorf("invalid `value` for `key` %s: %v, found in %s.%s", key, err, name, namespace))
+							errs = appendErrors(errs, fmt.Errorf("invalid `value` for `key` %s: %v", key, err))
 						}
 						if err := security.ValidateAttribute(key, condition.GetNotValues()); err != nil {
-							errs = appendErrors(errs, fmt.Errorf("invalid `notValue` for `key` %s: %v, found in %s.%s", key, err, name, namespace))
+							errs = appendErrors(errs, fmt.Errorf("invalid `notValue` for `key` %s: %v", key, err))
 						}
 					}
 				}
 			}
 		}
-		return nil, errs
+		return nil, multierror.Prefix(errs, fmt.Sprintf("invalid policy %s.%s:", cfg.Name, cfg.Namespace))
 	})
 
 // ValidateRequestAuthentication checks that request authentication spec is well-formed.
@@ -1558,6 +1795,13 @@ func validateJwtRule(rule *security_beta.JWTRule) (errs error) {
 	if len(rule.JwksUri) != 0 {
 		if _, err := security.ParseJwksURI(rule.JwksUri); err != nil {
 			errs = multierror.Append(errs, err)
+		}
+	}
+
+	if rule.Jwks != "" {
+		_, err := jwt.Parse([]byte(rule.Jwks))
+		if err != nil {
+			errs = multierror.Append(errs, errors.New("jwks parse error"))
 		}
 	}
 
@@ -1702,8 +1946,171 @@ var ValidateVirtualService = registerValidateFunc("ValidateVirtualService",
 		}
 
 		errs = appendValidation(errs, validateExportTo(cfg.Namespace, virtualService.ExportTo, false))
+
+		warnUnused := func(ruleno, reason string) {
+			errs = appendValidation(errs, WrapWarning(&AnalysisAwareError{
+				Type:       "VirtualServiceUnreachableRule",
+				Msg:        fmt.Sprintf("virtualService rule %v not used (%s)", ruleno, reason),
+				Parameters: []interface{}{ruleno, reason},
+			}))
+		}
+		warnIneffective := func(ruleno, matchno, dupno string) {
+			errs = appendValidation(errs, WrapWarning(&AnalysisAwareError{
+				Type:       "VirtualServiceIneffectiveMatch",
+				Msg:        fmt.Sprintf("virtualService rule %v match %v is not used (duplicates a match in rule %v)", ruleno, matchno, dupno),
+				Parameters: []interface{}{ruleno, matchno, dupno},
+			}))
+		}
+
+		analyzeUnreachableHTTPRules(virtualService.Http, warnUnused, warnIneffective)
+		analyzeUnreachableTCPRules(virtualService.Tcp, warnUnused, warnIneffective)
+		analyzeUnreachableTLSRules(virtualService.Tls, warnUnused, warnIneffective)
+
 		return errs.Unwrap()
 	})
+
+func analyzeUnreachableHTTPRules(routes []*networking.HTTPRoute,
+	reportUnreachable func(ruleno, reason string), reportIneffective func(ruleno, matchno, dupno string)) {
+	matchesEncountered := make(map[string]int)
+	emptyMatchEncountered := -1
+	for rulen, route := range routes {
+		if route == nil {
+			continue
+		}
+		if len(route.Match) == 0 {
+			if emptyMatchEncountered >= 0 {
+				reportUnreachable(routeName(route, rulen), "only the last rule can have no matches")
+			}
+			emptyMatchEncountered = rulen
+			continue
+		}
+
+		duplicateMatches := 0
+		for matchn, match := range route.Match {
+			dupn, ok := matchesEncountered[asJSON(match)]
+			if ok {
+				reportIneffective(routeName(route, rulen), requestName(match, matchn), routeName(routes[dupn], dupn))
+				duplicateMatches++
+			} else {
+				matchesEncountered[asJSON(match)] = rulen
+			}
+		}
+		if duplicateMatches == len(route.Match) {
+			reportUnreachable(routeName(route, rulen), "all matches used by prior rules")
+		}
+	}
+}
+
+// NOTE: This method identical to analyzeUnreachableHTTPRules.
+func analyzeUnreachableTCPRules(routes []*networking.TCPRoute,
+	reportUnreachable func(ruleno, reason string), reportIneffective func(ruleno, matchno, dupno string)) {
+	matchesEncountered := make(map[string]int)
+	emptyMatchEncountered := -1
+	for rulen, route := range routes {
+		if route == nil {
+			continue
+		}
+		if len(route.Match) == 0 {
+			if emptyMatchEncountered >= 0 {
+				reportUnreachable(routeName(route, rulen), "only the last rule can have no matches")
+			}
+			emptyMatchEncountered = rulen
+			continue
+		}
+
+		duplicateMatches := 0
+		for matchn, match := range route.Match {
+			dupn, ok := matchesEncountered[asJSON(match)]
+			if ok {
+				reportIneffective(routeName(route, rulen), requestName(match, matchn), routeName(routes[dupn], dupn))
+				duplicateMatches++
+			} else {
+				matchesEncountered[asJSON(match)] = rulen
+			}
+		}
+		if duplicateMatches == len(route.Match) {
+			reportUnreachable(routeName(route, rulen), "all matches used by prior rules")
+		}
+	}
+}
+
+// NOTE: This method identical to analyzeUnreachableHTTPRules.
+func analyzeUnreachableTLSRules(routes []*networking.TLSRoute,
+	reportUnreachable func(ruleno, reason string), reportIneffective func(ruleno, matchno, dupno string)) {
+	matchesEncountered := make(map[string]int)
+	emptyMatchEncountered := -1
+	for rulen, route := range routes {
+		if route == nil {
+			continue
+		}
+		if len(route.Match) == 0 {
+			if emptyMatchEncountered >= 0 {
+				reportUnreachable(routeName(route, rulen), "only the last rule can have no matches")
+			}
+			emptyMatchEncountered = rulen
+			continue
+		}
+
+		duplicateMatches := 0
+		for matchn, match := range route.Match {
+			dupn, ok := matchesEncountered[asJSON(match)]
+			if ok {
+				reportIneffective(routeName(route, rulen), requestName(match, matchn), routeName(routes[dupn], dupn))
+				duplicateMatches++
+			} else {
+				matchesEncountered[asJSON(match)] = rulen
+			}
+		}
+		if duplicateMatches == len(route.Match) {
+			reportUnreachable(routeName(route, rulen), "all matches used by prior rules")
+		}
+	}
+}
+
+// asJSON() creates a JSON serialization of a match, to use for match comparison.  We don't use the JSON itself.
+func asJSON(data interface{}) string {
+	// Remove the name, so we can create a serialization that only includes traffic routing config
+	switch mr := data.(type) {
+	case *networking.HTTPMatchRequest:
+		if mr != nil && mr.Name != "" {
+			unnamed := *mr
+			unnamed.Name = ""
+			data = &unnamed
+		}
+	}
+
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err.Error()
+	}
+	return string(b)
+}
+
+func routeName(route interface{}, routen int) string {
+	switch r := route.(type) {
+	case *networking.HTTPRoute:
+		if r.Name != "" {
+			return fmt.Sprintf("%q", r.Name)
+		}
+
+		// TCP and TLS routes have no names
+	}
+
+	return fmt.Sprintf("#%d", routen)
+}
+
+func requestName(match interface{}, matchn int) string {
+	switch mr := match.(type) {
+	case *networking.HTTPMatchRequest:
+		if mr.Name != "" {
+			return fmt.Sprintf("%q", mr.Name)
+		}
+
+		// TCP and TLS matches have no names
+	}
+
+	return fmt.Sprintf("#%d", matchn)
+}
 
 func validateTLSRoute(tls *networking.TLSRoute, context *networking.VirtualService) error {
 	var errs error
@@ -1856,26 +2263,26 @@ func validateHTTPRouteDestinations(weights []*networking.HTTPRouteDestination) (
 
 		// header manipulations
 		for name, val := range weight.Headers.GetRequest().GetAdd() {
-			errs = appendErrors(errs, ValidateHTTPHeaderName(name))
+			errs = appendErrors(errs, ValidateHTTPHeaderWithHostOperationName(name))
 			errs = appendErrors(errs, ValidateHTTPHeaderValue(val))
 		}
 		for name, val := range weight.Headers.GetRequest().GetSet() {
-			errs = appendErrors(errs, ValidateHTTPHeaderName(name))
+			errs = appendErrors(errs, ValidateHTTPHeaderWithHostOperationName(name))
 			errs = appendErrors(errs, ValidateHTTPHeaderValue(val))
 		}
 		for _, name := range weight.Headers.GetRequest().GetRemove() {
-			errs = appendErrors(errs, ValidateHTTPHeaderName(name))
+			errs = appendErrors(errs, ValidateHTTPHeaderOperationName(name))
 		}
 		for name, val := range weight.Headers.GetResponse().GetAdd() {
-			errs = appendErrors(errs, ValidateHTTPHeaderName(name))
+			errs = appendErrors(errs, ValidateHTTPHeaderOperationName(name))
 			errs = appendErrors(errs, ValidateHTTPHeaderValue(val))
 		}
 		for name, val := range weight.Headers.GetResponse().GetSet() {
-			errs = appendErrors(errs, ValidateHTTPHeaderName(name))
+			errs = appendErrors(errs, ValidateHTTPHeaderOperationName(name))
 			errs = appendErrors(errs, ValidateHTTPHeaderValue(val))
 		}
 		for _, name := range weight.Headers.GetResponse().GetRemove() {
-			errs = appendErrors(errs, ValidateHTTPHeaderName(name))
+			errs = appendErrors(errs, ValidateHTTPHeaderOperationName(name))
 		}
 
 		errs = appendErrors(errs, validateDestination(weight.Destination))
@@ -2118,22 +2525,135 @@ func validateHTTPRewrite(rewrite *networking.HTTPRewrite) error {
 
 // ValidateWorkloadEntry validates a workload entry.
 var ValidateWorkloadEntry = registerValidateFunc("ValidateWorkloadEntry",
-	func(cfg config.Config) (warnings Warning, errs error) {
+	func(cfg config.Config) (Warning, error) {
 		we, ok := cfg.Spec.(*networking.WorkloadEntry)
 		if !ok {
 			return nil, fmt.Errorf("cannot cast to workload entry")
 		}
-		if we.Address == "" {
-			return nil, fmt.Errorf("address must be set")
-		}
-		// TODO: add better validation. The tricky thing is that we don't know if its meant to be
-		// DNS or STATIC type without association with a ServiceEntry
-		return nil, nil
+		return validateWorkloadEntry(we)
 	})
+
+func validateWorkloadEntry(we *networking.WorkloadEntry) (Warning, error) {
+	errs := Validation{}
+	if we.Address == "" {
+		return nil, fmt.Errorf("address must be set")
+	}
+	// Since we don't know if its meant to be DNS or STATIC type without association with a ServiceEntry,
+	// check based on content and try validations.
+	addr := we.Address
+	// First check if it is a Unix endpoint - this will be specified for STATIC.
+	if strings.HasPrefix(we.Address, UnixAddressPrefix) {
+		errs = appendValidation(errs, ValidateUnixAddress(strings.TrimPrefix(addr, UnixAddressPrefix)))
+		if len(we.Ports) != 0 {
+			errs = appendValidation(errs, fmt.Errorf("unix endpoint %s must not include ports", we.Address))
+		}
+	} else {
+		// This could be IP (in STATIC resolution) or DNS host name (for DNS).
+		ipAddr := net.ParseIP(we.Address)
+		if ipAddr == nil {
+			if err := ValidateFQDN(we.Address); err != nil { // Otherwise could be an FQDN
+				errs = appendValidation(errs,
+					fmt.Errorf("endpoint address %q is not a valid FQDN or an IP address", we.Address))
+			}
+		}
+	}
+
+	errs = appendValidation(errs,
+		labels.Instance(we.Labels).Validate())
+	for name, port := range we.Ports {
+		// TODO: Validate port is part of Service Port - which is tricky to validate with out service entry.
+		errs = appendValidation(errs,
+			ValidatePortName(name),
+			ValidatePort(int(port)))
+	}
+	return errs.Unwrap()
+}
+
+// ValidateWorkloadGroup validates a workload group.
+var ValidateWorkloadGroup = registerValidateFunc("ValidateWorkloadGroup",
+	func(cfg config.Config) (warnings Warning, errs error) {
+		wg, ok := cfg.Spec.(*networking.WorkloadGroup)
+		if !ok {
+			return nil, fmt.Errorf("cannot cast to workload entry")
+		}
+
+		if wg.Template == nil {
+			return nil, fmt.Errorf("template is required")
+		}
+		// Do not call validateWorkloadEntry. Some fields, such as address, are required in WorkloadEntry
+		// but not in the template since they are auto populated
+
+		if wg.Metadata != nil {
+			if err := labels.Instance(wg.Metadata.Labels).Validate(); err != nil {
+				return nil, fmt.Errorf("invalid labels: %v", err)
+			}
+		}
+
+		return nil, validateReadinessProbe(wg.Probe)
+	})
+
+func validateReadinessProbe(probe *networking.ReadinessProbe) (errs error) {
+	if probe == nil {
+		return nil
+	}
+	if probe.PeriodSeconds < 0 {
+		errs = appendErrors(errs, fmt.Errorf("periodSeconds must be non-negative"))
+	}
+	if probe.InitialDelaySeconds < 0 {
+		errs = appendErrors(errs, fmt.Errorf("initialDelaySeconds must be non-negative"))
+	}
+	if probe.TimeoutSeconds < 0 {
+		errs = appendErrors(errs, fmt.Errorf("timeoutSeconds must be non-negative"))
+	}
+	if probe.SuccessThreshold < 0 {
+		errs = appendErrors(errs, fmt.Errorf("successThreshold must be non-negative"))
+	}
+	if probe.FailureThreshold < 0 {
+		errs = appendErrors(errs, fmt.Errorf("failureThreshold must be non-negative"))
+	}
+	switch m := probe.HealthCheckMethod.(type) {
+	case *networking.ReadinessProbe_HttpGet:
+		h := m.HttpGet
+		if h == nil {
+			errs = appendErrors(errs, fmt.Errorf("httpGet may not be nil"))
+			break
+		}
+		errs = appendErrors(errs, ValidatePort(int(h.Port)))
+		if h.Scheme != "" && h.Scheme != string(apimirror.URISchemeHTTPS) && h.Scheme != string(apimirror.URISchemeHTTP) {
+			errs = appendErrors(errs, fmt.Errorf(`httpGet.scheme must be one of "http", "https"`))
+		}
+		for _, header := range h.HttpHeaders {
+			if header == nil {
+				errs = appendErrors(errs, fmt.Errorf("invalid nil header"))
+				continue
+			}
+			errs = appendErrors(errs, ValidateHTTPHeaderName(header.Name))
+		}
+	case *networking.ReadinessProbe_TcpSocket:
+		h := m.TcpSocket
+		if h == nil {
+			errs = appendErrors(errs, fmt.Errorf("tcpSocket may not be nil"))
+			break
+		}
+		errs = appendErrors(errs, ValidatePort(int(h.Port)))
+	case *networking.ReadinessProbe_Exec:
+		h := m.Exec
+		if h == nil {
+			errs = appendErrors(errs, fmt.Errorf("exec may not be nil"))
+			break
+		}
+		if len(h.Command) == 0 {
+			errs = appendErrors(errs, fmt.Errorf("exec.command is required"))
+		}
+	default:
+		errs = appendErrors(errs, fmt.Errorf("unknown health check method %T", m))
+	}
+	return errs
+}
 
 // ValidateServiceEntry validates a service entry.
 var ValidateServiceEntry = registerValidateFunc("ValidateServiceEntry",
-	func(cfg config.Config) (warnings Warning, errs error) {
+	func(cfg config.Config) (Warning, error) {
 		serviceEntry, ok := cfg.Spec.(*networking.ServiceEntry)
 		if !ok {
 			return nil, fmt.Errorf("cannot cast to service entry")
@@ -2143,31 +2663,33 @@ var ValidateServiceEntry = registerValidateFunc("ValidateServiceEntry",
 			return nil, err
 		}
 
+		errs := Validation{}
+
 		if serviceEntry.WorkloadSelector != nil && serviceEntry.Endpoints != nil {
-			errs = appendErrors(errs, fmt.Errorf("only one of WorkloadSelector or Endpoints is allowed in Service Entry"))
+			errs = appendValidation(errs, fmt.Errorf("only one of WorkloadSelector or Endpoints is allowed in Service Entry"))
 		}
 
 		if len(serviceEntry.Hosts) == 0 {
-			errs = appendErrors(errs, fmt.Errorf("service entry must have at least one host"))
+			errs = appendValidation(errs, fmt.Errorf("service entry must have at least one host"))
 		}
 		for _, hostname := range serviceEntry.Hosts {
 			// Full wildcard is not allowed in the service entry.
 			if hostname == "*" {
-				errs = appendErrors(errs, fmt.Errorf("invalid host %s", hostname))
+				errs = appendValidation(errs, fmt.Errorf("invalid host %s", hostname))
 			} else {
-				errs = appendErrors(errs, ValidateWildcardDomain(hostname))
+				errs = appendValidation(errs, ValidateWildcardDomain(hostname))
 			}
 		}
 
 		cidrFound := false
 		for _, address := range serviceEntry.Addresses {
 			cidrFound = cidrFound || strings.Contains(address, "/")
-			errs = appendErrors(errs, ValidateIPSubnet(address))
+			errs = appendValidation(errs, ValidateIPSubnet(address))
 		}
 
 		if cidrFound {
 			if serviceEntry.Resolution != networking.ServiceEntry_NONE && serviceEntry.Resolution != networking.ServiceEntry_STATIC {
-				errs = appendErrors(errs, fmt.Errorf("CIDR addresses are allowed only for NONE/STATIC resolution types"))
+				errs = appendValidation(errs, fmt.Errorf("CIDR addresses are allowed only for NONE/STATIC resolution types"))
 			}
 		}
 
@@ -2175,15 +2697,15 @@ var ValidateServiceEntry = registerValidateFunc("ValidateServiceEntry",
 		servicePorts := make(map[string]bool, len(serviceEntry.Ports))
 		for _, port := range serviceEntry.Ports {
 			if port == nil {
-				errs = appendErrors(errs, fmt.Errorf("service entry port may not be null"))
+				errs = appendValidation(errs, fmt.Errorf("service entry port may not be null"))
 				continue
 			}
 			if servicePorts[port.Name] {
-				errs = appendErrors(errs, fmt.Errorf("service entry port name %q already defined", port.Name))
+				errs = appendValidation(errs, fmt.Errorf("service entry port name %q already defined", port.Name))
 			}
 			servicePorts[port.Name] = true
 			if servicePortNumbers[port.Number] {
-				errs = appendErrors(errs, fmt.Errorf("service entry port %d already defined", port.Number))
+				errs = appendValidation(errs, fmt.Errorf("service entry port %d already defined", port.Number))
 			}
 			servicePortNumbers[port.Number] = true
 		}
@@ -2191,7 +2713,7 @@ var ValidateServiceEntry = registerValidateFunc("ValidateServiceEntry",
 		switch serviceEntry.Resolution {
 		case networking.ServiceEntry_NONE:
 			if len(serviceEntry.Endpoints) != 0 {
-				errs = appendErrors(errs, fmt.Errorf("no endpoints should be provided for resolution type none"))
+				errs = appendValidation(errs, fmt.Errorf("no endpoints should be provided for resolution type none"))
 			}
 		case networking.ServiceEntry_STATIC:
 			unixEndpoint := false
@@ -2199,30 +2721,30 @@ var ValidateServiceEntry = registerValidateFunc("ValidateServiceEntry",
 				addr := endpoint.GetAddress()
 				if strings.HasPrefix(addr, UnixAddressPrefix) {
 					unixEndpoint = true
-					errs = appendErrors(errs, ValidateUnixAddress(strings.TrimPrefix(addr, UnixAddressPrefix)))
+					errs = appendValidation(errs, ValidateUnixAddress(strings.TrimPrefix(addr, UnixAddressPrefix)))
 					if len(endpoint.Ports) != 0 {
-						errs = appendErrors(errs, fmt.Errorf("unix endpoint %s must not include ports", addr))
+						errs = appendValidation(errs, fmt.Errorf("unix endpoint %s must not include ports", addr))
 					}
 				} else {
-					errs = appendErrors(errs, ValidateIPAddress(addr))
+					errs = appendValidation(errs, ValidateIPAddress(addr))
 
 					for name, port := range endpoint.Ports {
 						if !servicePorts[name] {
-							errs = appendErrors(errs, fmt.Errorf("endpoint port %v is not defined by the service entry", port))
+							errs = appendValidation(errs, fmt.Errorf("endpoint port %v is not defined by the service entry", port))
 						}
 					}
 				}
-				errs = appendErrors(errs, labels.Instance(endpoint.Labels).Validate())
+				errs = appendValidation(errs, labels.Instance(endpoint.Labels).Validate())
 
 			}
 			if unixEndpoint && len(serviceEntry.Ports) != 1 {
-				errs = appendErrors(errs, errors.New("exactly 1 service port required for unix endpoints"))
+				errs = appendValidation(errs, errors.New("exactly 1 service port required for unix endpoints"))
 			}
 		case networking.ServiceEntry_DNS:
 			if len(serviceEntry.Endpoints) == 0 {
 				for _, hostname := range serviceEntry.Hosts {
 					if err := ValidateFQDN(hostname); err != nil {
-						errs = appendErrors(errs,
+						errs = appendValidation(errs,
 							fmt.Errorf("hosts must be FQDN if no endpoints are provided for resolution mode DNS"))
 					}
 				}
@@ -2232,23 +2754,38 @@ var ValidateServiceEntry = registerValidateFunc("ValidateServiceEntry",
 				ipAddr := net.ParseIP(endpoint.Address) // Typically it is an IP address
 				if ipAddr == nil {
 					if err := ValidateFQDN(endpoint.Address); err != nil { // Otherwise could be an FQDN
-						errs = appendErrors(errs,
+						errs = appendValidation(errs,
 							fmt.Errorf("endpoint address %q is not a valid FQDN or an IP address", endpoint.Address))
 					}
 				}
-				errs = appendErrors(errs,
+				errs = appendValidation(errs,
 					labels.Instance(endpoint.Labels).Validate())
 				for name, port := range endpoint.Ports {
 					if !servicePorts[name] {
-						errs = appendErrors(errs, fmt.Errorf("endpoint port %v is not defined by the service entry", port))
+						errs = appendValidation(errs, fmt.Errorf("endpoint port %v is not defined by the service entry", port))
 					}
-					errs = appendErrors(errs,
+					errs = appendValidation(errs,
 						ValidatePortName(name),
 						ValidatePort(int(port)))
 				}
 			}
+			if len(serviceEntry.Addresses) > 0 {
+				var hasTCPPort bool
+				for _, port := range serviceEntry.Ports {
+					p := protocol.Parse(port.Protocol)
+					if p.IsTCP() {
+						hasTCPPort = true
+						break
+					}
+				}
+				if hasTCPPort && len(serviceEntry.Hosts) > 1 {
+					// TODO: prevent this invalid setting, maybe in 1.11+
+					errs = appendValidation(errs, WrapWarning(fmt.Errorf("service entry can not have more than one host specified "+
+						"simultaneously with address and tcp port")))
+				}
+			}
 		default:
-			errs = appendErrors(errs, fmt.Errorf("unsupported resolution type %s",
+			errs = appendValidation(errs, fmt.Errorf("unsupported resolution type %s",
 				networking.ServiceEntry_Resolution_name[int32(serviceEntry.Resolution)]))
 		}
 
@@ -2270,23 +2807,23 @@ var ValidateServiceEntry = registerValidateFunc("ValidateServiceEntry",
 			}
 
 			if !canDifferentiate {
-				errs = appendErrors(errs, fmt.Errorf("multiple hosts provided with non-HTTP, non-TLS ports"))
+				errs = appendValidation(errs, fmt.Errorf("multiple hosts provided with non-HTTP, non-TLS ports"))
 			}
 		}
 
 		for _, port := range serviceEntry.Ports {
 			if port == nil {
-				errs = appendErrors(errs, errors.New("port may not be null"))
+				errs = appendValidation(errs, errors.New("port may not be null"))
 				continue
 			}
-			errs = appendErrors(errs,
+			errs = appendValidation(errs,
 				ValidatePortName(port.Name),
 				ValidateProtocol(port.Protocol),
 				ValidatePort(int(port.Number)))
 		}
 
-		errs = appendErrors(errs, validateExportTo(cfg.Namespace, serviceEntry.ExportTo, true))
-		return
+		errs = appendValidation(errs, validateExportTo(cfg.Namespace, serviceEntry.ExportTo, true))
+		return errs.Unwrap()
 	})
 
 // ValidatePortName validates a port name to DNS-1123
@@ -2363,7 +2900,7 @@ func validateLocalityLbSetting(lb *networking.LocalityLoadBalancerSetting) error
 		return fmt.Errorf("can not simultaneously specify 'distribute' and 'failover'")
 	}
 
-	srcLocalities := make([]string, 0)
+	srcLocalities := make([]string, 0, len(lb.GetDistribute()))
 	for _, locality := range lb.GetDistribute() {
 		srcLocalities = append(srcLocalities, locality.From)
 		var totalWeight uint32
@@ -2483,7 +3020,6 @@ func validateNetwork(network *meshconfig.Network) (errs error) {
 				errs = multierror.Append(errs, fmt.Errorf("invalid registry name: %v", e.FromRegistry))
 			}
 		}
-
 	}
 	for _, n := range network.Gateways {
 		switch g := n.Gw.(type) {
@@ -2501,4 +3037,8 @@ func validateNetwork(network *meshconfig.Network) (errs error) {
 		}
 	}
 	return
+}
+
+func (aae *AnalysisAwareError) Error() string {
+	return aae.Msg
 }

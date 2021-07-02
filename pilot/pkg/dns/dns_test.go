@@ -15,87 +15,33 @@
 package dns
 
 import (
+	"fmt"
 	"net"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/miekg/dns"
+	"go.uber.org/atomic"
 
 	nds "istio.io/istio/pilot/pkg/proto"
+	"istio.io/istio/pkg/test"
 )
 
-var (
-	testAgentDNSAddr = "127.0.0.1:15053"
-	testAgentDNS     *LocalDNSServer
-	initErr          error
-)
-
-func init() {
-	initErr = initDNS()
-}
-
-func initDNS() error {
-	var err error
-	testAgentDNS, err = NewLocalDNSServer("ns1", "ns1.svc.cluster.local")
-	if err != nil {
-		return err
-	}
-	testAgentDNS.StartDNS()
-	testAgentDNS.searchNamespaces = []string{"ns1.svc.cluster.local", "svc.cluster.local", "cluster.local"}
-	testAgentDNS.UpdateLookupTable(&nds.NameTable{
-		Table: map[string]*nds.NameTable_NameInfo{
-			"www.google.com": {
-				Ips:      []string{"1.1.1.1"},
-				Registry: "External",
-			},
-			"productpage.ns1.svc.cluster.local": {
-				Ips:       []string{"9.9.9.9"},
-				Registry:  "Kubernetes",
-				Namespace: "ns1",
-				Shortname: "productpage",
-			},
-			"reviews.ns2.svc.cluster.local": {
-				Ips:       []string{"10.10.10.10"},
-				Registry:  "Kubernetes",
-				Namespace: "ns2",
-				Shortname: "reviews",
-			},
-			"details.ns2.svc.cluster.remote": {
-				Ips:       []string{"11.11.11.11", "12.12.12.12"},
-				Registry:  "Kubernetes",
-				Namespace: "ns2",
-				Shortname: "details",
-			},
-			"ipv6.localhost": {
-				Ips:      []string{"2001:db8:0:0:0:ff00:42:8329"},
-				Registry: "External",
-			},
-			"dual.localhost": {
-				Ips:      []string{"2.2.2.2", "2001:db8:0:0:0:ff00:42:8329"},
-				Registry: "External",
-			},
-			"ipv4.localhost": {
-				Ips:      []string{"2.2.2.2"},
-				Registry: "External",
-			},
-		},
-	})
-	return nil
-}
+var testAgentDNSAddr = "127.0.0.1:15053"
 
 func TestDNS(t *testing.T) {
-	if initErr != nil {
-		t.Fatal(initErr)
-	}
-
+	initDNS(t)
 	testCases := []struct {
 		name                     string
 		host                     string
+		id                       int
 		queryAAAA                bool
 		expected                 []dns.RR
-		expectResolutionFailure  bool
+		expectResolutionFailure  int
 		expectExternalResolution bool
+		modifyReq                func(msg *dns.Msg)
 	}{
 		{
 			name:     "success: non k8s host in local cache",
@@ -135,41 +81,58 @@ func TestDNS(t *testing.T) {
 				a("productpage.ns1.", []net.IP{net.ParseIP("9.9.9.9").To4()})...),
 		},
 		{
-			name:                    "failure: AAAA query for IPv4 k8s host (name.namespace) with search namespace",
-			host:                    "productpage.ns1.ns1.svc.cluster.local.",
-			queryAAAA:               true,
-			expectResolutionFailure: true,
+			name:      "success: AAAA query for IPv4 k8s host (name.namespace) with search namespace",
+			host:      "productpage.ns1.ns1.svc.cluster.local.",
+			queryAAAA: true,
 		},
 		{
 			name:     "success: k8s host - non local namespace - name.namespace",
-			host:     "reviews.ns2.",
-			expected: a("reviews.ns2.", []net.IP{net.ParseIP("10.10.10.10").To4()}),
+			host:     "example.ns2.",
+			expected: a("example.ns2.", []net.IP{net.ParseIP("10.10.10.10").To4()}),
 		},
 		{
 			name:     "success: k8s host - non local namespace - fqdn",
-			host:     "reviews.ns2.svc.cluster.local.",
-			expected: a("reviews.ns2.svc.cluster.local.", []net.IP{net.ParseIP("10.10.10.10").To4()}),
+			host:     "example.ns2.svc.cluster.local.",
+			expected: a("example.ns2.svc.cluster.local.", []net.IP{net.ParseIP("10.10.10.10").To4()}),
 		},
 		{
 			name:     "success: k8s host - non local namespace - name.namespace.svc",
-			host:     "reviews.ns2.svc.",
-			expected: a("reviews.ns2.svc.", []net.IP{net.ParseIP("10.10.10.10").To4()}),
+			host:     "example.ns2.svc.",
+			expected: a("example.ns2.svc.", []net.IP{net.ParseIP("10.10.10.10").To4()}),
 		},
 		{
 			name:                    "failure: k8s host - non local namespace - shortname",
-			host:                    "reviews.",
-			expectResolutionFailure: true,
+			host:                    "example.",
+			expectResolutionFailure: dns.RcodeNameError,
 		},
 		{
 			name: "success: remote cluster k8s svc - same ns and different domain - fqdn",
 			host: "details.ns2.svc.cluster.remote.",
+			id:   2,
 			expected: a("details.ns2.svc.cluster.remote.",
-				[]net.IP{net.ParseIP("11.11.11.11").To4(), net.ParseIP("12.12.12.12").To4()}),
+				[]net.IP{
+					net.ParseIP("13.13.13.13").To4(),
+					net.ParseIP("14.14.14.14").To4(),
+					net.ParseIP("12.12.12.12").To4(),
+					net.ParseIP("11.11.11.11").To4(),
+				}),
+		},
+		{
+			name: "success: remote cluster k8s svc round robin",
+			host: "details.ns2.svc.cluster.remote.",
+			id:   1,
+			expected: a("details.ns2.svc.cluster.remote.",
+				[]net.IP{
+					net.ParseIP("13.13.13.13").To4(),
+					net.ParseIP("14.14.14.14").To4(),
+					net.ParseIP("11.11.11.11").To4(),
+					net.ParseIP("12.12.12.12").To4(),
+				}),
 		},
 		{
 			name:                    "failure: remote cluster k8s svc - same ns and different domain - name.namespace",
 			host:                    "details.ns2.",
-			expectResolutionFailure: true, // on home machines, the ISP may resolve to some generic webpage. So this test may fail on laptops
+			expectResolutionFailure: dns.RcodeNameError, // on home machines, the ISP may resolve to some generic webpage. So this test may fail on laptops
 		},
 		{
 			name:     "success: TypeA query returns A records only",
@@ -183,15 +146,41 @@ func TestDNS(t *testing.T) {
 			expected:  aaaa("dual.localhost.", []net.IP{net.ParseIP("2001:db8:0:0:0:ff00:42:8329")}),
 		},
 		{
-			name:                    "failure: Error response if only AAAA records exist for typeA",
-			host:                    "ipv6.localhost.",
-			expectResolutionFailure: true,
+			// This is not a NXDOMAIN, but empty response
+			name: "success: Error response if only AAAA records exist for typeA",
+			host: "ipv6.localhost.",
 		},
 		{
-			name:                    "failure: Error response if only A records exist for typeAAAA",
-			host:                    "ipv4.localhost.",
-			queryAAAA:               true,
-			expectResolutionFailure: true,
+			// This is not a NXDOMAIN, but empty response
+			name:      "success: Error response if only A records exist for typeAAAA",
+			host:      "ipv4.localhost.",
+			queryAAAA: true,
+		},
+		{
+			name: "udp: large request",
+			host: "giant.",
+			// Upstream UDP server returns big response, we cannot serve it. Compliant server would truncate it.
+			expectResolutionFailure: dns.RcodeServerFailure,
+		},
+		{
+			name:     "tcp: large request",
+			host:     "giant.",
+			expected: giantResponse,
+		},
+		{
+			name:                    "large request edns",
+			host:                    "giant.",
+			expectResolutionFailure: dns.RcodeSuccess,
+			expected:                giantResponse,
+			modifyReq: func(msg *dns.Msg) {
+				msg.SetEdns0(dns.MaxMsgSize, false)
+			},
+		},
+		{
+			name:                    "large request truncated",
+			host:                    "giant-tc.",
+			expectResolutionFailure: dns.RcodeSuccess,
+			expected:                giantResponse[:29],
 		},
 	}
 
@@ -199,15 +188,25 @@ func TestDNS(t *testing.T) {
 		{
 			Timeout: 3 * time.Second,
 			Net:     "udp",
+			UDPSize: 65535,
 		},
 		{
 			Timeout: 3 * time.Second,
 			Net:     "tcp",
 		},
 	}
-
+	currentID := atomic.NewInt32(0)
+	oldID := dns.Id
+	dns.Id = func() uint16 {
+		return uint16(currentID.Inc())
+	}
+	defer func() { dns.Id = oldID }()
 	for i := range clients {
 		for _, tt := range testCases {
+			// Test is for explicit network
+			if (strings.HasPrefix(tt.name, "udp") || strings.HasPrefix(tt.name, "tcp")) && !strings.HasPrefix(tt.name, clients[i].Net) {
+				continue
+			}
 			t.Run(clients[i].Net+"-"+tt.name, func(t *testing.T) {
 				m := new(dns.Msg)
 				q := dns.TypeA
@@ -215,21 +214,34 @@ func TestDNS(t *testing.T) {
 					q = dns.TypeAAAA
 				}
 				m.SetQuestion(tt.host, q)
+				if tt.modifyReq != nil {
+					tt.modifyReq(m)
+				}
+				if tt.id != 0 {
+					currentID.Store(int32(tt.id))
+					defer func() { currentID.Store(0) }()
+				}
 				res, _, err := clients[i].Exchange(m, testAgentDNSAddr)
-
+				t.Log("size: ", len(res.Answer))
 				if err != nil {
 					t.Errorf("Failed to resolve query for %s: %v", tt.host, err)
 				} else {
+					for _, answer := range res.Answer {
+						if answer.Header().Class != dns.ClassINET {
+							t.Errorf("expected class INET for all responses, got %+v for host %s", answer.Header(), tt.host)
+						}
+					}
 					if tt.expectExternalResolution {
 						// just make sure that the response has a valid DNS response from upstream resolvers
 						if res.Rcode != dns.RcodeSuccess {
-							t.Errorf("upstream dns resolution for %s failed", tt.host)
+							t.Errorf("upstream dns resolution for %s failed: %v", tt.host, res)
 						}
 					} else {
-						if tt.expectResolutionFailure && res.Rcode != dns.RcodeNameError {
-							t.Errorf("expected resolution failure but it succeeded for %s", tt.host)
+						if tt.expectResolutionFailure != res.Rcode {
+							t.Errorf("expected resolution failure but it succeeded for %s: %v", tt.host, res)
 						}
 						if !equalsDNSrecords(res.Answer, tt.expected) {
+							t.Log(res)
 							t.Errorf("dns responses for %s do not match. \n got %v\nwant %v", tt.host, res.Answer, tt.expected)
 						}
 					}
@@ -237,17 +249,6 @@ func TestDNS(t *testing.T) {
 			})
 		}
 	}
-	testAgentDNS.Close()
-}
-
-// reflect.DeepEqual doesn't seem to work well for dns.RR
-// as the Rdlength field is not updated in the a(), or aaaa() calls.
-// so zero them out before doing reflect.Deepequal
-func equalsDNSrecords(got []dns.RR, want []dns.RR) bool {
-	for i := range got {
-		got[i].Header().Rdlength = 0
-	}
-	return reflect.DeepEqual(got, want)
 }
 
 // Baseline:
@@ -255,32 +256,20 @@ func equalsDNSrecords(got []dns.RR, want []dns.RR) bool {
 //      ~300us via agent when doing the cname redirect
 //      5-6ms to upstream resolver directly
 //      6-7ms via agent to upstream resolver (cache miss)
+// Also useful for load testing is using dnsperf. This can be run with:
+//   docker run -v $PWD:$PWD -w $PWD --network host quay.io/ssro/dnsperf dnsperf -p 15053 -d input -c 100 -l 30
+// where `input` contains dns queries to run, such as `echo.default. A`
 func BenchmarkDNS(t *testing.B) {
-	if initErr != nil {
-		t.Fatal(initErr)
-	}
-
+	initDNS(t)
 	t.Run("via-agent-cache-miss", func(b *testing.B) {
 		bench(b, testAgentDNSAddr, "www.bing.com.")
 	})
-	t.ResetTimer()
-	t.Run("public-dns-server", func(b *testing.B) {
-		dnsConfig, err := dns.ClientConfigFromFile("/etc/resolv.conf")
-		if err != nil {
-			b.Fatal(err)
-		}
-
-		bench(b, dnsConfig.Servers[0]+":53", "www.bing.com.")
-	})
-	t.ResetTimer()
 	t.Run("via-agent-cache-hit-fqdn", func(b *testing.B) {
 		bench(b, testAgentDNSAddr, "www.google.com.")
 	})
-	t.ResetTimer()
 	t.Run("via-agent-cache-hit-cname", func(b *testing.B) {
 		bench(b, testAgentDNSAddr, "www.google.com.ns1.svc.cluster.local.")
 	})
-	testAgentDNS.Close()
 }
 
 func bench(t *testing.B, nameserver string, hostname string) {
@@ -326,4 +315,145 @@ func bench(t *testing.B, nameserver string, hostname string) {
 	if errs+nrs > 0 {
 		t.Log("Sent", t.N, "err", errs, "no response", nrs, "nxdomain", nxdomain, "cname redirect", cnames)
 	}
+}
+
+var giantResponse = func() []dns.RR {
+	ips := []net.IP{}
+	for i := 0; i < 64; i++ {
+		ips = append(ips, net.ParseIP(fmt.Sprintf("240.0.0.%d", i)).To4())
+	}
+	return a("aaaaaaaaaaaa.aaaaaa.", ips)
+}()
+
+func makeUpstream(t test.Failer, responses map[string]string) string {
+	mux := dns.NewServeMux()
+	mux.HandleFunc(".", func(resp dns.ResponseWriter, msg *dns.Msg) {
+		answer := new(dns.Msg)
+		answer.SetReply(msg)
+		answer.Rcode = dns.RcodeNameError
+		if err := resp.WriteMsg(answer); err != nil {
+			t.Fatalf("err: %s", err)
+		}
+	})
+	for hn, desiredResp := range responses {
+		mux.HandleFunc(hn, func(resp dns.ResponseWriter, msg *dns.Msg) {
+			answer := dns.Msg{
+				Answer: a(hn, []net.IP{net.ParseIP(desiredResp).To4()}),
+			}
+			answer.SetReply(msg)
+			answer.Rcode = dns.RcodeSuccess
+			if err := resp.WriteMsg(&answer); err != nil {
+				t.Fatalf("err: %s", err)
+			}
+		})
+	}
+	mux.HandleFunc("giant.", func(resp dns.ResponseWriter, msg *dns.Msg) {
+		answer := &dns.Msg{
+			Answer: giantResponse,
+		}
+		answer.SetReply(msg)
+		answer.Rcode = dns.RcodeSuccess
+		if err := resp.WriteMsg(answer); err != nil {
+			t.Fatalf("err: %s", err)
+		}
+	})
+	mux.HandleFunc("giant-tc.", func(resp dns.ResponseWriter, msg *dns.Msg) {
+		answer := &dns.Msg{
+			Answer: giantResponse,
+		}
+		answer.SetReply(msg)
+		answer.Rcode = dns.RcodeSuccess
+		answer.Truncate(size("udp", msg))
+		if err := resp.WriteMsg(answer); err != nil {
+			t.Fatalf("err: %s", err)
+		}
+	})
+	up := make(chan struct{})
+	server := &dns.Server{
+		Addr:              "127.0.0.1:0",
+		Net:               "udp",
+		Handler:           mux,
+		NotifyStartedFunc: func() { close(up) },
+		ReadTimeout:       time.Second,
+		WriteTimeout:      time.Second,
+	}
+	go server.ListenAndServe()
+	<-up
+	t.Cleanup(func() { server.Shutdown() })
+	server.Addr = server.PacketConn.LocalAddr().String()
+
+	// Setup TCP server on same port
+	up = make(chan struct{})
+	tcp := &dns.Server{
+		Addr:              server.Addr,
+		Net:               "tcp",
+		Handler:           mux,
+		NotifyStartedFunc: func() { close(up) },
+	}
+	go tcp.ListenAndServe()
+	<-up
+	t.Cleanup(func() { server.Shutdown() })
+	tcp.Addr = server.PacketConn.LocalAddr().String()
+	return server.Addr
+}
+
+func initDNS(t test.Failer) *LocalDNSServer {
+	srv := makeUpstream(t, map[string]string{"www.bing.com.": "1.1.1.1"})
+	testAgentDNS, err := NewLocalDNSServer("ns1", "ns1.svc.cluster.local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testAgentDNS.resolvConfServers = []string{srv}
+	testAgentDNS.StartDNS()
+	testAgentDNS.searchNamespaces = []string{"ns1.svc.cluster.local", "svc.cluster.local", "cluster.local"}
+	testAgentDNS.UpdateLookupTable(&nds.NameTable{
+		Table: map[string]*nds.NameTable_NameInfo{
+			"www.google.com": {
+				Ips:      []string{"1.1.1.1"},
+				Registry: "External",
+			},
+			"productpage.ns1.svc.cluster.local": {
+				Ips:       []string{"9.9.9.9"},
+				Registry:  "Kubernetes",
+				Namespace: "ns1",
+				Shortname: "productpage",
+			},
+			"example.ns2.svc.cluster.local": {
+				Ips:       []string{"10.10.10.10"},
+				Registry:  "Kubernetes",
+				Namespace: "ns2",
+				Shortname: "example",
+			},
+			"details.ns2.svc.cluster.remote": {
+				Ips:       []string{"11.11.11.11", "12.12.12.12", "13.13.13.13", "14.14.14.14"},
+				Registry:  "Kubernetes",
+				Namespace: "ns2",
+				Shortname: "details",
+			},
+			"ipv6.localhost": {
+				Ips:      []string{"2001:db8:0:0:0:ff00:42:8329"},
+				Registry: "External",
+			},
+			"dual.localhost": {
+				Ips:      []string{"2.2.2.2", "2001:db8:0:0:0:ff00:42:8329"},
+				Registry: "External",
+			},
+			"ipv4.localhost": {
+				Ips:      []string{"2.2.2.2"},
+				Registry: "External",
+			},
+		},
+	})
+	t.Cleanup(testAgentDNS.Close)
+	return testAgentDNS
+}
+
+// reflect.DeepEqual doesn't seem to work well for dns.RR
+// as the Rdlength field is not updated in the a(), or aaaa() calls.
+// so zero them out before doing reflect.Deepequal
+func equalsDNSrecords(got []dns.RR, want []dns.RR) bool {
+	for i := range got {
+		got[i].Header().Rdlength = 0
+	}
+	return reflect.DeepEqual(got, want)
 }

@@ -36,10 +36,8 @@ import (
 	"github.com/ghodss/yaml"
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
-	diff "gopkg.in/d4l3k/messagediff.v1"
 
 	"istio.io/api/annotation"
 	meshconfig "istio.io/api/mesh/v1alpha1"
@@ -179,7 +177,7 @@ func TestGolden(t *testing.T) {
 				// nolint: staticcheck
 				cfg := got.Tracing.Http.GetTypedConfig()
 				sdMsg := &trace.OpenCensusConfig{}
-				if err := ptypes.UnmarshalAny(cfg, sdMsg); err != nil {
+				if err := cfg.UnmarshalTo(sdMsg); err != nil {
 					t.Fatalf("unable to parse: %v %v", cfg, err)
 				}
 
@@ -205,13 +203,7 @@ func TestGolden(t *testing.T) {
 								StatPrefix: "oc_stackdriver_tracer",
 								ChannelCredentials: &core.GrpcService_GoogleGrpc_ChannelCredentials{
 									CredentialSpecifier: &core.GrpcService_GoogleGrpc_ChannelCredentials_SslCredentials{
-										SslCredentials: &core.GrpcService_GoogleGrpc_SslCredentials{
-											RootCerts: &core.DataSource{
-												Specifier: &core.DataSource_Filename{
-													Filename: "/etc/ssl/certs/ca-certificates.crt",
-												},
-											},
-										},
+										SslCredentials: &core.GrpcService_GoogleGrpc_SslCredentials{},
 									},
 								},
 								CallCredentials: []*core.GrpcService_GoogleGrpc_CallCredentials{
@@ -239,12 +231,14 @@ func TestGolden(t *testing.T) {
 						trace.OpenCensusConfig_CLOUD_TRACE_CONTEXT,
 						trace.OpenCensusConfig_TRACE_CONTEXT,
 						trace.OpenCensusConfig_GRPC_TRACE_BIN,
-						trace.OpenCensusConfig_B3},
+						trace.OpenCensusConfig_B3,
+					},
 					OutgoingTraceContext: []trace.OpenCensusConfig_TraceContext{
 						trace.OpenCensusConfig_CLOUD_TRACE_CONTEXT,
 						trace.OpenCensusConfig_TRACE_CONTEXT,
 						trace.OpenCensusConfig_GRPC_TRACE_BIN,
-						trace.OpenCensusConfig_B3},
+						trace.OpenCensusConfig_B3,
+					},
 				}
 
 				if diff := cmp.Diff(sdMsg, want, protocmp.Transform()); diff != "" {
@@ -266,8 +260,10 @@ func TestGolden(t *testing.T) {
 				"sidecar.istio.io/statsInclusionSuffixes": "suffix1,suffix2",
 				"sidecar.istio.io/extraStatTags":          "dlp_status,dlp_error",
 			},
-			stats: stats{prefixes: "prefix1,prefix2",
-				suffixes: "suffix1,suffix2"},
+			stats: stats{
+				prefixes: "prefix1,prefix2",
+				suffixes: "suffix1,suffix2",
+			},
 		},
 		{
 			base: "stats_inclusion",
@@ -276,7 +272,8 @@ func TestGolden(t *testing.T) {
 				"sidecar.istio.io/extraStatTags":          "dlp_status,dlp_error",
 			},
 			stats: stats{
-				suffixes: upstreamStatsSuffixes + "," + downstreamStatsSuffixes},
+				suffixes: upstreamStatsSuffixes + "," + downstreamStatsSuffixes,
+			},
 		},
 		{
 			base: "stats_inclusion",
@@ -322,20 +319,28 @@ func TestGolden(t *testing.T) {
 				localEnv = append(localEnv, k+"="+v)
 			}
 
-			fn, err := New(Config{
-				Node:  "sidecar~1.2.3.4~foo~bar",
-				Proxy: proxyConfig,
-				PlatEnv: &fakePlatform{
-					meta: c.platformMeta,
-				},
+			plat := &fakePlatform{
+				meta: c.platformMeta,
+			}
+			node, err := GetNodeMetaData(MetadataOptions{
+				ID:          "sidecar~1.2.3.4~foo~bar",
+				Envs:        localEnv,
+				Platform:    plat,
+				InstanceIPs: []string{"10.3.3.3", "10.4.4.4", "10.5.5.5", "10.6.6.6", "10.4.4.4"},
+				StsPort:     c.stsPort,
+				ProxyConfig: proxyConfig,
 				PilotSubjectAltName: []string{
-					"spiffe://cluster.local/ns/istio-system/sa/istio-pilot-service-account"},
-				LocalEnv:          localEnv,
-				NodeIPs:           []string{"10.3.3.3", "10.4.4.4", "10.5.5.5", "10.6.6.6", "10.4.4.4"},
+					"spiffe://cluster.local/ns/istio-system/sa/istio-pilot-service-account",
+				},
 				OutlierLogPath:    "/dev/stdout",
 				PilotCertProvider: "istiod",
-				STSPort:           c.stsPort,
 				ProxyViaAgent:     c.proxyViaAgent,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			fn, err := New(Config{
+				Node: node,
 			}).CreateFileForEpoch(0)
 			if err != nil {
 				t.Fatal(err)
@@ -349,7 +354,7 @@ func TestGolden(t *testing.T) {
 
 			// apply minor modifications for the generated file so that tests are consistent
 			// across different env setups
-			err = ioutil.WriteFile(fn, correctForEnvDifference(read, !c.checkLocality), 0700)
+			err = ioutil.WriteFile(fn, correctForEnvDifference(read, !c.checkLocality), 0o700)
 			if err != nil {
 				t.Error("Error modifying generated file ", err)
 				return
@@ -374,7 +379,6 @@ func TestGolden(t *testing.T) {
 			goldenM := &bootstrap.Bootstrap{}
 
 			jgolden, err := yaml.YAMLToJSON(golden)
-
 			if err != nil {
 				t.Fatalf("unable to convert: %s %v", c.base, err)
 			}
@@ -468,9 +472,8 @@ func checkOpencensusConfig(t *testing.T, got, want *bootstrap.Bootstrap) {
 		return
 	}
 
-	if !reflect.DeepEqual(got.Tracing.Http, want.Tracing.Http) {
-		p, _ := diff.PrettyDiff(got.Tracing.Http, want.Tracing.Http)
-		t.Fatalf("t diff: %v\ngot:\n %v\nwant:\n %v\n", p, got.Tracing.Http, want.Tracing.Http)
+	if diff := cmp.Diff(got.Tracing.Http, want.Tracing.Http, protocmp.Transform()); diff != "" {
+		t.Fatalf("t diff: %v\ngot:\n %v\nwant:\n %v\n", diff, got.Tracing.Http, want.Tracing.Http)
 	}
 }
 
@@ -481,6 +484,11 @@ func checkStatsMatcher(t *testing.T, got, want *bootstrap.Bootstrap, stats stats
 		stats.prefixes = v2Prefixes + requiredEnvoyStatsMatcherInclusionPrefixes + v2Suffix
 	} else {
 		stats.prefixes = v2Prefixes + stats.prefixes + "," + requiredEnvoyStatsMatcherInclusionPrefixes + v2Suffix
+	}
+	if stats.suffixes == "" {
+		stats.suffixes = rbacEnvoyStatsMatcherInclusionSuffix
+	} else {
+		stats.suffixes += "," + rbacEnvoyStatsMatcherInclusionSuffix
 	}
 
 	if err := gsm.Validate(); err != nil {
@@ -631,7 +639,12 @@ func TestNodeMetadataEncodeEnvWithIstioMetaPrefix(t *testing.T) {
 		notIstioMetaKey + "=bar",
 		anIstioMetaKey + "=baz",
 	}
-	nm, _, err := getNodeMetaData(envs, nil, nil, 0, &meshconfig.ProxyConfig{})
+	node, err := GetNodeMetaData(MetadataOptions{
+		ID:          "test",
+		Envs:        envs,
+		ProxyConfig: &meshconfig.ProxyConfig{},
+	})
+	nm := node.Metadata
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -654,7 +667,12 @@ func TestNodeMetadata(t *testing.T) {
 		"ISTIO_META_ISTIO_VERSION=1.0.0",
 		`ISTIO_METAJSON_LABELS={"foo":"bar"}`,
 	}
-	nm, _, err := getNodeMetaData(envs, nil, nil, 0, &meshconfig.ProxyConfig{})
+	node, err := GetNodeMetaData(MetadataOptions{
+		ID:          "test",
+		Envs:        envs,
+		ProxyConfig: &meshconfig.ProxyConfig{},
+	})
+	nm := node.Metadata
 	if err != nil {
 		t.Fatal(err)
 	}

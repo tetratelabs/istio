@@ -29,8 +29,13 @@ const (
 	RBACHTTPFilterName = "envoy.filters.http.rbac"
 
 	// RBACTCPFilterName is the name of the RBAC network filter in envoy.
-	RBACTCPFilterName       = "envoy.filters.network.rbac"
-	RBACTCPFilterStatPrefix = "tcp."
+	RBACTCPFilterName                 = "envoy.filters.network.rbac"
+	RBACTCPFilterStatPrefix           = "tcp."
+	RBACShadowEngineResult            = "shadow_engine_result"
+	RBACShadowEffectivePolicyID       = "shadow_effective_policy_id"
+	RBACShadowRulesAllowStatPrefix    = "istio_dry_run_allow_"
+	RBACShadowRulesDenyStatPrefix     = "istio_dry_run_deny_"
+	RBACExtAuthzShadowRulesStatPrefix = "istio_ext_authz_"
 
 	attrRequestHeader    = "request.headers"             // header name is surrounded by brackets, e.g. "request.headers[User-Agent]".
 	attrSrcIP            = "source.ip"                   // supports both single ip and cidr, e.g. "10.1.2.3" or "10.1.0.0/16".
@@ -71,7 +76,7 @@ type Model struct {
 }
 
 // New returns a model representing a single authorization policy.
-func New(r *authzpb.Rule, isIstioVersionGE15 bool) (*Model, error) {
+func New(r *authzpb.Rule) (*Model, error) {
 	m := Model{}
 
 	basePermission := ruleList{}
@@ -131,7 +136,7 @@ func New(r *authzpb.Rule, isIstioVersionGE15 bool) (*Model, error) {
 		merged := basePermission.copy()
 		if o := to.Operation; o != nil {
 			merged.insertFront(destPortGenerator{}, attrDestPort, o.Ports, o.NotPorts)
-			merged.insertFront(pathGenerator{isIstioVersionGE15: isIstioVersionGE15}, pathMatcher, o.Paths, o.NotPaths)
+			merged.insertFront(pathGenerator{}, pathMatcher, o.Paths, o.NotPaths)
 			merged.insertFront(methodGenerator{}, methodHeader, o.Methods, o.NotMethods)
 			merged.insertFront(hostGenerator{}, hostHeader, o.Hosts, o.NotHosts)
 		}

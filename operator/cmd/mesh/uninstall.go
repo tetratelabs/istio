@@ -68,6 +68,7 @@ const (
 	NoResourcesRemovedWarning  = "No resources will be pruned from the cluster. Please double check the input configs\n"
 	GatewaysRemovedWarning     = "You are about to remove the following gateways: %s." +
 		" To avoid downtime, please quit this command and reinstall the gateway(s) with a revision that is not being removed from the cluster.\n"
+	PurgeWithRevisionOrOperatorSpecifiedWarning = "Purge uninstall will remove all Istio resources, ignoring the specified revision or operator file"
 )
 
 func addUninstallFlags(cmd *cobra.Command, args *uninstallArgs) {
@@ -103,8 +104,8 @@ func UninstallCmd(logOpts *log.Options) *cobra.Command {
   # Uninstall all control planes and shared resources
   istioctl x uninstall --purge`,
 		Args: func(cmd *cobra.Command, args []string) error {
-			if uiArgs.revision == "" && uiArgs.filename == "" && !uiArgs.purge {
-				return fmt.Errorf("at least one of the --revision, --filename or --purge flags must be set")
+			if uiArgs.revision == "" && manifest.GetValueForSetFlag(uiArgs.set, "revision") == "" && uiArgs.filename == "" && !uiArgs.purge {
+				return fmt.Errorf("at least one of the --revision (or --set revision=<revision>), --filename or --purge flags must be set")
 			}
 			if len(args) > 0 {
 				return fmt.Errorf("istioctl uninstall does not take arguments")
@@ -113,7 +114,8 @@ func UninstallCmd(logOpts *log.Options) *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return uninstall(cmd, rootArgs, uiArgs, logOpts)
-		}}
+		},
+	}
 	addUninstallFlags(uicmd, uiArgs)
 	return uicmd
 }
@@ -124,7 +126,7 @@ func uninstall(cmd *cobra.Command, rootArgs *rootArgs, uiArgs *uninstallArgs, lo
 	if err := configLogs(logOpts); err != nil {
 		return fmt.Errorf("could not configure logs: %s", err)
 	}
-	restConfig, _, client, err := K8sConfig(uiArgs.kubeConfigPath, uiArgs.context)
+	restConfig, clientset, client, err := K8sConfig(uiArgs.kubeConfigPath, uiArgs.context)
 	if err != nil {
 		return err
 	}
@@ -132,6 +134,11 @@ func uninstall(cmd *cobra.Command, rootArgs *rootArgs, uiArgs *uninstallArgs, lo
 	opts := &helmreconciler.Options{DryRun: rootArgs.dryRun, Log: l, ProgressLog: progress.NewLog()}
 	var h *helmreconciler.HelmReconciler
 
+	// If the user is performing a purge install but also specified a revision or filename, we should warn
+	// that the purge will still remove all resources
+	if uiArgs.purge && (uiArgs.revision != "" || uiArgs.filename != "") {
+		l.LogAndPrint(PurgeWithRevisionOrOperatorSpecifiedWarning)
+	}
 	// If only revision flag is set, we would prune resources by the revision label.
 	// Otherwise we would merge the revision flag and the filename flag and delete resources by generated manifests.
 	if uiArgs.filename == "" {
@@ -154,6 +161,11 @@ func uninstall(cmd *cobra.Command, rootArgs *rootArgs, uiArgs *uninstallArgs, lo
 			return fmt.Errorf("failed to delete control plane resources by revision: %v", err)
 		}
 		opts.ProgressLog.SetState(progress.StateUninstallComplete)
+
+		// If we're removing the default revision, add `istiod` service so we don't break existing revisions
+		if uiArgs.revision == "default" {
+			_ = createIstiodService(clientset, name.IstioDefaultNamespace)
+		}
 		return nil
 	}
 	manifestMap, iop, err := manifest.GenManifests([]string{uiArgs.filename},

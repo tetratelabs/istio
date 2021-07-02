@@ -38,6 +38,8 @@ type Config struct {
 	UDSServer     string
 	Dialer        common.Dialer
 	Port          *common.Port
+	ListenerIP    string
+	IstioVersion  string
 }
 
 // Instance of an endpoint that serves the Echo application on a single port/protocol.

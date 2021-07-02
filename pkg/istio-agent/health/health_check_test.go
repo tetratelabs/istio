@@ -19,18 +19,21 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"sync"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"go.uber.org/atomic"
 
 	"istio.io/api/networking/v1alpha3"
+	"istio.io/istio/pkg/test/util/reserveport"
 	"istio.io/istio/pkg/test/util/retry"
 )
 
 func TestWorkloadHealthChecker_PerformApplicationHealthCheck(t *testing.T) {
 	t.Run("tcp", func(t *testing.T) {
+		port := reserveport.NewPortManagerOrFail(t).ReservePortNumberOrFail(t)
 		tcpHealthChecker := NewWorkloadHealthChecker(&v1alpha3.ReadinessProbe{
 			InitialDelaySeconds: 0,
 			TimeoutSeconds:      1,
@@ -40,55 +43,58 @@ func TestWorkloadHealthChecker_PerformApplicationHealthCheck(t *testing.T) {
 			HealthCheckMethod: &v1alpha3.ReadinessProbe_TcpSocket{
 				TcpSocket: &v1alpha3.TCPHealthCheckConfig{
 					Host: "localhost",
-					Port: 5991,
+					Port: uint32(port),
 				},
 			},
-		})
+		}, nil, []string{"127.0.0.1"}, false)
 		// Speed up tests
 		tcpHealthChecker.config.CheckFrequency = time.Millisecond
 
 		quitChan := make(chan struct{})
 
-		expectedTCPEvents := [6]*ProbeEvent{
-			{Healthy: true},
+		expectedTCPEvents := [7]*ProbeEvent{
 			{Healthy: false},
 			{Healthy: true},
 			{Healthy: false},
 			{Healthy: true},
-			{Healthy: false}}
-		tcpHealthStatuses := [6]bool{true, false, true, false, true, false}
+			{Healthy: false},
+			{Healthy: true},
+			{Healthy: false},
+		}
+		tcpHealthStatuses := [7]bool{false, true, false, true, false, true, false}
 
-		tcpFinishedEvents := sync.WaitGroup{}
-
+		cont := make(chan struct{}, 6)
 		// wait for go-ahead for state change
 		go func() {
 			for i := 0; i < len(tcpHealthStatuses); i++ {
 				if tcpHealthStatuses[i] {
+					var srv net.Listener
 					// open port until we get confirmation that
-					srv, err := net.Listen("tcp", "localhost:5991")
-					if err != nil {
+					// retry in case of port conflicts
+					if err := retry.UntilSuccess(func() (err error) {
+						srv, err = net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
+						return
+					}, retry.Delay(time.Millisecond)); err != nil {
 						t.Log(err)
 						return
 					}
-					// add to delta and wait for event received
-					tcpFinishedEvents.Add(1)
-					tcpFinishedEvents.Wait()
+					<-cont
 					srv.Close()
 				} else {
-					// dont listen or anything, just wait for event to finish to
-					// start next iteration
-					tcpFinishedEvents.Add(1)
-					tcpFinishedEvents.Wait()
+					<-cont
 				}
 			}
 		}()
 
 		eventNum := atomic.NewInt32(0)
 		go tcpHealthChecker.PerformApplicationHealthCheck(func(event *ProbeEvent) {
-			tcpFinishedEvents.Done()
+			if eventNum.Load() >= 7 {
+				return
+			}
 			if event.Healthy != expectedTCPEvents[eventNum.Load()].Healthy {
 				t.Errorf("%s: got event healthy: %v at idx %v when expected healthy: %v", "tcp", event.Healthy, eventNum.Load(), expectedTCPEvents[eventNum.Load()].Healthy)
 			}
+			cont <- struct{}{}
 			eventNum.Inc()
 		}, quitChan)
 		retry.UntilSuccessOrFail(t, func() error {
@@ -101,6 +107,26 @@ func TestWorkloadHealthChecker_PerformApplicationHealthCheck(t *testing.T) {
 	})
 	t.Run("http", func(t *testing.T) {
 		httpPath := "/test/health/check"
+		httpHealthStatuses := [4]bool{true, false, false, true}
+		httpServerEventCount := 0
+		sss := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if httpServerEventCount < len(httpHealthStatuses) && httpHealthStatuses[httpServerEventCount] {
+				writer.WriteHeader(200)
+				writer.Write([]byte("foobar"))
+			} else {
+				writer.WriteHeader(500)
+			}
+			httpServerEventCount++
+		}))
+		host, ports, err := net.SplitHostPort(strings.TrimPrefix(sss.URL, "http://"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		port, err := strconv.Atoi(ports)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(sss.Close)
 		httpHealthChecker := NewWorkloadHealthChecker(&v1alpha3.ReadinessProbe{
 			InitialDelaySeconds: 0,
 			TimeoutSeconds:      1,
@@ -110,41 +136,24 @@ func TestWorkloadHealthChecker_PerformApplicationHealthCheck(t *testing.T) {
 			HealthCheckMethod: &v1alpha3.ReadinessProbe_HttpGet{
 				HttpGet: &v1alpha3.HTTPHealthCheckConfig{
 					Path:   httpPath,
-					Port:   65112,
+					Port:   uint32(port),
 					Scheme: "http",
-					Host:   "127.0.0.1",
+					Host:   host,
 				},
 			},
-		})
+		}, nil, []string{"127.0.0.1"}, false)
 		// Speed up tests
 		httpHealthChecker.config.CheckFrequency = time.Millisecond
 		quitChan := make(chan struct{})
+		t.Cleanup(func() {
+			close(quitChan)
+		})
 		expectedHTTPEvents := [4]*ProbeEvent{
 			{Healthy: true},
 			{Healthy: false},
 			{Healthy: true},
 			{Healthy: false},
 		}
-		httpHealthStatuses := [4]bool{true, false, true, false}
-
-		mockListener, err := net.Listen("tcp", "127.0.0.1:65112")
-		if err != nil {
-			t.Errorf("unable to start mock listener: %v", err)
-		}
-		httpServerEventCount := 0
-		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			if httpServerEventCount < len(httpHealthStatuses) && httpHealthStatuses[httpServerEventCount] {
-				writer.WriteHeader(200)
-				writer.Write([]byte("foobar"))
-			} else {
-				writer.WriteHeader(500)
-			}
-			httpServerEventCount++
-		}))
-		srv.Listener.Close()
-		srv.Listener = mockListener
-		srv.Start()
-		defer srv.Close()
 
 		eventNum := atomic.NewInt32(0)
 		go httpHealthChecker.PerformApplicationHealthCheck(func(event *ProbeEvent) {
@@ -161,6 +170,5 @@ func TestWorkloadHealthChecker_PerformApplicationHealthCheck(t *testing.T) {
 			}
 			return nil
 		}, retry.Delay(time.Millisecond*10), retry.Timeout(time.Second))
-		close(quitChan)
 	})
 }

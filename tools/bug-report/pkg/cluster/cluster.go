@@ -43,9 +43,7 @@ const (
 	Container
 )
 
-var (
-	versionRegex = regexp.MustCompile(`.*(\d\.\d\.\d).*`)
-)
+var versionRegex = regexp.MustCompile(`.*(\d\.\d\.\d).*`)
 
 // ParsePath parses path into its components. Input must have the form namespace/deployment/pod/container.
 func ParsePath(path string) (namespace string, deployment, pod string, container string, err error) {
@@ -92,7 +90,7 @@ func GetClusterResources(ctx context.Context, clientset *kubernetes.Clientset) (
 		}
 	}
 	if len(errs) != 0 {
-		log.Warna(strings.Join(errs, "\n"))
+		log.Warn(strings.Join(errs, "\n"))
 	}
 	return out, nil
 }
@@ -195,7 +193,6 @@ func getOwnerDeployment(pod *corev1.Pod, replicasets []v1.ReplicaSet) string {
 							return oo.Name
 						}
 					}
-
 				}
 			}
 		}

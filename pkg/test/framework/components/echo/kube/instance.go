@@ -16,128 +16,69 @@ package kube
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"strings"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
-	authenticationv1 "k8s.io/api/authentication/v1"
 	kubeCore "k8s.io/api/core/v1"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 
-	"istio.io/istio/pkg/config/constants"
-	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/test"
 	appEcho "istio.io/istio/pkg/test/echo/client"
-	echoCommon "istio.io/istio/pkg/test/echo/common"
+	"istio.io/istio/pkg/test/framework/components/cluster"
 	"istio.io/istio/pkg/test/framework/components/echo"
 	"istio.io/istio/pkg/test/framework/components/echo/common"
 	"istio.io/istio/pkg/test/framework/resource"
-	"istio.io/istio/pkg/test/scopes"
 	"istio.io/istio/pkg/test/util/retry"
 )
 
 const (
 	tcpHealthPort     = 3333
 	httpReadinessPort = 8080
-	defaultDomain     = constants.DefaultKubernetesDomain
 )
 
 var (
 	_ echo.Instance = &instance{}
 	_ io.Closer     = &instance{}
+
+	startDelay = retry.Delay(2 * time.Second)
 )
 
 type instance struct {
-	id        resource.ID
-	cfg       echo.Config
-	clusterIP string
-	workloads []*workload
-	grpcPort  uint16
-	ctx       resource.Context
-	tls       *echoCommon.TLSSettings
-	cluster   resource.Cluster
+	id          resource.ID
+	cfg         echo.Config
+	clusterIP   string
+	ctx         resource.Context
+	cluster     cluster.Cluster
+	workloadMgr *workloadManager
+	deployment  *deployment
 }
 
-func newInstance(ctx resource.Context, cfg echo.Config) (out *instance, err error) {
-	// Fill in defaults for any missing values.
-	common.AddPortIfMissing(&cfg, protocol.GRPC)
-	if err = common.FillInDefaults(ctx, defaultDomain, &cfg); err != nil {
-		return nil, err
-	}
+func newInstance(ctx resource.Context, originalCfg echo.Config) (out *instance, err error) {
+	cfg := originalCfg.DeepCopy()
 
 	c := &instance{
 		cfg:     cfg,
 		ctx:     ctx,
 		cluster: cfg.Cluster,
 	}
-	c.id = ctx.TrackResource(c)
 
-	// Save the GRPC port.
-	grpcPort := common.GetPortForProtocol(&cfg, protocol.GRPC)
-	if grpcPort == nil {
-		return nil, errors.New("unable fo find GRPC command port")
-	}
-	c.grpcPort = uint16(grpcPort.InstancePort)
-	if grpcPort.TLS {
-		c.tls = cfg.TLSSettings
-	}
-
-	// Generate the service and deployment YAML.
-	serviceYAML, deploymentYAML, err := generateYAML(ctx, cfg, c.cluster)
+	// Deploy echo to the cluster
+	c.deployment, err = newDeployment(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("generate yaml: %v", err)
+		return nil, err
 	}
 
-	// Apply the service definition to all clusters.
-	if err := ctx.Config().ApplyYAML(cfg.Namespace.Name(), serviceYAML); err != nil {
-		return nil, fmt.Errorf("failed deploying echo service %s to clusters: %v",
-			cfg.FQDN(), err)
+	// Create the manager for echo workloads for this instance.
+	c.workloadMgr, err = newWorkloadManager(ctx, cfg, c.deployment)
+	if err != nil {
+		return nil, err
 	}
 
-	// Deploy the YAML.
-	if err = ctx.Config(c.cluster).ApplyYAML(cfg.Namespace.Name(), deploymentYAML); err != nil {
-		return nil, fmt.Errorf("failed deploying echo %s to cluster %s: %v",
-			cfg.FQDN(), c.cluster.Name(), err)
-	}
-
-	if cfg.DeployAsVM {
-		serviceAccount := cfg.Service
-		if !cfg.ServiceAccount {
-			serviceAccount = "default"
-		}
-		token, err := createServiceAccountToken(c.cluster, cfg.Namespace.Name(), serviceAccount)
-		if err != nil {
-			return nil, err
-		}
-		secret := &kubeCore.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      cfg.Service + "-istio-token",
-				Namespace: cfg.Namespace.Name(),
-			},
-			Data: map[string][]byte{
-				"istio-token": []byte(token),
-			},
-		}
-		if _, err := c.cluster.CoreV1().Secrets(cfg.Namespace.Name()).Create(context.TODO(), secret, metav1.CreateOptions{}); err != nil {
-			if kerrors.IsAlreadyExists(err) {
-				if _, err := c.cluster.CoreV1().Secrets(cfg.Namespace.Name()).Update(context.TODO(), secret, metav1.UpdateOptions{}); err != nil {
-					return nil, err
-				}
-			} else {
-				return nil, err
-			}
-		}
-	}
-
-	if cfg.DeployAsVM {
-		if err := setupVM(ctx, c, cfg); err != nil {
-			return nil, err
-		}
-	}
+	// Now that we have the successfully created the workload manager, track this resource so
+	// that it will be closed when it goes out of scope.
+	c.id = ctx.TrackResource(c)
 
 	// Now retrieve the service information to find the ClusterIP
 	s, err := c.cluster.CoreV1().Services(cfg.Namespace.Name()).Get(context.TODO(), cfg.Service, metav1.GetOptions{})
@@ -160,135 +101,6 @@ func newInstance(ctx resource.Context, cfg echo.Config) (out *instance, err erro
 	return c, nil
 }
 
-func setupVM(ctx resource.Context, c *instance, cfg echo.Config) error {
-	serviceAccount := cfg.Service
-	if !cfg.ServiceAccount {
-		serviceAccount = "default"
-	}
-	if cfg.AutoRegisterVM {
-		return ctx.Config().ApplyYAML(cfg.Namespace.Name(), fmt.Sprintf(`
-apiVersion: networking.istio.io/v1alpha3
-kind: WorkloadGroup
-metadata:
-  name: %s
-spec:
-  template:
-    serviceAccount: %s
-    network: %q
-    labels:
-      app: %s`, cfg.Service, serviceAccount, cfg.Cluster.NetworkName(), cfg.Service))
-	}
-
-	var pods *kubeCore.PodList
-	if err := retry.UntilSuccess(func() error {
-		var err error
-		pods, err = c.cluster.PodsForSelector(context.TODO(), cfg.Namespace.Name(),
-			fmt.Sprintf("istio.io/test-vm=%s", cfg.Service))
-		if err != nil {
-			return err
-		}
-		if len(pods.Items) == 0 {
-			return fmt.Errorf("0 pods found for istio.io/test-vm:%s", cfg.Service)
-		}
-		for _, vmPod := range pods.Items {
-			if vmPod.Status.PodIP == "" {
-				return fmt.Errorf("empty pod ip for pod %v", vmPod.Name)
-			}
-		}
-		return nil
-	}, retry.Timeout(cfg.ReadinessTimeout)); err != nil {
-		return err
-	}
-
-	// One workload entry for each VM pod
-	for _, vmPod := range pods.Items {
-		wle := fmt.Sprintf(`
-apiVersion: networking.istio.io/v1alpha3
-kind: WorkloadEntry
-metadata:
-  name: %s
-spec:
-  address: %s
-  serviceAccount: %s
-  network: %q
-  labels:
-    app: %s
-    version: %s
-`, vmPod.Name, vmPod.Status.PodIP, serviceAccount, cfg.Cluster.NetworkName(), cfg.Service, vmPod.Labels["istio.io/test-vm-version"])
-		// Deploy the workload entry.
-		if err := ctx.Config().ApplyYAML(cfg.Namespace.Name(), wle); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func createServiceAccountToken(client kubernetes.Interface, ns string, serviceAccount string) (string, error) {
-	scopes.Framework.Debugf("Creating service account token for: %s/%s", ns, serviceAccount)
-
-	token, err := client.CoreV1().ServiceAccounts(ns).CreateToken(context.TODO(), serviceAccount,
-		&authenticationv1.TokenRequest{
-			Spec: authenticationv1.TokenRequestSpec{
-				Audiences: []string{"istio-ca"},
-			},
-		}, metav1.CreateOptions{})
-
-	if err != nil {
-		return "", err
-	}
-	return token.Status.Token, nil
-}
-
-// getContainerPorts converts the ports to a port list of container ports.
-// Adds ports for health/readiness if necessary.
-func getContainerPorts(ports []echo.Port) echoCommon.PortList {
-	containerPorts := make(echoCommon.PortList, 0, len(ports))
-	var healthPort *echoCommon.Port
-	var readyPort *echoCommon.Port
-	for _, p := range ports {
-		// Add the port to the set of application ports.
-		cport := &echoCommon.Port{
-			Name:        p.Name,
-			Protocol:    p.Protocol,
-			Port:        p.InstancePort,
-			TLS:         p.TLS,
-			ServerFirst: p.ServerFirst,
-		}
-		containerPorts = append(containerPorts, cport)
-
-		switch p.Protocol {
-		case protocol.GRPC:
-			continue
-		case protocol.HTTP:
-			if p.InstancePort == httpReadinessPort {
-				readyPort = cport
-			}
-		default:
-			if p.InstancePort == tcpHealthPort {
-				healthPort = cport
-			}
-		}
-	}
-
-	// If we haven't added the readiness/health ports, do so now.
-	if readyPort == nil {
-		containerPorts = append(containerPorts, &echoCommon.Port{
-			Name:     "http-readiness-port",
-			Protocol: protocol.HTTP,
-			Port:     httpReadinessPort,
-		})
-	}
-	if healthPort == nil {
-		containerPorts = append(containerPorts, &echoCommon.Port{
-			Name:     "tcp-health-port",
-			Protocol: protocol.HTTP,
-			Port:     tcpHealthPort,
-		})
-	}
-	return containerPorts
-}
-
 func (c *instance) ID() resource.ID {
 	return c.id
 }
@@ -298,11 +110,7 @@ func (c *instance) Address() string {
 }
 
 func (c *instance) Workloads() ([]echo.Workload, error) {
-	out := make([]echo.Workload, 0, len(c.workloads))
-	for _, w := range c.workloads {
-		out = append(out, w)
-	}
-	return out, nil
+	return c.workloadMgr.ReadyWorkloads()
 }
 
 func (c *instance) WorkloadsOrFail(t test.Failer) []echo.Workload {
@@ -314,46 +122,21 @@ func (c *instance) WorkloadsOrFail(t test.Failer) []echo.Workload {
 	return out
 }
 
-// WorkloadHasSidecar returns true if the input endpoint is deployed with sidecar injected based on the config.
-func workloadHasSidecar(cfg echo.Config, podName string) bool {
-	// Match workload first.
-	for _, w := range cfg.Subsets {
-		if strings.HasPrefix(podName, fmt.Sprintf("%v-%v", cfg.Service, w.Version)) {
-			return w.Annotations.GetBool(echo.SidecarInject)
-		}
+func (c *instance) firstClient() (*appEcho.Instance, error) {
+	workloads, err := c.Workloads()
+	if err != nil {
+		return nil, err
 	}
-	return true
+	return workloads[0].(*workload).Client()
 }
 
-func (c *instance) initialize(pods []kubeCore.Pod) error {
-	if c.workloads != nil {
-		// Already ready.
-		return nil
-	}
-
-	workloads := make([]*workload, 0)
-	for _, pod := range pods {
-		workload, err := newWorkload(pod, workloadHasSidecar(c.cfg, pod.Name), c.grpcPort, c.cluster, c.tls, c.ctx)
-		if err != nil {
-			return err
-		}
-		workloads = append(workloads, workload)
-	}
-
-	if len(workloads) == 0 {
-		return fmt.Errorf("no workloads found for service %s/%s/%s, from %v pods", c.cfg.Namespace.Name(), c.cfg.Service, c.cfg.Version, len(pods))
-	}
-
-	c.workloads = workloads
-	return nil
+// Start this echo instance
+func (c *instance) Start() error {
+	return c.workloadMgr.Start()
 }
 
 func (c *instance) Close() (err error) {
-	for _, w := range c.workloads {
-		err = multierror.Append(err, w.Close()).ErrorOrNil()
-	}
-	c.workloads = nil
-	return
+	return c.workloadMgr.Close()
 }
 
 func (c *instance) Config() echo.Config {
@@ -361,20 +144,7 @@ func (c *instance) Config() echo.Config {
 }
 
 func (c *instance) Call(opts echo.CallOptions) (appEcho.ParsedResponses, error) {
-	out, err := common.ForwardEcho(c.cfg.Service, c.workloads[0].Instance, &opts, false)
-	if err != nil {
-		if opts.Port != nil {
-			err = fmt.Errorf("failed calling %s->'%s://%s:%d/%s': %v",
-				c.Config().Service,
-				strings.ToLower(string(opts.Port.Protocol)),
-				opts.Address,
-				opts.Port.ServicePort,
-				opts.Path,
-				err)
-		}
-		return nil, err
-	}
-	return out, nil
+	return c.aggregateResponses(opts, false)
 }
 
 func (c *instance) CallOrFail(t test.Failer, opts echo.CallOptions) appEcho.ParsedResponses {
@@ -388,20 +158,7 @@ func (c *instance) CallOrFail(t test.Failer, opts echo.CallOptions) appEcho.Pars
 
 func (c *instance) CallWithRetry(opts echo.CallOptions,
 	retryOptions ...retry.Option) (appEcho.ParsedResponses, error) {
-	out, err := common.ForwardEcho(c.cfg.Service, c.workloads[0].Instance, &opts, true, retryOptions...)
-	if err != nil {
-		if opts.Port != nil {
-			err = fmt.Errorf("failed calling %s->'%s://%s:%d/%s': %v",
-				c.Config().Service,
-				strings.ToLower(string(opts.Port.Protocol)),
-				opts.Address,
-				opts.Port.ServicePort,
-				opts.Path,
-				err)
-		}
-		return nil, err
-	}
-	return out, nil
+	return c.aggregateResponses(opts, true, retryOptions...)
 }
 
 func (c *instance) CallWithRetryOrFail(t test.Failer, opts echo.CallOptions,
@@ -412,4 +169,60 @@ func (c *instance) CallWithRetryOrFail(t test.Failer, opts echo.CallOptions,
 		t.Fatal(err)
 	}
 	return r
+}
+
+func (c *instance) Restart() error {
+	// Wait for all current workloads to become ready and preserve the original count.
+	origWorkloads, err := c.workloadMgr.WaitForReadyWorkloads()
+	if err != nil {
+		return fmt.Errorf("restart failed to get initial workloads: %v", err)
+	}
+
+	// Restart the deployment.
+	if err := c.deployment.Restart(); err != nil {
+		return err
+	}
+
+	// Wait until all pods are ready and match the original count.
+	return retry.UntilSuccess(func() (err error) {
+		// Get the currently ready workloads.
+		workloads, err := c.workloadMgr.WaitForReadyWorkloads()
+		if err != nil {
+			return fmt.Errorf("failed waiting for restarted pods for echo %s/%s: %v",
+				c.cfg.Namespace.Name(), c.cfg.Service, err)
+		}
+
+		// Make sure the number of pods matches the original.
+		if len(workloads) != len(origWorkloads) {
+			return fmt.Errorf("failed restarting echo %s/%s: number of pods %d does not match original %d",
+				c.cfg.Namespace.Name(), c.cfg.Service, len(workloads), len(origWorkloads))
+		}
+
+		return nil
+	}, retry.Timeout(c.cfg.ReadinessTimeout), startDelay)
+}
+
+// aggregateResponses forwards an echo request from all workloads belonging to this echo instance and aggregates the results.
+func (c *instance) aggregateResponses(opts echo.CallOptions, retry bool, retryOptions ...retry.Option) (appEcho.ParsedResponses, error) {
+	resps := make([]*appEcho.ParsedResponse, 0)
+	workloads, err := c.Workloads()
+	if err != nil {
+		return nil, err
+	}
+	var aggErr error
+	for _, w := range workloads {
+		out, err := common.ForwardEcho(c.cfg.Service, w.(*workload).Client, &opts, retry, retryOptions...)
+		if err != nil {
+			aggErr = multierror.Append(err, aggErr)
+			continue
+		}
+		for _, r := range out {
+			resps = append(resps, r)
+		}
+	}
+	if aggErr != nil {
+		return nil, aggErr
+	}
+
+	return resps, nil
 }

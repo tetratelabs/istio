@@ -19,6 +19,7 @@ import (
 	"errors"
 
 	"github.com/hashicorp/go-multierror"
+	"k8s.io/client-go/tools/cache"
 
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/config"
@@ -131,11 +132,11 @@ func (cr *store) List(typ config.GroupVersionKind, namespace string) ([]config.C
 	return configs, errs.ErrorOrNil()
 }
 
-func (cr *store) Delete(typ config.GroupVersionKind, name, namespace string) error {
+func (cr *store) Delete(typ config.GroupVersionKind, name, namespace string, resourceVersion *string) error {
 	if cr.writer == nil {
 		return errorUnsupported
 	}
-	return cr.writer.Delete(typ, name, namespace)
+	return cr.writer.Delete(typ, name, namespace, resourceVersion)
 }
 
 func (cr *store) Create(c config.Config) (string, error) {
@@ -159,11 +160,11 @@ func (cr *store) UpdateStatus(c config.Config) (string, error) {
 	return cr.writer.UpdateStatus(c)
 }
 
-func (cr *store) Patch(typ config.GroupVersionKind, name, namespace string, patchFn config.PatchFunc) (string, error) {
+func (cr *store) Patch(orig config.Config, patchFn config.PatchFunc) (string, error) {
 	if cr.writer == nil {
 		return "", errorUnsupported
 	}
-	return cr.writer.Patch(typ, name, namespace, patchFn)
+	return cr.writer.Patch(orig, patchFn)
 }
 
 type storeCache struct {
@@ -186,6 +187,16 @@ func (cr *storeCache) RegisterEventHandler(kind config.GroupVersionKind, handler
 			cache.RegisterEventHandler(kind, handler)
 		}
 	}
+}
+
+func (cr *storeCache) SetWatchErrorHandler(handler func(r *cache.Reflector, err error)) error {
+	var errs error
+	for _, cache := range cr.caches {
+		if err := cache.SetWatchErrorHandler(handler); err != nil {
+			errs = multierror.Append(errs, err)
+		}
+	}
+	return errs
 }
 
 func (cr *storeCache) Run(stop <-chan struct{}) {

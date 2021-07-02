@@ -14,6 +14,8 @@
 
 package sets
 
+import "sort"
+
 type Set map[string]struct{}
 
 // NewSet creates a Set from a list of values.
@@ -27,6 +29,14 @@ func NewSet(items ...string) Set {
 func (s Set) Insert(items ...string) Set {
 	for _, item := range items {
 		s[item] = struct{}{}
+	}
+	return s
+}
+
+// Delete removes items from the set.
+func (s Set) Delete(items ...string) Set {
+	for _, item := range items {
+		delete(s, item)
 	}
 	return s
 }
@@ -53,6 +63,13 @@ func (s Set) UnsortedList() []string {
 	for key := range s {
 		res = append(res, key)
 	}
+	return res
+}
+
+// SortedList returns the slice with contents sorted.
+func (s Set) SortedList() []string {
+	res := s.UnsortedList()
+	sort.Strings(res)
 	return res
 }
 

@@ -40,8 +40,16 @@ func init() {
 		"Timeout applied to deploying Istio into the target Kubernetes environment. Only applies if DeployIstio=true.")
 	flag.DurationVar(&settingsFromCommandline.UndeployTimeout, "istio.test.kube.undeployTimeout", 0,
 		"Timeout applied to undeploying Istio from the target Kubernetes environment. Only applies if DeployIstio=true.")
-	flag.StringVar(&settingsFromCommandline.IOPFile, "istio.test.kube.helm.iopFile", settingsFromCommandline.IOPFile,
+	flag.StringVar(&settingsFromCommandline.PrimaryClusterIOPFile, "istio.test.kube.helm.iopFile", settingsFromCommandline.PrimaryClusterIOPFile,
 		"IstioOperator spec file. This can be an absolute path or relative to repository root.")
 	flag.StringVar(&helmValues, "istio.test.kube.helm.values", helmValues,
 		"Manual overrides for Helm values file. Only valid when deploying Istio.")
+	flag.BoolVar(&settingsFromCommandline.DeployEastWestGW, "istio.test.kube.deployEastWestGW", settingsFromCommandline.DeployEastWestGW,
+		"Deploy Istio east west gateway into the target Kubernetes environment.")
+	flag.BoolVar(&settingsFromCommandline.DeployHelm, "istio.test.helm.deploy", settingsFromCommandline.DeployHelm,
+		"Deploy Istio into the target Kubernetes environment with Helm.")
+	flag.BoolVar(&settingsFromCommandline.DumpKubernetesManifests, "istio.test.istio.dumpManifests", settingsFromCommandline.DumpKubernetesManifests,
+		"Dump generated Istio install manifests in the artifacts directory.")
+	flag.BoolVar(&settingsFromCommandline.IstiodlessRemotes, "istio.test.istio.istiodlessRemotes", settingsFromCommandline.IstiodlessRemotes,
+		"Remote clusters run without istiod, using webhooks/ca from the primary cluster.")
 }

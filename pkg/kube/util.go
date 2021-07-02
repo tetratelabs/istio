@@ -56,7 +56,7 @@ func BuildClientCmd(kubeconfig, context string) clientcmd.ClientConfig {
 		}
 	}
 
-	//Config loading rules:
+	// Config loading rules:
 	// 1. kubeconfig if it not empty string
 	// 2. Config(s) in KUBECONFIG environment variable
 	// 3. In cluster config if running in-cluster
@@ -127,11 +127,22 @@ func SetRestDefaults(config *rest.Config) *rest.Config {
 	return config
 }
 
-// CheckPodReady returns nil if the given pod and all of its containers are ready.
-func CheckPodReady(pod *kubeApiCore.Pod) error {
+// CheckPodReadyOrComplete returns nil if the given pod and all of its containers are ready or terminated
+// successfully.
+func CheckPodReadyOrComplete(pod *kubeApiCore.Pod) error {
 	switch pod.Status.Phase {
 	case kubeApiCore.PodSucceeded:
 		return nil
+	case kubeApiCore.PodRunning:
+		return CheckPodReady(pod)
+	default:
+		return fmt.Errorf("%s", pod.Status.Phase)
+	}
+}
+
+// CheckPodReady returns nil if the given pod and all of its containers are ready.
+func CheckPodReady(pod *kubeApiCore.Pod) error {
+	switch pod.Status.Phase {
 	case kubeApiCore.PodRunning:
 		// Wait until all containers are ready.
 		for _, containerStatus := range pod.Status.ContainerStatuses {
@@ -171,7 +182,7 @@ func GetDeployMetaFromPod(pod *kubeApiCore.Pod) (*metav1.ObjectMeta, *metav1.Typ
 		var controllerRef metav1.OwnerReference
 		controllerFound := false
 		for _, ref := range pod.GetOwnerReferences() {
-			if *ref.Controller {
+			if ref.Controller != nil && *ref.Controller {
 				controllerRef = ref
 				controllerFound = true
 				break

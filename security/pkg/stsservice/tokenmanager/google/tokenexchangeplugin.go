@@ -43,11 +43,12 @@ const (
 	tokenType        = "urn:ietf:params:oauth:token-type:access_token"
 	federatedToken   = "federated token"
 	accessToken      = "access token"
+	GCPAuthProvider  = "gcp"
 )
 
 var (
 	pluginLog              = log.RegisterScope("token", "token manager plugin debugging", 0)
-	federatedTokenEndpoint = "https://securetoken.googleapis.com/v1/identitybindingtoken"
+	federatedTokenEndpoint = "https://sts.googleapis.com/v1/token"
 	accessTokenEndpoint    = "https://iamcredentials.googleapis.com/v1/projects/-/" +
 		"serviceAccounts/service-%s@gcp-sa-meshdataplane.iam.gserviceaccount.com:generateAccessToken"
 	// default grace period in seconds of an access token. If caching is enabled and token remaining life time is
@@ -108,7 +109,7 @@ type federatedTokenResponse struct {
 }
 
 // GenerateToken takes STS request parameters and fetches token, returns StsResponseParameters in JSON.
-func (p *Plugin) ExchangeToken(parameters stsservice.StsRequestParameters) ([]byte, error) {
+func (p *Plugin) ExchangeToken(parameters security.StsRequestParameters) ([]byte, error) {
 	if tokenSTS, ok := p.useCachedToken(); ok {
 		return tokenSTS, nil
 	}
@@ -194,7 +195,7 @@ func (p *Plugin) constructAudience(subjectToken string) string {
 
 // constructFederatedTokenRequest returns an HTTP request for federated token.
 // Example of a federated token request:
-// POST https://securetoken.googleapis.com/v1/identitybindingtoken
+// POST https://sts.googleapis.com/v1/token
 // Content-Type: application/json
 // {
 //    audience: <trust domain>:<provider>
@@ -204,7 +205,7 @@ func (p *Plugin) constructAudience(subjectToken string) string {
 //    subjectToken: <jwt token>
 //    Scope: https://www.googleapis.com/auth/cloud-platform
 // }
-func (p *Plugin) constructFederatedTokenRequest(parameters stsservice.StsRequestParameters) (*http.Request, error) {
+func (p *Plugin) constructFederatedTokenRequest(parameters security.StsRequestParameters) (*http.Request, error) {
 	reqScope := scope
 	if len(parameters.Scope) != 0 {
 		reqScope = parameters.Scope
@@ -239,17 +240,20 @@ func (p *Plugin) constructFederatedTokenRequest(parameters stsservice.StsRequest
 		dJSONQuery, _ := json.Marshal(dQuery)
 		dReq, _ := http.NewRequest("POST", federatedTokenEndpoint, bytes.NewBuffer(dJSONQuery))
 		dReq.Header.Set("Content-Type", contentType)
-		reqDump, _ := httputil.DumpRequest(dReq, true)
-		pluginLog.Debugf("Prepared federated token request: \n%s", string(reqDump))
+
+		if pluginLog.DebugEnabled() {
+			reqDump, _ := httputil.DumpRequest(dReq, true)
+			pluginLog.Debugf("Prepared federated token request: \n%s", string(reqDump))
+		}
 	} else {
-		pluginLog.Info("Prepared federated token request")
+		pluginLog.Infof("Prepared federated token request, aud: %s, STS endpoint: %s", aud, federatedTokenEndpoint)
 	}
 	return req, nil
 }
 
 // fetchFederatedToken exchanges a third-party issued Json Web Token for an OAuth2.0 access token
 // which asserts a third-party identity within an identity namespace.
-func (p *Plugin) fetchFederatedToken(parameters stsservice.StsRequestParameters) (*federatedTokenResponse, error) {
+func (p *Plugin) fetchFederatedToken(parameters security.StsRequestParameters) (*federatedTokenResponse, error) {
 	respData := &federatedTokenResponse{}
 
 	req, err := p.constructFederatedTokenRequest(parameters)
@@ -289,7 +293,7 @@ func (p *Plugin) fetchFederatedToken(parameters stsservice.StsRequestParameters)
 		return respData, fmt.Errorf("failed to unmarshal federated token response data: %v", err)
 	}
 	if respData.AccessToken == "" {
-		pluginLog.Errora("federated token response does not have access token", string(body))
+		pluginLog.Error("federated token response does not have access token", string(body))
 		return respData, errors.New("federated token response does not have access token. " + string(body))
 	}
 	pluginLog.Infof("Federated token will expire in %d seconds", respData.ExpiresIn)
@@ -297,7 +301,8 @@ func (p *Plugin) fetchFederatedToken(parameters stsservice.StsRequestParameters)
 	p.tokens.Store(federatedToken, stsservice.TokenInfo{
 		TokenType:  federatedToken,
 		IssueTime:  tokenReceivedTime,
-		ExpireTime: tokenReceivedTime.Add(time.Duration(respData.ExpiresIn) * time.Second)})
+		ExpireTime: tokenReceivedTime.Add(time.Duration(respData.ExpiresIn) * time.Second),
+	})
 	return respData, nil
 }
 
@@ -422,7 +427,7 @@ func (p *Plugin) fetchAccessToken(federatedToken *federatedTokenResponse) (*acce
 		return respData, fmt.Errorf("failed to unmarshal access token response data: %v", err)
 	}
 	if respData.AccessToken == "" {
-		pluginLog.Errora("access token response does not have access token", string(body))
+		pluginLog.Error("access token response does not have access token", string(body))
 		return respData, errors.New("access token response does not have access token. " + string(body))
 	}
 	pluginLog.Debug("successfully exchanged an access token")
@@ -441,7 +446,8 @@ func (p *Plugin) fetchAccessToken(federatedToken *federatedTokenResponse) (*acce
 		TokenType:  accessToken,
 		IssueTime:  time.Now(),
 		ExpireTime: tokenExp,
-		Token:      respData.AccessToken})
+		Token:      respData.AccessToken,
+	})
 	p.mutex.Lock()
 	p.accessTokenCacheHit = 0
 	p.mutex.Unlock()
@@ -483,7 +489,8 @@ func (p *Plugin) DumpPluginStatus() ([]byte, error) {
 	p.tokens.Range(func(k interface{}, v interface{}) bool {
 		token := v.(stsservice.TokenInfo)
 		tokenStatus = append(tokenStatus, stsservice.TokenInfo{
-			TokenType: token.TokenType, IssueTime: token.IssueTime, ExpireTime: token.ExpireTime})
+			TokenType: token.TokenType, IssueTime: token.IssueTime, ExpireTime: token.ExpireTime,
+		})
 		return true
 	})
 	td := stsservice.TokensDump{
@@ -493,10 +500,32 @@ func (p *Plugin) DumpPluginStatus() ([]byte, error) {
 	return statusJSON, err
 }
 
+// GetMetadata returns the metadata headers related to the token
+func (p *Plugin) GetMetadata(forCA bool, xdsAuthProvider, token string) (map[string]string, error) {
+	if token == "" {
+		return nil, fmt.Errorf("empty token in plugin GetMetadata")
+	}
+	gcpProjectNumber := p.GetGcpProjectNumber()
+	if !forCA && xdsAuthProvider == GCPAuthProvider && len(gcpProjectNumber) > 0 {
+		return map[string]string{
+			"authorization":       "Bearer " + token,
+			"x-goog-user-project": gcpProjectNumber,
+		}, nil
+	}
+	return map[string]string{
+		"authorization": "Bearer " + token,
+	}, nil
+}
+
 // SetEndpoints changes the endpoints for testing purposes only.
 func (p *Plugin) SetEndpoints(fTokenEndpoint, aTokenEndpoint string) {
 	federatedTokenEndpoint = fTokenEndpoint
 	accessTokenEndpoint = aTokenEndpoint
+}
+
+// GetGcpProjectNumber returns the GCP project number
+func (p *Plugin) GetGcpProjectNumber() string {
+	return p.gcpProjectNumber
 }
 
 // ClearCache is only used for testing purposes.

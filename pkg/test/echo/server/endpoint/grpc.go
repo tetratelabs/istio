@@ -22,10 +22,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 
 	"istio.io/istio/pkg/test/echo/common"
@@ -54,7 +56,7 @@ func (s *grpcInstance) GetConfig() Config {
 
 func (s *grpcInstance) Start(onReady OnReadyFunc) error {
 	// Listen on the given port and update the port if it changed from what was passed in.
-	listener, p, err := listenOnPort(s.Port.Port)
+	listener, p, err := listenOnAddress(s.ListenerIP, s.Port.Port)
 	if err != nil {
 		return err
 	}
@@ -156,10 +158,17 @@ func (h *grpcHandler) Echo(ctx context.Context, req *proto.EchoRequest) (*proto.
 		portNumber = h.Port.Port
 	}
 
+	ip := "0.0.0.0"
+	if peerInfo, ok := peer.FromContext(ctx); ok {
+		ip, _, _ = net.SplitHostPort(peerInfo.Addr.String())
+	}
+
 	writeField(&body, response.StatusCodeField, response.StatusCodeOK)
 	writeField(&body, response.ServiceVersionField, h.Version)
 	writeField(&body, response.ServicePortField, strconv.Itoa(portNumber))
 	writeField(&body, response.ClusterField, h.Cluster)
+	writeField(&body, response.IPField, ip)
+	writeField(&body, response.IstioVersionField, h.IstioVersion)
 	writeField(&body, "Echo", req.GetMessage())
 
 	if hostname, err := os.Hostname(); err == nil {
@@ -171,10 +180,10 @@ func (h *grpcHandler) Echo(ctx context.Context, req *proto.EchoRequest) (*proto.
 
 func (h *grpcHandler) ForwardEcho(ctx context.Context, req *proto.ForwardEchoRequest) (*proto.ForwardEchoResponse, error) {
 	epLog.Infof("ForwardEcho[%s] request", req.Url)
+	t0 := time.Now()
 	instance, err := forwarder.New(forwarder.Config{
 		Request: req,
 		Dialer:  h.Dialer,
-		TLSCert: h.TLSCert,
 	})
 	if err != nil {
 		return nil, err
@@ -182,6 +191,6 @@ func (h *grpcHandler) ForwardEcho(ctx context.Context, req *proto.ForwardEchoReq
 	defer instance.Close()
 
 	ret, err := instance.Run(ctx)
-	epLog.Infof("ForwardEcho[%s] response: %v and error %v", req.Url, ret.GetOutput(), err)
+	epLog.Infof("ForwardEcho[%s] response in %v: %v and error %v", req.Url, time.Since(t0), ret.GetOutput(), err)
 	return ret, err
 }

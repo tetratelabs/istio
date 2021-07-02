@@ -35,7 +35,7 @@ function set_download_command () {
   # Try curl.
   if command -v curl > /dev/null; then
     if curl --version | grep Protocols  | grep https > /dev/null; then
-      DOWNLOAD_COMMAND='curl -fLSs'
+      DOWNLOAD_COMMAND="curl -fLSs --retry 5 --retry-delay 1 --retry-connrefused"
       return
     fi
     echo curl does not support https, will try wget for downloading files.
@@ -45,7 +45,7 @@ function set_download_command () {
 
   # Try wget.
   if command -v wget > /dev/null; then
-    DOWNLOAD_COMMAND='wget -qO -'
+    DOWNLOAD_COMMAND="wget -qO -"
     return
   fi
   echo wget is not installed.
@@ -59,6 +59,7 @@ function set_download_command () {
 # Params:
 #   $1: The URL of the Envoy tar.gz to be downloaded.
 #   $2: The full path of the output binary.
+#   $3: Non-versioned name to use
 function download_envoy_if_necessary () {
   if [[ ! -f "$2" ]] ; then
     # Enter the output directory.
@@ -66,7 +67,7 @@ function download_envoy_if_necessary () {
     pushd "$(dirname "$2")"
 
     # Download and extract the binary to the output directory.
-    echo "Downloading ${SIDECAR}: ${DOWNLOAD_COMMAND} $1 to $2"
+    echo "Downloading ${SIDECAR}: $1 to $2"
     time ${DOWNLOAD_COMMAND} --header "${AUTH_HEADER:-}" "$1" | tar xz
 
     # Copy the extracted binary to the output location
@@ -76,8 +77,8 @@ function download_envoy_if_necessary () {
     rm -rf usr
 
     # Make a copy named just "envoy" in the same directory (overwrite if necessary).
-    echo "Copying $2 to $(dirname "$2")/${SIDECAR}"
-    cp -f "$2" "$(dirname "$2")/${SIDECAR}"
+    echo "Copying $2 to $(dirname "$2")/${3}"
+    cp -f "$2" "$(dirname "$2")/${3}"
     popd
   fi
 }
@@ -96,7 +97,7 @@ function download_wasm_if_necessary () {
     pushd "${download_file_dir}"
 
     # Download the WebAssembly plugin files to the output directory.
-    echo "Downloading WebAssembly file: ${DOWNLOAD_COMMAND} $1 to ${download_file_path}"
+    echo "Downloading WebAssembly file: $1 to ${download_file_path}"
     if [[ ${DOWNLOAD_COMMAND} == curl* ]]; then
       time ${DOWNLOAD_COMMAND} --header "${AUTH_HEADER:-}" "$1" -o "${download_file_name}"
     elif [[ ${DOWNLOAD_COMMAND} == wget* ]]; then
@@ -116,18 +117,18 @@ set_download_command
 
 if [[ -n "${DEBUG_IMAGE:-}" ]]; then
   # Download and extract the Envoy linux debug binary.
-  download_envoy_if_necessary "${ISTIO_ENVOY_LINUX_DEBUG_URL}" "$ISTIO_ENVOY_LINUX_DEBUG_PATH"
+  download_envoy_if_necessary "${ISTIO_ENVOY_LINUX_DEBUG_URL}" "$ISTIO_ENVOY_LINUX_DEBUG_PATH" "${SIDECAR}"
 else
   echo "Skipping envoy debug. Set DEBUG_IMAGE to download."
 fi
 
 # Download and extract the Envoy linux release binary.
-download_envoy_if_necessary "${ISTIO_ENVOY_LINUX_RELEASE_URL}" "$ISTIO_ENVOY_LINUX_RELEASE_PATH"
-download_envoy_if_necessary "${ISTIO_ENVOY_CENTOS_RELEASE_URL}" "$ISTIO_ENVOY_CENTOS_LINUX_RELEASE_PATH"
+download_envoy_if_necessary "${ISTIO_ENVOY_LINUX_RELEASE_URL}" "$ISTIO_ENVOY_LINUX_RELEASE_PATH" "${SIDECAR}"
+download_envoy_if_necessary "${ISTIO_ENVOY_CENTOS_RELEASE_URL}" "$ISTIO_ENVOY_CENTOS_LINUX_RELEASE_PATH" "${SIDECAR}-centos"
 
 if [[ "$GOOS_LOCAL" == "darwin" ]]; then
   # Download and extract the Envoy macOS release binary
-  download_envoy_if_necessary "${ISTIO_ENVOY_MACOS_RELEASE_URL}" "$ISTIO_ENVOY_MACOS_RELEASE_PATH"
+  download_envoy_if_necessary "${ISTIO_ENVOY_MACOS_RELEASE_URL}" "$ISTIO_ENVOY_MACOS_RELEASE_PATH" "${SIDECAR}"
   ISTIO_ENVOY_NATIVE_PATH=${ISTIO_ENVOY_MACOS_RELEASE_PATH}
 else
   ISTIO_ENVOY_NATIVE_PATH=${ISTIO_ENVOY_LINUX_RELEASE_PATH}

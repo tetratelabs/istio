@@ -12,6 +12,8 @@ global:
     enableAnalysis: false
 
   configValidation: true
+  externalIstiod: false
+  remotePilotAddress: ""
 
 base:
   # Used for helm2 to add the CRDs to templates.

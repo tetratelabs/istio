@@ -26,17 +26,15 @@ import (
 	"istio.io/pkg/log"
 )
 
-var (
-	// For most common ports allow the protocol to be guessed, this isn't meant
-	// to replace /etc/services. Fully qualified proto[-extra]:port is the
-	// recommended usage.
-	portsToName = map[int32]string{
-		80:   "http",
-		443:  "https",
-		3306: "mysql",
-		8080: "http",
-	}
-)
+// For most common ports allow the protocol to be guessed, this isn't meant
+// to replace /etc/services. Fully qualified proto[-extra]:port is the
+// recommended usage.
+var portsToName = map[int32]string{
+	80:   "http",
+	443:  "https",
+	3306: "mysql",
+	8080: "http",
+}
 
 // NamedPort defines the Port and Name tuple needed for services and endpoints.
 type NamedPort struct {
@@ -131,7 +129,7 @@ func RegisterEndpoint(client kubernetes.Interface, namespace string, svcName str
 		addLabelsAndAnnotations(&svc.ObjectMeta, labels, annotations)
 		_, err = client.CoreV1().Services(namespace).Create(context.TODO(), &svc, meta_v1.CreateOptions{})
 		if err != nil {
-			log.Errora("Unable to create service: ", err)
+			log.Error("Unable to create service: ", err)
 			return err
 		}
 	}
@@ -144,7 +142,7 @@ func RegisterEndpoint(client kubernetes.Interface, namespace string, svcName str
 		addLabelsAndAnnotations(&endP.ObjectMeta, labels, annotations)
 		eps, err = client.CoreV1().Endpoints(namespace).Create(context.TODO(), &endP, meta_v1.CreateOptions{})
 		if err != nil {
-			log.Errora("Unable to create endpoint: ", err)
+			log.Error("Unable to create endpoint: ", err)
 			return err
 		}
 	}
@@ -183,7 +181,7 @@ func RegisterEndpoint(client kubernetes.Interface, namespace string, svcName str
 	}
 	eps, err = client.CoreV1().Endpoints(namespace).Update(context.TODO(), eps, meta_v1.UpdateOptions{})
 	if err != nil {
-		log.Errora("Update failed with: ", err)
+		log.Error("Update failed with: ", err)
 		return err
 	}
 	total := 0

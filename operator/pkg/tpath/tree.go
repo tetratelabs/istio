@@ -22,6 +22,7 @@ used for this purpose.
 package tpath
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -37,9 +38,7 @@ import (
 	"istio.io/pkg/log"
 )
 
-var (
-	scope = log.RegisterScope("tpath", "tree traverser", 0)
-)
+var scope = log.RegisterScope("tpath", "tree traverser", 0)
 
 // PathContext provides a means for traversing a tree towards the root.
 type PathContext struct {
@@ -550,6 +549,10 @@ func tryToUnmarshalStringToYAML(s interface{}) (interface{}, bool) {
 		if len(sv) == 1 && strings.Contains(s.(string), ": ") ||
 			len(sv) > 1 && strings.Contains(s.(string), ":") {
 			nv := make(map[string]interface{})
+			if err := json.Unmarshal([]byte(vv.(string)), &nv); err == nil {
+				// treat JSON as string
+				return vv, false
+			}
 			if err := yaml2.Unmarshal([]byte(vv.(string)), &nv); err == nil {
 				return nv, true
 			}

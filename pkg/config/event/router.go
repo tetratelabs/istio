@@ -28,8 +28,7 @@ type Router interface {
 }
 
 // emptyRouter
-type emptyRouter struct {
-}
+type emptyRouter struct{}
 
 var _ Router = &emptyRouter{}
 
@@ -72,7 +71,7 @@ func (r *router) Handle(e Event) {
 	if found {
 		h.handler.Handle(e)
 	} else {
-		scope.Processing.Warna("Router.Handle: No handler for event, dropping: ", e)
+		scope.Processing.Warn("Router.Handle: No handler for event, dropping: ", e)
 	}
 }
 

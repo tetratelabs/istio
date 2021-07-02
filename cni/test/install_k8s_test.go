@@ -1,4 +1,3 @@
-// +build integ
 // Copyright 2018 Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,11 +17,9 @@
 package install_test
 
 import (
-	"fmt"
-	"os"
 	"testing"
 
-	"istio.io/istio/cni/deployments/kubernetes/install/test"
+	install "istio.io/istio/cni/test"
 	"istio.io/istio/pkg/test/env"
 )
 
@@ -43,25 +40,8 @@ type testCase struct {
 	cniConfDirOrderedFiles []string
 }
 
-func doTest(testNum int, tc testCase, t *testing.T) {
-	_ = os.Setenv("HUB", Hub)
-	_ = os.Setenv("TAG", Tag)
-	t.Logf("Running install CNI test with HUB=%s, TAG=%s", Hub, Tag)
-	test.RunInstallCNITest(testNum, tc.chainedCNIPlugin, tc.preConfFile, tc.resultFileName, tc.delayedConfFile, tc.expectedOutputFile,
-		tc.expectedPostCleanFile, tc.cniConfDirOrderedFiles, t)
-}
-
 func TestInstall(t *testing.T) {
-	envHub := os.Getenv("HUB")
-	if envHub != "" {
-		Hub = envHub
-	}
-	envTag := os.Getenv("TAG")
-	if envTag != "" {
-		Tag = envTag
-	}
-	t.Logf("HUB=%s, TAG=%s", Hub, Tag)
-	testDataDir := env.IstioSrc + "/cni/deployments/kubernetes/install/test/data"
+	testDataDir := env.IstioSrc + "/cni/test/testdata"
 	cases := []testCase{
 		{
 			name:                   "File with pre-plugins--.conflist",
@@ -135,9 +115,11 @@ func TestInstall(t *testing.T) {
 			resultFileName:        "02-minikube_cni.conflist",
 			expectedOutputFile:    testDataDir + "/expected/minikube_cni.conflist.expected",
 			expectedPostCleanFile: testDataDir + "/expected/minikube_cni.conflist.clean",
-			cniConfDirOrderedFiles: []string{"noname_calico.conflist",
+			cniConfDirOrderedFiles: []string{
+				"noname_calico.conflist",
 				"noplugins_calico.conflist",
-				"minikube_cni.conf", "calico.conflist"},
+				"minikube_cni.conf", "calico.conflist",
+			},
 		},
 		{
 			name:                  "Skip invalid .conflist files for first valid .conflist file",
@@ -145,9 +127,11 @@ func TestInstall(t *testing.T) {
 			resultFileName:        "02-calico.conflist",
 			expectedOutputFile:    testDataDir + "/expected/10-calico.conflist-istioconfig",
 			expectedPostCleanFile: testDataDir + "/pre/calico.conflist",
-			cniConfDirOrderedFiles: []string{"noname_calico.conflist",
+			cniConfDirOrderedFiles: []string{
+				"noname_calico.conflist",
 				"noplugins_calico.conflist",
-				"calico.conflist", "minikube_cni.conf"},
+				"calico.conflist", "minikube_cni.conf",
+			},
 		},
 		{
 			name:                   "confFile env var point to missing .conf with valid .conflist file",
@@ -196,10 +180,11 @@ func TestInstall(t *testing.T) {
 			expectedOutputFile: testDataDir + "/expected/YYY-istio-cni.conf",
 		},
 	}
-	for i, c := range cases {
-		t.Run(fmt.Sprintf("case %d %s", i, c.name), func(t *testing.T) {
-			t.Logf("%s: Test preconf %s, expected %s", c.name, c.preConfFile, c.expectedOutputFile)
-			doTest(i, c, t)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Logf("%s: Test preconf %s, expected %s", tc.name, tc.preConfFile, tc.expectedOutputFile)
+			install.RunInstallCNITest(t, tc.chainedCNIPlugin, tc.preConfFile, tc.resultFileName, tc.delayedConfFile, tc.expectedOutputFile,
+				tc.expectedPostCleanFile, tc.cniConfDirOrderedFiles)
 		})
 	}
 }

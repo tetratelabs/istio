@@ -1,0 +1,8 @@
+apiVersion: release-notes/v2
+kind: feature
+area: installation
+issue:
+- 31732
+releaseNotes:
+- |
+  **Added** support for slash characters in environment variables on injectionURL

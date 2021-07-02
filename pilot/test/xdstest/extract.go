@@ -20,6 +20,7 @@ import (
 	"sort"
 
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
@@ -30,10 +31,11 @@ import (
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/any"
 
 	"istio.io/istio/pilot/pkg/networking/util"
+	"istio.io/istio/pilot/pkg/util/sets"
+	v3 "istio.io/istio/pilot/pkg/xds/v3"
 	"istio.io/istio/pkg/test"
 )
 
@@ -45,7 +47,7 @@ func ExtractRoutesFromListeners(ll []*listener.Listener) []string {
 				if filter.Name == wellknown.HTTPConnectionManager {
 					filter.GetTypedConfig()
 					hcon := &hcm.HttpConnectionManager{}
-					if err := ptypes.UnmarshalAny(filter.GetTypedConfig(), hcon); err != nil {
+					if err := filter.GetTypedConfig().UnmarshalTo(hcon); err != nil {
 						panic(err)
 					}
 					switch r := hcon.GetRouteSpecifier().(type) {
@@ -57,6 +59,65 @@ func ExtractRoutesFromListeners(ll []*listener.Listener) []string {
 		}
 	}
 	return routes
+}
+
+// ExtractSecretResources fetches all referenced SDS resource names from a list of clusters and listeners
+func ExtractSecretResources(t test.Failer, rs []*any.Any) []string {
+	resourceNames := sets.NewSet()
+	for _, r := range rs {
+		switch r.TypeUrl {
+		case v3.ClusterType:
+			c := &cluster.Cluster{}
+			if err := r.UnmarshalTo(c); err != nil {
+				t.Fatal(err)
+			}
+			sockets := []*core.TransportSocket{}
+			if c.TransportSocket != nil {
+				sockets = append(sockets, c.TransportSocket)
+			}
+			for _, ts := range c.TransportSocketMatches {
+				sockets = append(sockets, ts.TransportSocket)
+			}
+			for _, s := range sockets {
+				tl := &tls.UpstreamTlsContext{}
+				if err := s.GetTypedConfig().UnmarshalTo(tl); err != nil {
+					t.Fatal(err)
+				}
+				resourceNames.Insert(tl.GetCommonTlsContext().GetCombinedValidationContext().GetValidationContextSdsSecretConfig().GetName())
+				for _, s := range tl.GetCommonTlsContext().GetTlsCertificateSdsSecretConfigs() {
+					resourceNames.Insert(s.GetName())
+				}
+			}
+		case v3.ListenerType:
+			l := &listener.Listener{}
+			if err := r.UnmarshalTo(l); err != nil {
+				t.Fatal(err)
+			}
+			sockets := []*core.TransportSocket{}
+			for _, fc := range l.GetFilterChains() {
+				if fc.GetTransportSocket() != nil {
+					sockets = append(sockets, fc.GetTransportSocket())
+				}
+			}
+			if ts := l.GetDefaultFilterChain().GetTransportSocket(); ts != nil {
+				sockets = append(sockets, ts)
+			}
+			for _, s := range sockets {
+				tl := &tls.DownstreamTlsContext{}
+				if err := s.GetTypedConfig().UnmarshalTo(tl); err != nil {
+					t.Fatal(err)
+				}
+				resourceNames.Insert(tl.GetCommonTlsContext().GetCombinedValidationContext().GetValidationContextSdsSecretConfig().GetName())
+				for _, s := range tl.GetCommonTlsContext().GetTlsCertificateSdsSecretConfigs() {
+					resourceNames.Insert(s.GetName())
+				}
+			}
+		}
+	}
+	resourceNames.Delete("")
+	ls := resourceNames.UnsortedList()
+	sort.Sort(sort.Reverse(sort.StringSlice(ls)))
+	return ls
 }
 
 func ExtractListenerNames(ll []*listener.Listener) []string {
@@ -97,7 +158,7 @@ func ExtractTCPProxy(t test.Failer, fcs *listener.FilterChain) *tcpproxy.TcpProx
 		if fc.Name == wellknown.TCPProxy {
 			tcpProxy := &tcpproxy.TcpProxy{}
 			if fc.GetTypedConfig() != nil {
-				if err := ptypes.UnmarshalAny(fc.GetTypedConfig(), tcpProxy); err != nil {
+				if err := fc.GetTypedConfig().UnmarshalTo(tcpProxy); err != nil {
 					t.Fatalf("failed to unmarshal tcp proxy: %v", err)
 				}
 			}
@@ -112,7 +173,7 @@ func ExtractHTTPConnectionManager(t test.Failer, fcs *listener.FilterChain) *hcm
 		if fc.Name == wellknown.HTTPConnectionManager {
 			h := &hcm.HttpConnectionManager{}
 			if fc.GetTypedConfig() != nil {
-				if err := ptypes.UnmarshalAny(fc.GetTypedConfig(), h); err != nil {
+				if err := fc.GetTypedConfig().UnmarshalTo(h); err != nil {
 					t.Fatalf("failed to unmarshal hcm: %v", err)
 				}
 			}
@@ -188,7 +249,7 @@ func ExtractTLSSecrets(t test.Failer, secrets []*any.Any) map[string]*tls.Secret
 	res := map[string]*tls.Secret{}
 	for _, a := range secrets {
 		scrt := &tls.Secret{}
-		if err := ptypes.UnmarshalAny(a, scrt); err != nil {
+		if err := a.UnmarshalTo(scrt); err != nil {
 			t.Fatal(err)
 		}
 		res[scrt.Name] = scrt
@@ -200,7 +261,7 @@ func UnmarshalRouteConfiguration(t test.Failer, resp []*any.Any) []*route.RouteC
 	un := make([]*route.RouteConfiguration, 0, len(resp))
 	for _, r := range resp {
 		u := &route.RouteConfiguration{}
-		if err := ptypes.UnmarshalAny(r, u); err != nil {
+		if err := r.UnmarshalTo(u); err != nil {
 			t.Fatal(err)
 		}
 		un = append(un, u)
@@ -212,7 +273,7 @@ func UnmarshalClusterLoadAssignment(t test.Failer, resp []*any.Any) []*endpoint.
 	un := make([]*endpoint.ClusterLoadAssignment, 0, len(resp))
 	for _, r := range resp {
 		u := &endpoint.ClusterLoadAssignment{}
-		if err := ptypes.UnmarshalAny(r, u); err != nil {
+		if err := r.UnmarshalTo(u); err != nil {
 			t.Fatal(err)
 		}
 		un = append(un, u)

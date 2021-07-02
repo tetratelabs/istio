@@ -22,7 +22,6 @@ import (
 
 	"istio.io/istio/pilot/test/util"
 	"istio.io/istio/pkg/kube"
-	testKube "istio.io/istio/pkg/test/kube"
 )
 
 type execTestCase struct {
@@ -60,6 +59,11 @@ func TestProxyConfig(t *testing.T) {
 			args:           strings.Split("proxy-config listeners invalid", " "),
 			expectedString: "unable to retrieve Pod: pods \"invalid\" not found",
 			wantException:  true, // "istioctl proxy-config listeners invalid" should fail
+		},
+		{ // logging empty
+			args:           strings.Split("proxy-config log", " "),
+			expectedString: "Error: log requires pod name or --selector",
+			wantException:  true, // "istioctl proxy-config logging empty" should fail
 		},
 		{ // logging invalid
 			args:           strings.Split("proxy-config log invalid", " "),
@@ -208,7 +212,7 @@ func verifyExecTestOutput(t *testing.T, c execTestCase) {
 // nolint: lll
 func mockClientExecFactoryGenerator(testResults map[string][]byte) func(kubeconfig, configContext string, _ string) (kube.ExtendedClient, error) {
 	outFactory := func(_, _ string, _ string) (kube.ExtendedClient, error) {
-		return testKube.MockClient{
+		return kube.MockClient{
 			Results: testResults,
 		}, nil
 	}
@@ -218,7 +222,7 @@ func mockClientExecFactoryGenerator(testResults map[string][]byte) func(kubeconf
 
 func mockEnvoyClientFactoryGenerator(testResults map[string][]byte) func(kubeconfig, configContext string) (kube.ExtendedClient, error) {
 	outFactory := func(_, _ string) (kube.ExtendedClient, error) {
-		return testKube.MockClient{
+		return kube.MockClient{
 			Results: testResults,
 		}, nil
 	}
