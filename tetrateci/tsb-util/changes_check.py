@@ -3,6 +3,7 @@ import filecmp
 import os.path
 import shutil
 
+
 def are_dir_trees_equal(fixtures_dir, generated_dir):
     """
     Compare two directories recursively. Files in each directory are
@@ -38,6 +39,7 @@ def are_dir_trees_equal(fixtures_dir, generated_dir):
         if not are_dir_trees_equal(new_dir1, new_dir2):
             return False
     return True
+
 
 def main():
     generated_folder = "./generated"
@@ -115,6 +117,20 @@ def main():
     print(">> 3.2 bkif_single.py bridged mode test completed successfully.")
     # Doing clean up
     shutil.rmtree(generated_folder)
+
+    shutil.copytree("./fixtures/test_cert", generated_folder + "/cert")
+    os.system(
+        "python htbn_multi.py --config ./fixtures/httpbin-multi.yaml --folder "
+        + generated_folder
+    )
+    assert (
+        are_dir_trees_equal("./fixtures/httpbin_multi_generated", generated_folder)
+        == True
+    ), "htbn_multi.py test failed in bridged mode."
+    print(">> 4 htbn_multi.py bridged mode test completed successfully.")
+    # Doing clean up
+    shutil.rmtree(generated_folder)
+
 
 if __name__ == "__main__":
     main()
