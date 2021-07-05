@@ -9,7 +9,7 @@ spec:
   displayName: {{ gatewayGroupName }}
   namespaceSelector:
     names:
-    - {{ clusterName }}/{{ namespaces['product'] or namespaces }}
+    - {{ clusterName }}/{{ (namespaces and namespaces['product']) or namespace }}
   configMode: {{ mode }}
 ---
 apiVersion: traffic.tsb.tetrate.io/v2
@@ -23,7 +23,7 @@ spec:
   displayName: {{ trafficGroupName }}
   namespaceSelector:
     names:
-    - {{ clusterName }}/{{ namespaces['reviews'] or namespaces }}
+    - {{ clusterName }}/{{ (namespaces and namespaces['reviews']) or namespace }}
   configMode: {{ mode }}
 ---
 apiVersion: security.tsb.tetrate.io/v2
@@ -37,10 +37,10 @@ spec:
   displayName: {{ securityGroupName }}
   namespaceSelector:
     names:
-    {% if namespaces is mapping -%}
+    {% if namespaces -%}
     {% for ns in namespaces %}- {{ clusterName }}/{{ namespaces[ns] }}
     {% endfor -%}
     {% else -%}
-    - {{ clusterName }}/{{ namespaces }}
+    - {{ clusterName }}/{{ namespace }}
     {% endif %}
   configMode: {{ mode }}

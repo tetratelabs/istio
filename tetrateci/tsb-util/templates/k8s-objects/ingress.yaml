@@ -1,8 +1,8 @@
 apiVersion: install.tetrate.io/v1alpha1
 kind: IngressGateway
 metadata:
-  name: tsb-gateway-{{ namespaces["product"] or namespaces }}
-  namespace: {{ namespaces["product"] or namespaces }}
+  name: tsb-gateway-{{ (namespaces and namespaces['product']) or namespace }}
+  namespace: {{ (namespaces and namespaces['product']) or namespace }}
 spec:
   kubeSpec:
     service:

@@ -7,7 +7,7 @@ Metadata:
   workspace: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
-  service: {{ namespaces["reviews"] or namespaces }}/{{ reviewsHostFQDN }}
+  service: {{ (namespaces and namespaces["reviews"]) or namespace }}/{{ reviewsHostFQDN }}
   subsets:
   - name: v1
     labels:

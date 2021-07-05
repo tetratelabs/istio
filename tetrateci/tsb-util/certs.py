@@ -25,7 +25,7 @@ def create_private_key(ns, folder):
         return
     os.system(
         f'openssl req -out {folder}/cert/{hostname}.csr -newkey rsa:2048 -nodes -keyout {folder}/cert/{hostname}.key \
-            -subj "/CN={hostname} /O=bookinfo organization"'
+            -subj "/CN={hostname}/O=bookinfo organization"'
     )
 
 def create_cert(ns, folder):

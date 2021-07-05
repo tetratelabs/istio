@@ -55,7 +55,7 @@ def install_httpbin(
         modes_list = ["bridged"] * replica.bridged + ["direct"] * replica.direct
 
         while i < (replica.bridged + replica.direct):
-            print("Installing Bookinfo")
+            print("Installing Httpbin")
             key = conf.cluster_name + "-" + str(count)
 
             current_mode = modes_list[i]
@@ -63,40 +63,39 @@ def install_httpbin(
             tenant_id = str(replica.tenant_id)
 
             mode = "d" if current_mode == "direct" else "b"
-            workspace_name = f"bkift{tenant_id}ws{count}"
+            workspace_name = f"htbnt{tenant_id}ws{count}"
 
             os.makedirs(f"{folder}/k8s-objects/{key}", exist_ok=True)
             os.makedirs(f"{folder}/tsb-objects/{key}", exist_ok=True)
             os.makedirs(f"{folder}/tsb-k8s-objects/{key}", exist_ok=True)
             print(folder)
 
-            namespaces = f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}0f"
-            gateway_group = f"bkift{tenant_id}w{count}{mode}gg0"
-            traffic_group = f"bkift{tenant_id}w{count}{mode}tg0"
-            security_group = f"bkift{tenant_id}w{count}{mode}sg0"
+            namespace = f"t{tenant_id}w{count}{conf.cluster_name}htbnn{mode}0f"
+            gateway_group = f"htbnt{tenant_id}w{count}{mode}gg0"
+            traffic_group = f"htbnt{tenant_id}w{count}{mode}tg0"
+            security_group = f"htbnt{tenant_id}w{count}{mode}sg0"
 
             arguments = {
                 "tenantName": f"tenant{tenant_id}",
                 "orgName": org,
                 "workspaceName": workspace_name,
                 "clusterName": conf.cluster_name,
-                "namespaces": namespaces,
                 "gatewayGroupName": gateway_group,
                 "trafficGroupName": traffic_group,
                 "securityGroupName": security_group,
                 "mode": current_mode.upper(),
                 "securitySettingName": "httpbin-security-setting",
-                "gatewayName": f"{namespaces}-gateway",
-                "hostname": f"{namespaces}.tetrate.test.com",
-                "gwSecretName": f"{namespaces}-credential",
-                "productHostFQDN": f"httpbin.{namespaces}.svc.cluster.local",
-                "destinationFQDN": f"httpbin.{namespaces}.svc.cluster.local",
+                "gatewayName": f"{namespace}-gateway",
+                "hostname": f"{namespace}.tetrate.test.com",
+                "gwSecretName": f"{namespace}-credential",
+                "productHostFQDN": f"httpbin.{namespace}.svc.cluster.local",
+                "destinationFQDN": f"httpbin.{namespace}.svc.cluster.local",
                 "virtualserviceName": "httpbin-virtualservice",
                 "ipType": "InternalIP"
                 if conf.traffic_gen_ip == "internal"
                 else "ExternalIP",
                 "name": "httpbin",
-                "namespace": namespaces,
+                "namespace": namespace,
             }
 
             k8s_objects.generate_httpbin(
@@ -110,7 +109,7 @@ def install_httpbin(
                 "kind": "Namespace",
                 "metadata": {
                     "labels": {"istio-injection": "enabled"},
-                    "name": namespaces,
+                    "name": namespace,
                 },
             }
 
@@ -127,15 +126,15 @@ def install_httpbin(
                 arguments, f"{folder}/k8s-objects/{key}/ingress.yaml"
             )
 
-            certs.create_private_key(namespaces, folder)
-            certs.create_cert(namespaces, folder)
+            certs.create_private_key(namespace, folder)
+            certs.create_cert(namespace, folder)
             certs.create_secret(
-                namespaces, f"{folder}/k8s-objects/{key}/secret.yaml", folder
+                namespace, f"{folder}/k8s-objects/{key}/secret.yaml", folder
             )
 
             arguments["secretName"] = certs.create_trafficgen_secret(
-                namespaces,
-                f"{folder}/k8s-objects/{key}/{namespaces}-secret.yaml",
+                namespace,
+                f"{folder}/k8s-objects/{key}/{namespace}-secret.yaml",
                 folder,
             )
 
@@ -147,7 +146,7 @@ def install_httpbin(
                 arguments, f"{folder}/k8s-objects/{key}/traffic-gen.yaml"
             )
 
-            print("Bookinfo installed\n")
+            print("Httpbin installed\n")
             i += 1
             count += 1
     return count
