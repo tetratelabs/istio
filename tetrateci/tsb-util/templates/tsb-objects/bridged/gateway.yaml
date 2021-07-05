@@ -8,9 +8,9 @@ Metadata:
   tenant: {{ tenantName }}
 spec:
   workloadSelector:
-    namespace: {{ namespaces["product"] or namespace }}
+    namespace: {{ (namespaces and namespaces["product"]) or namespace }}
     labels:
-      app: tsb-gateway-{{ namespaces["product"] or namespace }}
+      app: tsb-gateway-{{ (namespaces and namespaces["product"]) or namespace }}
   http:
   - name: bookinfo
     port: 8443
@@ -21,4 +21,4 @@ spec:
     routing:
       rules:
       - route:
-          host: {{ namespaces["product"] or namespace }}/{{ productHostFQDN }}
+          host: {{ (namespaces and namespaces["product"]) or namespace }}/{{ productHostFQDN }}

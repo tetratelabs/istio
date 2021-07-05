@@ -7,13 +7,13 @@ metadata:
     tsb.tetrate.io/organization: {{ orgName }}
     tsb.tetrate.io/workspace: {{ workspaceName }}
   name: {{ gatewayName }}
-  namespace: {{ namespaces["product"] or namespace }}
+  namespace: {{ (namespaces and namespaces["product"]) or namespace }}
 spec:
   selector:
-    app: tsb-gateway-{{ namespaces["product"] or namespace }}
+    app: tsb-gateway-{{ (namespaces and namespaces["product"]) or namespace }}
   servers:
   - hosts:
-    - {{ namespaces["product"] or namespace }}/{{ productHostFQDN }}
+    - {{ (namespaces and namespaces["product"]) or namespace }}/{{ productHostFQDN }}
     port:
       name: https-bookinfo-direct
       number: 8443

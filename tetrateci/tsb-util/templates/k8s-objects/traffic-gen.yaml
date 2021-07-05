@@ -4,7 +4,7 @@ metadata:
   labels:
     app: trafficgenerator
   name: trafficgenerator
-  namespace: {{ namespaces["product"] or namespace}}
+  namespace: {{ (namespaces and namespaces["product"]) or namespace}}
 spec:
   replicas: 1
   selector:
@@ -29,7 +29,7 @@ spec:
           while :; do
             while [[ ${PORT} == "" ]]; do
               echo "Fetching Port"
-              PORT=$(kubectl get service -n {{ namespaces["product"] or namespace }} tsb-gateway-{{ namespaces["product"] or namespace }} -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+              PORT=$(kubectl get service -n {{ (namespaces and namespaces["product"]) or namespace }} tsb-gateway-{{ (namespaces and namespaces["product"]) or namespace }} -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
               sleep 5
             done
 
@@ -47,7 +47,7 @@ spec:
 
             while (( SECONDS < secs )); do
               echo "IP: $IP | PORT: $PORT | Sending traffic..."
-              curl "https://{{ namespaces["product"] or namespace }}.tetrate.test.com/{{ namespaces["product"] and "productpage" }}" --connect-to "{{ namespaces["product"] or namespace }}.tetrate.test.com:443:$IP:$PORT" --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
+              curl "https://{{ (namespaces and namespaces["product"]) or namespace }}.tetrate.test.com/{{ (namespaces and namespaces["product"]) and "productpage" }}" --connect-to "{{ (namespaces and namespaces["product"]) or namespace }}.tetrate.test.com:443:$IP:$PORT" --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
               sleep 10
             done
           done
@@ -71,4 +71,4 @@ spec:
         secret:
           defaultMode: 420
           secretName: {{ secretName }}
-      serviceAccountName: {{ namespaces["product"] or namespace }}-trafficgen-sa
+      serviceAccountName: {{ (namespaces and namespaces["product"]) or namespace }}-trafficgen-sa
