@@ -87,10 +87,31 @@ mode: "bridged" # can be "direct" or "bridged"
 
 It also installs all the entities in a single namespace, under one set of workspace, groups and tenant. 
 
+#### Multigateway HttpBin
+`htbn_multi.py` script is the one responsible to generate this config. It takes 2 arguments, 1 optional and 1 mandatory. Example:
+```bash
+pipenv run python htbn_multi.py --config config.example.yml  --folder apple
+```
+`config` is mandatory, we pass in the configuration file for generating the yaml with this. One of the example configuration look like this, 
+```yaml
+org: "tetrate"
+
+app:
+- replicas:
+  - bridged: 1
+    direct: 0
+    tenant_id: 0
+  - bridged: 0
+    direct: 1
+    tenant_id: 1
+  cluster_name: "demo"
+  traffic_gen_ip: "internal" # possible values: `external` or `internal`
+```
+From the config we can see it behaves similar to the Bookinfo Multiple gateway one, without a couple of inputs which are not necessary for this installation.
 
 #### Hacking
 
-The code is organized into 8 python files, out of which 3 are the one which is to be used directly and rest 5 just have the common functions which are being shared among all 3 of them. The `certs.py` has the functions to generate certificates and the corresponding the k8s secret. It requires openssl to be installed on the machine. `config.py` contains the functions for reading the configuration for the bookinfo single gateway script, since the script is a bit long it was decided to separate out the config part. 
+The code is organized into 10 python files, out of which 4 are the one which is to be used directly and rest 5 just have the common functions which are being shared among all 3 of them. The `certs.py` has the functions to generate certificates and the corresponding the k8s secret. It requires openssl to be installed on the machine. `config.py` contains the functions for reading the configuration for the bookinfo single gateway script, since the script is a bit long it was decided to separate out the config part. 
 
 The `common.py`, `tsb_objects.py` and `k8s_objects.py` go together with the first one containing the functions to render templates and other 2 just some wrappers for that. `jinja2` is being used to render the templates, for most cases we just unpack a dictionary as named arguments into the render function to reduce code repetation. All the templates are store in the `templates` folder. The single gateway scripts were an after thought, so there could be slight inconsistencies.
 
