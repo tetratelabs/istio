@@ -7,7 +7,6 @@ import tsb_objects, k8s_objects, common
 from marshmallow_dataclass import marshmallow
 import shutil
 
-
 def gen_common_tsb_objects(arguments, key, folder):
     # workspace
     tsb_objects.generate_workspace(
@@ -18,7 +17,6 @@ def gen_common_tsb_objects(arguments, key, folder):
     tsb_objects.generate_groups(arguments, f"{folder}/tsb-objects/{key}/groups.yaml")
     # perm
     tsb_objects.generate_perm(arguments, f"{folder}/tsb-objects/{key}/perm.yaml")
-
 
 def gen_bridge_specific_objects(arguments, key, folder):
     os.makedirs(f"{folder}/tsb-objects/{key}/bridged", exist_ok=True)
@@ -32,7 +30,6 @@ def gen_bridge_specific_objects(arguments, key, folder):
         arguments, f"{folder}/tsb-objects/{key}/bridged/gateway.yaml"
     )
 
-
 def gen_direct_specific_objects(arguments, key, folder):
     os.makedirs(f"{folder}/tsb-objects/{key}/direct", exist_ok=True)
     os.makedirs(f"{folder}/k8s-objects/{key}", exist_ok=True)
@@ -45,7 +42,6 @@ def gen_direct_specific_objects(arguments, key, folder):
     tsb_objects.generate_direct_gateway(
         arguments, f"{folder}/tsb-objects/{key}/direct/gateway.yaml"
     )
-
 
 def install_httpbin(
     conf,
@@ -71,7 +67,6 @@ def install_httpbin(
 
             os.makedirs(f"{folder}/k8s-objects/{key}", exist_ok=True)
             os.makedirs(f"{folder}/tsb-objects/{key}", exist_ok=True)
-            print(folder)
 
             namespace = f"t{tenant_id}w{count}{conf.cluster_name}htbnn{mode}0f"
             gateway_group = f"htbnt{tenant_id}w{count}{mode}gg0"
@@ -154,7 +149,6 @@ def install_httpbin(
             count += 1
     return count
 
-
 def main():
     parser = argparse.ArgumentParser(description="Spin up httpbin instances")
 
@@ -219,7 +213,6 @@ def main():
         print(e)
         print("Unknown error occurred while installing httpbin.")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

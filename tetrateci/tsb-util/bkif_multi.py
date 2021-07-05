@@ -87,7 +87,6 @@ def install_bookinfo(
             os.makedirs(f"{folder}/k8s-objects/{key}", exist_ok=True)
             os.makedirs(f"{folder}/tsb-objects/{key}", exist_ok=True)
             os.makedirs(f"{folder}/tsb-k8s-objects/{key}", exist_ok=True)
-            print(folder)
 
             namespaces = {
                 "product": f"t{tenant_id}w{count}{conf.cluster_name}bkifn{mode}0f",

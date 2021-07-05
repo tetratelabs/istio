@@ -3,7 +3,6 @@ import filecmp
 import os.path
 import shutil
 
-
 def are_dir_trees_equal(fixtures_dir, generated_dir):
     """
     Compare two directories recursively. Files in each directory are
@@ -40,7 +39,6 @@ def are_dir_trees_equal(fixtures_dir, generated_dir):
             return False
     return True
 
-
 def main():
     generated_folder = "./generated"
     if os.path.isdir(generated_folder):
@@ -49,11 +47,12 @@ def main():
 
     # testing tsb_util.py
     os.system(
-        "python bkif_multi.py --config ./fixtures/general-config.yml --folder "
+        "python bkif_multi.py --config ./fixtures/bookinfo-multi-config.yml --folder "
         + generated_folder
     )
     assert (
-        are_dir_trees_equal("./fixtures/general_generated", generated_folder) == True
+        are_dir_trees_equal("./fixtures/bookinfo_multi_generated", generated_folder)
+        == True
     ), "bkif_multi.py test failed."
     print(">> 1. bkif_multi test completed successfully.")
     # Doing clean up
@@ -130,7 +129,6 @@ def main():
     print(">> 4 htbn_multi.py bridged mode test completed successfully.")
     # Doing clean up
     shutil.rmtree(generated_folder)
-
 
 if __name__ == "__main__":
     main()
