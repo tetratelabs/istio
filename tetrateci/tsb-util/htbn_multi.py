@@ -170,7 +170,7 @@ def main():
     os.makedirs(f"{folder}", exist_ok=True)
     shutil.copy2(args.config, f"{folder}/config.yaml")
     try:
-        configs = config.read_config_yaml(args.config)
+        configs = config.read_htbn_multi_config_yaml(args.config)
     except marshmallow.exceptions.ValidationError as e:
         print("Validation errors in the configuration file.")
         print(e)
@@ -178,12 +178,6 @@ def main():
     except Exception as e:
         print(e)
         print("Unable to read the config file.")
-        sys.exit(1)
-
-    if configs.provider not in ["aws", "others"]:
-        print(
-            "Possible values for provider is `aws` and `others` not", configs.provider
-        )
         sys.exit(1)
 
     try:

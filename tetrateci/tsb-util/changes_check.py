@@ -3,7 +3,6 @@ import filecmp
 import os.path
 import shutil
 
-
 def are_dir_trees_equal(fixtures_dir, generated_dir):
     """
     Compare two directories recursively. Files in each directory are
@@ -39,7 +38,6 @@ def are_dir_trees_equal(fixtures_dir, generated_dir):
         if not are_dir_trees_equal(new_dir1, new_dir2):
             return False
     return True
-
 
 def main():
     generated_folder = "./generated"
@@ -117,7 +115,6 @@ def main():
     print(">> 3.2 bkif_single.py bridged mode test completed successfully.")
     # Doing clean up
     shutil.rmtree(generated_folder)
-
 
 if __name__ == "__main__":
     main()
