@@ -23,9 +23,9 @@ All the scripts take an optional argument `--folder` to mention the folder we wa
 > **Note:** `openssl` binary needs to be installed and in path to generate the scripts.
 
 #### Multigateway Bookinfo
-`tsb_util.py` script is the one responsible to generate this config. It takes 3 arguments, 2 optional and 1 mandatory. Example:
+`bkif_multi.py` script is the one responsible to generate this config. It takes 3 arguments, 2 optional and 1 mandatory. Example:
 ```bash
-pipenv run python tsb_util.py --config config.example.yml --password E*oWGjD4Zf61IZ%i --folder apple
+pipenv run python bkif_multi.py --config config.example.yml --password E*oWGjD4Zf61IZ%i --folder apple
 ```
 `config` is mandatory, we pass in the configuration file for generating the yaml with this. One of the example configuration look like this, 
 ```yaml
@@ -57,9 +57,9 @@ After generating the yamls, there would be the tenant yamls in the root director
 Every bookinfo instance would have its own workspace, gateway group, traffic group and security group. Added to that they would have 3 namespaces, with namespace types `f`, `m` and `b`, corresponding to front, mid and back. The front would contain the productpage service, mid would contain the ratings service and the back would contain, reviews and details service.
 
 #### Single Gateway HttpBin
-`single_ns.py` script is the one responsible to generate this config. It takes 2 arguments, 1 optional and 1 mandatory. Example:
+`htbn_single.py` script is the one responsible to generate this config. It takes 2 arguments, 1 optional and 1 mandatory. Example:
 ```bash
-pipenv run python single_ns.py --config httpbin-config.example.yaml --folder orange
+pipenv run python htbn_single.py --config httpbin-config.example.yaml --folder orange
 ```
 Same as above `config` is mandatory, though the configuration is far simpler than bookinfo, here is the one which comes with it,
 ```yaml
@@ -73,9 +73,9 @@ Number of instances of helloworld we want, the organisation and the cluster name
 The difference between this script and the previous one is, this just installs a single service called httpbin multiple times in a single namespace with different names. It also uses a single gateway and the traffic is routed based on the hostname provided. For SSL it uses a wildcard certificate just to make things a bit simpler to understand. And unlike previous one, it dumps everything on `tsb_objects` and `k8s_objects` no need to distinguish between different installs.
 
 #### Single Gateway Bookinfo
-`bookinfo-single-gw.py` script is the one responsible to generate this config. It takes 2 arguments, 1 optional and 1 mandatory. Example:
+`bkif_single.py` script is the one responsible to generate this config. It takes 2 arguments, 1 optional and 1 mandatory. Example:
 ```bash
-pipenv run python bookinfo-single-gw.py --config bookinfo-single.example.yml --folder mango
+pipenv run python bkif_single.py --config bookinfo-single.example.yml --folder mango
 ```
 It is exactly the same thing as httpbin one but for bookinfo.
 ```yaml
