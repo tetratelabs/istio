@@ -13,7 +13,7 @@ spec:
     app: tsb-gateway-t1w1demobkifnd0f
   servers:
   - hosts:
-    - t1w1demobkifnd0f/productpage.t1w1demobkifnd0f.svc.cluster.local
+    - t1w1demobkifnd0f/t1w1demobkifnd0f.tetrate.test.com
     port:
       name: https-bookinfo-direct
       number: 8443

@@ -13,7 +13,7 @@ spec:
     app: tsb-gateway-{{ (namespaces and namespaces["product"]) or namespace }}
   servers:
   - hosts:
-    - {{ (namespaces and namespaces["product"]) or namespace }}/{{ productHostFQDN }}
+    - {{ (namespaces and namespaces["product"]) or namespace }}/{{ hostname }}
     port:
       name: https-bookinfo-direct
       number: 8443
