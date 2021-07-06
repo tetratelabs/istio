@@ -19,6 +19,11 @@ replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 // See https://github.com/kubernetes/kubernetes/issues/92867, there is a bug in the library
 replace github.com/evanphx/json-patch => github.com/evanphx/json-patch v0.0.0-20190815234213-e83c0a1c26c8
 
+// Required to fix unknown version error:
+//
+//   github.com/envoyproxy/go-control-plane@v0.9.8-0.20210420150603-831d6316d7b9: invalid version: unknown revision 831d6316d7b9
+replace github.com/envoyproxy/go-control-plane => github.com/istio/go-control-plane v0.9.8-0.20210420150603-831d6316d7b9
+
 require (
 	cloud.google.com/go v0.65.0
 	contrib.go.opencensus.io/exporter/prometheus v0.2.0
