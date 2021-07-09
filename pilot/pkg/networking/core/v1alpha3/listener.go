@@ -785,7 +785,7 @@ allChainsLabel:
 
 		case istionetworking.ListenerProtocolTCP:
 			filterChainMatch = chain.FilterChainMatch
-			if len(filterChainMatch.ApplicationProtocols) > 0 {
+			if len(filterChainMatch.GetApplicationProtocols()) > 0 {
 				filterChainMatch.ApplicationProtocols = allIstioMtlsALPNs
 			}
 			tcpNetworkFilters = buildInboundNetworkFilters(pluginParams.Push, pluginParams.ServiceInstance)
