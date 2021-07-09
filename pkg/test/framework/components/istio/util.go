@@ -22,6 +22,7 @@ import (
 
 	kubeApiMeta "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"istio.io/istio/pkg/test/framework/components/environment/kube"
 	"istio.io/istio/pkg/test/framework/resource"
 
 	"istio.io/istio/pkg/test/scopes"
@@ -113,4 +114,65 @@ func GetRemoteDiscoveryAddress(namespace string, cluster resource.Cluster, useNo
 
 	ip := svc.Status.LoadBalancer.Ingress[0].IP
 	return net.TCPAddr{IP: net.ParseIP(ip), Port: discoveryPort}, nil
+}
+
+func getRemoteServiceAddress(s *kube.Settings, cluster resource.Cluster, ns, label, svcName string,
+	port int) (interface{}, bool, error) {
+
+	if s.Minikube {
+		pods, err := cluster.PodsForSelector(context.TODO(), ns, fmt.Sprintf("istio=%s", label))
+		if err != nil {
+			return nil, false, err
+		}
+
+		names := make([]string, 0, len(pods.Items))
+		for _, p := range pods.Items {
+			names = append(names, p.Name)
+		}
+		scopes.Framework.Debugf("Querying remote service, pods:%v", names)
+		if len(pods.Items) == 0 {
+			return nil, false, fmt.Errorf("no remote service pod found")
+		}
+
+		scopes.Framework.Debugf("Found pod: %v", pods.Items[0].Name)
+		ip := pods.Items[0].Status.HostIP
+		if ip == "" {
+			return nil, false, fmt.Errorf("no Host IP available on the remote service node yet")
+		}
+
+		svc, err := cluster.CoreV1().Services(ns).Get(context.TODO(), svcName, kubeApiMeta.GetOptions{})
+		if err != nil {
+			return nil, false, err
+		}
+
+		if len(svc.Spec.Ports) == 0 {
+			return nil, false, fmt.Errorf("no ports found in service: %s/%s", ns, svcName)
+		}
+
+		var nodePort int32
+		for _, svcPort := range svc.Spec.Ports {
+			if svcPort.Protocol == "TCP" && svcPort.Port == int32(port) {
+				nodePort = svcPort.NodePort
+				break
+			}
+		}
+		if nodePort == 0 {
+			return nil, false, fmt.Errorf("no port %d found in service: %s/%s", port, ns, svcName)
+		}
+
+		return net.TCPAddr{IP: net.ParseIP(ip), Port: int(nodePort)}, true, nil
+	}
+
+	// Otherwise, get the load balancer IP.
+	svc, err := cluster.CoreV1().Services(ns).Get(context.TODO(), svcName, kubeApiMeta.GetOptions{})
+	if err != nil {
+		return nil, false, err
+	}
+
+	if len(svc.Status.LoadBalancer.Ingress) == 0 || svc.Status.LoadBalancer.Ingress[0].IP == "" {
+		return nil, false, fmt.Errorf("service %s is not available yet: %s/%s", svcName, svc.Namespace, svc.Name)
+	}
+
+	ip := svc.Status.LoadBalancer.Ingress[0].IP
+	return net.TCPAddr{IP: net.ParseIP(ip), Port: port}, true, nil
 }

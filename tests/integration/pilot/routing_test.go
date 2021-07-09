@@ -21,12 +21,17 @@ import (
 	"testing"
 	"time"
 
+	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pkg/config/host"
+	"istio.io/istio/pkg/config/protocol"
 	echoclient "istio.io/istio/pkg/test/echo/client"
 	"istio.io/istio/pkg/test/echo/common/scheme"
 	epb "istio.io/istio/pkg/test/echo/proto"
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/echo"
 	"istio.io/istio/pkg/test/util/retry"
+	"istio.io/istio/pkg/test/util/yml"
+	"istio.io/istio/tests/integration/pilot/common"
 )
 
 type TrafficTestCase struct {
@@ -34,6 +39,16 @@ type TrafficTestCase struct {
 	config    string
 	call      func() (echoclient.ParsedResponses, error)
 	validator func(echoclient.ParsedResponses) error
+
+	// Multiple calls. Cannot be used with call/opts
+	children []TrafficCall
+}
+
+type TrafficCall struct {
+	name      string
+	opts      echo.CallOptions
+	call      func(options echo.CallOptions) (echoclient.ParsedResponses, error)
+	validator func(echoclient.ParsedResponses, error) error
 }
 
 func virtualServiceCases() []TrafficTestCase {
@@ -215,6 +230,98 @@ func trafficLoopCases() []TrafficTestCase {
 	}
 	return cases
 }
+
+// autoPassthroughCases tests that we cannot hit unexpected destinations when using AUTO_PASSTHROUGH
+func autoPassthroughCases() []TrafficTestCase {
+	cases := []TrafficTestCase{}
+	// We test the cross product of all Istio ALPNs (or no ALPN), all mTLS modes, and various backends
+	alpns := []string{"istio", "istio-peer-exchange", "istio-http/1.0", "istio-http/1.1", "istio-h2", ""}
+	modes := []string{"STRICT", "PERMISSIVE", "DISABLE"}
+
+	mtlsHost := host.Name(a.Config().FQDN())
+	nakedHost := host.Name(naked.Config().FQDN())
+	httpsPort := common.FindPortByName("https").ServicePort
+	httpsAutoPort := common.FindPortByName("auto-https").ServicePort
+	snis := []string{
+		model.BuildSubsetKey(model.TrafficDirectionOutbound, "", mtlsHost, httpsPort),
+		model.BuildDNSSrvSubsetKey(model.TrafficDirectionOutbound, "", mtlsHost, httpsPort),
+		model.BuildSubsetKey(model.TrafficDirectionOutbound, "", nakedHost, httpsPort),
+		model.BuildDNSSrvSubsetKey(model.TrafficDirectionOutbound, "", nakedHost, httpsPort),
+		model.BuildSubsetKey(model.TrafficDirectionOutbound, "", mtlsHost, httpsAutoPort),
+		model.BuildDNSSrvSubsetKey(model.TrafficDirectionOutbound, "", mtlsHost, httpsAutoPort),
+		model.BuildSubsetKey(model.TrafficDirectionOutbound, "", nakedHost, httpsAutoPort),
+		model.BuildDNSSrvSubsetKey(model.TrafficDirectionOutbound, "", nakedHost, httpsAutoPort),
+	}
+	for _, mode := range modes {
+		childs := []TrafficCall{}
+		for _, sni := range snis {
+			for _, alpn := range alpns {
+				alpn, sni, mode := alpn, sni, mode
+				al := &epb.Alpn{Value: []string{alpn}}
+				if alpn == "" {
+					al = nil
+				}
+				childs = append(childs, TrafficCall{
+					name: fmt.Sprintf("mode:%v,sni:%v,alpn:%v", mode, sni, alpn),
+					call: eastWest.CallEcho,
+					opts: echo.CallOptions{
+						Port: &echo.Port{
+							ServicePort: 15443,
+							Protocol:    protocol.HTTPS,
+						},
+						ServerName: sni,
+						Alpn:       al,
+					},
+					validator: func(resp echoclient.ParsedResponses, err error) error {
+						if err == nil {
+							return fmt.Errorf("expected error, but none occurred")
+						}
+						return nil
+					},
+				},
+				)
+			}
+		}
+		cases = append(cases, TrafficTestCase{
+			config: globalPeerAuthentication(mode) + `
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: cross-network-gateway-test
+  namespace: istio-system
+spec:
+  selector:
+    istio: eastwestgateway
+  servers:
+    - port:
+        number: 15443
+        name: tls
+        protocol: TLS
+      tls:
+        mode: AUTO_PASSTHROUGH
+      hosts:
+        - "*.local"
+`,
+			children: childs,
+		})
+	}
+
+	return cases
+}
+
+func globalPeerAuthentication(mode string) string {
+	return fmt.Sprintf(`apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+spec:
+  mtls:
+    mode: %s
+---
+`, mode)
+}
+
 func TestTraffic(t *testing.T) {
 	framework.
 		NewTest(t).
@@ -224,12 +331,31 @@ func TestTraffic(t *testing.T) {
 			cases = append(cases, virtualServiceCases()...)
 			cases = append(cases, protocolSniffingCases()...)
 			cases = append(cases, trafficLoopCases()...)
+			cases = append(cases, autoPassthroughCases()...)
 			for _, tt := range cases {
 				ctx.NewSubTest(tt.name).Run(func(ctx framework.TestContext) {
 					if len(tt.config) > 0 {
-						ctx.Config().ApplyYAMLOrFail(ctx, echoNamespace.Name(), tt.config)
-						defer ctx.Config().DeleteYAMLOrFail(ctx, echoNamespace.Name(), tt.config)
+						cfg := yml.MustApplyNamespace(ctx, tt.config, echoNamespace.Name())
+						ctx.Config().ApplyYAMLOrFail(ctx, "", cfg)
+						defer ctx.Config().DeleteYAMLOrFail(ctx, "", cfg)
 					}
+
+					if tt.call != nil && len(tt.children) > 0 {
+						ctx.Fatal("TrafficTestCase: must not specify both call and children")
+					}
+
+					if len(tt.children) > 0 {
+						for _, child := range tt.children {
+							ctx.NewSubTest(child.name).Run(func(ctx framework.TestContext) {
+								retry.UntilSuccessOrFail(ctx, func() error {
+									resp, err := child.call(child.opts)
+									return child.validator(resp, err)
+								}, retry.Delay(time.Millisecond*100))
+							})
+						}
+						return
+					}
+
 					retry.UntilSuccessOrFail(ctx, func() error {
 						resp, err := tt.call()
 						if err != nil {

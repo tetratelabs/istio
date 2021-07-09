@@ -21,7 +21,6 @@ import (
 	"istio.io/istio/pkg/test/framework/components/echo"
 	"istio.io/istio/pkg/test/framework/components/environment/kube"
 	"istio.io/istio/pkg/test/framework/components/istio"
-	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/components/pilot"
 	kube2 "istio.io/istio/pkg/test/kube"
 	"istio.io/istio/tests/integration/security/util/reachability"
@@ -58,7 +57,7 @@ func TestCNIReachability(t *testing.T) {
 				ctx.Fatal(err)
 			}
 			rctx := reachability.CreateContext(ctx, pilot.NewOrFail(t, ctx, pilot.Config{}), false)
-			systemNM := namespace.ClaimSystemNamespaceOrFail(ctx, ctx)
+			systemNM := istio.ClaimSystemNamespaceOrFail(ctx, ctx)
 
 			testCases := []reachability.TestCase{
 				{

@@ -17,6 +17,7 @@ package istio
 import (
 	"istio.io/istio/pkg/test"
 	"istio.io/istio/pkg/test/framework/components/environment/kube"
+	"istio.io/istio/pkg/test/framework/components/istio/ingress"
 	"istio.io/istio/pkg/test/framework/resource"
 	"istio.io/istio/pkg/test/scopes"
 )
@@ -24,6 +25,10 @@ import (
 // Instance represents a deployed Istio instance
 type Instance interface {
 	resource.Resource
+
+	// CustomIngressFor returns an ingress with a specific service name and "istio" label used for reaching workloads
+	// in the given cluster.
+	CustomIngressFor(cluster resource.Cluster, serviceName, istioLabel string) ingress.Instance
 
 	Settings() Config
 }

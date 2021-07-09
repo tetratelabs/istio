@@ -40,6 +40,7 @@ import (
 	"istio.io/istio/pkg/test/cert/ca"
 	"istio.io/istio/pkg/test/env"
 	"istio.io/istio/pkg/test/framework/components/environment/kube"
+	"istio.io/istio/pkg/test/framework/components/istio/ingress"
 	"istio.io/istio/pkg/test/framework/components/istioctl"
 	"istio.io/istio/pkg/test/framework/image"
 	"istio.io/istio/pkg/test/framework/resource"
@@ -53,6 +54,12 @@ import (
 // TODO: dynamically generate meshID to support multi-tenancy tests
 const meshID = "testmesh0"
 
+var (
+	// the retry options for waiting for an individual component to be ready
+	componentDeployTimeout = retry.Timeout(30 * time.Second)
+	componentDeployDelay   = retry.Delay(1 * time.Second)
+)
+
 type operatorComponent struct {
 	id          resource.ID
 	settings    Config
@@ -63,6 +70,10 @@ type operatorComponent struct {
 	// installManifest includes the yamls use to install Istio. These can be deleted on cleanup
 	// The key is the cluster name
 	installManifest map[string][]string
+
+	// ingress components, indexed first by cluster name and then by gateway name.
+	ingress map[string]map[string]ingress.Instance
+	workDir string
 }
 
 var _ io.Closer = &operatorComponent{}
@@ -170,6 +181,7 @@ func deploy(ctx resource.Context, env *kube.Environment, cfg Config) (Instance, 
 		settings:        cfg,
 		ctx:             ctx,
 		installManifest: map[string][]string{},
+		ingress:         map[string]map[string]ingress.Instance{},
 	}
 	i.id = ctx.TrackResource(i)
 
@@ -183,6 +195,7 @@ func deploy(ctx resource.Context, env *kube.Environment, cfg Config) (Instance, 
 	if err != nil {
 		return nil, err
 	}
+	i.workDir = workDir
 
 	// For multicluster, create and push the CA certs to all clusters to establish a shared root of trust.
 	if env.IsMulticluster() {
@@ -265,7 +278,12 @@ func deploy(ctx resource.Context, env *kube.Environment, cfg Config) (Instance, 
 	if env.IsMultinetwork() {
 		// enable cross network traffic
 		for _, cluster := range env.KubeClusters {
+			// configure AUTO_PASSTHROUGH on `ingressgateway`
 			if err := createCrossNetworkGateway(ctx, cluster, cfg); err != nil {
+				return nil, err
+			}
+			// configure AUTO_PASSTHROUGH on `eastwestgateway`
+			if err := i.applyCrossNetworkGateway(cluster); err != nil {
 				return nil, err
 			}
 		}
@@ -409,13 +427,13 @@ spec:
 }
 
 func createCrossNetworkGateway(ctx resource.Context, cluster resource.Cluster, cfg Config) error {
-	scopes.Framework.Infof("Setting up cross-network-gateway in cluster: %s namespace: %s", cluster.Name(), cfg.SystemNamespace)
+	scopes.Framework.Infof("Setting up cross-network-ingressgateway in cluster: %s namespace: %s", cluster.Name(), cfg.SystemNamespace)
 
 	return ctx.Config(cluster).ApplyYAML(cfg.SystemNamespace, fmt.Sprintf(`
 apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
 metadata:
-  name: cross-network-gateway
+  name: cross-network-ingressgateway
   namespace: %s
 spec:
   selector:
@@ -511,7 +529,22 @@ func deployControlPlane(c *operatorComponent, cfg Config, cluster resource.Clust
 			}
 		}
 	}
-	return applyManifest(c, installSettings, istioCtl, cluster.Name())
+	err = applyManifest(c, installSettings, istioCtl, cluster.Name())
+	if err != nil {
+		return err
+	}
+
+	if c.environment.IsControlPlaneCluster(cluster) {
+		if err := c.deployEastWestGateway(cluster); err != nil {
+			return err
+		}
+		// Other clusters should only use this for discovery if its a config cluster.
+		if err := c.applyIstiodGateway(cluster); err != nil {
+			return fmt.Errorf("failed applying istiod gateway for cluster %s: %v", cluster.Name(), err)
+		}
+	}
+
+	return nil
 }
 
 func isCentralIstio(env *kube.Environment, cfg Config) bool {
@@ -684,4 +717,21 @@ func deployCACerts(workDir string, env *kube.Environment, cfg Config) error {
 		}
 	}
 	return nil
+}
+
+func (i *operatorComponent) CustomIngressFor(cluster resource.Cluster, serviceName, istioLabel string) ingress.Instance {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.ingress[cluster.Name()] == nil {
+		i.ingress[cluster.Name()] = map[string]ingress.Instance{}
+	}
+	if _, ok := i.ingress[cluster.Name()][istioLabel]; !ok {
+		i.ingress[cluster.Name()][istioLabel] = newIngress(i.ctx, ingressConfig{
+			Namespace:   i.settings.IngressNamespace,
+			Cluster:     cluster,
+			ServiceName: serviceName,
+			IstioLabel:  istioLabel,
+		})
+	}
+	return i.ingress[cluster.Name()][istioLabel]
 }

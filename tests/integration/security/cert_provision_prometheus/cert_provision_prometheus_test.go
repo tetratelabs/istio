@@ -21,7 +21,6 @@ import (
 
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/istio"
-	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/label"
 	util_dir "istio.io/istio/tests/integration/security/util/dir"
 )
@@ -41,7 +40,7 @@ func TestPrometheusCert(t *testing.T) {
 	framework.
 		NewTest(t).
 		Run(func(ctx framework.TestContext) {
-			systemNs := namespace.ClaimSystemNamespaceOrFail(ctx, ctx)
+			systemNs := istio.ClaimSystemNamespaceOrFail(ctx, ctx)
 			util_dir.ListDir(systemNs, t, prometheusLabel, prometheusContainter,
 				prometheusCertDir, validateCertDir)
 		})

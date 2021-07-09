@@ -19,7 +19,7 @@ import (
 
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/echo"
-	"istio.io/istio/pkg/test/framework/components/namespace"
+	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/tests/integration/security/util/reachability"
 )
 
@@ -38,7 +38,7 @@ func TestMtlsStrictK8sCA(t *testing.T) {
 			// TODO: due to issue https://github.com/istio/istio/issues/25286,
 			// currently VM does not work in this test
 			rctx := reachability.CreateContext(ctx, p, false)
-			systemNM := namespace.ClaimSystemNamespaceOrFail(ctx, ctx)
+			systemNM := istio.ClaimSystemNamespaceOrFail(ctx, ctx)
 
 			testCases := []reachability.TestCase{
 				{

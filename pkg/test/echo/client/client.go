@@ -96,5 +96,5 @@ func (c *Instance) ForwardEcho(ctx context.Context, request *proto.ForwardEchoRe
 		return nil, err
 	}
 
-	return parseForwardedResponse(resp), nil
+	return ParseForwardedResponse(resp), nil
 }
