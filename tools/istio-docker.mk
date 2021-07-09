@@ -85,6 +85,8 @@ $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/metadata-exchange-filter.compiled.wasm: init
 
 # OWASP Core Rule Set files for the ModSecurity plugin.
 $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/owasp-modsecurity-crs: init
+# ModSecurity plugin dependency libraries
+$(ISTIO_ENVOY_LINUX_RELEASE_DIR)/modsecurity_plugin_deps: init
 
 # Default proxy image.
 docker.proxyv2: BUILD_PRE=&& chmod 755 ${SIDECAR} pilot-agent && chmod 644 envoy_bootstrap.json gcp_envoy_bootstrap.json
@@ -99,6 +101,7 @@ docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/stats-filter.compiled.wasm
 docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/metadata-exchange-filter.wasm
 docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/metadata-exchange-filter.compiled.wasm
 docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/owasp-modsecurity-crs
+docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/modsecurity_plugin_deps
 	$(DOCKER_RULE)
 
 docker.pilot: BUILD_PRE=&& chmod 755 pilot-discovery

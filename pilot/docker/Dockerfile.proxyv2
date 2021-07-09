@@ -45,8 +45,15 @@ COPY metadata-exchange-filter.compiled.wasm /etc/istio/extensions/metadata-excha
 
 # Embed OWASP Core Rule Set
 COPY owasp-modsecurity-crs /etc/owasp-modsecurity-crs
-# Directories that can be used to store audit and debug log files locally
-RUN mkdir -p /var/log/modsecurity
+
+# Copy dependency libraries of ModSecurity.
+COPY modsecurity_plugin_deps /etc/modsecurity_plugin_deps
+RUN cd /etc/modsecurity_plugin_deps/; \
+    for lib in $(find . -type f); do \
+        if [ ! -e /"$lib" ]; then \
+            ln -s /etc/modsecurity_plugin_deps/$lib /$lib; \
+        fi; \
+    done
 
 # The pilot-agent will bootstrap Envoy.
 ENTRYPOINT ["/usr/local/bin/pilot-agent"]
