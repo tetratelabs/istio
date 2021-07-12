@@ -1,58 +1,61 @@
 diff --git a/pkg/test/framework/components/echo/kube/deployment.go b/pkg/test/framework/components/echo/kube/deployment.go
-index 9a0f7282cc..e9203dee2b 100644
+index 69bba6131c..3a0c1bb679 100644
 --- a/pkg/test/framework/components/echo/kube/deployment.go
 +++ b/pkg/test/framework/components/echo/kube/deployment.go
-@@ -735,6 +735,9 @@ spec:
+@@ -758,6 +758,7 @@ spec:
  			// LoadBalancer may not be suppported and the command doesn't have NodePort fallback logic that the tests do
  			cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
  		}
-+
 +		cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
-+
  		// make sure namespace controller has time to create root-cert ConfigMap
  		if err := retry.UntilSuccess(func() error {
  			_, _, err = istioCtl.Invoke(cmd)
 diff --git a/pkg/test/framework/components/istio/util.go b/pkg/test/framework/components/istio/util.go
-index d9de316906..abe6165113 100644
+index e4e47c79fb..02106614fc 100644
 --- a/pkg/test/framework/components/istio/util.go
 +++ b/pkg/test/framework/components/istio/util.go
-@@ -153,6 +153,14 @@ func getRemoteServiceAddress(s *kube.Settings, cluster cluster.Cluster, ns, labe
+@@ -97,6 +97,7 @@ func (i *operatorComponent) RemoteDiscoveryAddressFor(cluster cluster.Cluster) (
+ 	} else {
+ 		addr = i.CustomIngressFor(primary, eastWestIngressServiceName, eastWestIngressIstioLabel).DiscoveryAddress()
  	}
- 
- 	if len(svc.Status.LoadBalancer.Ingress) == 0 || svc.Status.LoadBalancer.Ingress[0].IP == "" {
-+		if svc.Status.LoadBalancer.Ingress[0].IP == "" && svc.Status.LoadBalancer.Ingress[0].Hostname != "" {
-+			ip, err := net.LookupIP(svc.Status.LoadBalancer.Ingress[0].Hostname)
-+			if err != nil {
-+				return nil, false, err
-+			}
-+			return net.TCPAddr{IP: ip[0], Port: port}, true, nil
-+		}
 +
- 		return nil, false, fmt.Errorf("service %s is not available yet: %s/%s", svcName, svc.Namespace, svc.Name)
+ 	if addr.IP.String() == "<nil>" {
+ 		return net.TCPAddr{}, fmt.Errorf("failed to get ingress IP for %s", primary.Name())
  	}
- 
+@@ -162,6 +163,17 @@ func getRemoteServiceAddress(s *kube.Settings, cluster cluster.Cluster, ns, labe
+ 	if ingr.IP == "" && ingr.Hostname == "" {
+ 		return nil, false, fmt.Errorf("service %s/%s is not available yet: no ingress", svc.Namespace, svc.Name)
+ 	}
++
++	if ingr.Hostname != "" {
++		ip, err := net.LookupIP(ingr.Hostname)
++		if err != nil {
++			return nil, false, fmt.Errorf("service %s/%s is not available yet: no ingress", svc.Namespace, svc.Name)
++		}
++		if len(ip) > 0 {
++			ingr.IP = ip[0].String()
++		}
++	}
++
+ 	if ingr.IP != "" {
+ 		return net.TCPAddr{IP: net.ParseIP(ingr.IP), Port: port}, true, nil
+ 	}
 diff --git a/tests/integration/pilot/ingress_test.go b/tests/integration/pilot/ingress_test.go
-index 3e0ab9f184..874503fd6f 100644
+index bb76db2fb6..643d3f25d1 100644
 --- a/tests/integration/pilot/ingress_test.go
 +++ b/tests/integration/pilot/ingress_test.go
-@@ -19,6 +19,7 @@ import (
- 	"context"
- 	"fmt"
- 	"io/ioutil"
-+	"net"
- 	"path/filepath"
- 	"testing"
- 	"time"
-@@ -278,6 +279,12 @@ spec:
- 					if err != nil {
- 						return err
+@@ -334,6 +334,14 @@ spec:
+ 					if hostIsIP {
+ 						got = ing.Status.LoadBalancer.Ingress[0].IP
  					}
 +
-+					if len(ing.Status.LoadBalancer.Ingress) == 1 {
++					if ing.Status.LoadBalancer.Ingress[0].Hostname != "" {
 +						ip, _ := net.LookupIP(ing.Status.LoadBalancer.Ingress[0].Hostname)
-+						ing.Status.LoadBalancer.Ingress[0].IP = ip[0].String()
++						if len(ip) > 0 {
++							got = ip[0].String()
++						}
 +					}
 +
- 					if len(ing.Status.LoadBalancer.Ingress) != 1 || ing.Status.LoadBalancer.Ingress[0].IP != ip {
- 						return fmt.Errorf("unexpected ingress status, got %+v want %v", ing.Status.LoadBalancer, ip)
+ 					if got != host {
+ 						return fmt.Errorf("unexpected ingress status, got %+v want %v", got, host)
  					}
