@@ -73,6 +73,8 @@ spec:
   metricsServer:
     enabled: true
     image: {{ .metrics_server.repository }}:{{ .metrics_server.tag }}
+  certManager:
+    enabled: true
   authentication:
     aws:
       image: {{ .awsiamauth.repository }}:{{ .awsiamauth.tag }}
@@ -118,7 +120,7 @@ spec:
     profile: {{ .controlPlaneInstanceProfileArn }}
   {{- end }}
   image: 099720109477/ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-20201026
-  machineType: t3.medium
+  machineType: m5.xlarge
   maxSize: 1
   minSize: 1
   nodeLabels:
@@ -141,7 +143,7 @@ spec:
     profile: {{ .nodeInstanceProfileArn }}
   {{- end }}
   image: 099720109477/ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-20201026
-  machineType: t3.medium
+  machineType: m5.xlarge
   maxSize: 3
   minSize: 3
   nodeLabels:
