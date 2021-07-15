@@ -409,4 +409,8 @@ var (
 	PilotEnableLoopBlockers = env.RegisterBoolVar("PILOT_ENABLE_LOOP_BLOCKER", true,
 		"If enabled, Envoy will be configured to prevent traffic directly the the inbound/outbound "+
 			"ports (15001/15006). This prevents traffic loops. This option will be removed, and considered always enabled, in 1.9.").Get()
+
+	PilotEnableEndpointFilterForLocalTrafficPolicy = env.RegisterBoolVar("PILOT_ENABLE_ENDPOINT_FILTER_FOR_LOCAL_TRAFFIC_POLICY", false,
+		"This is applicable only to NodePort services whose external traffic policy is set to Local. It filters out "+
+			"all node addresses which do not have a workload").Get()
 )
