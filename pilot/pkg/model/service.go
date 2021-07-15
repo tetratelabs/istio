@@ -31,6 +31,7 @@ import (
 
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"github.com/mitchellh/copystructure"
+	v1 "k8s.io/api/core/v1"
 
 	"istio.io/api/label"
 	"istio.io/istio/pilot/pkg/util/sets"
@@ -409,6 +410,25 @@ type IstioEndpoint struct {
 
 	// Name of the workload that this endpoint belongs to. This is for telemetry purpose.
 	WorkloadName string
+
+	// The name of the node on which the workload is scheduled
+	NodeName string
+}
+
+type ExternalTrafficPolicy string
+
+const (
+	ExternalTrafficPolicyCluster = "CLUSTER"
+	ExternalTrafficPolicyLocal   = "LOCAL"
+)
+
+func ConvertToModelExternalTrafficPolicy(policy v1.ServiceExternalTrafficPolicyType) ExternalTrafficPolicy {
+	switch policy {
+	case v1.ServiceExternalTrafficPolicyTypeLocal:
+		return ExternalTrafficPolicyLocal
+	default:
+		return ExternalTrafficPolicyCluster
+	}
 }
 
 // ServiceAttributes represents a group of custom attributes of the service.
@@ -447,6 +467,11 @@ type ServiceAttributes struct {
 	// The port that the user provides in the meshNetworks config is the service port.
 	// We translate that to the appropriate node port here.
 	ClusterExternalPorts map[string]map[uint32]uint32
+
+	// ExternalTrafficPolicy affects the list of available endpoints available in case
+	// of NodePort services. This is useful to preserve source IP address. If the traffic
+	// is sent to a node which does not have a workload then it would be dropped.
+	ExternalTrafficPolicy ExternalTrafficPolicy
 }
 
 // ServiceDiscovery enumerates Istio service instances.
