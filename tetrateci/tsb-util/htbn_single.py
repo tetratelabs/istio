@@ -30,7 +30,7 @@ def save_file(fname, content):
     f.close()
 
 def install_httpbin(index, namespace, folder):
-    instance_name = "httpbin" + index
+    instance_name = "httpbin-" + index
     t = open(script_path + "/templates/k8s-objects/httpbin.yaml")
     template = Template(t.read())
     r = template.render(namespace=namespace, name=instance_name)
@@ -139,7 +139,7 @@ def main():
 
         for i in range(conf.count):
             install_httpbin(str(i), namespace, folder)
-            name = "httpbin" + str(i)
+            name = "httpbin-" + str(i)
             hostname = name + ".tetrate.test.com"
             http_routes.append(name)
             curl_calls.append(
@@ -157,7 +157,7 @@ def main():
                     "hostname": hostname,
                     "virtualserviceName": f"httpbin-virtualservice-{i}",
                     "gatewayName": "tsb-gateway",
-                    "destinationFQDN": f"httpbin{i}.{namespace}.svc.cluster.local",
+                    "destinationFQDN": f"{name}.{namespace}.svc.cluster.local",
                 }
                 tsb_objects.generate_direct_vs(
                     ordered_arguments, f"{folder}/tsb-objects/virtualservice-{i}.yaml"

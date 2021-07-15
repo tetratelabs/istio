@@ -14,10 +14,10 @@ spec:
   gateways:
   - t0w0demohtdnnb0f/tsb-gateway
   hosts:
-  - httpbin2.tetrate.test.com
+  - httpbin-2.tetrate.test.com
   http:
   - name: http
     route:
     - destination:
-        host: httpbin2.t0w0demohtdnnb0f.svc.cluster.local
+        host: httpbin-2.t0w0demohtdnnb0f.svc.cluster.local
       weight: 100

@@ -48,13 +48,13 @@ spec:
             while (( SECONDS < secs )); do
               echo "IP: $IP | PORT: $PORT | Sending traffic..."
               
-              curl https://httpbin0.tetrate.test.com --connect-to httpbin0.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
+              curl https://httpbin-0.tetrate.test.com --connect-to httpbin-0.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
               
-              curl https://httpbin1.tetrate.test.com --connect-to httpbin1.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
+              curl https://httpbin-1.tetrate.test.com --connect-to httpbin-1.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
               
-              curl https://httpbin2.tetrate.test.com --connect-to httpbin2.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
+              curl https://httpbin-2.tetrate.test.com --connect-to httpbin-2.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
               
-              curl https://httpbin3.tetrate.test.com --connect-to httpbin3.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
+              curl https://httpbin-3.tetrate.test.com --connect-to httpbin-3.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
               
               sleep 10
             done

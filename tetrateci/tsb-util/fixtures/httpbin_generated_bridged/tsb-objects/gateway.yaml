@@ -13,47 +13,47 @@ spec:
       app: tsb-gateway-t0w0demohtbnnb0f
   http:
   
-  - name: httpbin0
+  - name: httpbin-0
     port: 8443
-    hostname: httpbin0.tetrate.test.com
+    hostname: httpbin-0.tetrate.test.com
     tls:
       mode: SIMPLE
       secretName: wildcard-credential
     routing:
       rules:
       - route:
-          host: t0w0demohtbnnb0f/httpbin0.t0w0demohtbnnb0f.svc.cluster.local
+          host: t0w0demohtbnnb0f/httpbin-0.t0w0demohtbnnb0f.svc.cluster.local
   
-  - name: httpbin1
+  - name: httpbin-1
     port: 8443
-    hostname: httpbin1.tetrate.test.com
+    hostname: httpbin-1.tetrate.test.com
     tls:
       mode: SIMPLE
       secretName: wildcard-credential
     routing:
       rules:
       - route:
-          host: t0w0demohtbnnb0f/httpbin1.t0w0demohtbnnb0f.svc.cluster.local
+          host: t0w0demohtbnnb0f/httpbin-1.t0w0demohtbnnb0f.svc.cluster.local
   
-  - name: httpbin2
+  - name: httpbin-2
     port: 8443
-    hostname: httpbin2.tetrate.test.com
+    hostname: httpbin-2.tetrate.test.com
     tls:
       mode: SIMPLE
       secretName: wildcard-credential
     routing:
       rules:
       - route:
-          host: t0w0demohtbnnb0f/httpbin2.t0w0demohtbnnb0f.svc.cluster.local
+          host: t0w0demohtbnnb0f/httpbin-2.t0w0demohtbnnb0f.svc.cluster.local
   
-  - name: httpbin3
+  - name: httpbin-3
     port: 8443
-    hostname: httpbin3.tetrate.test.com
+    hostname: httpbin-3.tetrate.test.com
     tls:
       mode: SIMPLE
       secretName: wildcard-credential
     routing:
       rules:
       - route:
-          host: t0w0demohtbnnb0f/httpbin3.t0w0demohtbnnb0f.svc.cluster.local
+          host: t0w0demohtbnnb0f/httpbin-3.t0w0demohtbnnb0f.svc.cluster.local
   

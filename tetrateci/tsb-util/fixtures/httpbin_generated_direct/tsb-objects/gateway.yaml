@@ -14,9 +14,9 @@ spec:
   servers:
   
   - hosts:
-    - t0w0demohtdnnb0f/httpbin0.tetrate.test.com
+    - t0w0demohtdnnb0f/httpbin-0.tetrate.test.com
     port:
-      name: httpbin0
+      name: httpbin-0
       number: 8443
       protocol: HTTPS
     tls:
@@ -24,9 +24,9 @@ spec:
       mode: SIMPLE
   
   - hosts:
-    - t0w0demohtdnnb0f/httpbin1.tetrate.test.com
+    - t0w0demohtdnnb0f/httpbin-1.tetrate.test.com
     port:
-      name: httpbin1
+      name: httpbin-1
       number: 8443
       protocol: HTTPS
     tls:
@@ -34,9 +34,9 @@ spec:
       mode: SIMPLE
   
   - hosts:
-    - t0w0demohtdnnb0f/httpbin2.tetrate.test.com
+    - t0w0demohtdnnb0f/httpbin-2.tetrate.test.com
     port:
-      name: httpbin2
+      name: httpbin-2
       number: 8443
       protocol: HTTPS
     tls:
@@ -44,9 +44,9 @@ spec:
       mode: SIMPLE
   
   - hosts:
-    - t0w0demohtdnnb0f/httpbin3.tetrate.test.com
+    - t0w0demohtdnnb0f/httpbin-3.tetrate.test.com
     port:
-      name: httpbin3
+      name: httpbin-3
       number: 8443
       protocol: HTTPS
     tls:

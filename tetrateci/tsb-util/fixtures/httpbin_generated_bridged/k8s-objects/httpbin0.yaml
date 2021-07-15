@@ -18,46 +18,46 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: httpbin0
+  name: httpbin-0
   namespace: t0w0demohtbnnb0f
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: httpbin0
+  name: httpbin-0
   namespace: t0w0demohtbnnb0f
   labels:
-    app: httpbin0
-    service: httpbin0
+    app: httpbin-0
+    service: httpbin-0
 spec:
   ports:
   - name: http
     port: 8000
     targetPort: 80
   selector:
-    app: httpbin0
+    app: httpbin-0
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: httpbin0
+  name: httpbin-0
   namespace: t0w0demohtbnnb0f
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: httpbin0
+      app: httpbin-0
       version: v1
   template:
     metadata:
       labels:
-        app: httpbin0
+        app: httpbin-0
         version: v1
     spec:
-      serviceAccountName: httpbin0
+      serviceAccountName: httpbin-0
       containers:
       - image: docker.io/kennethreitz/httpbin
         imagePullPolicy: IfNotPresent
-        name: httpbin0
+        name: httpbin-0
         ports:
         - containerPort: 80
