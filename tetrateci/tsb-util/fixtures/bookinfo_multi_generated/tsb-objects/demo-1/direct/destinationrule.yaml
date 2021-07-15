@@ -1,0 +1,22 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  annotations:
+    tsb.tetrate.io/tenant: tenant1
+    tsb.tetrate.io/organization: tetrate
+    tsb.tetrate.io/trafficGroup: bkift1w1dtg0
+    tsb.tetrate.io/workspace: bkift1ws1
+  name: bookinfo-destinationrule
+  namespace: t1w1demobkifnd0b
+spec:
+  host: reviews.t1w1demobkifnd0b.svc.cluster.local
+  subsets:
+  - labels:
+      version: v1
+    name: v1
+  - labels:
+      version: v2
+    name: v2
+  - labels:
+      version: v2
+    name: v3

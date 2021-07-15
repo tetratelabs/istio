@@ -5,8 +5,12 @@ metadata:
   name: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
+  displayName: {{ workspaceName }}
   namespaceSelector:
     names:
-    - {{ clusterName }}/{{ ns1 }}
-    - {{ clusterName }}/{{ ns2 }}
-    - {{ clusterName }}/{{ ns3 }}
+    {% if namespaces -%}
+    {% for ns in namespaces %}- {{ clusterName }}/{{ namespaces[ns] }}
+    {% endfor -%}
+    {% else -%}
+    - {{ clusterName }}/{{ namespace }}
+    {% endif -%}

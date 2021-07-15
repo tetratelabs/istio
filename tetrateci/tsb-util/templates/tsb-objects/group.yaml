@@ -6,9 +6,10 @@ metadata:
   workspace: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
+  displayName: {{ gatewayGroupName }}
   namespaceSelector:
     names:
-    - {{ clusterName }}/{{ productNs }}
+    - {{ clusterName }}/{{ (namespaces and namespaces['product']) or namespace }}
   configMode: {{ mode }}
 ---
 apiVersion: traffic.tsb.tetrate.io/v2
@@ -19,9 +20,10 @@ metadata:
   workspace: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
+  displayName: {{ trafficGroupName }}
   namespaceSelector:
     names:
-    - {{ clusterName }}/{{ reviewsNs }}
+    - {{ clusterName }}/{{ (namespaces and namespaces['reviews']) or namespace }}
   configMode: {{ mode }}
 ---
 apiVersion: security.tsb.tetrate.io/v2
@@ -32,10 +34,13 @@ metadata:
   workspace: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
+  displayName: {{ securityGroupName }}
   namespaceSelector:
     names:
-    - {{ clusterName }}/{{ productNs }}
-    - {{ clusterName }}/{{ reviewsNs }}
-    - {{ clusterName }}/{{ ratingsNs }}
-      
+    {% if namespaces -%}
+    {% for ns in namespaces %}- {{ clusterName }}/{{ namespaces[ns] }}
+    {% endfor -%}
+    {% else -%}
+    - {{ clusterName }}/{{ namespace }}
+    {% endif %}
   configMode: {{ mode }}

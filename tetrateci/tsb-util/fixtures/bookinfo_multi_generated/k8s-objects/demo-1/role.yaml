@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: t1w1demobkifnd0f-trafficgen-sa
+  namespace: t1w1demobkifnd0f
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  namespace: t1w1demobkifnd0f
+  name: trafficgen-service-reader
+rules:
+- apiGroups: [""]
+  resources: ["services", "nodes"]
+  verbs: ["get", "list"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: trafficgen-service-t1w1demobkifnd0f
+  namespace: t1w1demobkifnd0f
+subjects:
+- kind: ServiceAccount
+  name: t1w1demobkifnd0f-trafficgen-sa
+  namespace: t1w1demobkifnd0f
+roleRef:
+  kind: ClusterRole
+  name: trafficgen-service-reader
+  apiGroup: ""

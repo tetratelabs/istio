@@ -1,0 +1,14 @@
+org: "tetrate"
+provider: "others" # the management plane provider, possible values "aws", "others"
+tctl_version: "1.2.0" # tctl version to be used to edit serviceroute
+# an array of configuration
+app:
+- replicas:
+  - bridged: 1
+    direct: 0
+    tenant_id: 0
+  - bridged: 0
+    direct: 1
+    tenant_id: 1
+  cluster_name: "demo"
+  traffic_gen_ip: "internal" # possible values: `external` or `internal`

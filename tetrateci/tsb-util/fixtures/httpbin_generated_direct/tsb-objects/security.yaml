@@ -1,0 +1,12 @@
+apiVersion: security.tsb.tetrate.io/v2
+kind: SecuritySetting
+metadata:
+  organization: tetrate
+  name: httpbin-security-setting-t0w0demohtdnnb0f
+  workspace: htbnt0ws0
+  group: htbnt0w0dsg0
+  tenant: tenant0
+spec:
+  authentication: REQUIRED
+  authorization:
+    mode: WORKSPACE

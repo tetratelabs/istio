@@ -1,0 +1,27 @@
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: WorkspaceAccessBindings
+metadata:
+  organization: tetrate
+  tenant: tenant0
+  workspace: htbnt0ws0
+spec:
+  allow:
+  - role: rbac/creator
+    subjects:
+    # Change the name of the team to the desired one
+    - team: organizations/tetrate/teams/Platform
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: TrafficAccessBindings
+metadata:
+  organization: tetrate
+  tenant: tenant0
+  workspace: htbnt0ws0
+  group: htbnt0w0btg0
+spec:
+  allow:
+  - role: rbac/writer
+    subjects:
+    # Change the name of the user to the desired one
+    - user: organizations/tetrate/users/nacx
+    - user: organizations/tetrate/users/wusheng
