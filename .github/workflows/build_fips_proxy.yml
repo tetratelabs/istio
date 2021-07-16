@@ -1,0 +1,45 @@
+name: "build/push FIPS istio/proxy"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version of the release tag in istio/proxy repository. Ex 1.9.6
+        required: true
+
+jobs:
+  build:
+    name: Build Istio proxy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          repository: 'istio/proxy'
+          ref: ${{ github.event.inputs.version }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@master
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Add FIPS flag
+        run: echo "build --define boringssl=fips" >> .bazelrc
+
+      - name: Tweak make recipe
+        env:
+          RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
+        # 1) remove unnecessary dependency on naive "build" target 
+        # 2) remove "-p" flag to not push and build container, 
+        # 3) replace RELEASE_GCS_PATH var with the literal due to docker build.
+        # from push_release.
+        run: |
+          ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
+          sed -i "s/\-p//g; s/push_release: build/push_release:/g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
+
+      - name: Build and push
+        env:
+          BUILD_WITH_CONTAINER: 1 
+        run: make push_release
