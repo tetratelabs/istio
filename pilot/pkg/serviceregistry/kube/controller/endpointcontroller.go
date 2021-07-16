@@ -106,14 +106,31 @@ func updateEDS(c *Controller, epc kubeEndpointsController, ep interface{}, event
 			endpoints = epc.buildIstioEndpoints(ep, hostName)
 		}
 
+		// handling k8s service selecting workload entries
+		c.RLock()
+		svc := c.GetService(hostName)
+		c.RUnlock()
 		if features.EnableK8SServiceSelectWorkloadEntries {
-			svc := c.GetService(hostName)
 			if svc != nil {
 				fep := c.collectWorkloadInstanceEndpoints(svc)
 				endpoints = append(endpoints, fep...)
 			} else {
 				log.Debugf("Handle EDS endpoint: skip collecting workload entry endpoints, service %s/%s has not been populated",
 					namespacedName.Namespace, namespacedName.Name)
+			}
+		}
+
+		// Handle external address update for NodePort services whose external
+		// traffic policy is set to Local.
+		if svc != nil && len(svc.Attributes.ClusterExternalPorts) > 0 &&
+			svc.Attributes.ExternalTrafficPolicy == model.ExternalTrafficPolicyLocal {
+			if c.updateServiceNodePortAddresses(svc) {
+				c.opts.XDSUpdater.SvcUpdate(
+					model.ShardKeyFromRegistry(c),
+					string(svc.Hostname),
+					svc.Attributes.Namespace,
+					event,
+				)
 			}
 		}
 

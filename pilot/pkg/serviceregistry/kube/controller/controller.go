@@ -265,6 +265,13 @@ type Controller struct {
 	// Stores a map of workload instance name/namespace to address
 	workloadInstancesIPsByName map[string]string
 
+	// serviceToWorkloadNodesMap is a mapping of NodePort services to the list of kubernetes node names
+	// on which there is at least one workload belonging to the service is running. This is needed to handle
+	// node-port services with external traffic policy type set to Local (default is Cluster). This is because
+	// when it is set to local and traffic is sent to a node not hosting a workload, it will be dropped. This
+	// happens intermittently based on the node which takes the traffic.
+	serviceToWorkloadNodesMap map[host.Name]map[string]struct{}
+
 	// CIDR ranger based on path-compressed prefix trie
 	ranger cidranger.Ranger
 
@@ -301,6 +308,7 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 		workloadInstancesIPsByName:  make(map[string]string),
 		registryServiceNameGateways: make(map[host.Name]uint32),
 		networkGateways:             make(map[host.Name]map[network.ID]gatewaySet),
+		serviceToWorkloadNodesMap:   make(map[host.Name]map[string]struct{}),
 		informerInit:                atomic.NewBool(false),
 		beginSync:                   atomic.NewBool(false),
 		initialSync:                 atomic.NewBool(false),
@@ -541,6 +549,7 @@ func (c *Controller) deleteService(svc *model.Service) {
 	delete(c.externalNameSvcInstanceMap, svc.Hostname)
 	_, isNetworkGateway := c.networkGateways[svc.Hostname]
 	delete(c.networkGateways, svc.Hostname)
+	delete(c.serviceToWorkloadNodesMap, svc.Hostname)
 	c.Unlock()
 
 	if isNetworkGateway {
@@ -629,6 +638,12 @@ func (c *Controller) onNodeEvent(obj interface{}, event model.Event) error {
 		updatedNeeded = true
 		c.Lock()
 		delete(c.nodeInfoMap, node.Name)
+
+		// We should remove the node for all the services that
+		// had a workload there as we don't want to route traffic
+		for h := range c.serviceToWorkloadNodesMap {
+			delete(c.serviceToWorkloadNodesMap[h], node.Name)
+		}
 		c.Unlock()
 	} else {
 		k8sNode := kubernetesNode{labels: node.Labels}
