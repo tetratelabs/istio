@@ -335,6 +335,8 @@ const (
 	SecretTrigger TriggerReason = "secret"
 	// Describes a push triggered for Networks change
 	NetworksTrigger TriggerReason = "networks"
+	// Describes a push triggered due to node event
+	NodeTrigger TriggerReason = "node"
 )
 
 // Merge two update requests together
