@@ -244,7 +244,7 @@ type Controller struct {
 	// node-port services with external traffic policy type set to Local (default is Cluster). This is because
 	// when it is set to local and traffic is sent to a node not hosting a workload, it will be dropped. This
 	// happens intermittently based on the node which takes the traffic.
-	serviceToWorkloadNodeMap map[host.Name]map[string][]string
+	serviceToWorkloadNodeMap map[host.Name]map[string]struct{}
 
 	// CIDR ranger based on path-compressed prefix trie
 	ranger cidranger.Ranger
@@ -282,7 +282,7 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 		workloadInstancesIPsByName:  make(map[string]string),
 		registryServiceNameGateways: make(map[host.Name]uint32),
 		networkGateways:             make(map[host.Name]map[string][]*model.Gateway),
-		serviceToWorkloadNodeMap:    make(map[host.Name]map[string][]string),
+		serviceToWorkloadNodeMap:    make(map[host.Name]map[string]struct{}),
 		networksWatcher:             options.NetworksWatcher,
 		metrics:                     options.Metrics,
 		syncInterval:                options.GetSyncInterval(),
@@ -1185,9 +1185,6 @@ func (c *Controller) AppendWorkloadHandler(f func(*model.WorkloadInstance, model
 }
 
 func (c *Controller) rebuildHostToNodeIndexOnPodEvent(wi *model.WorkloadInstance, _ model.Event) {
-	if !features.PilotEnableEndpointFilterForLocalTrafficPolicy {
-		return
-	}
 	dummyPod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: wi.Namespace,

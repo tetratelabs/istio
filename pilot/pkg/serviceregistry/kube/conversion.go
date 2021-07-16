@@ -22,7 +22,6 @@ import (
 	coreV1 "k8s.io/api/core/v1"
 
 	"istio.io/api/annotation"
-	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry"
 	"istio.io/istio/pkg/config/constants"
@@ -130,9 +129,7 @@ func ConvertService(svc coreV1.Service, domainSuffix string, clusterID string) *
 			portMap[uint32(p.Port)] = uint32(p.NodePort)
 		}
 		istioService.Attributes.ClusterExternalPorts = map[string]map[uint32]uint32{clusterID: portMap}
-		if features.PilotEnableEndpointFilterForLocalTrafficPolicy {
-			istioService.Attributes.ExternalTrafficPolicy = model.ConvertToModelExternalTrafficPolicy(svc.Spec.ExternalTrafficPolicy)
-		}
+		istioService.Attributes.ExternalTrafficPolicy = model.ConvertToModelExternalTrafficPolicy(svc.Spec.ExternalTrafficPolicy)
 
 		// address mappings will be done elsewhere
 	case coreV1.ServiceTypeLoadBalancer:
