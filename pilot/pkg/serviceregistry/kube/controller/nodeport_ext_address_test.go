@@ -134,15 +134,15 @@ func TestUpdateClusterExternalAddressesForNodePortServices(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Controller{
-				clusterID:                clusterID,
-				nodeInfoMap:              nodes,
-				serviceToWorkloadNodeMap: map[host.Name]map[string]struct{}{},
+				clusterID:                 clusterID,
+				nodeInfoMap:               nodes,
+				serviceToWorkloadNodesMap: map[host.Name]map[string]struct{}{},
 			}
 			// Copy because the function mutates
 			svcCopied := tt.service.DeepCopy()
-			c.serviceToWorkloadNodeMap[svcCopied.Hostname] = map[string]struct{}{}
+			c.serviceToWorkloadNodesMap[svcCopied.Hostname] = map[string]struct{}{}
 			for _, h := range tt.workloadHostingNodes {
-				c.serviceToWorkloadNodeMap[svcCopied.Hostname][h] = struct{}{}
+				c.serviceToWorkloadNodesMap[svcCopied.Hostname][h] = struct{}{}
 			}
 
 			c.updateClusterExternalAddressesForNodePortServices(tt.nodeLabelSelector, svcCopied)

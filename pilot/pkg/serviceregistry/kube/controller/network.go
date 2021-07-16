@@ -227,7 +227,7 @@ func (c *Controller) updateServiceNodePortAddresses(svcs ...*model.Service) bool
 			nodesWithEndpoints := getWorkloadNodeLocations(endpoints)
 			log.Debugf("---> svc:%s nodesWithEndpoints = %#v", svc.Hostname, nodesWithEndpoints)
 			c.Lock()
-			c.serviceToWorkloadNodeMap[svc.Hostname] = nodesWithEndpoints
+			c.serviceToWorkloadNodesMap[svc.Hostname] = nodesWithEndpoints
 			c.Unlock()
 		}
 
@@ -289,7 +289,7 @@ func (c *Controller) updateClusterExternalAddressesForNodePortServices(nodeSelec
 }
 
 func (c *Controller) containsWorkloadForLocalTrafficService(svc *model.Service, nodeName string) bool {
-	_, f := c.serviceToWorkloadNodeMap[svc.Hostname][nodeName]
+	_, f := c.serviceToWorkloadNodesMap[svc.Hostname][nodeName]
 	return f
 }
 

@@ -239,12 +239,12 @@ type Controller struct {
 	// Stores a map of workload instance name/namespace to address
 	workloadInstancesIPsByName map[string]string
 
-	// serviceToWorkloadNodeMap is a mapping of NodePort services to the list of kubernetes node names
+	// serviceToWorkloadNodesMap is a mapping of NodePort services to the list of kubernetes node names
 	// on which there is at least one workload belonging to the service is running. This is needed to handle
 	// node-port services with external traffic policy type set to Local (default is Cluster). This is because
 	// when it is set to local and traffic is sent to a node not hosting a workload, it will be dropped. This
 	// happens intermittently based on the node which takes the traffic.
-	serviceToWorkloadNodeMap map[host.Name]map[string]struct{}
+	serviceToWorkloadNodesMap map[host.Name]map[string]struct{}
 
 	// CIDR ranger based on path-compressed prefix trie
 	ranger cidranger.Ranger
@@ -282,7 +282,7 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 		workloadInstancesIPsByName:  make(map[string]string),
 		registryServiceNameGateways: make(map[host.Name]uint32),
 		networkGateways:             make(map[host.Name]map[string][]*model.Gateway),
-		serviceToWorkloadNodeMap:    make(map[host.Name]map[string]struct{}),
+		serviceToWorkloadNodesMap:   make(map[host.Name]map[string]struct{}),
 		networksWatcher:             options.NetworksWatcher,
 		metrics:                     options.Metrics,
 		syncInterval:                options.GetSyncInterval(),
@@ -327,7 +327,6 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 		})
 	})
 	registerHandlers(c.pods.informer, c.queue, "Pods", c.pods.onEvent, nil)
-	c.AppendWorkloadHandler(c.rebuildHostToNodeIndexOnPodEvent)
 
 	return c
 }
@@ -390,7 +389,7 @@ func (c *Controller) onServiceEvent(curr interface{}, event model.Event) error {
 		delete(c.nodeSelectorsForServices, svcConv.Hostname)
 		delete(c.externalNameSvcInstanceMap, svcConv.Hostname)
 		delete(c.networkGateways, svcConv.Hostname)
-		delete(c.serviceToWorkloadNodeMap, svcConv.Hostname)
+		delete(c.serviceToWorkloadNodesMap, svcConv.Hostname)
 		c.Unlock()
 	default:
 		if isNodePortGatewayService(svc) {
@@ -461,8 +460,8 @@ func (c *Controller) onNodeEvent(obj interface{}, event model.Event) error {
 
 		// We should remove the node for all the services that
 		// had a workload there as we don't want to route traffic
-		for h := range c.serviceToWorkloadNodeMap {
-			delete(c.serviceToWorkloadNodeMap[h], node.Name)
+		for h := range c.serviceToWorkloadNodesMap {
+			delete(c.serviceToWorkloadNodesMap[h], node.Name)
 		}
 		c.Unlock()
 	} else {
@@ -491,7 +490,8 @@ func (c *Controller) onNodeEvent(obj interface{}, event model.Event) error {
 	// update all related services
 	if updatedNeeded && c.updateServiceNodePortAddresses() {
 		c.xdsUpdater.ConfigUpdate(&model.PushRequest{
-			Full: true,
+			Full:   true,
+			Reason: []model.TriggerReason{model.NodeTrigger},
 		})
 	}
 	return nil
@@ -1182,32 +1182,4 @@ func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) {
 // AppendWorkloadHandler implements a service catalog operation
 func (c *Controller) AppendWorkloadHandler(f func(*model.WorkloadInstance, model.Event)) {
 	c.workloadHandlers = append(c.workloadHandlers, f)
-}
-
-func (c *Controller) rebuildHostToNodeIndexOnPodEvent(wi *model.WorkloadInstance, _ model.Event) {
-	dummyPod := &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: wi.Namespace,
-			Labels:    wi.Endpoint.Labels,
-		},
-	}
-	k8ssvcs, err := getPodServices(c.serviceLister, dummyPod)
-	if err != nil {
-		return
-	}
-	for _, k8ssvc := range k8ssvcs {
-		// Restrict processing only to services of type NodePort
-		// with external traffic policy set to Local
-		if k8ssvc.Spec.Type != v1.ServiceTypeNodePort ||
-			k8ssvc.Spec.ExternalTrafficPolicy != v1.ServiceExternalTrafficPolicyTypeLocal {
-			continue
-		}
-		hostname := kube.ServiceHostname(k8ssvc.Name, k8ssvc.Namespace, c.domainSuffix)
-		c.RLock()
-		svc := c.servicesMap[hostname]
-		c.RUnlock()
-		if svc != nil {
-			c.updateServiceNodePortAddresses(svc)
-		}
-	}
 }
