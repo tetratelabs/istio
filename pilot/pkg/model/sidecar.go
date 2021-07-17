@@ -634,10 +634,7 @@ func (ilw *IstioEgressListenerWrapper) selectServices(services []*Service, confi
 			if svc := matchingService(importedHosts, s, ilw); svc != nil {
 				importedServices = append(importedServices, svc)
 			}
-		}
-
-		// Check if there is an import of form */host or */*
-		if wnsFound {
+		} else if wnsFound { // Check if there is an import of form */host or */*
 			if svc := matchingService(wildcardHosts, s, ilw); svc != nil {
 				importedServices = append(importedServices, svc)
 			}
@@ -674,7 +671,7 @@ func matchingService(importedHosts []host.Name, service *Service, ilw *IstioEgre
 
 	for _, importedHost := range importedHosts {
 		// Check if the hostnames match per usual hostname matching rules
-		if importedHost.Matches(service.Hostname) {
+		if service.Hostname.SubsetOf(importedHost) {
 			if needsPortMatch {
 				for _, port := range service.Ports {
 					if port.Port == int(ilw.IstioListener.Port.GetNumber()) {

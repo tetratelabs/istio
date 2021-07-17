@@ -367,6 +367,35 @@ var (
 			},
 		},
 	}
+
+	configs16 = &config.Config{
+		Meta: config.Meta{
+			Name:      "sidecar-scope-with-specific-host",
+			Namespace: "ns1",
+		},
+		Spec: &networking.Sidecar{
+			Egress: []*networking.IstioEgressListener{
+				{
+					Hosts: []string{"*/en.wikipedia.org"},
+				},
+			},
+		},
+	}
+
+	configs17 = &config.Config{
+		Meta: config.Meta{
+			Name:      "sidecar-scope-with-wildcard-host",
+			Namespace: "ns1",
+		},
+		Spec: &networking.Sidecar{
+			Egress: []*networking.IstioEgressListener{
+				{
+					Hosts: []string{"*/*.wikipedia.org"},
+				},
+			},
+		},
+	}
+
 	services1 = []*Service{
 		{Hostname: "bar"},
 	}
@@ -636,6 +665,23 @@ var (
 			Attributes: ServiceAttributes{
 				Name:      "baz",
 				Namespace: "ns3",
+			},
+		},
+	}
+
+	services19 = []*Service{
+		{
+			Hostname: "en.wikipedia.org",
+			Attributes: ServiceAttributes{
+				Name:      "en.wikipedia.org",
+				Namespace: "ns1",
+			},
+		},
+		{
+			Hostname: "*.wikipedia.org",
+			Attributes: ServiceAttributes{
+				Name:      "*.wikipedia.org",
+				Namespace: "ns1",
 			},
 		},
 	}
@@ -1049,6 +1095,31 @@ func TestCreateSidecarScope(t *testing.T) {
 				},
 			},
 		},
+		{
+			"sidecar-scope-with-specific-host",
+			configs16,
+			services19,
+			nil,
+			[]*Service{
+				{
+					Hostname: "en.wikipedia.org",
+				},
+			},
+		},
+		{
+			"sidecar-scope-with-wildcard-host",
+			configs17,
+			services19,
+			nil,
+			[]*Service{
+				{
+					Hostname: "en.wikipedia.org",
+				},
+				{
+					Hostname: "*.wikipedia.org",
+				},
+			},
+		},
 	}
 
 	for idx, tt := range tests {
@@ -1248,6 +1319,13 @@ func TestIstioEgressListenerWrapper(t *testing.T) {
 			listenerHosts: map[string][]host.Name{"b": {wildcardService}},
 			services:      []*Service{serviceA8000},
 			expected:      []*Service{},
+			namespace:     "a",
+		},
+		{
+			name:          "multiple hosts selected same service",
+			listenerHosts: map[string][]host.Name{"a": {wildcardService}, "*": {wildcardService}},
+			services:      []*Service{serviceA8000},
+			expected:      []*Service{serviceA8000},
 			namespace:     "a",
 		},
 	}
