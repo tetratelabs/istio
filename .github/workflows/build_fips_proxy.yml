@@ -25,6 +25,12 @@ jobs:
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
 
+      - name: Sanity Check
+        run:
+          gsutil cp $(pwd)/.gitignore gs://getistio-build/sanitycheck/;
+          gsutil ls gs://getistio-build/sanitycheck/;
+          gsutil rm gs://getistio-build/sanitycheck/.gitignore;
+
       - name: Add FIPS flag
         run: echo "build --define boringssl=fips" >> .bazelrc
 
