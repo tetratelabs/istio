@@ -1,0 +1,61 @@
+diff --git a/pkg/test/framework/components/echo/kube/deployment.go b/pkg/test/framework/components/echo/kube/deployment.go
+index 69bba6131c..3a0c1bb679 100644
+--- a/pkg/test/framework/components/echo/kube/deployment.go
++++ b/pkg/test/framework/components/echo/kube/deployment.go
+@@ -758,6 +758,7 @@ spec:
+ 			// LoadBalancer may not be suppported and the command doesn't have NodePort fallback logic that the tests do
+ 			cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
+ 		}
++		cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
+ 		// make sure namespace controller has time to create root-cert ConfigMap
+ 		if err := retry.UntilSuccess(func() error {
+ 			_, _, err = istioCtl.Invoke(cmd)
+diff --git a/pkg/test/framework/components/istio/util.go b/pkg/test/framework/components/istio/util.go
+index e4e47c79fb..02106614fc 100644
+--- a/pkg/test/framework/components/istio/util.go
++++ b/pkg/test/framework/components/istio/util.go
+@@ -97,6 +97,7 @@ func (i *operatorComponent) RemoteDiscoveryAddressFor(cluster cluster.Cluster) (
+ 	} else {
+ 		addr = i.CustomIngressFor(primary, eastWestIngressServiceName, eastWestIngressIstioLabel).DiscoveryAddress()
+ 	}
++
+ 	if addr.IP.String() == "<nil>" {
+ 		return net.TCPAddr{}, fmt.Errorf("failed to get ingress IP for %s", primary.Name())
+ 	}
+@@ -162,6 +163,17 @@ func getRemoteServiceAddress(s *kube.Settings, cluster cluster.Cluster, ns, labe
+ 	if ingr.IP == "" && ingr.Hostname == "" {
+ 		return nil, false, fmt.Errorf("service %s/%s is not available yet: no ingress", svc.Namespace, svc.Name)
+ 	}
++
++	if ingr.Hostname != "" {
++		ip, err := net.LookupIP(ingr.Hostname)
++		if err != nil {
++			return nil, false, fmt.Errorf("service %s/%s is not available yet: no ingress", svc.Namespace, svc.Name)
++		}
++		if len(ip) > 0 {
++			ingr.IP = ip[0].String()
++		}
++	}
++
+ 	if ingr.IP != "" {
+ 		return net.TCPAddr{IP: net.ParseIP(ingr.IP), Port: port}, true, nil
+ 	}
+diff --git a/tests/integration/pilot/ingress_test.go b/tests/integration/pilot/ingress_test.go
+index bb76db2fb6..643d3f25d1 100644
+--- a/tests/integration/pilot/ingress_test.go
++++ b/tests/integration/pilot/ingress_test.go
+@@ -334,6 +334,14 @@ spec:
+ 					if hostIsIP {
+ 						got = ing.Status.LoadBalancer.Ingress[0].IP
+ 					}
++
++					if ing.Status.LoadBalancer.Ingress[0].Hostname != "" {
++						ip, _ := net.LookupIP(ing.Status.LoadBalancer.Ingress[0].Hostname)
++						if len(ip) > 0 {
++							got = ip[0].String()
++						}
++					}
++
+ 					if got != host {
+ 						return fmt.Errorf("unexpected ingress status, got %+v want %v", got, host)
+ 					}
