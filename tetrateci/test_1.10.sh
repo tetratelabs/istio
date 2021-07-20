@@ -7,15 +7,15 @@ source ./tetrateci/setup_go.sh
 echo "Applying patches...."
 
 # git apply tetrateci/patches/common/increase-vm-timeout.1.9.patch
-git apply tetrateci/patches/common/increase-sniffing-timeout.1.9.patch
-git apply tetrateci/patches/common/increase-dashboard-timeout.1.9.patch
-git apply tetrateci/patches/common/disable-vmregistration.1.9.patch # https://github.com/istio/istio/issues/29100
-git apply tetrateci/patches/common/disable-passthroughfilterchain.1.9.patch # https://github.com/istio/istio/issues/32623
+# git apply tetrateci/patches/common/increase-sniffing-timeout.1.9.patch
+git apply tetrateci/patches/common/increase-dashboard-timeout.1.10.patch
+git apply tetrateci/patches/common/disable-vmregistration.1.10.patch # https://github.com/istio/istio/issues/29100
+git apply tetrateci/patches/common/disable-passthroughfilterchain.1.10.patch # https://github.com/istio/istio/issues/32623
 
 # the code fails whenever there is something other than digits in the k8s minor version
 # in our case which is a "+" symbol due to extra patching by corresponding vendor
 # so we get 1.17+ instead of 1.17
-git apply tetrateci/patches/common/fix-version-check.1.9.patch
+# git apply tetrateci/patches/common/fix-version-check.1.9.patch
 
 if [[ ${CLUSTER} == "gke" ]]; then
   echo "Generating operator config for GKE"
@@ -29,7 +29,7 @@ fi
 
 if [[ ${CLUSTER} == "eks" ]]; then
   echo "Applying Ingress patch for EKS...."
-  git apply tetrateci/patches/eks/eks-ingress.1.9.patch
+  git apply tetrateci/patches/eks/eks-ingress.1.10.patch
 fi
 
 if $(grep -q "1.17" <<< ${K8S_VERSION}); then
