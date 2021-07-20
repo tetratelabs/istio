@@ -9,6 +9,10 @@ if $(grep -q "1.8" <<< $TAG || grep -q "1.9" <<< $TAG); then
     export GOLANG_VERSION=1.15.7
 fi
 
+if $(grep -q "1.10" <<< $TAG); then
+    export GOLANG_VERSION=1.16.4
+fi
+
 echo "Fetching Go $GOLANG_VERSION"
 url="https://golang.org/dl/go$GOLANG_VERSION.linux-amd64.tar.gz"
 
