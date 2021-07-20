@@ -1,0 +1,12 @@
+diff --git a/tests/integration/security/pass_through_filter_chain_test.go b/tests/integration/security/pass_through_filter_chain_test.go
+index 2c7c0a67ba..df93bf72c9 100644
+--- a/tests/integration/security/pass_through_filter_chain_test.go
++++ b/tests/integration/security/pass_through_filter_chain_test.go
+@@ -33,6 +33,7 @@ import (
+ 
+ // TestPassThroughFilterChain tests the authN and authZ policy on the pass through filter chain.
+ func TestPassThroughFilterChain(t *testing.T) {
++	t.Skip("https://github.com/istio/istio/issues/32623")
+ 	framework.
+ 		NewTest(t).
+ 		Features("security.filterchain").
