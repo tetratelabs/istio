@@ -10,6 +10,7 @@ on:
 jobs:
   build:
     name: Build Istio proxy
+    timeout-minutes: 720 # 12 hours
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -36,11 +37,12 @@ jobs:
           ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
           sed -i "s/\-p//g; s/push_release: build/push_release:/g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
 
-      - name: Tweak release-binary script
-        run: | # Necessary to do the gcloud authentication in docker
-          cp ${GOOGLE_APPLICATION_CREDENTIALS} ./cred
+      - name: Tweak release-binary script for in-docker auth
+         # Note that /work is the mount destination of the current home of make command with BUILD_WITH_CONTAINER=1.
+        run: |
+          CREDENTIAL_FILE_NAME=$(echo ${GOOGLE_APPLICATION_CREDENTIALS} | awk -F/ '{print $NF}')
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
-          echo 'gcloud auth activate-service-account --key-file="${GOOGLE_APPLICATION_CREDENTIALS}"' > scripts/release-binary.sh
+          echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
 
       - name: Add FIPS flag
@@ -49,6 +51,4 @@ jobs:
       - name: Build and push
         env:
           BUILD_WITH_CONTAINER: 1 
-          # Note that /work is the mount destination of the current home of make command with BUILD_WITH_CONTAINER=1.
-          DOCKER_RUN_OPTIONS: -e GOOGLE_APPLICATION_CREDENTIALS=/work/cred
         run: make push_release
