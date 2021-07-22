@@ -23,6 +23,7 @@ import (
 	"istio.io/istio/pkg/test/framework/components/echo"
 	"istio.io/istio/pkg/test/framework/components/echo/echoboot"
 	"istio.io/istio/pkg/test/framework/components/istio"
+	"istio.io/istio/pkg/test/framework/components/istio/ingress"
 	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/resource"
 )
@@ -42,6 +43,9 @@ var (
 	b echo.Instance
 	// Echo app to be used by tests, with no sidecar injected
 	naked echo.Instance
+
+	// Eastwest gateway instance
+	eastWest ingress.Instance
 )
 
 // TestMain defines the entrypoint for pilot tests using a standard Istio installation.
@@ -58,6 +62,10 @@ values:
       enabled: true`
 		})).
 		Setup(func(ctx resource.Context) error {
+			eastWest = i.CustomIngressFor(ctx.Clusters().Default(), "istio-eastwestgateway", "eastwestgateway")
+			return nil
+		}).
+		Setup(func(ctx resource.Context) error {
 			var err error
 			// TODO: allow using an existing namespace to allow repeated runs with 0 setup
 			echoNamespace, err = namespace.New(ctx, namespace.Config{
@@ -71,9 +79,11 @@ values:
 				{Name: "http", Protocol: protocol.HTTP},
 				{Name: "grpc", Protocol: protocol.GRPC},
 				{Name: "tcp", Protocol: protocol.TCP},
+				{Name: "https", Protocol: protocol.HTTPS},
 				{Name: "auto-tcp", Protocol: protocol.TCP},
 				{Name: "auto-http", Protocol: protocol.HTTP},
 				{Name: "auto-grpc", Protocol: protocol.GRPC},
+				{Name: "auto-https", Protocol: protocol.HTTPS},
 			}
 			if err := echoboot.NewBuilder(ctx).
 				With(&a, echo.Config{

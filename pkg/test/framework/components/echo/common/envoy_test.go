@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	envoyAdmin "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
+	_ "github.com/envoyproxy/go-control-plane/envoy/api/v2" // because `testdata/config_dump.json` uses `type.googleapis.com/envoy.api.v2.Cluster`
 	"github.com/golang/protobuf/jsonpb"
 
 	"istio.io/istio/pkg/config/protocol"

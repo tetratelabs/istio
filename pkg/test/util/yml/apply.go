@@ -19,7 +19,18 @@ import (
 	"reflect"
 
 	"github.com/ghodss/yaml"
+
+	"istio.io/istio/pkg/test"
 )
+
+// MustApplyNamespace applies the given namespaces to the resources in the yamlText  if not set.
+func MustApplyNamespace(t test.Failer, yamlText, ns string) string {
+	y, err := ApplyNamespace(yamlText, ns)
+	if err != nil {
+		t.Fatalf("ApplyNamespace: %v", err)
+	}
+	return y
+}
 
 // ApplyNamespace applies the given namespaces to the resources in the yamlText.
 func ApplyNamespace(yamlText, ns string) (string, error) {

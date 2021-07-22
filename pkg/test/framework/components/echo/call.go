@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"istio.io/istio/pkg/test/echo/common/scheme"
+	"istio.io/istio/pkg/test/echo/proto"
 )
 
 // CallOptions defines options for calling a Endpoint.
@@ -62,4 +63,7 @@ type CallOptions struct {
 	// Use the custom certificate to make the call. This is mostly used to make mTLS request directly
 	// (without proxy) from naked client to test certificates issued by custom CA instead of the Istio self-signed CA.
 	Cert, Key string
+
+	Alpn       *proto.Alpn
+	ServerName string
 }

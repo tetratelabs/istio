@@ -341,4 +341,10 @@ var (
 	PilotEnableLoopBlockers = env.RegisterBoolVar("PILOT_ENABLE_LOOP_BLOCKER", true,
 		"If enabled, Envoy will be configured to prevent traffic directly the the inbound/outbound "+
 			"ports (15001/15006). This prevents traffic loops. This option will be removed, and considered always enabled, in 1.9.").Get()
+
+	EnableLegacyAutoPassthrough = env.RegisterBoolVar(
+		"PILOT_ENABLE_LEGACY_AUTO_PASSTHROUGH",
+		false,
+		"If enabled, pilot will allow any upstream cluster to be used with AUTO_PASSTHROUGH. "+
+			"This option is intended for backwards compatibility only and is not secure with untrusted downstreams; it will be removed in the future.").Get()
 )

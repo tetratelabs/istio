@@ -108,27 +108,30 @@ func newProtocol(cfg Config) (protocol, error) {
 		}
 	}
 
+	tlsConfig := &tls.Config{
+		GetClientCertificate: getClientCertificate,
+		NextProtos:           cfg.Request.GetAlpn().GetValue(),
+		ServerName:           cfg.Request.ServerName,
+		InsecureSkipVerify:   true,
+	}
+
 	switch scheme.Instance(u.Scheme) {
 	case scheme.HTTP, scheme.HTTPS:
+		tlsConfig.NextProtos = []string{"http/1.1"}
 		proto := &httpProtocol{
 			client: &http.Client{
 				Transport: &http.Transport{
-					TLSClientConfig: &tls.Config{
-						GetClientCertificate: getClientCertificate,
-						InsecureSkipVerify:   true,
-					},
-					DialContext: httpDialContext,
+					TLSClientConfig: tlsConfig,
+					DialContext:     httpDialContext,
 				},
 				Timeout: timeout,
 			},
 			do: cfg.Dialer.HTTP,
 		}
 		if cfg.Request.Http2 && scheme.Instance(u.Scheme) == scheme.HTTPS {
+			tlsConfig.NextProtos = []string{"http/2"}
 			proto.client.Transport = &http2.Transport{
-				TLSClientConfig: &tls.Config{
-					GetClientCertificate: getClientCertificate,
-					InsecureSkipVerify:   true,
-				},
+				TLSClientConfig: tlsConfig,
 				DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
 					return tls.Dial(network, addr, cfg)
 				},
@@ -153,11 +156,7 @@ func newProtocol(cfg Config) (protocol, error) {
 		// transport security
 		security := grpc.WithInsecure()
 		if getClientCertificate != nil {
-			security = grpc.WithTransportCredentials(credentials.NewTLS(
-				&tls.Config{
-					GetClientCertificate: getClientCertificate,
-					InsecureSkipVerify:   true,
-				}))
+			security = grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))
 		}
 
 		// Strip off the scheme from the address.
@@ -180,10 +179,7 @@ func newProtocol(cfg Config) (protocol, error) {
 		}, nil
 	case scheme.WebSocket:
 		dialer := &websocket.Dialer{
-			TLSClientConfig: &tls.Config{
-				GetClientCertificate: getClientCertificate,
-				InsecureSkipVerify:   true,
-			},
+			TLSClientConfig:  tlsConfig,
 			NetDial:          wsDialContext,
 			HandshakeTimeout: timeout,
 		}
@@ -204,10 +200,7 @@ func newProtocol(cfg Config) (protocol, error) {
 		if getClientCertificate == nil {
 			tcpConn, err = cfg.Dialer.TCP(dialer, ctx, address)
 		} else {
-			tcpConn, err = tls.Dial("tcp", address, &tls.Config{
-				GetClientCertificate: getClientCertificate,
-				InsecureSkipVerify:   true,
-			})
+			tcpConn, err = tls.Dial("tcp", address, tlsConfig)
 		}
 		if err != nil {
 			return nil, err

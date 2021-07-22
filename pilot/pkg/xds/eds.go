@@ -382,11 +382,14 @@ type EndpointBuilder struct {
 	hostname   host.Name
 	port       int
 	push       *model.PushContext
+
+	mtlsChecker *mtlsChecker
 }
 
 func createEndpointBuilder(clusterName string, proxy *model.Proxy, push *model.PushContext) EndpointBuilder {
 	_, subsetName, hostname, port := model.ParseSubsetKey(clusterName)
 	svc := push.ServiceForHostname(proxy, hostname)
+	dr := push.DestinationRule(proxy, svc)
 
 	key := EndpointBuilder{
 		clusterName:     clusterName,
@@ -401,6 +404,12 @@ func createEndpointBuilder(clusterName string, proxy *model.Proxy, push *model.P
 		subsetName: subsetName,
 		hostname:   hostname,
 		port:       port,
+	}
+
+	if key.MultiNetworkConfigured() || model.IsDNSSrvSubsetKey(clusterName) {
+		// We only need this for multi-network, or for clusters meant for use with AUTO_PASSTHROUGH
+		// As an optimization, we skip this logic entirely for everything else.
+		key.mtlsChecker = newMtlsChecker(push, port, dr)
 	}
 
 	return key
@@ -422,6 +431,13 @@ func (s *DiscoveryServer) generateEndpoints(b EndpointBuilder) *endpoint.Cluster
 			Policy:      l.Policy,
 		}
 		l = filteredCLA
+	}
+	if model.IsDNSSrvSubsetKey(b.clusterName) {
+		// For the SNI-DNAT clusters, we are using AUTO_PASSTHROUGH gateway. AUTO_PASSTHROUGH is intended
+		// to passthrough mTLS requests. However, at the gateway we do not actually have any way to tell if the
+		// request is a valid mTLS request or not, since its passthrough TLS.
+		// To ensure we allow traffic only to mTLS endpoints, we filter out non-mTLS endpoints for these cluster types.
+		l.Endpoints = b.EndpointsWithMTLSFilter(l.Endpoints)
 	}
 
 	// If locality aware routing is enabled, prioritize endpoints or set their lb weight.
