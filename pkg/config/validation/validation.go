@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	udpaa "github.com/cncf/udpa/go/udpa/annotations"
+	udpaa "github.com/cncf/xds/go/udpa/annotations"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/gogo/protobuf/types"
 	"github.com/golang/protobuf/proto"
@@ -644,6 +644,11 @@ var ValidateEnvoyFilter = registerValidateFunc("ValidateEnvoyFilter",
 					listenerMatch := cp.Match.GetListener()
 					if listenerMatch.FilterChain != nil {
 						if listenerMatch.FilterChain.Filter != nil {
+							if cp.ApplyTo == networking.EnvoyFilter_LISTENER || cp.ApplyTo == networking.EnvoyFilter_FILTER_CHAIN {
+								// This would be an error but is a warning for backwards compatibility
+								errs = appendValidation(errs, WrapWarning(
+									fmt.Errorf("Envoy filter: filter match has no effect when used with %v", cp.ApplyTo))) // nolint: golint,stylecheck
+							}
 							// filter names are required if network filter matches are being made
 							if listenerMatch.FilterChain.Filter.Name == "" {
 								errs = appendValidation(errs, fmt.Errorf("Envoy filter: filter match has no name to match on")) // nolint: golint,stylecheck
@@ -1000,7 +1005,6 @@ func validateSidecarEgressPortBindAndCaptureMode(port *networking.Port, bind str
 }
 
 func validateSidecarIngressPortAndBind(port *networking.Port, bind string) (errs error) {
-
 	// Port name is optional. Validate if exists.
 	if len(port.Name) > 0 {
 		errs = appendErrors(errs, ValidatePortName(port.Name))
@@ -1942,9 +1946,14 @@ func validateTCPMatch(match *networking.L4MatchAttributes) (errs error) {
 }
 
 func validateStringMatchRegexp(sm *networking.StringMatch, where string) error {
+	switch sm.GetMatchType().(type) {
+	case *networking.StringMatch_Regex:
+	default:
+		return nil
+	}
 	re := sm.GetRegex()
 	if re == "" {
-		return nil
+		return fmt.Errorf("%q: regex string match should not be empty", where)
 	}
 
 	_, err := regexp.Compile(re)
@@ -2712,7 +2721,6 @@ func validateNetwork(network *meshconfig.Network) (errs error) {
 				errs = multierror.Append(errs, fmt.Errorf("invalid registry name: %v", e.FromRegistry))
 			}
 		}
-
 	}
 	for _, n := range network.Gateways {
 		switch g := n.Gw.(type) {
