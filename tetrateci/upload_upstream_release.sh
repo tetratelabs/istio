@@ -7,7 +7,7 @@ NEWTAG=$TAG-istio-v0
 
 python3 -m pip install --upgrade cloudsmith-cli --user
 # exit if the tag already exist
-# curl $( sed "s/content/packages/g" <<< $BINTRAY_API )| jq ".versions[]" | grep -q "$NEWTAG" && exit
+cloudsmith ls pkgs tetrate/getistio -F json | jq -r '.data[].filename' | cut -f1-3 -d. | rev | cut -f3- -d- | rev | grep istioctl | cut -f2 -d- | uniq | grep -q "$NEWTAG" && exit
 
 echo "Creating a temporary directory to download $TAG release assets"
 mkdir /tmp/release
