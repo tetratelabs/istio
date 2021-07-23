@@ -5,8 +5,9 @@ set -o pipefail
 
 NEWTAG=$TAG-istio-v0
 
+python3 -m pip install --upgrade cloudsmith-cli --user
 # exit if the tag already exist
-curl $( sed "s/content/packages/g" <<< $BINTRAY_API )| jq ".versions[]" | grep -q "$NEWTAG" && exit
+cloudsmith ls pkgs tetrate/getistio -F json | jq -r '.data[].filename' | cut -f1-3 -d. | rev | cut -f3- -d- | rev | grep istioctl | cut -f2 -d- | uniq | grep -q "$NEWTAG" && exit
 
 echo "Creating a temporary directory to download $TAG release assets"
 mkdir /tmp/release
@@ -42,15 +43,8 @@ PACKAGES=$(ls | grep "istio")
 
 for package in $PACKAGES; do
     echo "Publishing $package"
-    rm -f /tmp/curl.out
-    curl -T ./$package -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$NEWTAG/$package -o /tmp/curl.out
-    cat /tmp/curl.out
-    grep "success" /tmp/curl.out
+    cloudsmith push raw tetrate/getistio ./$package
 done
-
-rm -f /tmp/curl.out
-curl -X POST -u$BINTRAY_USER:$API_KEY $BINTRAY_API/$NEWTAG/publish -o /tmp/curl.out
-cat /tmp/curl.out
 
 echo "Cleaning up the the downloaded artifacts"
 
