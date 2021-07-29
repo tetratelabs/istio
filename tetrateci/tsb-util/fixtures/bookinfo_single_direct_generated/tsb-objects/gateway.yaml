@@ -1,0 +1,45 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  annotations:
+    tsb.tetrate.io/gatewayGroup: bkifot0w0bgg0
+    tsb.tetrate.io/tenant: tenant0
+    tsb.tetrate.io/organization: tetrate
+    tsb.tetrate.io/workspace: bkift0ws0
+  name: tsb-gateway
+  namespace: t0w0demobkifnd0f
+spec:
+  selector:
+    app: tsb-gateway-t0w0demobkifnd0f
+  servers:
+  
+  - hosts:
+    - t0w0demobkifnd0f/productpage-0.tetrate.test.com
+    port:
+      name: productpage-0
+      number: 8443
+      protocol: HTTPS
+    tls:
+      credentialName: wildcard-credential
+      mode: SIMPLE
+  
+  - hosts:
+    - t0w0demobkifnd0f/productpage-1.tetrate.test.com
+    port:
+      name: productpage-1
+      number: 8443
+      protocol: HTTPS
+    tls:
+      credentialName: wildcard-credential
+      mode: SIMPLE
+  
+  - hosts:
+    - t0w0demobkifnd0f/productpage-2.tetrate.test.com
+    port:
+      name: productpage-2
+      number: 8443
+      protocol: HTTPS
+    tls:
+      credentialName: wildcard-credential
+      mode: SIMPLE
+  

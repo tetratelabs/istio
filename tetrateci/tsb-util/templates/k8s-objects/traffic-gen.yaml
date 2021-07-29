@@ -4,7 +4,7 @@ metadata:
   labels:
     app: trafficgenerator
   name: trafficgenerator
-  namespace: {{ ns }}
+  namespace: {{ (namespaces and namespaces["product"]) or namespace}}
 spec:
   replicas: 1
   selector:
@@ -26,14 +26,30 @@ spec:
       - command: [ "/bin/bash", "-c", "--" ]
         args:
         - |
-          while [[ ${PORT} == "" ]]; do
-            PORT=$(kubectl get service -n {{ ns }} {{ serviceName }} -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
-            sleep 2
-          done
-          IP=$(kubectl get nodes --output "jsonpath={.items[0].status.addresses[?(@.type=='{{ ipType }}')].address}")
           while :; do
-            curl "https://{{ hostname }}/productpage" --connect-to "{{ hostname }}:443:$IP:$PORT" --cacert /etc/bookinfo/bookinfo-ca.crt #>/dev/null 2>&1
-            sleep 10
+            while [[ ${PORT} == "" ]]; do
+              echo "Fetching Port"
+              PORT=$(kubectl get service -n {{ (namespaces and namespaces["product"]) or namespace }} tsb-gateway-{{ (namespaces and namespaces["product"]) or namespace }} -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+              sleep 5
+            done
+
+            echo "Fetching IP"
+            IP=$(kubectl get nodes --output "jsonpath={.items[0].status.addresses[?(@.type=='{{ ipType }}')].address}")
+            if [[ ${IP} == "" ]]; then
+              echo "Error Fetching {{ ipType }}."
+              exit 1
+            fi
+
+            # From here https://stackoverflow.com/a/22735757
+
+            secs=300
+            SECONDS=0
+
+            while (( SECONDS < secs )); do
+              echo "IP: $IP | PORT: $PORT | Sending traffic..."
+              curl "https://{{ (namespaces and namespaces["product"]) or namespace }}.tetrate.test.com/{{ (namespaces and namespaces["product"]) and "productpage" }}" --connect-to "{{ (namespaces and namespaces["product"]) or namespace }}.tetrate.test.com:443:$IP:$PORT" --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
+              sleep 10
+            done
           done
         image: bitnami/kubectl
         imagePullPolicy: IfNotPresent
@@ -55,4 +71,4 @@ spec:
         secret:
           defaultMode: 420
           secretName: {{ secretName }}
-      serviceAccountName: {{ saName }}
+      serviceAccountName: {{ (namespaces and namespaces["product"]) or namespace }}-trafficgen-sa

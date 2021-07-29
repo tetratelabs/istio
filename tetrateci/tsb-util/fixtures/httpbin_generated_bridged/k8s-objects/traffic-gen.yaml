@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: trafficgenerator
+  name: trafficgenerator
+  namespace: t0w0demohtbnnb0f
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trafficgenerator
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        app: trafficgenerator
+    spec:
+      containers:
+      - command: [ "/bin/bash", "-c", "--" ]
+        args:
+        - |
+          while :; do
+            while [[ ${PORT} == "" ]]; do
+              echo "Fetching Port"
+              PORT=$(kubectl get service -n t0w0demohtbnnb0f tsb-gateway-t0w0demohtbnnb0f -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+              sleep 5
+            done
+
+            echo "Fetching IP"
+            IP=$(kubectl get nodes --output "jsonpath={.items[0].status.addresses[?(@.type=='InternalIP')].address}")
+            if [[ ${IP} == "" ]]; then
+              echo "Error Fetching ."
+              exit 1
+            fi
+
+            # From here https://stackoverflow.com/a/22735757
+
+            secs=300
+            SECONDS=0
+
+            while (( SECONDS < secs )); do
+              echo "IP: $IP | PORT: $PORT | Sending traffic..."
+              
+              curl https://httpbin-0.tetrate.test.com --connect-to httpbin-0.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
+              
+              curl https://httpbin-1.tetrate.test.com --connect-to httpbin-1.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
+              
+              curl https://httpbin-2.tetrate.test.com --connect-to httpbin-2.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
+              
+              curl https://httpbin-3.tetrate.test.com --connect-to httpbin-3.tetrate.test.com:443:$IP:$PORT --cacert /etc/bookinfo/bookinfo-ca.crt &>/dev/null
+              
+              sleep 10
+            done
+          done
+        image: bitnami/kubectl
+        imagePullPolicy: IfNotPresent
+        name: trafficgenerator
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/bookinfo
+          name: bookinfo
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: bookinfo
+        secret:
+          defaultMode: 420
+          secretName: t0w0demohtbnnb0f-ca-cert
+      serviceAccountName: t0w0demohtbnnb0f-trafficgen-sa

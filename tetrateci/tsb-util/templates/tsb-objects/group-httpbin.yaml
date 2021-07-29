@@ -1,0 +1,42 @@
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: {{ orgName }}
+  name: {{ gatewayGroupName }}
+  workspace: {{ workspaceName }}
+  tenant: {{ tenantName }}
+spec:
+  displayName: {{ gatewayGroupName }}
+  namespaceSelector:
+    names:
+    - {{ clusterName }}/{{ ns }}
+  configMode: {{ mode }}
+---
+apiVersion: traffic.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: {{ orgName }}
+  name: {{ trafficGroupName }}
+  workspace: {{ workspaceName }}
+  tenant: {{ tenantName }}
+spec:
+  displayName: {{ trafficGroupName }}
+  namespaceSelector:
+    names:
+    - {{ clusterName }}/{{ ns }}
+  configMode: {{ mode }}
+---
+apiVersion: security.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: {{ orgName }}
+  name: {{ securityGroupName }}
+  workspace: {{ workspaceName }}
+  tenant: {{ tenantName }}
+spec:
+  displayName: {{ securityGroupName }}
+  namespaceSelector:
+    names:
+    - {{ clusterName }}/{{ ns }}
+
+  configMode: {{ mode }}

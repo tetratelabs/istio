@@ -1,0 +1,12 @@
+apiversion: api.tsb.tetrate.io/v2
+kind: Workspace
+metadata:
+  organization: tetrate
+  name: bkift0ws0
+  tenant: tenant0
+spec:
+  displayName: bkift0ws0
+  namespaceSelector:
+    names:
+    - demo/t0w0demobkifnb0f
+    

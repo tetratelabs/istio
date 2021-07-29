@@ -1,0 +1,12 @@
+apiversion: api.tsb.tetrate.io/v2
+kind: Workspace
+metadata:
+  organization: tetrate
+  name: htbnt1ws1
+  tenant: tenant1
+spec:
+  displayName: htbnt1ws1
+  namespaceSelector:
+    names:
+    - demo/t1w1demohtbnnd0f
+    

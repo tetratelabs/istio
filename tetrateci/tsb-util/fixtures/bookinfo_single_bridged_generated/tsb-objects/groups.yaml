@@ -1,0 +1,42 @@
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: tetrate
+  name: bkifot0w0bgg0
+  workspace: bkift0ws0
+  tenant: tenant0
+spec:
+  displayName: bkifot0w0bgg0
+  namespaceSelector:
+    names:
+    - demo/t0w0demobkifnb0f
+  configMode: BRIDGED
+---
+apiVersion: traffic.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: tetrate
+  name: bkift0w0btg0
+  workspace: bkift0ws0
+  tenant: tenant0
+spec:
+  displayName: bkift0w0btg0
+  namespaceSelector:
+    names:
+    - demo/t0w0demobkifnb0f
+  configMode: BRIDGED
+---
+apiVersion: security.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: tetrate
+  name: bkift0w0bsg0
+  workspace: bkift0ws0
+  tenant: tenant0
+spec:
+  displayName: bkift0w0bsg0
+  namespaceSelector:
+    names:
+    - demo/t0w0demobkifnb0f
+    
+  configMode: BRIDGED

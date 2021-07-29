@@ -7,9 +7,9 @@ metadata:
     tsb.tetrate.io/trafficGroup: {{ trafficGroupName }}
     tsb.tetrate.io/workspace: {{ workspaceName }}
   name: {{ destinationruleName }}
-  namespace: {{ ns }}
+  namespace: {{ (namespaces and namespaces["reviews"]) or namespace }}
 spec:
-  host: {{ hostFQDN }}
+  host: {{ reviewsHostFQDN }}
   subsets:
   - labels:
       version: v1

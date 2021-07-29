@@ -1,0 +1,44 @@
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: tetrate
+  name: bkift1w1dgg0
+  workspace: bkift1ws1
+  tenant: tenant1
+spec:
+  displayName: bkift1w1dgg0
+  namespaceSelector:
+    names:
+    - demo/t1w1demobkifnd0f
+  configMode: DIRECT
+---
+apiVersion: traffic.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: tetrate
+  name: bkift1w1dtg0
+  workspace: bkift1ws1
+  tenant: tenant1
+spec:
+  displayName: bkift1w1dtg0
+  namespaceSelector:
+    names:
+    - demo/t1w1demobkifnd0b
+  configMode: DIRECT
+---
+apiVersion: security.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  organization: tetrate
+  name: bkift1w1dsg0
+  workspace: bkift1ws1
+  tenant: tenant1
+spec:
+  displayName: bkift1w1dsg0
+  namespaceSelector:
+    names:
+    - demo/t1w1demobkifnd0f
+    - demo/t1w1demobkifnd0m
+    - demo/t1w1demobkifnd0b
+    
+  configMode: DIRECT

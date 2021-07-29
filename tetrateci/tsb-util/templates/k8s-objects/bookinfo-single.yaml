@@ -1,0 +1,264 @@
+# Copyright 2017 Istio Authors
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
+
+##################################################################################################
+# Details service
+##################################################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: details-{{ id }}
+  namespace: {{ ns }}
+  labels:
+    app: details-{{ id }}
+    service: details-{{ id }}
+spec:
+  ports:
+  - port: 9080
+    name: http
+  selector:
+    app: details-{{ id }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: details-v1-{{ id }}
+  namespace: {{ ns }}
+  labels:
+    app: details-{{ id }}
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: details-{{ id }}
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: details-{{ id }}
+        version: v1
+    spec:
+      containers:
+      - name: details-{{ id }}
+        image: istio/examples-bookinfo-details-v1:1.14.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9080
+---
+##################################################################################################
+# Ratings service
+##################################################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: ratings-{{ id }}
+  namespace: {{ ns }}
+  labels:
+    app: ratings-{{ id }}
+    service: ratings-{{ id }}
+spec:
+  ports:
+  - port: 9080
+    name: http
+  selector:
+    app: ratings-{{ id }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ratings-v1-{{ id }}
+  namespace: {{ ns }}
+  labels:
+    app: ratings-{{ id }}
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ratings-{{ id }}
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: ratings-{{ id }}
+        version: v1
+    spec:
+      containers:
+      - name: ratings-{{ id }}
+        image: istio/examples-bookinfo-ratings-v1:1.14.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9080
+---
+##################################################################################################
+# Reviews service
+##################################################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews-{{ id }}
+  namespace: {{ ns }}
+  labels:
+    app: reviews-{{ id }}
+    service: reviews-{{ id }}
+spec:
+  ports:
+  - port: 9080
+    name: http
+  selector:
+    app: reviews-{{ id }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v1-{{ id }}
+  namespace: {{ ns }}
+  labels:
+    app: reviews-{{ id }}
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviews-{{ id }}
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: reviews-{{ id }}
+        version: v1
+    spec:
+      containers:
+      - name: reviews-{{ id }}
+        image: istio/examples-bookinfo-reviews-v1:1.14.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9080
+        env:
+        - name: RATINGS_HOSTNAME
+          value: {{ ratingsHostName }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v2-{{ id }}
+  namespace: {{ ns }}
+  labels:
+    app: reviews-{{ id }}
+    version: v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviews-{{ id }}
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: reviews-{{ id }}
+        version: v2
+    spec:
+      containers:
+      - name: reviews-{{ id }}
+        image: istio/examples-bookinfo-reviews-v2:1.14.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9080
+        env:
+        - name: RATINGS_HOSTNAME
+          value: {{ ratingsHostName }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v3-{{ id }}
+  namespace: {{ ns }}
+  labels:
+    app: reviews-{{ id }}
+    version: v3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviews-{{ id }}
+      version: v3
+  template:
+    metadata:
+      labels:
+        app: reviews-{{ id }}
+        version: v3
+    spec:
+      containers:
+      - name: reviews-{{ id }}
+        image: istio/examples-bookinfo-reviews-v3:1.14.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9080
+        env:
+        - name: RATINGS_HOSTNAME
+          value: {{ ratingsHostName }}
+---
+##################################################################################################
+# Productpage services
+##################################################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: productpage-{{ id }}
+  namespace: {{ ns }}
+  labels:
+    app: productpage-{{ id }}
+    service: productpage-{{ id }}
+spec:
+  ports:
+  - port: 9080
+    name: http
+  selector:
+    app: productpage-{{ id }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: productpage-v1-{{ id }}
+  namespace: {{ ns }}
+  labels:
+    app: productpage-{{ id }}
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: productpage-{{ id }}
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: productpage-{{ id }}
+        version: v1
+    spec:
+      containers:
+      - name: productpage-{{ id }}
+        image: istio/examples-bookinfo-productpage-v1:1.14.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9080
+        env:
+        - name: DETAILS_HOSTNAME
+          value: {{ detailsHostName }}
+        - name: REVIEWS_HOSTNAME
+          value: {{ reviewsHostName }}
+        - name: RATINGS_HOSTNAME
+          value: {{ ratingsHostName }}
+---

@@ -3,11 +3,11 @@ kind: ServiceRoute
 Metadata:
   organization: {{ orgName }}
   name: {{ serviceRouteName }}
-  group: {{ groupName }}
+  group: {{ trafficGroupName }}
   workspace: {{ workspaceName }}
   tenant: {{ tenantName }}
 spec:
-  service: {{ ns }}/{{ hostFQDN }}
+  service: {{ (namespaces and namespaces["reviews"]) or namespace }}/{{ reviewsHostFQDN }}
   subsets:
   - name: v1
     labels:

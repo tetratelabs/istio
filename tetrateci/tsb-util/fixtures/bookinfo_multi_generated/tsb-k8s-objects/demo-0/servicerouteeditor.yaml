@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: config-update
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: t0w0demobkifnb0b-editor
+  namespace: config-update
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: t0w0demobkifnb0b-editorpod
+  namespace: config-update
+spec:
+  containers:
+  - image: amd64/ubuntu:focal
+    name: tctl-container
+    command: [ "/bin/bash", "-c", "--" ]
+    args:
+    - |
+      apt update && apt install curl jq -y
+      curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+      PROVIDER=others
+      if [[ ${PROVIDER} == "aws" ]]; then
+        IP=$(kubectl get svc envoy -n tsb -o "jsonpath={.status.loadBalancer.ingress[0].hostname}")
+      else
+        IP=$(kubectl get svc envoy -n tsb -o "jsonpath={.status.loadBalancer.ingress[0].ip}")
+      fi
+      echo "IP = $IP"
+      mkdir -p ~/.tctl/bin
+      curl -Lo ~/.tctl/bin/tctl https://binaries.dl.tetrate.io/public/raw/versions/linux-amd64-1.2.0/tctl
+      chmod +x ~/.tctl/bin/tctl
+      export PATH=$PATH:~/.tctl/bin
+      tctl config clusters set demo --bridge-address $IP:8443
+      tctl config users set admin --username admin --password "admin"
+      tctl config profiles set demo --username admin --cluster demo
+      tctl config profiles set-current demo
+      tctl login --org tetrate --password "admin" --username admin --tenant tenant0
+
+      while :; do
+        tctl get traffic.tsb.tetrate.io/v2/ServiceRoute --tenant tenant0 -w bkift0ws0 -t bkift0w0btg0 -o json | jq ".[0]" > original.json
+        tmp=$(mktemp)
+        jq ".spec.subsets[0].weight=50" original.json  > $tmp && cp $tmp new.json
+        jq ".spec.subsets[1].weight=20" new.json  > $tmp && cp $tmp new.json
+        jq ".spec.subsets[2].weight=30" new.json  > $tmp && cp $tmp new.json
+        echo "Applying version 1"
+        tctl apply -f new.json
+        sleep 100
+        tctl get traffic.tsb.tetrate.io/v2/ServiceRoute --tenant tenant0 -w bkift0ws0 -t bkift0w0btg0 -o json | jq ".[0]" > original.json
+        tmp=$(mktemp)
+        jq ".spec.subsets[0].weight=60" original.json  > $tmp && cp $tmp new.json
+        jq ".spec.subsets[1].weight=30" new.json  > $tmp && cp $tmp new.json
+        jq ".spec.subsets[2].weight=10" new.json  > $tmp && cp $tmp new.json
+        echo "Applying version 2"
+        tctl apply -f new.json
+        sleep 100
+      done
+  serviceAccount: t0w0demobkifnb0b-editor
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: tsb
+  name: t0w0demobkifnb0b-editor-reader
+rules:
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: t0w0demobkifnb0b-editor-binding
+  namespace: tsb
+subjects:
+- kind: ServiceAccount
+  name: t0w0demobkifnb0b-editor
+  namespace: config-update
+roleRef:
+  kind: Role
+  name: t0w0demobkifnb0b-editor-reader
+  apiGroup: ""

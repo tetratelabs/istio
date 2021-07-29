@@ -7,14 +7,14 @@ metadata:
     tsb.tetrate.io/organization: {{ orgName }}
     tsb.tetrate.io/workspace: {{ workspaceName }}
   name: {{ virtualserviceName }}
-  namespace: {{ ns }}
+  namespace: {{ (namespaces and namespaces['product']) or namespace }}
 spec:
   exportTo:
   - .
   gateways:
-  - {{ ns }}/{{ gatewayName }}
+  - {{ (namespaces and namespaces['product']) or namespace }}/{{ gatewayName }}
   hosts:
-  - {{ hostFQDN }}
+  - {{ hostname }}
   http:
   - name: http
     route:
