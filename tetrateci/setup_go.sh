@@ -13,10 +13,9 @@ if $(grep -q "1.10" <<< $TAG); then
     export GOLANG_VERSION=1.16.4
 fi
 
-echo "Fetching Go $GOLANG_VERSION"
 url="https://golang.org/dl/go$GOLANG_VERSION.linux-amd64.tar.gz"
 
-wget -O go.tgz "$url"
+wget -q -O go.tgz "$url"
 
 sudo tar -C /usr/local -xzf go.tgz
 rm go.tgz
