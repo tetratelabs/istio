@@ -4,17 +4,13 @@ on:
   workflow_dispatch: 
     inputs:
       tag:
-        description: Manual Tag [e.g. 1.7.8-tetrate-v0]
+        description: Tag [e.g. 1.7.8-tetrate-v0]
         required: true
-      type:
-        description: Build Type [fips or default]
-        required: true
-        default: "default"
 
 jobs:
   build_fips_proxy:
     # Only run this job when the release type equals "fips".
-    if: ${{ github.event.inputs.type == 'fips' }}
+    if: contains(github.event.inputs.tag, 'fips')
     name: build fips proxy binary
     timeout-minutes: 1440 # 12 hours
     runs-on: ubuntu-latest
@@ -82,7 +78,7 @@ jobs:
         run: make push_release
 
   make_release:
-    name: release-builder-run
+    name: release-builder-run (${{ github.event.inputs.tag }})
     if: ${{ ! failure() }} # Make sure that this job runs even if build == "fips".
     runs-on: ubuntu-latest
     needs: [build_fips_proxy]
@@ -115,6 +111,5 @@ jobs:
           CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
           TAG: ${{ github.event.inputs.tag }}
-          BUILD: ${{ github.event.inputs.type }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-        run: bash ./tetrateci/create_istio_release.sh
+        run: ./tetrateci/create_istio_release.sh
