@@ -6,7 +6,7 @@ set -o pipefail
 BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
 ## Set up apporiate go version
-if [[ ${BUILD} == "fips" ]]; then
+if [[ ${TAG} =~ "fips" ]]; then
     source ${BASEDIR}/tetrateci/setup_boring_go.sh
 else
     source ${BASEDIR}/tetrateci/setup_go.sh
@@ -39,7 +39,7 @@ export BUILD_WITH_CONTAINER=0
 # HACK : For FIPS change the distroless base image to include glibc
 # We would use the same distroless base image as istio-proxy for pilot and operator
 # HACK : change envoy/wasm base URL to point to FIPS compliant one
-if [[ ${BUILD} == "fips" ]]; then
+if [[ ${TAG} =~ "fips" ]]; then
 	PROXY_DISTROLESS_BASE=$(grep 'as distroless' ${BASEDIR}/pilot/docker/Dockerfile.proxyv2)
 	# Escape '/'
 	PROXY_DISTROLESS_BASE_ESCAPED=$(sed 's/\//\\\//g' <<< ${PROXY_DISTROLESS_BASE})
@@ -81,7 +81,7 @@ echo "Images are built with: $BUILD_GO_VERSION"
 [ $BUILD_GO_VERSION == go$CUSTOM_GO_VERSION ] || exit 1
 
 # fips go versions are like 1.14.12b5, extra checking to not miss anything
-if [ $BUILD == "fips" ]; then 
+if [ ${TAG} =~ "fips" ]; then 
     [[ $BUILD_GO_VERSION =~ 1.[0-9]+.[0-9]+[a-z][0-9]$ ]] || exit 1
 fi
 
@@ -94,7 +94,7 @@ if [[ -z $TEST ]]; then
     echo "Building archives..."
     mkdir /tmp/istio-release
 	# if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
-    if [[ ${BUILD} == "fips" ]]; then
+    if [[ ${TAG} =~ "fips" ]]; then
         sudo rm -rf /usr/local/go
         source ${BASEDIR}/tetrateci/setup_go.sh
     fi
