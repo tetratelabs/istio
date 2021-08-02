@@ -23,3 +23,11 @@ def generate_bookinfo_namespaces(arguments, filepath):
 def generate_httpbin(arguments, filepath):
     template = f"{script_path}/templates/k8s-objects/httpbin.yaml"
     generate_yaml(template, arguments, filepath)
+
+def generate_tier1_ingress(arguments, filepath):
+    template = f"{script_path}/templates/tier1/kube-tier1.yaml"
+    generate_yaml(template, arguments, filepath)
+
+def generate_tier1_ingress_namespace(arguments, filepath):
+    template = f"{script_path}/templates/tier1/01namespace.yaml"
+    generate_yaml(template, arguments, filepath)

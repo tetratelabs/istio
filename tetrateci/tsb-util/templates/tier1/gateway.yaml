@@ -1,0 +1,25 @@
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: Tier1Gateway
+metadata:
+  group: {{ gatewayGroupName }}
+  name: {{ tier1GatewayName }}
+  organization: {{ orgName }}
+  workspace: {{ workspaceName }}
+  tenant: {{ tenantName }}
+spec:
+  externalServers:
+  - clusters:
+    - labels:
+        network: tier2
+      network: tier2
+      weight: 100
+    hostname: {{ hostname }}
+    name: {{ externalServerName }}
+    port: 443
+    tls:
+      mode: SIMPLE
+      secretName: {{ gwSecretName }}
+  workloadSelector:
+    labels:
+      app: {{ tier1GatewayIngress }}
+    namespace: {{ tier1GatewayIngressNs }}

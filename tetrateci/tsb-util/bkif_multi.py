@@ -18,6 +18,21 @@ def gen_common_tsb_objects(arguments, key, folder):
     # perm
     tsb_objects.generate_perm(arguments, f"{folder}/tsb-objects/{key}/perm.yaml")
 
+def gen_tier1_gateway(arguments, key, folder):
+    os.makedirs(f"{folder}/tier1-objects/tsb/{key}", exist_ok=True)
+    os.makedirs(f"{folder}/tier1-objects/k8s/{key}", exist_ok=True)
+    tsb_objects.generate_tier1_gateway(
+        arguments, f"{folder}/tier1-objects/tsb/{key}/gateway.yaml"
+    )
+
+    k8s_objects.generate_tier1_ingress(
+        arguments, f"{folder}/tier1-objects/k8s/{key}/ingress.yaml"
+    )
+
+    k8s_objects.generate_tier1_ingress_namespace(
+        arguments, f"{folder}/tier1-objects/k8s/{key}/01namespace.yaml"
+    )
+
 def gen_bridge_specific_objects(arguments, key, folder):
     os.makedirs(f"{folder}/tsb-objects/{key}/bridged", exist_ok=True)
     os.makedirs(f"{folder}/k8s-objects/{key}", exist_ok=True)
@@ -126,6 +141,10 @@ def install_bookinfo(
                 "ipType": "InternalIP"
                 if conf.traffic_gen_ip == "internal"
                 else "ExternalIP",
+                "tier1GatewayName": f"{namespaces['product']}-t1gw",
+                "externalServerName": f"{namespaces['product']}-ext-server",
+                "tier1GatewayIngress": f"{namespaces['product']}-t1lb",
+                "tier1GatewayIngressNs": f"{namespaces['product']}",
             }
 
             k8s_objects.generate_bookinfo(
@@ -166,6 +185,13 @@ def install_bookinfo(
             k8s_objects.generate_trafficgen(
                 arguments, f"{folder}/k8s-objects/{key}/traffic-gen.yaml"
             )
+
+            if replica.tier1:
+                gen_tier1_gateway(arguments, key, folder)
+                shutil.copy(
+                    f"{folder}/k8s-objects/{key}/secret.yaml",
+                    f"{folder}/tier1-objects/k8s/{key}/secret.yaml",
+                )
 
             print("Bookinfo installed\n")
             i += 1

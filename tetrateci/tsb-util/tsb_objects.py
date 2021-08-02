@@ -51,3 +51,7 @@ def generate_direct_vs(arguments, filepath):
 def generate_direct_gateway(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/direct/gw.yaml"
     generate_yaml(template, arguments, filepath)
+
+def generate_tier1_gateway(arguments, filepath):
+    template = f"{script_path}/templates/tier1/gateway.yaml"
+    generate_yaml(template, arguments, filepath)

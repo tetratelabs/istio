@@ -1,6 +1,6 @@
 import yaml
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 from marshmallow_dataclass import class_schema
 
 @dataclass
@@ -8,9 +8,10 @@ class replica:
     bridged: int
     direct: int
     tenant_id: int
+    tier1: Optional[bool]
 
 @dataclass
-class bookinfo:
+class app:
     replicas: List[replica]
     cluster_name: str
     traffic_gen_ip: str
@@ -18,14 +19,14 @@ class bookinfo:
 @dataclass
 class fullconfig:
     org: str
-    app: List[bookinfo]
+    app: List[app]
     provider: str
     tctl_version: str
 
 @dataclass
 class htbn_multi_config:
     org: str
-    app: List[bookinfo]
+    app: List[app]
 
 def read_config_yaml(filename):
     schema = class_schema(fullconfig)
