@@ -7,14 +7,12 @@ BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
 ## Set up apporiate go version
 if [[ ${TAG} =~ "fips" ]]; then
+    echo "Set up FIPS compliant Golang"
     source ${BASEDIR}/tetrateci/setup_boring_go.sh
 else
+    echo "Set up Golang"
     source ${BASEDIR}/tetrateci/setup_go.sh
 fi
-
-# the go we just installed
-CUSTOM_GO_VERSION=$GOLANG_VERSION
-echo "Go version installed: $CUSTOM_GO_VERSION"
 
 ## Set up release-builder
 sudo gem install fpm
@@ -76,9 +74,9 @@ CONTAINER_ID=$(docker create $HUB/pilot:$TAG)
 docker cp $CONTAINER_ID:/usr/local/bin/pilot-discovery pilot-bin
 # go version with which the binaries for the docker images wi
 BUILD_GO_VERSION=$(go version pilot-bin | cut -f2 -d" ")
-echo "Images are built with: $BUILD_GO_VERSION"
+echo "Images are built with: go $BUILD_GO_VERSION"
 
-[ $BUILD_GO_VERSION == go$CUSTOM_GO_VERSION ] || exit 1
+[ $BUILD_GO_VERSION == go$GOLANG_VERSION ] || exit 1
 
 # fips go versions are like 1.14.12b5, extra checking to not miss anything
 if [ ${TAG} =~ "fips" ]; then 

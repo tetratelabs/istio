@@ -13,7 +13,6 @@ if $(grep -q "1.10" <<< $TAG); then
   export GOLANG_VERSION=1.16.4b7
 fi
 
-echo "Fetching FIPS compliant Go"
 url="https://go-boringcrypto.storage.googleapis.com/go$GOLANG_VERSION.linux-amd64.tar.gz"
 
 wget -q -O go.tgz "$url"
