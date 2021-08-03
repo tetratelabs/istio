@@ -78,7 +78,6 @@ jobs:
         run: make push_release
       
       - name: Put CentOS binary
-        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
         # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
         run: |
