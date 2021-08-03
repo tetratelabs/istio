@@ -8,7 +8,7 @@ class replica:
     bridged: int
     direct: int
     tenant_id: int
-    tier1: Optional[bool]
+    tier1: Optional[str]
 
 @dataclass
 class app:

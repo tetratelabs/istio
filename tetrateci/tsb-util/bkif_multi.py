@@ -147,6 +147,13 @@ def install_bookinfo(
                 "tier1GatewayIngressNs": f"{namespaces['product']}",
             }
 
+            if replica.tier1:
+                gen_tier1_gateway(arguments, key, folder)
+                shutil.copy(
+                    f"{folder}/k8s-objects/{key}/secret.yaml",
+                    f"{folder}/tier1-objects/k8s/{key}/secret.yaml",
+                )
+                arguments["tier1Cluster"] = replica.tier1
             k8s_objects.generate_bookinfo(
                 arguments, f"{folder}/k8s-objects/{key}/bookinfo.yaml"
             )
@@ -185,13 +192,6 @@ def install_bookinfo(
             k8s_objects.generate_trafficgen(
                 arguments, f"{folder}/k8s-objects/{key}/traffic-gen.yaml"
             )
-
-            if replica.tier1:
-                gen_tier1_gateway(arguments, key, folder)
-                shutil.copy(
-                    f"{folder}/k8s-objects/{key}/secret.yaml",
-                    f"{folder}/tier1-objects/k8s/{key}/secret.yaml",
-                )
 
             print("Bookinfo installed\n")
             i += 1
