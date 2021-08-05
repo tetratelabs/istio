@@ -142,18 +142,15 @@ def install_bookinfo(
                 if conf.traffic_gen_ip == "internal"
                 else "ExternalIP",
                 "tier1GatewayName": f"{namespaces['product']}-t1gw",
-                "externalServerName": f"{namespaces['product']}-ext-server",
+                "externalServerName": "ext",  # have to keep it short or else the vs fails to come up
                 "tier1GatewayIngress": f"{namespaces['product']}-t1lb",
                 "tier1GatewayIngressNs": f"{namespaces['product']}",
             }
 
             if replica.tier1:
                 gen_tier1_gateway(arguments, key, folder)
-                shutil.copy(
-                    f"{folder}/k8s-objects/{key}/secret.yaml",
-                    f"{folder}/tier1-objects/k8s/{key}/secret.yaml",
-                )
                 arguments["tier1Cluster"] = replica.tier1
+
             k8s_objects.generate_bookinfo(
                 arguments, f"{folder}/k8s-objects/{key}/bookinfo.yaml"
             )
@@ -178,6 +175,12 @@ def install_bookinfo(
             certs.create_secret(
                 namespaces["product"], f"{folder}/k8s-objects/{key}/secret.yaml", folder
             )
+
+            if replica.tier1:
+                shutil.copy(
+                    f"{folder}/k8s-objects/{key}/secret.yaml",
+                    f"{folder}/tier1-objects/k8s/{key}/secret.yaml",
+                )
 
             arguments["secretName"] = certs.create_trafficgen_secret(
                 namespaces["product"],
