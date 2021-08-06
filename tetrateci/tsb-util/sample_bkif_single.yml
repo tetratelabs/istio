@@ -1,0 +1,4 @@
+count: 3 # number of instances we want
+org: "tetrate" 
+cluster: "demo" # cluster name
+mode: "direct" # mode, possible values "direct" & "bridged"
