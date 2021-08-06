@@ -2,7 +2,7 @@ import os
 import base64
 from jinja2 import Template
 
-script_path = os.path.dirname(os.path.realpath(__file__))
+script_path = os.path.dirname(os.path.realpath(f"{__file__}/.."))
 
 def create_root_cert(folder):
     os.makedirs(f"{folder}/cert/", exist_ok=True)

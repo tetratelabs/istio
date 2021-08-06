@@ -5,8 +5,7 @@ import yaml
 import argparse
 from dataclasses import dataclass
 from marshmallow_dataclass import class_schema, marshmallow
-import certs
-import tsb_objects, k8s_objects, common
+from tsblibs import *
 import shutil
 
 @dataclass

@@ -1,4 +1,4 @@
-from common import *
+from .common import script_path, generate_yaml
 
 def generate_tenant(arguments, filepath):
     template = f"{script_path}/templates/tsb-objects/tenant.yaml"

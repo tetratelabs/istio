@@ -1,9 +1,7 @@
 import os
 import sys
 import argparse
-import config
-import certs
-import tsb_objects, k8s_objects, common
+from tsblibs import *
 from marshmallow_dataclass import marshmallow
 import shutil
 
