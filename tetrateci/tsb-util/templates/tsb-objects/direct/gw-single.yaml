@@ -12,7 +12,7 @@ spec:
   selector:
     app: tsb-gateway-{{ ns }}
   servers:
-  {% for entry in entries %}
+  {% for entry in entries -%}
   - hosts:
     - {{ ns }}/{{ entry }}.tetrate.test.com
     port:
