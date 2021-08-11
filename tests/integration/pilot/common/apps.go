@@ -37,6 +37,8 @@ type EchoDeployments struct {
 
 	// Ingressgateway instance
 	Ingress ingress.Instance
+	// Eastwest gateway instance
+	EastWest ingress.Instance
 
 	// Standard echo app to be used by tests
 	PodA echo.Instances
@@ -79,7 +81,7 @@ var EchoPorts = []echo.Port{
 	{Name: "auto-tcp-server", Protocol: protocol.TCP, ServicePort: 9093, InstancePort: 16061, ServerFirst: true},
 	{Name: "auto-http", Protocol: protocol.HTTP, ServicePort: 81, InstancePort: 18081},
 	{Name: "auto-grpc", Protocol: protocol.GRPC, ServicePort: 7071, InstancePort: 17071},
-	{Name: "auto-https", Protocol: protocol.HTTPS, ServicePort: 9443, InstancePort: 19443},
+	{Name: "auto-https", Protocol: protocol.HTTPS, ServicePort: 9443, InstancePort: 19443, TLS: true},
 }
 
 var WorkloadPorts = []echo.WorkloadPort{
@@ -127,6 +129,7 @@ func SetupApps(ctx resource.Context, i istio.Instance, apps *EchoDeployments) er
 	}
 
 	apps.Ingress = i.IngressFor(ctx.Clusters().Default())
+	apps.EastWest = i.CustomIngressFor(ctx.Clusters().Default(), "istio-eastwestgateway", "eastwestgateway")
 
 	// Headless services don't work with targetPort, set to same port
 	headlessPorts := make([]echo.Port, len(EchoPorts))
@@ -174,7 +177,8 @@ func SetupApps(ctx resource.Context, i istio.Instance, apps *EchoDeployments) er
 				{
 					Annotations: map[echo.Annotation]*echo.AnnotationValue{
 						echo.SidecarInject: {
-							Value: strconv.FormatBool(false)},
+							Value: strconv.FormatBool(false),
+						},
 					},
 				},
 			},
@@ -189,7 +193,8 @@ func SetupApps(ctx resource.Context, i istio.Instance, apps *EchoDeployments) er
 				{
 					Annotations: map[echo.Annotation]*echo.AnnotationValue{
 						echo.SidecarInject: {
-							Value: strconv.FormatBool(false)},
+							Value: strconv.FormatBool(false),
+						},
 					},
 				},
 			},

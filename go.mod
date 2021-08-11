@@ -19,6 +19,11 @@ replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 // See https://github.com/kubernetes/kubernetes/issues/92867, there is a bug in the library
 replace github.com/evanphx/json-patch => github.com/evanphx/json-patch v0.0.0-20190815234213-e83c0a1c26c8
 
+// Required to fix unknown version error:
+//
+//   github.com/envoyproxy/go-control-plane@v0.9.8-0.20210420150603-831d6316d7b9: invalid version: unknown revision 831d6316d7b9
+replace github.com/envoyproxy/go-control-plane => github.com/istio/go-control-plane v0.9.8-0.20210420150603-831d6316d7b9
+
 require (
 	cloud.google.com/go v0.65.0
 	contrib.go.opencensus.io/exporter/prometheus v0.2.0
@@ -35,7 +40,7 @@ require (
 	github.com/d4l3k/messagediff v1.2.1 // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/docker/distribution v2.7.1+incompatible
-	github.com/envoyproxy/go-control-plane v0.9.8-0.20201019204000-12785f608982
+	github.com/envoyproxy/go-control-plane v0.9.8-0.20210420150603-831d6316d7b9
 	github.com/evanphx/json-patch v4.9.0+incompatible
 	github.com/evanphx/json-patch/v5 v5.1.0
 	github.com/fatih/color v1.9.0
@@ -104,7 +109,7 @@ require (
 	gopkg.in/yaml.v2 v2.3.0
 	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776
 	helm.sh/helm/v3 v3.2.4
-	istio.io/api v0.0.0-20210205171209-1744f93fc684
+	istio.io/api v0.0.0-20210419172736-4acdfb7450da
 	istio.io/client-go v0.0.0-20200908160912-f99162621a1a
 	istio.io/gogo-genproto v0.0.0-20201112235858-7e611cb4d738
 	istio.io/pkg v0.0.0-20201112235759-c861803834b2
