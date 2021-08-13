@@ -1,0 +1,20 @@
+# prepare a distroless source context to copy files from
+FROM gcr.io/distroless/static-debian10@sha256:c9320b754c2fa2cd2dea50993195f104a24f4c7ebe6e0297c6ddb40ce3679e7d as distroless_source
+
+# prepare a base dev to modify file contents
+FROM ubuntu:focal as ubuntu_source
+
+# Modify contents of container
+COPY --from=distroless_source /etc/ /home/etc
+COPY --from=distroless_source /home/nonroot /home/nonroot
+RUN echo istio-proxy:x:1337: >> /home/etc/group
+RUN echo istio-proxy:x:1337:1337:istio-proxy:/nonexistent:/sbin/nologin >> /home/etc/passwd
+
+# Customize distroless with the following:
+# - password file
+# - groups file
+# - /home/nonroot directory
+FROM gcr.io/distroless/static-debian10@sha256:c9320b754c2fa2cd2dea50993195f104a24f4c7ebe6e0297c6ddb40ce3679e7d
+COPY --from=ubuntu_source /home/etc/passwd /etc/passwd
+COPY --from=ubuntu_source /home/etc/group /etc/group
+COPY --from=ubuntu_source /home/nonroot /home/nonroot
