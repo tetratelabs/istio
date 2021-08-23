@@ -439,8 +439,7 @@ jobs:
           gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
           gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
 
-  make_release:
-    if: ${{ ! failure() }}
+  make-release-fips:
     needs: [build-fips-proxy]
     name: release-builder-run
     runs-on: ubuntu-latest
@@ -477,9 +476,50 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
           # if the tag contains fips we are doing a fips build
-          BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
+          BUILD: 'fips'
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
         # not using the official build container 
+        run: ./tetrateci/create_istio_release.sh
+
+  make-release:
+    if: {{ ! contains(github.event.ref, 'fips') }}
+    needs: [create-new-tag]
+    name: release-builder-run
+    runs-on: ubuntu-latest
+    env:
+      # Overriding workflow level HUB for deploy
+      HUB: ${{ secrets.CLOUDSMITH_HUB }}
+
+    steps:
+      - name: Checkout tetrate branch
+        uses: actions/checkout@v2
+
+      - name: Login to CloudSmith
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ env.HUB }}
+          username: ${{ secrets.CLOUDSMITH_USER }}
+          password: ${{ secrets.CLOUDSMITH_API_KEY }}
+
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
+        shell: bash
+
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - name: run release builder
+        env:
+          CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+        # not using the official build container
         run: ./tetrateci/create_istio_release.sh
 
     #######################################################################
