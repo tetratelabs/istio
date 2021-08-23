@@ -482,7 +482,7 @@ jobs:
         run: ./tetrateci/create_istio_release.sh
 
   make-release:
-    if: {{ ! contains(github.event.ref, 'fips') }}
+    if: ${{ ! contains(github.event.ref, 'fips') }}
     needs: [create-new-tag]
     name: release-builder-run
     runs-on: ubuntu-latest
