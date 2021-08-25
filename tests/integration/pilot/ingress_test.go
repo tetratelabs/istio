@@ -82,15 +82,15 @@ kind: HTTPRoute
 metadata:
   name: http
 spec:
- hostnames: ["my.domain.example"]
- rules:
- - matches:
-   - path:
-       type: Prefix
-       value: /get
-   forwardTo:
-     - serviceName: b
-       port: 80
+  hostnames: ["my.domain.example"]
+  rules:
+  - matches:
+    - path:
+        type: Prefix
+        value: /get/
+    forwardTo:
+    - serviceName: b
+      port: 80
 ---
 apiVersion: networking.x-k8s.io/v1alpha1
 kind: TCPRoute
@@ -129,16 +129,18 @@ spec:
 `)
 
 			t.NewSubTest("http").Run(func(t framework.TestContext) {
-				_ = apps.Ingress.CallEchoWithRetryOrFail(t, echo.CallOptions{
-					Port: &echo.Port{
-						Protocol: protocol.HTTP,
-					},
-					Path: "/get",
-					Headers: map[string][]string{
-						"Host": {"my.domain.example"},
-					},
-					Validator: echo.ExpectOK(),
-				})
+				paths := []string{"/get", "/get/", "/get/prefix"}
+				for _, path := range paths {
+					_ = apps.Ingress.CallEchoWithRetryOrFail(t, echo.CallOptions{
+						Port: &echo.Port{
+							Protocol: protocol.HTTP,
+						},
+						Path: path,
+						Headers: map[string][]string{
+							"Host": {"my.domain.example"},
+						},
+					})
+				}
 			})
 			t.NewSubTest("tcp").Run(func(t framework.TestContext) {
 				host, port := apps.Ingress.TCPAddress()
@@ -206,13 +208,18 @@ func TestIngress(t *testing.T) {
 				ingressutil.DeleteKubeSecret(t, []string{credName2})
 			})
 
-			ingressClassConfig := `
-apiVersion: networking.k8s.io/v1beta1
+			apiVersion := "v1beta1"
+			if t.Clusters().Default().MinKubeVersion(19) {
+				apiVersion = "v1"
+			}
+
+			ingressClassConfig := fmt.Sprintf(`
+apiVersion: networking.k8s.io/%s
 kind: IngressClass
 metadata:
   name: istio-test
 spec:
-  controller: istio.io/ingress-controller`
+  controller: istio.io/ingress-controller`, apiVersion)
 
 			ingressConfigTemplate := `
 apiVersion: networking.k8s.io/v1beta1
@@ -236,17 +243,61 @@ spec:
           - path: %s
             backend:
               serviceName: b
-              servicePort: 80`
-
-			if err := t.Config().ApplyYAML(apps.Namespace.Name(), ingressClassConfig,
-				fmt.Sprintf(ingressConfigTemplate, "ingress", "istio-test", "/test", "/test")); err != nil {
-				t.Fatal(err)
+              servicePort: 80
+          - path: %s
+            pathType: Prefix
+            backend:
+              serviceName: b
+              servicePort: http`
+			if apiVersion == "v1" {
+				ingressConfigTemplate = `
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: %s
+spec:
+  ingressClassName: %s
+  tls:
+  - hosts: ["foo.example.com"]
+    secretName: k8s-ingress-secret-foo
+  - hosts: ["bar.example.com"]
+    secretName: k8s-ingress-secret-bar
+  rules:
+  - http:
+      paths:
+      - backend:
+          service:
+            name: b
+            port:
+              name: http
+        path: %s/namedport
+        pathType: ImplementationSpecific
+      - backend:
+          service:
+            name: b
+            port:
+              number: 80
+        path: %s
+        pathType: ImplementationSpecific
+      - backend:
+          service:
+            name: b
+            port:
+              number: 80
+        path: %s
+        pathType: Prefix
+`
 			}
+
+			successValidator := echo.And(echo.ExpectOK(), echo.ExpectReachedClusters(apps.PodB.Clusters()))
+			failureValidator := echo.And(echo.ExpectCode("404"))
 
 			// TODO check all clusters were hit
 			cases := []struct {
-				name string
-				call echo.CallOptions
+				name       string
+				path       string
+				prefixPath string
+				call       echo.CallOptions
 			}{
 				{
 					// Basic HTTP call
@@ -259,8 +310,90 @@ spec:
 						Headers: map[string][]string{
 							"Host": {"server"},
 						},
-						Validator: echo.ExpectOK(),
+						Validator: successValidator,
 					},
+					path:       "/test",
+					prefixPath: "/prefix",
+				},
+				{
+					// Prefix /prefix/should MATCHES prefix/should/match
+					name: "http-prefix-matches-subpath",
+					call: echo.CallOptions{
+						Port: &echo.Port{
+							Protocol: protocol.HTTP,
+						},
+						Path: "/prefix/should/match",
+						Headers: map[string][]string{
+							"Host": {"server"},
+						},
+						Validator: successValidator,
+					},
+					path:       "/test",
+					prefixPath: "/prefix/should",
+				},
+				{
+					// Prefix /prefix/test/ should match path /prefix/test
+					name: "http-prefix-matches-without-trailing-backslash",
+					call: echo.CallOptions{
+						Port: &echo.Port{
+							Protocol: protocol.HTTP,
+						},
+						Path: "/prefix/test",
+						Headers: map[string][]string{
+							"Host": {"server"},
+						},
+						Validator: successValidator,
+					},
+					path:       "/test",
+					prefixPath: "/prefix/test/",
+				},
+				{
+					// Prefix /prefix/test should match /prefix/test/
+					name: "http-prefix-matches-trailing-blackslash",
+					call: echo.CallOptions{
+						Port: &echo.Port{
+							Protocol: protocol.HTTP,
+						},
+						Path: "/prefix/test/",
+						Headers: map[string][]string{
+							"Host": {"server"},
+						},
+						Validator: successValidator,
+					},
+					path:       "/test",
+					prefixPath: "/prefix/test",
+				},
+				{
+					// Prefix /prefix/test should NOT match /prefix/testrandom
+					name: "http-prefix-should-not-match-path-continuation",
+					call: echo.CallOptions{
+						Port: &echo.Port{
+							Protocol: protocol.HTTP,
+						},
+						Path: "/prefix/testrandom/",
+						Headers: map[string][]string{
+							"Host": {"server"},
+						},
+						Validator: failureValidator,
+					},
+					path:       "/test",
+					prefixPath: "/prefix/test",
+				},
+				{
+					// Prefix / should match any path
+					name: "http-root-prefix-should-match-random-path",
+					call: echo.CallOptions{
+						Port: &echo.Port{
+							Protocol: protocol.HTTP,
+						},
+						Path: "/testrandom",
+						Headers: map[string][]string{
+							"Host": {"server"},
+						},
+						Validator: successValidator,
+					},
+					path:       "/test",
+					prefixPath: "/",
 				},
 				{
 					// Basic HTTPS call for foo. CaCert matches the secret
@@ -274,8 +407,10 @@ spec:
 							"Host": {"foo.example.com"},
 						},
 						CaCert:    ingressutil.IngressCredentialA.CaCert,
-						Validator: echo.ExpectOK(),
+						Validator: successValidator,
 					},
+					path:       "/test",
+					prefixPath: "/prefix",
 				},
 				{
 					// Basic HTTPS call for bar. CaCert matches the secret
@@ -289,8 +424,10 @@ spec:
 							"Host": {"bar.example.com"},
 						},
 						CaCert:    ingressutil.IngressCredentialB.CaCert,
-						Validator: echo.ExpectOK(),
+						Validator: successValidator,
 					},
+					path:       "/test",
+					prefixPath: "/prefix",
 				},
 				{
 					// HTTPS call for bar with namedport route. CaCert matches the secret
@@ -304,14 +441,20 @@ spec:
 							"Host": {"bar.example.com"},
 						},
 						CaCert:    ingressutil.IngressCredentialB.CaCert,
-						Validator: echo.ExpectOK(),
+						Validator: successValidator,
 					},
+					path:       "/test",
+					prefixPath: "/prefix",
 				},
 			}
 			for _, c := range cases {
 				c := c
 				t.NewSubTest(c.name).Run(func(t framework.TestContext) {
-					apps.Ingress.CallEchoWithRetryOrFail(t, c.call, retry.Timeout(time.Minute*2))
+					if err := t.Config().ApplyYAML(apps.Namespace.Name(), ingressClassConfig,
+						fmt.Sprintf(ingressConfigTemplate, "ingress", "istio-test", c.path, c.path, c.prefixPath)); err != nil {
+						t.Fatal(err)
+					}
+					apps.Ingress.CallEchoWithRetryOrFail(t, c.call, retry.Converge(3), retry.Delay(500*time.Millisecond), retry.Timeout(time.Minute*2))
 				})
 			}
 
@@ -319,11 +462,32 @@ spec:
 				if !t.Environment().(*kube.Environment).Settings().LoadBalancerSupported {
 					t.Skip("ingress status not supported without load balancer")
 				}
+				if err := t.Config().ApplyYAML(apps.Namespace.Name(), ingressClassConfig,
+					fmt.Sprintf(ingressConfigTemplate, "ingress", "istio-test", "/test", "/test", "/test")); err != nil {
+					t.Fatal(err)
+				}
 
 				host, _ := apps.Ingress.HTTPAddress()
 				hostIsIP := net.ParseIP(host).String() != "<nil>"
 				retry.UntilSuccessOrFail(t, func() error {
-					ing, err := t.Clusters().Default().NetworkingV1beta1().Ingresses(apps.Namespace.Name()).Get(context.Background(), "ingress", metav1.GetOptions{})
+					if apiVersion == "v1beta1" {
+						ing, err := t.Clusters().Default().NetworkingV1beta1().Ingresses(apps.Namespace.Name()).Get(context.Background(), "ingress", metav1.GetOptions{})
+						if err != nil {
+							return err
+						}
+						if len(ing.Status.LoadBalancer.Ingress) < 1 {
+							return fmt.Errorf("unexpected ingress status, ingress is empty")
+						}
+						got := ing.Status.LoadBalancer.Ingress[0].Hostname
+						if hostIsIP {
+							got = ing.Status.LoadBalancer.Ingress[0].IP
+						}
+						if got != host {
+							return fmt.Errorf("unexpected ingress status, got %+v want %v", got, host)
+						}
+						return nil
+					}
+					ing, err := t.Clusters().Default().NetworkingV1().Ingresses(apps.Namespace.Name()).Get(context.Background(), "ingress", metav1.GetOptions{})
 					if err != nil {
 						return err
 					}
@@ -344,7 +508,7 @@ spec:
 			// setup another ingress pointing to a different route; the ingress will have an ingress class that should be targeted at first
 			const updateIngressName = "update-test-ingress"
 			if err := t.Config().ApplyYAML(apps.Namespace.Name(), ingressClassConfig,
-				fmt.Sprintf(ingressConfigTemplate, updateIngressName, "istio-test", "/update-test", "/update-test")); err != nil {
+				fmt.Sprintf(ingressConfigTemplate, updateIngressName, "istio-test", "/update-test", "/update-test", "/update-test")); err != nil {
 				t.Fatal(err)
 			}
 			// these cases make sure that when new Ingress configs are applied our controller picks up on them
@@ -367,7 +531,7 @@ spec:
 						Headers: map[string][]string{
 							"Host": {"server"},
 						},
-						Validator: echo.ExpectCode("404"),
+						Validator: echo.Or(echo.ExpectError(), echo.ExpectCode("404")),
 					},
 				},
 				{
@@ -404,7 +568,7 @@ spec:
 
 			for _, c := range ingressUpdateCases {
 				c := c
-				updatedIngress := fmt.Sprintf(ingressConfigTemplate, updateIngressName, c.ingressClass, c.path, c.path)
+				updatedIngress := fmt.Sprintf(ingressConfigTemplate, updateIngressName, c.ingressClass, c.path, c.path, c.path)
 				t.Config().ApplyYAMLOrFail(t, apps.Namespace.Name(), updatedIngress)
 				t.NewSubTest(c.name).Run(func(t framework.TestContext) {
 					apps.Ingress.CallEchoWithRetryOrFail(t, c.call, retry.Timeout(time.Minute))
