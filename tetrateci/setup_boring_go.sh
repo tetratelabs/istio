@@ -9,8 +9,8 @@ if $(grep -q "1.8" <<< $TAG || grep -q "1.9" <<< $TAG); then
   export GOLANG_VERSION=1.15.8b5
 fi
 
-if $(grep -q "1.10" <<< $TAG); then
-  export GOLANG_VERSION=1.16.4b7
+if $(grep -q "1.10" <<< $TAG || grep -q "1.11" <<< $TAG); then
+  export GOLANG_VERSION=1.16.7b7
 fi
 
 url="https://go-boringcrypto.storage.googleapis.com/go$GOLANG_VERSION.linux-amd64.tar.gz"
