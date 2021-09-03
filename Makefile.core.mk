@@ -22,7 +22,7 @@ SHELL := /bin/bash -o pipefail
 export VERSION ?= 1.11-dev
 
 # Base version of Istio image to use
-BASE_VERSION ?= 1.11-dev.6
+BASE_VERSION ?= 1.11-dev.8
 
 export GO111MODULE ?= on
 export GOPROXY ?= https://proxy.golang.org
@@ -329,6 +329,7 @@ $(foreach bin,$(AGENT_BINARIES),$(eval $(call build-linux,$(bin),"agent")))
 # Create helper targets for each binary, like "pilot-discovery"
 # As an optimization, these still build everything
 $(foreach bin,$(BINARIES),$(shell basename $(bin))): build
+$(foreach bin,$(BINARIES),${LOCAL_OUT}/$(shell basename $(bin))): build
 
 MARKDOWN_LINT_ALLOWLIST=localhost:8080,storage.googleapis.com/istio-artifacts/pilot/,http://ratings.default.svc.cluster.local:9080/ratings
 
