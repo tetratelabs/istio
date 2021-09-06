@@ -49,7 +49,7 @@ COPY metadata-exchange-filter.compiled.wasm /etc/istio/extensions/metadata-excha
 # To avoid breaking changes while delivering `Istio 1.7.x` and `Istio 1.8.x`
 # upgrades, we have to stick to `USER 0` for now.
 
-# hadolint ignore=DL3004
+# hadolint ignore=DL3002
 USER 0
 
 # The pilot-agent will bootstrap Envoy.
