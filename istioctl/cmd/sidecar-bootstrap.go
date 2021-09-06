@@ -37,7 +37,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -662,7 +662,7 @@ func deriveSSHMethod(stdin io.Reader) (_ ssh.AuthMethod, errs error) {
 			return "", err
 		}
 		defer call(restoreStdin)
-		term := terminal.NewTerminal(rawModeStdin, "")
+		term := term.NewTerminal(rawModeStdin, "")
 		sshPassword, err := term.ReadPassword("Please enter the SSH password: ")
 		if err != nil {
 			return "", err
@@ -693,7 +693,7 @@ func deriveSSHMethod(stdin io.Reader) (_ ssh.AuthMethod, errs error) {
 				return nil, err
 			}
 			defer call(restoreStdin)
-			term := terminal.NewTerminal(rawModeStdin, "")
+			term := term.NewTerminal(rawModeStdin, "")
 			sshKeyPassword, err := term.ReadPassword(fmt.Sprintf("Please enter the password for the SSH key %q: ", name))
 			if err != nil {
 				return nil, err
