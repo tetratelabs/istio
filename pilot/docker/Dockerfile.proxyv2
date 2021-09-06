@@ -50,6 +50,8 @@ COPY metadata-exchange-filter.compiled.wasm /etc/istio/extensions/metadata-excha
 # Unfortunately, `USER 65532` breaks `tctl x sidecar-bootstrap` command.
 # To avoid breaking changes while delivering `Istio 1.7.x` and `Istio 1.8.x`
 # upgrades, we have to stick to `USER 0` for now.
+
+# hadolint ignore=DL3004
 USER 0
 
 # The pilot-agent will bootstrap Envoy.
