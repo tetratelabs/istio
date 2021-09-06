@@ -19,7 +19,7 @@ import (
 	"io"
 	"os"
 
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 )
 
 func RawModeStdin(in io.Reader) (io.ReadWriter, func() error, error) {
@@ -28,12 +28,12 @@ func RawModeStdin(in io.Reader) (io.ReadWriter, func() error, error) {
 		return nil, nil, fmt.Errorf("unable to print a prompt because your terminal doesn't support it")
 	}
 	if stdin == os.Stdin {
-		state, err := terminal.MakeRaw(0)
+		state, err := term.MakeRaw(0)
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable put the terminal into raw mode: %w", err)
 		}
 		return stdin, func() error {
-			err := terminal.Restore(0, state)
+			err := term.Restore(0, state)
 			if err != nil {
 				return fmt.Errorf("unable to restore the terminal back from the raw mode: %w", err)
 			}
