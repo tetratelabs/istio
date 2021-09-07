@@ -23,7 +23,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 
 	"istio.io/istio/istioctl/pkg/bootstrap/util"
 )
@@ -57,7 +57,7 @@ func HostKeyPrompt(stdin io.Reader, stderr io.Writer) ssh.HostKeyCallback {
 		}
 		defer call(restoreStdin)
 
-		term := terminal.NewTerminal(rawModeStdin, "")
+		term := term.NewTerminal(rawModeStdin, "")
 		fmt.Fprintf(stderr, "The authenticity of host '%s (%s)' can't be established.\r\n", host(hostname), host(remote.String()))
 		fmt.Fprintf(stderr, "%s key fingerprint is %s.\r\n", strings.ToUpper(key.Type()), ssh.FingerprintSHA256(key))
 		term.SetPrompt("Are you sure you want to continue connecting (yes/no)? ")
