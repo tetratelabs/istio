@@ -161,7 +161,7 @@ func (c *Controller) extractGatewaysInner(svc *model.Service) bool {
 	//                  in order to support enabling/disabling mesh expansion dynamically
 	//                  instead of forcing users to make the decision whether they need
 	//                  mesh expansion in advance.
-	//                  The desired behaviour here is that enabling/disabling mesh expansion
+	//                  The desired behavior here is that enabling/disabling mesh expansion
 	//                  should not result in a change of the network name for k8s Pods.
 	//                  E.g., having empty network name when mesh expansion is disabled
 	//                  but non-empty network name when mesh expansion is enabled leads to
