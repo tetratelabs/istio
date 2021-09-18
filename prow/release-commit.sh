@@ -38,7 +38,7 @@ BUILDER_SHA=78710040a7fb1ccfc7a51f977a1f511da25a5447
 # This will create a version like 1.4-alpha.sha
 NEXT_VERSION=1.9
 TAG=$(git rev-parse HEAD)
-VERSION="${NEXT_VERSION}-alpha.${TAG}"
+VERSION="${VERSION:-${NEXT_VERSION}-alpha.${TAG}}"
 
 # In CI we want to store the outputs to artifacts, which will preserve the build
 # If not specified, we can just create a temporary directory
@@ -99,7 +99,13 @@ release-builder build --manifest <(echo "${MANIFEST}")
 release-builder validate --release "${WORK_DIR}/out"
 
 if [[ -z "${DRY_RUN:-}" ]]; then
-  release-builder publish --release "${WORK_DIR}/out" \
-    --gcsbucket "${GCS_BUCKET}" --gcsaliases "${NEXT_VERSION}-dev" \
-    --dockerhub "${DOCKER_HUB}" --dockertags "${VERSION},${NEXT_VERSION}-dev"
+  read -ra PUBLISH_OPTIONS <<< "${PUBLISH_OPTIONS:-}"
+
+  [[ "${PUBLISH_GCS:-}" != "0" ]] && PUBLISH_OPTIONS+=(--gcsbucket "${GCS_BUCKET}")
+
+  [[ "${PUBLISH_GCS:-}" != "0" && "${PUBLISH_GCS_ALIASES:-}" != "0" ]] && PUBLISH_OPTIONS+=(--gcsaliases "${NEXT_VERSION}-dev")
+
+  [[ "${PUBLISH_DOCKER:-}" != "0" ]] && PUBLISH_OPTIONS+=(--dockerhub "${DOCKER_HUB}" --dockertags "${VERSION},${NEXT_VERSION}-dev")
+
+  release-builder publish --release "${WORK_DIR}/out" "${PUBLISH_OPTIONS[@]}"
 fi
