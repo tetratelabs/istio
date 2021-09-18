@@ -157,7 +157,17 @@ func (c *Controller) extractGatewaysInner(svc *model.Service) bool {
 	defer svc.Mutex.RUnlock()
 
 	gwPort, network := c.getGatewayDetails(svc)
-	if gwPort == 0 || network == "" {
+	// NOTES(yskopets): unlike upstream Istio, we do allow network name to be empty
+	//                  in order to support enabling/disabling mesh expansion dynamically
+	//                  instead of forcing users to make the decision whether they need
+	//                  mesh expansion in advance.
+	//                  The desired behavior here is that enabling/disabling mesh expansion
+	//                  should not result in a change of the network name for k8s Pods.
+	//                  E.g., having empty network name when mesh expansion is disabled
+	//                  but non-empty network name when mesh expansion is enabled leads to
+	//                  a situation where all k8s Pods must be re-created to pick up the new
+	//                  network name.
+	if gwPort == 0 {
 		// TODO detect if this previously had the gateway label so we can cleanup the old value
 		// not a gateway
 		return false

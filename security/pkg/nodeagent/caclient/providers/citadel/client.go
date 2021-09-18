@@ -141,6 +141,7 @@ func (c *CitadelClient) getTLSDialOption() (grpc.DialOption, error) {
 			}
 			return &certificate, nil
 		},
+		ServerName: c.opts.CAEndpointSni,
 	}
 	config.RootCAs = certPool
 

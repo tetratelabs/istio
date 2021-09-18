@@ -131,6 +131,9 @@ type AgentConfig struct {
 	XdsUdsPath string
 
 	DownstreamGrpcOptions []grpc.ServerOption
+
+	// XDSSni is a SNI value to use in connections to the XDS server.
+	XDSSni string
 }
 
 // NewAgent hosts the functionality for local SDS and XDS. This consists of the local SDS server and
