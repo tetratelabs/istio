@@ -784,7 +784,7 @@ func (s *ServiceEntryStore) GetProxyServiceInstances(node *model.Proxy) []*model
 
 	out := make([]*model.ServiceInstance, 0)
 
-	for _, ip := range node.IPAddresses {
+	for _, ip := range node.AllIPAddresses() {
 		instances, found := s.ip2instance[ip]
 		if found {
 			out = append(out, instances...)
@@ -801,7 +801,7 @@ func (s *ServiceEntryStore) GetProxyWorkloadLabels(proxy *model.Proxy) labels.Co
 
 	out := make(labels.Collection, 0)
 
-	for _, ip := range proxy.IPAddresses {
+	for _, ip := range proxy.AllIPAddresses() {
 		instances, found := s.ip2instance[ip]
 		if found {
 			for _, instance := range instances {

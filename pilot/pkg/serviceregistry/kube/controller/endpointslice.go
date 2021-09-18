@@ -118,7 +118,7 @@ func sliceServiceInstances(c *Controller, ep *discovery.EndpointSlice, proxy *mo
 			continue
 		}
 		// consider multiple IP scenarios
-		for _, ip := range proxy.IPAddresses {
+		for _, ip := range proxy.AllIPAddresses() {
 			for _, ep := range ep.Endpoints {
 				for _, a := range ep.Addresses {
 					if a == ip {
