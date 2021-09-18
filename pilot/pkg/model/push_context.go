@@ -16,6 +16,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"sort"
 	"strings"
@@ -30,6 +31,7 @@ import (
 	"istio.io/istio/pilot/pkg/util/sets"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/constants"
+	"istio.io/istio/pkg/config/dns"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/config/protocol"
@@ -226,6 +228,17 @@ type Gateway struct {
 	Addr string
 	// gateway port
 	Port uint32
+}
+
+func NewGateways(port uint32, addresses ...string) []*Gateway {
+	if len(addresses) == 0 {
+		return nil
+	}
+	gateways := make([]*Gateway, len(addresses))
+	for i, address := range addresses {
+		gateways[i] = &Gateway{address, port}
+	}
+	return gateways
 }
 
 type processedDestRules struct {
@@ -940,7 +953,7 @@ func (ps *PushContext) InitContext(env *Environment, oldPushContext *PushContext
 	}
 
 	// TODO: only do this when meshnetworks or gateway service changed
-	ps.initMeshNetworks(env.Networks())
+	ps.initMeshNetworks(env.Networks(), env.Resolver)
 
 	ps.initClusterLocalHosts(env)
 
@@ -1692,7 +1705,7 @@ func (ps *PushContext) mergeGateways(proxy *Proxy) *MergedGateway {
 }
 
 // pre computes gateways for each network
-func (ps *PushContext) initMeshNetworks(meshNetworks *meshconfig.MeshNetworks) {
+func (ps *PushContext) initMeshNetworks(meshNetworks *meshconfig.MeshNetworks, dnsResolver dns.Lookup) {
 	ps.networksMu.Lock()
 	defer ps.networksMu.Unlock()
 	ps.networkGateways = map[string][]*Gateway{}
@@ -1702,11 +1715,8 @@ func (ps *PushContext) initMeshNetworks(meshNetworks *meshconfig.MeshNetworks) {
 		for network, networkConf := range meshNetworks.Networks {
 			gws := networkConf.Gateways
 			for _, gw := range gws {
-				if gwIP := net.ParseIP(gw.GetAddress()); gwIP != nil {
-					ps.networkGateways[network] = append(ps.networkGateways[network], &Gateway{gw.GetAddress(), gw.Port})
-				}
+				ps.networkGateways[network] = append(ps.networkGateways[network], getGatewayAddresses(gw.GetAddress(), gw.Port, dnsResolver)...)
 			}
-
 		}
 	}
 
@@ -1714,7 +1724,22 @@ func (ps *PushContext) initMeshNetworks(meshNetworks *meshconfig.MeshNetworks) {
 	for network, gateways := range ps.ServiceDiscovery.NetworkGateways() {
 		// - the internal map of label gateways - these get deleted if the service is deleted, updated if the ip changes etc.
 		// - the computed map from meshNetworks (triggered by reloadNetworkLookup, the ported logic from getGatewayAddresses)
-		ps.networkGateways[network] = append(ps.networkGateways[network], gateways...)
+		for _, gateway := range gateways {
+			ps.networkGateways[network] = append(ps.networkGateways[network], getGatewayAddresses(gateway.Addr, gateway.Port, dnsResolver)...)
+		}
+	}
+
+	if log.DebugEnabled() && len(ps.networkGateways) > 0 {
+		log.Debug("Network gateways:")
+		for network, gateways := range ps.networkGateways {
+			addresses := make([]string, len(gateways))
+			for i, gateway := range gateways {
+				addresses[i] = fmt.Sprintf("%s:%d", gateway.Addr, gateway.Port)
+			}
+			log.Debugf("  %q: %v", network, addresses)
+		}
+	} else {
+		log.Debug("Network gateways: none")
 	}
 }
 
@@ -1771,6 +1796,26 @@ func (ps *PushContext) initClusterLocalHosts(e *Environment) {
 
 	sort.Sort(host.Names(clusterLocalHosts))
 	ps.clusterLocalHosts = clusterLocalHosts
+}
+
+func getGatewayAddresses(address string, port uint32, dnsResolver dns.Lookup) []*Gateway {
+	if address == "" {
+		return nil
+	}
+	// First, if a gateway address is an IP, use it.
+	if gwIP := net.ParseIP(address); gwIP != nil {
+		log.Debugf("Network gateway is defined using a static IP address %q", address)
+		return []*Gateway{{address, port}}
+	}
+
+	gwIPs := dns.LookupOrNoop(dnsResolver).LookupIP(address)
+	log.Debugf("Network gateway is defined using a DNS name %q which resolves into IPs %v", address, gwIPs)
+	if len(gwIPs) > 0 {
+		return NewGateways(port, gwIPs...)
+	}
+
+	// otherwise, we want to hit a code path where Istio skips those gateways that have DNS name as an address
+	return []*Gateway{{address, port}}
 }
 
 func (ps *PushContext) NetworkGateways() map[string][]*Gateway {

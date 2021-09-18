@@ -47,6 +47,7 @@ import (
 	"istio.io/istio/pilot/test/xdstest"
 	"istio.io/istio/pkg/adsc"
 	"istio.io/istio/pkg/config"
+	"istio.io/istio/pkg/config/dns"
 	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/config/schema/collections"
 	"istio.io/istio/pkg/config/schema/gvk"
@@ -75,6 +76,7 @@ type FakeOptions struct {
 	// If provided, this mesh config will be used
 	MeshConfig      *meshconfig.MeshConfig
 	NetworksWatcher mesh.NetworksWatcher
+	DNSResolver     dns.Resolver
 
 	// Time to debounce
 	// By default, set to 0s to speed up tests
@@ -154,6 +156,7 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 			DomainSuffix:    "cluster.local",
 			XDSUpdater:      xdsUpdater,
 			NetworksWatcher: opts.NetworksWatcher,
+			DNSResolver:     opts.DNSResolver,
 			Mode:            opts.KubernetesEndpointMode,
 			// we wait for the aggregate to sync
 			SkipCacheSyncWait: true,
@@ -184,6 +187,7 @@ func NewFakeDiscoveryServer(t test.Failer, opts FakeOptions) *FakeDiscoveryServe
 		ConfigTemplateInput: opts.ConfigTemplateInput,
 		MeshConfig:          opts.MeshConfig,
 		NetworksWatcher:     opts.NetworksWatcher,
+		DNSResolver:         opts.DNSResolver,
 		ServiceRegistries:   registries,
 		PushContextLock:     &s.updateMutex,
 		ConfigStoreCaches:   []model.ConfigStoreCache{ingr},
