@@ -35,7 +35,8 @@ function set_download_command () {
   # Try curl.
   if command -v curl > /dev/null; then
     if curl --version | grep Protocols  | grep https > /dev/null; then
-      DOWNLOAD_COMMAND="curl -fLSs --retry 5 --retry-delay 1 --retry-connrefused"
+      HTTP_CLIENT="curl -fLSs --retry 5 --retry-delay 1 --retry-connrefused"
+      DOWNLOAD_COMMAND=curl_or_gsutil
       return
     fi
     echo curl does not support https, will try wget for downloading files.
@@ -45,7 +46,8 @@ function set_download_command () {
 
   # Try wget.
   if command -v wget > /dev/null; then
-    DOWNLOAD_COMMAND="wget -qO -"
+    HTTP_CLIENT="wget -qO -"
+    DOWNLOAD_COMMAND=wget_or_gsutil
     return
   fi
   echo wget is not installed.
@@ -54,6 +56,74 @@ function set_download_command () {
        Cannot download envoy. Please install wget or add support of https to curl.
   exit 1
 }
+
+# Wrap gsutil_or_http by curl_or_gsutil and wget_or_gsutil, because this init.sh assumes that
+# DOWNLOAD_COMMAND starts with curl* or wget*, and chooses the right option according to whether
+# the client is curl or wget.
+function curl_or_gsutil () {
+  if [[ "$HTTP_CLIENT" != curl* ]]; then
+    return 1
+  fi
+  gsutil_or_http "$@"
+}
+
+function wget_or_gsutil () {
+  if [[ "$HTTP_CLIENT" != wget* ]]; then
+    return 1
+  fi
+  gsutil_or_http "$@"
+}
+
+# Gets the artifact by gsutil if the URL starts with gs://, otherwise delegate it to curl or wget.
+function gsutil_or_http () {
+  if [[ "$#" -lt 1 ]]; then
+    echo "Error: no URL is given."
+    echo "Usage: gsutil_or_http [--header val] URL [-O,-o file_name]"
+    return 1
+  fi
+
+  local URL=""
+  local OUT=""
+  local ORIGINAL_ARGS=()
+  while (( $# )); do
+    case "$1" in
+      --header | --retry-delay | --retry)
+        # skip options that have value
+        ORIGINAL_ARGS+=("$1" "$2")
+        shift 2
+        ;;
+      -o|-O)
+        OUT="$2"
+        ORIGINAL_ARGS+=("$1" "$2")
+        shift 2
+        ;;
+      -*)
+        # skip options that have no value
+        ORIGINAL_ARGS+=("$1")
+        shift 1
+        ;;
+      *)
+        URL="$1"
+        ORIGINAL_ARGS+=("$1")
+        shift 1
+        ;;
+    esac
+  done
+
+  if [[ ! "$URL" =~ ^gs:// ]]; then
+    $HTTP_CLIENT "${ORIGINAL_ARGS[@]}"
+    return $?
+  fi
+
+  if [[ -z "$OUT" ]]; then
+    gsutil cat "$URL"
+  else
+    gsutil cp "$URL" "$OUT"
+  fi
+
+  return $?
+}
+
 
 # Downloads and extract an Envoy binary if the artifact doesn't already exist.
 # Params:
@@ -71,7 +141,7 @@ function download_envoy_if_necessary () {
     time ${DOWNLOAD_COMMAND} --header "${AUTH_HEADER:-}" "$1" | tar xz
 
     # Copy the extracted binary to the output location
-    cp usr/local/bin/"${SIDECAR}" "$2"
+    cp usr/local/bin/"${SIDECAR}"* "$2"
 
     # Remove the extracted binary.
     rm -rf usr
@@ -80,6 +150,22 @@ function download_envoy_if_necessary () {
     echo "Copying $2 to $(dirname "$2")/${3}"
     cp -f "$2" "$(dirname "$2")/${3}"
     popd
+  fi
+}
+
+# Downloads and extract the runtime libraries ModSecurity requires if they don't already exist.
+# Params:
+#   $1: The URL of the libraries tar.gz to be downloaded.
+#   $2: The full path of the output directory.
+function download_modsecurty_deps_if_necessary () {
+  out_path="$2/modsecurity_plugin_deps"
+  if [[ ! -d "${out_path}" ]] ; then
+    # Enter the output directory.
+    cd "$2"
+
+    # Download and extract the binary to the output directory.
+    echo "Downloading ModSecurity runtime dependencies: ${DOWNLOAD_COMMAND} $1 to ${out_path}"
+    time ${DOWNLOAD_COMMAND} --header "${AUTH_HEADER:-}" "$1" | tar xz  # The extracted directory is "modsecurity_plugin_deps"
   fi
 }
 
@@ -164,6 +250,8 @@ fi
 # Download and extract the Envoy linux release binary.
 download_envoy_if_necessary "${ISTIO_ENVOY_LINUX_RELEASE_URL}" "$ISTIO_ENVOY_LINUX_RELEASE_PATH" "${SIDECAR}"
 download_envoy_if_necessary "${ISTIO_ENVOY_CENTOS_RELEASE_URL}" "$ISTIO_ENVOY_CENTOS_LINUX_RELEASE_PATH" "${SIDECAR}-centos"
+
+download_modsecurty_deps_if_necessary "${TETRATE_MODSECURITYDEPS_RELEASE_URL}" "${ISTIO_ENVOY_LINUX_RELEASE_DIR}"
 
 if [[ "$GOOS_LOCAL" == "darwin" ]]; then
   # Download and extract the Envoy macOS release binary

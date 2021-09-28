@@ -58,7 +58,7 @@ ${DEPENDENCIES:-$(cat <<EOD
     git: https://github.com/istio/api
     auto: modules
   proxy:
-    git: https://github.com/istio/proxy
+    git: https://github.com/tetrateio/proxy
     auto: deps
   pkg:
     git: https://github.com/istio/pkg
