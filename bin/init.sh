@@ -248,7 +248,7 @@ else
 fi
 
 # Download and extract the Envoy linux release binary.
-download_envoy_if_necessary "${ISTIO_ENVOY_LINUX_RELEASE_URL}" "$ISTIO_ENVOY_LINUX_RELEASE_PATH" "${SIDECAR}"
+download_envoy_if_necessary "${ISTIO_ENVOY_LINUX_RELEASE_URL}" "$ISTIO_ENVOY_LINUX_RELEASE_PATH" "${SIDECAR}-modsecurity"
 download_envoy_if_necessary "${ISTIO_ENVOY_CENTOS_RELEASE_URL}" "$ISTIO_ENVOY_CENTOS_LINUX_RELEASE_PATH" "${SIDECAR}-centos"
 
 download_modsecurty_deps_if_necessary "${TETRATE_MODSECURITYDEPS_RELEASE_URL}" "${ISTIO_ENVOY_LINUX_RELEASE_DIR}"

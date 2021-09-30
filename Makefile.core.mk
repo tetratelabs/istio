@@ -131,8 +131,9 @@ export SIDECAR ?= envoy
 export ISTIO_ENVOY_VERSION ?= ${PROXY_REPO_SHA}
 export ISTIO_ENVOY_DEBUG_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-debug-$(ISTIO_ENVOY_VERSION).tar.gz
 export ISTIO_ENVOY_CENTOS_DEBUG_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-centos-debug-$(ISTIO_ENVOY_VERSION).tar.gz
+# ISTIO_ENVOY_RELEASE_URL is overridden to modsecurity's one. See Makefile.overrides.mk
 export ISTIO_ENVOY_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-alpha-$(ISTIO_ENVOY_VERSION).tar.gz
-export ISTIO_ENVOY_CENTOS_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-centos-alpha-$(ISTIO_ENVOY_VERSION).tar.gz  # This is overridden to modsecurity's one. See Makefile.overrides.mk
+export ISTIO_ENVOY_CENTOS_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-centos-alpha-$(ISTIO_ENVOY_VERSION).tar.gz
 export TETRATE_MODSECURITYDEPS_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/modsecurity-plugin-deps-$(ISTIO_ENVOY_VERSION).tar.gz
 
 # Envoy Linux vars.
