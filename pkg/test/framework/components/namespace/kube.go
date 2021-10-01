@@ -19,14 +19,15 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
 	kubeApiCore "k8s.io/api/core/v1"
 	kubeApiMeta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"istio.io/api/label"
-	"istio.io/istio/pkg/test/framework/components/environment/kube"
 	"istio.io/istio/pkg/test/framework/resource"
 	kube2 "istio.io/istio/pkg/test/kube"
 	"istio.io/istio/pkg/test/scopes"
@@ -66,6 +67,14 @@ func (n *kubeNamespace) Name() string {
 	return n.name
 }
 
+func (n *kubeNamespace) SetLabel(key, value string) error {
+	return n.setNamespaceLabel(key, value)
+}
+
+func (n *kubeNamespace) RemoveLabel(key string) error {
+	return n.removeNamespaceLabel(key)
+}
+
 func (n *kubeNamespace) ID() resource.ID {
 	return n.id
 }
@@ -87,9 +96,7 @@ func (n *kubeNamespace) Close() (err error) {
 }
 
 func claimKube(ctx resource.Context, nsConfig *Config) (Instance, error) {
-	env := ctx.Environment().(*kube.Environment)
-
-	for _, cluster := range env.KubeClusters {
+	for _, cluster := range ctx.Clusters() {
 		if !kube2.NamespaceExists(cluster, nsConfig.Prefix) {
 			if _, err := cluster.CoreV1().Namespaces().Create(context.TODO(), &kubeApiCore.Namespace{
 				ObjectMeta: kubeApiMeta.ObjectMeta{
@@ -102,6 +109,34 @@ func claimKube(ctx resource.Context, nsConfig *Config) (Instance, error) {
 		}
 	}
 	return &kubeNamespace{name: nsConfig.Prefix}, nil
+}
+
+// setNamespaceLabel labels a namespace with the given key, value pair
+func (n *kubeNamespace) setNamespaceLabel(key, value string) error {
+	// need to convert '/' to '~1' as per the JSON patch spec http://jsonpatch.com/#operations
+	jsonPatchEscapedKey := strings.ReplaceAll(key, "/", "~1")
+	for _, cluster := range n.ctx.Clusters() {
+		nsLabelPatch := fmt.Sprintf(`[{"op":"replace","path":"/metadata/labels/%s","value":"%s"}]`, jsonPatchEscapedKey, value)
+		if _, err := cluster.CoreV1().Namespaces().Patch(context.TODO(), n.name, types.JSONPatchType, []byte(nsLabelPatch), kubeApiMeta.PatchOptions{}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// removeNamespaceLabel removes namespace label with the given key
+func (n *kubeNamespace) removeNamespaceLabel(key string) error {
+	// need to convert '/' to '~1' as per the JSON patch spec http://jsonpatch.com/#operations
+	jsonPatchEscapedKey := strings.ReplaceAll(key, "/", "~1")
+	for _, cluster := range n.ctx.Clusters() {
+		nsLabelPatch := fmt.Sprintf(`[{"op":"remove","path":"/metadata/labels/%s"}]`, jsonPatchEscapedKey)
+		if _, err := cluster.CoreV1().Namespaces().Patch(context.TODO(), n.name, types.JSONPatchType, []byte(nsLabelPatch), kubeApiMeta.PatchOptions{}); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // NewNamespace allocates a new testing namespace.

@@ -91,7 +91,12 @@ func RunAllTrafficTests(ctx framework.TestContext, apps *EchoDeployments) {
 	cases["serverfirst"] = serverFirstTestCases(apps)
 	cases["gateway"] = gatewayCases(apps)
 	cases["loop"] = trafficLoopCases(apps)
-	cases["vm"] = VMTestCases(apps.VM, apps)
+	cases["tls-origination"] = tlsOriginationCases(apps)
+	cases["instanceip"] = instanceIPTests(apps)
+	cases["services"] = serviceCases(apps)
+	if !ctx.Settings().SkipVM {
+		cases["vm"] = VMTestCases(apps.VM, apps)
+	}
 	for name, tts := range cases {
 		ctx.NewSubTest(name).Run(func(ctx framework.TestContext) {
 			for _, tt := range tts {

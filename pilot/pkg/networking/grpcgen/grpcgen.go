@@ -65,19 +65,20 @@ const (
 type GrpcConfigGenerator struct {
 }
 
-func (g *GrpcConfigGenerator) Generate(proxy *model.Proxy, push *model.PushContext, w *model.WatchedResource, req *model.PushRequest) model.Resources {
+func (g *GrpcConfigGenerator) Generate(proxy *model.Proxy, push *model.PushContext,
+	w *model.WatchedResource, updates *model.PushRequest) (model.Resources, error) {
 	// TODO: Eventhough grpc-go supports v3 at the transport layer, it still sends v2 types
 	// in the requests. Fix this when it starts sending v3 types.
 	switch w.TypeUrl {
 	case ListenerType, v3.ListenerType:
-		return g.BuildListeners(proxy, push, w.ResourceNames)
+		return g.BuildListeners(proxy, push, w.ResourceNames), nil
 	case ClusterType, v3.ClusterType:
-		return g.BuildClusters(proxy, push, w.ResourceNames)
+		return g.BuildClusters(proxy, push, w.ResourceNames), nil
 	case RouteType, v3.RouteType:
-		return g.BuildHTTPRoutes(proxy, push, w.ResourceNames)
+		return g.BuildHTTPRoutes(proxy, push, w.ResourceNames), nil
 	}
 
-	return nil
+	return nil, nil
 }
 
 // handleLDSApiType handles a LDS request, returning listeners of ApiListener type.
@@ -159,7 +160,7 @@ func (g *GrpcConfigGenerator) BuildClusters(node *model.Proxy, push *model.PushC
 	for _, n := range names {
 		hn, portn, err := net.SplitHostPort(n)
 		if err != nil {
-			log.Warna("Failed to parse ", n, " ", err)
+			log.Warn("Failed to parse ", n, " ", err)
 			continue
 		}
 		rc := &cluster.Cluster{
@@ -190,12 +191,12 @@ func (g *GrpcConfigGenerator) BuildHTTPRoutes(node *model.Proxy, push *model.Pus
 	for _, n := range routeNames {
 		hn, portn, err := net.SplitHostPort(n)
 		if err != nil {
-			log.Warna("Failed to parse ", n, " ", err)
+			log.Warn("Failed to parse ", n, " ", err)
 			continue
 		}
 		port, err := strconv.Atoi(portn)
 		if err != nil {
-			log.Warna("Failed to parse port ", n, " ", err)
+			log.Warn("Failed to parse port ", n, " ", err)
 			continue
 		}
 		el := node.SidecarScope.GetEgressListenerForRDS(port, "")

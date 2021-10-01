@@ -49,14 +49,13 @@ var (
 func BuildInboundFilterChain(mTLSMode model.MutualTLSMode, sdsUdsPath string, node *model.Proxy,
 	listenerProtocol networking.ListenerProtocol, trustDomainAliases []string) []networking.FilterChain {
 	if mTLSMode == model.MTLSDisable || mTLSMode == model.MTLSUnknown {
-		return nil
+		return []networking.FilterChain{{}}
 	}
 
 	meta := node.Metadata
 	var alpnIstioMatch *listener.FilterChainMatch
 	var ctx *tls.DownstreamTlsContext
-	if features.EnableTCPMetadataExchange &&
-		(listenerProtocol == networking.ListenerProtocolTCP || listenerProtocol == networking.ListenerProtocolAuto) {
+	if listenerProtocol == networking.ListenerProtocolTCP || listenerProtocol == networking.ListenerProtocolAuto {
 		alpnIstioMatch = &listener.FilterChainMatch{
 			ApplicationProtocols: util.ALPNInMeshWithMxc,
 		}
@@ -123,5 +122,5 @@ func BuildInboundFilterChain(mTLSMode model.MutualTLSMode, sdsUdsPath string, no
 			},
 		}
 	}
-	return nil
+	return []networking.FilterChain{{}}
 }

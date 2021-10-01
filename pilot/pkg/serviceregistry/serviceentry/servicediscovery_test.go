@@ -62,7 +62,7 @@ func callInstanceHandlers(instances []*model.WorkloadInstance, sd *ServiceEntryS
 func deleteConfigs(configs []*config.Config, store model.IstioConfigStore, t *testing.T) {
 	t.Helper()
 	for _, cfg := range configs {
-		err := store.Delete(cfg.GroupVersionKind, cfg.Name, cfg.Namespace)
+		err := store.Delete(cfg.GroupVersionKind, cfg.Name, cfg.Namespace, nil)
 		if err != nil {
 			t.Errorf("error occurred crearting ServiceEntry config: %v", err)
 		}
@@ -73,6 +73,7 @@ type Event struct {
 	kind      string
 	host      string
 	namespace string
+	proxyIP   string
 	endpoints int
 	pushReq   *model.PushRequest
 }
@@ -95,7 +96,8 @@ func (fx *FakeXdsUpdater) ConfigUpdate(req *model.PushRequest) {
 	fx.Events <- Event{kind: "xds", pushReq: req}
 }
 
-func (fx *FakeXdsUpdater) ProxyUpdate(_, _ string) {
+func (fx *FakeXdsUpdater) ProxyUpdate(_, ip string) {
+	fx.Events <- Event{kind: "xds", proxyIP: ip}
 }
 
 func (fx *FakeXdsUpdater) SvcUpdate(_, hostname string, namespace string, event model.Event) {
@@ -519,6 +521,7 @@ func TestServiceDiscoveryWorkloadUpdate(t *testing.T) {
 	t.Run("add workload", func(t *testing.T) {
 		// Add a WLE, we expect this to update
 		createConfigs([]*config.Config{wle}, store, t)
+
 		instances := []*model.ServiceInstance{
 			makeInstanceWithServiceAccount(selector, "2.2.2.2", 444,
 				selector.Spec.(*networking.ServiceEntry).Ports[0],
@@ -534,7 +537,8 @@ func TestServiceDiscoveryWorkloadUpdate(t *testing.T) {
 		expectProxyInstances(t, sd, instances, "2.2.2.2")
 		expectServiceInstances(t, sd, selector, 0, instances)
 		expectEvents(t, events, Event{kind: "eds", host: "selector.com",
-			namespace: selector.Namespace, endpoints: 2})
+			namespace: selector.Namespace, endpoints: 2},
+			Event{kind: "xds", proxyIP: "2.2.2.2"})
 	})
 
 	t.Run("add dns service entry", func(t *testing.T) {
@@ -592,7 +596,8 @@ func TestServiceDiscoveryWorkloadUpdate(t *testing.T) {
 			i.Endpoint.Namespace = selector.Name
 		}
 		expectServiceInstances(t, sd, selector, 0, instances)
-		expectEvents(t, events, Event{kind: "eds", host: "selector.com", namespace: selector.Namespace, endpoints: 4})
+		expectEvents(t, events, Event{kind: "eds", host: "selector.com", namespace: selector.Namespace, endpoints: 4},
+			Event{kind: "xds", proxyIP: "3.3.3.3"})
 	})
 
 	t.Run("deletion", func(t *testing.T) {

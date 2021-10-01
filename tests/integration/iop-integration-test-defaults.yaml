@@ -1,6 +1,8 @@
 # This file provides some defaults for integration testing.
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
+metadata:
+  name: install
 spec:
   meshConfig:
     accessLogFile: "/dev/stdout"
@@ -44,6 +46,7 @@ spec:
         enabled: true
   values:
     global:
+      externalIstiod: true
       proxy:
         resources:
           requests:
@@ -63,15 +66,9 @@ spec:
           requests:
             cpu: 10m
             memory: 40Mi
-          limits:
-            cpu: 100m
-            memory: 128Mi
       istio-egressgateway:
         autoscaleMax: 1
         resources:
           requests:
             cpu: 10m
             memory: 40Mi
-          limits:
-            cpu: 100m
-            memory: 128Mi

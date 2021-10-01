@@ -1,3 +1,4 @@
+// +build !agent
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +17,6 @@ package v1alpha3
 
 import (
 	"bytes"
-	"errors"
 	"sync"
 	"text/template"
 	"time"
@@ -143,7 +143,7 @@ func NewConfigGenTest(t test.Failer, opts TestOptions) *ConfigGenTest {
 	env.NetworksWatcher = opts.NetworksWatcher
 
 	if opts.Plugins == nil {
-		opts.Plugins = registry.NewPlugins([]string{plugin.Authn, plugin.Authz})
+		opts.Plugins = registry.NewPlugins([]string{plugin.AuthzCustom, plugin.Authn, plugin.Authz})
 	}
 
 	fake := &ConfigGenTest{
@@ -175,12 +175,7 @@ func (f *ConfigGenTest) Run() {
 
 	// TODO allow passing event handlers for controller
 
-	retry.UntilSuccessOrFail(f.t, func() error {
-		if !f.Registry.HasSynced() {
-			return errors.New("not synced")
-		}
-		return nil
-	})
+	retry.UntilOrFail(f.t, f.Registry.HasSynced)
 
 	f.ServiceEntryRegistry.ResyncEDS()
 	if err := f.PushContext().InitContext(f.env, nil, nil); err != nil {
@@ -199,7 +194,9 @@ func (f *ConfigGenTest) SetupProxy(p *model.Proxy) *model.Proxy {
 		p.Metadata = &model.NodeMetadata{}
 	}
 	if p.Metadata.IstioVersion == "" {
-		p.Metadata.IstioVersion = "1.8.0"
+		p.Metadata.IstioVersion = "1.9.0"
+	}
+	if p.IstioVersion == nil {
 		p.IstioVersion = model.ParseIstioVersion(p.Metadata.IstioVersion)
 	}
 	if p.Type == "" {
@@ -207,6 +204,9 @@ func (f *ConfigGenTest) SetupProxy(p *model.Proxy) *model.Proxy {
 	}
 	if p.ConfigNamespace == "" {
 		p.ConfigNamespace = "default"
+	}
+	if p.Metadata.Namespace == "" {
+		p.Metadata.Namespace = p.ConfigNamespace
 	}
 	if p.ID == "" {
 		p.ID = "app.test"

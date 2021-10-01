@@ -17,7 +17,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"strings"
@@ -26,7 +25,6 @@ import (
 	"github.com/gogo/protobuf/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
-	"google.golang.org/grpc/grpclog"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pilot/cmd/pilot-agent/status"
@@ -118,10 +116,6 @@ var (
 	// TODO: default to same as discovery address
 	caEndpointEnv = env.RegisterStringVar("CA_ADDR", "", "Address of the spiffee certificate provider. Defaults to discoveryAddress").Get()
 
-	// This is also disabled by presence of the SDS socket directory
-	enableGatewaySDSEnv = env.RegisterBoolVar("ENABLE_INGRESS_GATEWAY_SDS", false,
-		"Enable provisioning gateway secrets. Requires Secret read permission").Get()
-
 	trustDomainEnv = env.RegisterStringVar("TRUST_DOMAIN", "cluster.local",
 		"The trust domain for spiffe certificates").Get()
 
@@ -133,8 +127,7 @@ var (
 		"The ticker to detect and rotate the certificates, by default 5 minutes").Get()
 	staledConnectionRecycleIntervalEnv = env.RegisterDurationVar("STALED_CONNECTION_RECYCLE_RUN_INTERVAL", 5*time.Minute,
 		"The ticker to detect and close stale connections").Get()
-	initialBackoffInMilliSecEnv = env.RegisterIntVar("INITIAL_BACKOFF_MSEC", 0, "").Get()
-	pkcs8KeysEnv                = env.RegisterBoolVar("PKCS8_KEY", false,
+	pkcs8KeysEnv = env.RegisterBoolVar("PKCS8_KEY", false,
 		"Whether to generate PKCS#8 private keys").Get()
 	eccSigAlgEnv        = env.RegisterStringVar("ECC_SIGNATURE_ALGORITHM", "", "The type of ECC signature algorithm to use when generating private keys").Get()
 	fileMountedCertsEnv = env.RegisterBoolVar("FILE_MOUNTED_CERTS", false, "").Get()
@@ -218,7 +211,7 @@ var (
 			// operational parameters correctly.
 			proxyIPv6 := isIPv6Proxy(role.IPAddresses)
 
-			proxyConfig, err := constructProxyConfig()
+			proxyConfig, err := constructProxyConfig(role)
 			if err != nil {
 				return fmt.Errorf("failed to get proxy config: %v", err)
 			}
@@ -262,8 +255,6 @@ var (
 				secOpts.CAEndpoint = proxyConfig.DiscoveryAddress
 			}
 
-			secOpts.EnableWorkloadSDS = true
-			secOpts.EnableGatewaySDS = enableGatewaySDSEnv
 			secOpts.CAProviderName = caProviderEnv
 
 			secOpts.TrustDomain = trustDomainEnv
@@ -273,7 +264,6 @@ var (
 			secOpts.SecretTTL = secretTTLEnv
 			secOpts.SecretRotationGracePeriodRatio = secretRotationGracePeriodRatioEnv
 			secOpts.RotationInterval = secretRotationIntervalEnv
-			secOpts.InitialBackoffInMilliSec = int64(initialBackoffInMilliSecEnv)
 			// Disable the secret eviction for istio agent.
 			secOpts.EvictionDuration = 0
 
@@ -293,6 +283,8 @@ var (
 				XDSRootCerts: xdsRootCA,
 				CARootCerts:  caRootCA,
 				XDSHeaders:   map[string]string{},
+				XdsUdsPath:   constants.DefaultXdsUdsPath,
+				IsIPv6:       proxyIPv6,
 			}
 			extractXDSHeadersFromEnv(agentConfig)
 			if proxyXDSViaAgent {
@@ -356,6 +348,7 @@ var (
 				Node:                role.ServiceNode(),
 				LogLevel:            proxyLogLevel,
 				ComponentLogLevel:   proxyComponentLogLevel,
+				LogAsJSON:           loggingOptions.JSONEncoding,
 				PilotSubjectAltName: pilotSAN,
 				NodeIPs:             role.IPAddresses,
 				STSPort:             stsPort,
@@ -430,7 +423,6 @@ func getDNSDomain(podNamespace, domain string) string {
 }
 
 func configureLogging(_ *cobra.Command, _ []string) error {
-	grpclog.SetLoggerV2(grpclog.NewLoggerV2(ioutil.Discard, ioutil.Discard, ioutil.Discard))
 	if err := log.Configure(loggingOptions); err != nil {
 		return err
 	}
@@ -485,7 +477,7 @@ func init() {
 // No CLI parameters.
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		log.Errora(err)
+		log.Error(err)
 		os.Exit(-1)
 	}
 }

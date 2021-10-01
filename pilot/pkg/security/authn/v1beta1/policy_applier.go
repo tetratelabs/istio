@@ -314,7 +314,9 @@ func convertToEnvoyJwtConfig(jwtRules []*v1beta1.JWTRule) *envoy_jwt.JwtAuthenti
 							Prefix: "/",
 						},
 					},
-					Requires: innerAndList[0],
+					RequirementType: &envoy_jwt.RequirementRule_Requires{
+						Requires: innerAndList[0],
+					},
 				},
 			},
 			Providers: providers,
@@ -342,10 +344,12 @@ func convertToEnvoyJwtConfig(jwtRules []*v1beta1.JWTRule) *envoy_jwt.JwtAuthenti
 						Prefix: "/",
 					},
 				},
-				Requires: &envoy_jwt.JwtRequirement{
-					RequiresType: &envoy_jwt.JwtRequirement_RequiresAny{
-						RequiresAny: &envoy_jwt.JwtRequirementOrList{
-							Requirements: outterOrList,
+				RequirementType: &envoy_jwt.RequirementRule_Requires{
+					Requires: &envoy_jwt.JwtRequirement{
+						RequiresType: &envoy_jwt.JwtRequirement_RequiresAny{
+							RequiresAny: &envoy_jwt.JwtRequirementOrList{
+								Requirements: outterOrList,
+							},
 						},
 					},
 				},
@@ -353,6 +357,13 @@ func convertToEnvoyJwtConfig(jwtRules []*v1beta1.JWTRule) *envoy_jwt.JwtAuthenti
 		},
 		Providers: providers,
 	}
+}
+
+func (a *v1beta1PolicyApplier) PortLevelSetting() map[uint32]*v1beta1.PeerAuthentication_MutualTLS {
+	if a.consolidatedPeerPolicy != nil {
+		return a.consolidatedPeerPolicy.PortLevelMtls
+	}
+	return nil
 }
 
 func (a *v1beta1PolicyApplier) getMutualTLSModeForPort(endpointPort uint32) model.MutualTLSMode {

@@ -29,7 +29,6 @@ import (
 
 	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/ghodss/yaml"
-	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/types"
 	openshiftv1 "github.com/openshift/api/apps/v1"
 	"k8s.io/api/admission/v1beta1"
@@ -51,23 +50,26 @@ import (
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/test/util"
 	"istio.io/istio/pkg/config/mesh"
-	"istio.io/istio/pkg/kube"
+	"istio.io/istio/pkg/test/util/retry"
+	sutil "istio.io/istio/security/pkg/nodeagent/util"
 )
 
 const yamlSeparator = "\n---"
 
 var minimalSidecarTemplate = &Config{
-	Policy: InjectionPolicyEnabled,
-	Template: `
-initContainers:
-- name: istio-init
-containers:
-- name: istio-proxy
-volumes:
-- name: istio-envoy
-imagePullSecrets:
-- name: istio-image-pull-secrets
-`,
+	Policy:           InjectionPolicyEnabled,
+	DefaultTemplates: []string{SidecarTemplateName},
+	Templates: map[string]string{SidecarTemplateName: `
+spec:
+  initContainers:
+  - name: istio-init
+  containers:
+  - name: istio-proxy
+  volumes:
+  - name: istio-envoy
+  imagePullSecrets:
+  - name: istio-image-pull-secrets
+`},
 }
 
 func parseToLabelSelector(t *testing.T, selector string) *metav1.LabelSelector {
@@ -87,7 +89,7 @@ func TestInjectRequired(t *testing.T) {
 	cases := []struct {
 		config  *Config
 		podSpec *corev1.PodSpec
-		meta    *metav1.ObjectMeta
+		meta    metav1.ObjectMeta
 		want    bool
 	}{
 		{
@@ -95,7 +97,7 @@ func TestInjectRequired(t *testing.T) {
 				Policy: InjectionPolicyEnabled,
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "no-policy",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{},
@@ -107,7 +109,7 @@ func TestInjectRequired(t *testing.T) {
 				Policy: InjectionPolicyEnabled,
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "default-policy",
 				Namespace: "test-namespace",
 			},
@@ -118,7 +120,7 @@ func TestInjectRequired(t *testing.T) {
 				Policy: InjectionPolicyEnabled,
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "force-on-policy",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{annotation.SidecarInject.Name: "true"},
@@ -130,7 +132,7 @@ func TestInjectRequired(t *testing.T) {
 				Policy: InjectionPolicyEnabled,
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "force-off-policy",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{annotation.SidecarInject.Name: "false"},
@@ -142,7 +144,7 @@ func TestInjectRequired(t *testing.T) {
 				Policy: InjectionPolicyDisabled,
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "no-policy",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{},
@@ -154,7 +156,7 @@ func TestInjectRequired(t *testing.T) {
 				Policy: InjectionPolicyDisabled,
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "default-policy",
 				Namespace: "test-namespace",
 			},
@@ -165,7 +167,7 @@ func TestInjectRequired(t *testing.T) {
 				Policy: InjectionPolicyDisabled,
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "force-on-policy",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{annotation.SidecarInject.Name: "true"},
@@ -177,7 +179,7 @@ func TestInjectRequired(t *testing.T) {
 				Policy: InjectionPolicyDisabled,
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "force-off-policy",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{annotation.SidecarInject.Name: "false"},
@@ -189,7 +191,7 @@ func TestInjectRequired(t *testing.T) {
 				Policy: InjectionPolicyEnabled,
 			},
 			podSpec: podSpecHostNetwork,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "force-off-policy",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{},
@@ -201,7 +203,7 @@ func TestInjectRequired(t *testing.T) {
 				Policy: "wrong_policy",
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "wrong-policy",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{},
@@ -214,7 +216,7 @@ func TestInjectRequired(t *testing.T) {
 				AlwaysInjectSelector: []metav1.LabelSelector{{MatchLabels: map[string]string{"foo": "bar"}}},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-enabled-always-inject-no-labels",
 				Namespace: "test-namespace",
 			},
@@ -226,7 +228,7 @@ func TestInjectRequired(t *testing.T) {
 				AlwaysInjectSelector: []metav1.LabelSelector{{MatchLabels: map[string]string{"foo": "bar"}}},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-enabled-always-inject-with-labels",
 				Namespace: "test-namespace",
 				Labels:    map[string]string{"foo": "bar1"},
@@ -239,7 +241,7 @@ func TestInjectRequired(t *testing.T) {
 				AlwaysInjectSelector: []metav1.LabelSelector{{MatchLabels: map[string]string{"foo": "bar"}}},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-disabled-always-inject-no-labels",
 				Namespace: "test-namespace",
 			},
@@ -251,7 +253,7 @@ func TestInjectRequired(t *testing.T) {
 				AlwaysInjectSelector: []metav1.LabelSelector{{MatchLabels: map[string]string{"foo": "bar"}}},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-disabled-always-inject-with-labels",
 				Namespace: "test-namespace",
 				Labels:    map[string]string{"foo": "bar"},
@@ -264,7 +266,7 @@ func TestInjectRequired(t *testing.T) {
 				NeverInjectSelector: []metav1.LabelSelector{{MatchLabels: map[string]string{"foo": "bar"}}},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-enabled-never-inject-no-labels",
 				Namespace: "test-namespace",
 			},
@@ -276,7 +278,7 @@ func TestInjectRequired(t *testing.T) {
 				NeverInjectSelector: []metav1.LabelSelector{{MatchLabels: map[string]string{"foo": "bar"}}},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-enabled-never-inject-with-labels",
 				Namespace: "test-namespace",
 				Labels:    map[string]string{"foo": "bar"},
@@ -289,7 +291,7 @@ func TestInjectRequired(t *testing.T) {
 				NeverInjectSelector: []metav1.LabelSelector{{MatchLabels: map[string]string{"foo": "bar"}}},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-disabled-never-inject-no-labels",
 				Namespace: "test-namespace",
 			},
@@ -301,7 +303,7 @@ func TestInjectRequired(t *testing.T) {
 				NeverInjectSelector: []metav1.LabelSelector{{MatchLabels: map[string]string{"foo": "bar"}}},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-disabled-never-inject-with-labels",
 				Namespace: "test-namespace",
 				Labels:    map[string]string{"foo": "bar"},
@@ -314,7 +316,7 @@ func TestInjectRequired(t *testing.T) {
 				NeverInjectSelector: []metav1.LabelSelector{*parseToLabelSelector(t, "foo")},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-enabled-never-inject-with-empty-label",
 				Namespace: "test-namespace",
 				Labels:    map[string]string{"foo": "", "foo2": "bar2"},
@@ -327,7 +329,7 @@ func TestInjectRequired(t *testing.T) {
 				AlwaysInjectSelector: []metav1.LabelSelector{*parseToLabelSelector(t, "foo")},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-disabled-always-inject-with-empty-label",
 				Namespace: "test-namespace",
 				Labels:    map[string]string{"foo": "", "foo2": "bar2"},
@@ -341,7 +343,7 @@ func TestInjectRequired(t *testing.T) {
 				NeverInjectSelector:  []metav1.LabelSelector{*parseToLabelSelector(t, "never")},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-disabled-always-never-inject-with-label-returns-true",
 				Namespace: "test-namespace",
 				Labels:    map[string]string{"always": "bar", "foo2": "bar2"},
@@ -355,7 +357,7 @@ func TestInjectRequired(t *testing.T) {
 				NeverInjectSelector:  []metav1.LabelSelector{*parseToLabelSelector(t, "never")},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-disabled-always-never-inject-with-label-returns-false",
 				Namespace: "test-namespace",
 				Labels:    map[string]string{"never": "bar", "foo2": "bar2"},
@@ -369,7 +371,7 @@ func TestInjectRequired(t *testing.T) {
 				NeverInjectSelector:  []metav1.LabelSelector{*parseToLabelSelector(t, "never")},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-disabled-always-never-inject-with-both-labels",
 				Namespace: "test-namespace",
 				Labels:    map[string]string{"always": "bar", "never": "bar2"},
@@ -382,7 +384,7 @@ func TestInjectRequired(t *testing.T) {
 				NeverInjectSelector: []metav1.LabelSelector{*parseToLabelSelector(t, "foo")},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "policy-enabled-annotation-true-never-inject",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{annotation.SidecarInject.Name: "true"},
@@ -396,7 +398,7 @@ func TestInjectRequired(t *testing.T) {
 				AlwaysInjectSelector: []metav1.LabelSelector{*parseToLabelSelector(t, "foo")},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "policy-enabled-annotation-false-always-inject",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{annotation.SidecarInject.Name: "false"},
@@ -410,7 +412,7 @@ func TestInjectRequired(t *testing.T) {
 				AlwaysInjectSelector: []metav1.LabelSelector{*parseToLabelSelector(t, "foo")},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "policy-disabled-annotation-false-always-inject",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{annotation.SidecarInject.Name: "false"},
@@ -424,7 +426,7 @@ func TestInjectRequired(t *testing.T) {
 				NeverInjectSelector: []metav1.LabelSelector{*parseToLabelSelector(t, "foo"), *parseToLabelSelector(t, "bar")},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-enabled-never-inject-multiple-labels",
 				Namespace: "test-namespace",
 				Labels:    map[string]string{"label1": "", "bar": "anything"},
@@ -437,7 +439,7 @@ func TestInjectRequired(t *testing.T) {
 				AlwaysInjectSelector: []metav1.LabelSelector{*parseToLabelSelector(t, "foo"), *parseToLabelSelector(t, "bar")},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:      "policy-enabled-always-inject-multiple-labels",
 				Namespace: "test-namespace",
 				Labels:    map[string]string{"label1": "", "bar": "anything"},
@@ -450,7 +452,7 @@ func TestInjectRequired(t *testing.T) {
 				NeverInjectSelector: []metav1.LabelSelector{*parseToLabelSelector(t, "foo")},
 			},
 			podSpec: podSpec,
-			meta: &metav1.ObjectMeta{
+			meta: metav1.ObjectMeta{
 				Name:        "policy-disabled-annotation-true-never-inject",
 				Namespace:   "test-namespace",
 				Annotations: map[string]string{annotation.SidecarInject.Name: "true"},
@@ -464,167 +466,6 @@ func TestInjectRequired(t *testing.T) {
 		if got := injectRequired(ignoredNamespaces, c.config, c.podSpec, c.meta); got != c.want {
 			t.Errorf("injectRequired(%v, %v) got %v want %v", c.config, c.meta, got, c.want)
 		}
-	}
-}
-
-func TestWebhookInject(t *testing.T) {
-	cases := []struct {
-		inputFile    string
-		wantFile     string
-		templateFile string
-	}{
-		{
-			inputFile: "TestWebhookInject.yaml",
-			wantFile:  "TestWebhookInject.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_initContainers.yaml",
-			wantFile:  "TestWebhookInject_no_initContainers.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_containers.yaml",
-			wantFile:  "TestWebhookInject_no_containers.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_volumes.yaml",
-			wantFile:  "TestWebhookInject_no_volumes.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_imagePullSecrets.yaml",
-			wantFile:  "TestWebhookInject_no_imagePullSecrets.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_volumes_imagePullSecrets.yaml",
-			wantFile:  "TestWebhookInject_no_volumes_imagePullSecrets.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_containers_volumes.yaml",
-			wantFile:  "TestWebhookInject_no_containers_volumes.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_containers_imagePullSecrets.yaml",
-			wantFile:  "TestWebhookInject_no_containers_imagePullSecrets.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_initContainers_containers.yaml",
-			wantFile:  "TestWebhookInject_no_initContainers_containers.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_initContainers_volumes.yaml",
-			wantFile:  "TestWebhookInject_no_initContainers_volumes.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_initContainers_imagePullSecrets.yaml",
-			wantFile:  "TestWebhookInject_no_initContainers_imagePullSecrets.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_containers_volumes_imagePullSecrets.yaml",
-			wantFile:  "TestWebhookInject_no_containers_volumes_imagePullSecrets.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_initContainers_volumes_imagePullSecrets.yaml",
-			wantFile:  "TestWebhookInject_no_initContainers_volumes_imagePullSecrets.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_initContainers_containers_volumes.yaml",
-			wantFile:  "TestWebhookInject_no_initContainers_containers_volumes.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_initContainers_containers_imagePullSecrets.yaml",
-			wantFile:  "TestWebhookInject_no_initContainers_containers_imagePullSecrets.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_no_initContainers_containers_volumes_imagePullSecrets.yaml",
-			wantFile:  "TestWebhookInject_no_initcontainers_containers_volumes_imagePullSecrets.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_replace.yaml",
-			wantFile:  "TestWebhookInject_replace.patch",
-		},
-		{
-			inputFile: "TestWebhookInject_replace_backwards_compat.yaml",
-			wantFile:  "TestWebhookInject_replace_backwards_compat.patch",
-		},
-		{
-			inputFile:    "TestWebhookInject_http_probe_rewrite.yaml",
-			wantFile:     "TestWebhookInject_http_probe_rewrite.patch",
-			templateFile: "TestWebhookInject_http_probe_rewrite_template.yaml",
-		},
-		{
-			inputFile:    "TestWebhookInject_http_probe_nosidecar_rewrite.yaml",
-			wantFile:     "TestWebhookInject_http_probe_nosidecar_rewrite.patch",
-			templateFile: "TestWebhookInject_http_probe_nosidecar_rewrite_template.yaml",
-		},
-		{
-			inputFile:    "TestWebhookInject_https_probe_rewrite.yaml",
-			wantFile:     "TestWebhookInject_https_probe_rewrite.patch",
-			templateFile: "TestWebhookInject_https_probe_rewrite_template.yaml",
-		},
-		{
-			inputFile:    "TestWebhookInject_http_probe_rewrite_enabled_via_annotation.yaml",
-			wantFile:     "TestWebhookInject_http_probe_rewrite_enabled_via_annotation.patch",
-			templateFile: "TestWebhookInject_http_probe_rewrite_enabled_via_annotation_template.yaml",
-		},
-		{
-			inputFile:    "TestWebhookInject_http_probe_rewrite_disabled_via_annotation.yaml",
-			wantFile:     "TestWebhookInject_http_probe_rewrite_disabled_via_annotation.patch",
-			templateFile: "TestWebhookInject_http_probe_rewrite_disabled_via_annotation_template.yaml",
-		},
-		{
-			inputFile:    "TestWebhookInject_injectorAnnotations.yaml",
-			wantFile:     "TestWebhookInject_injectorAnnotations.patch",
-			templateFile: "TestWebhookInject_injectorAnnotations_template.yaml",
-		},
-		{
-			inputFile: "TestWebhookInject_mtls_not_ready.yaml",
-			wantFile:  "TestWebhookInject_mtls_not_ready.patch",
-		},
-		{
-			inputFile:    "TestWebhookInject_validationOrder.yaml",
-			wantFile:     "TestWebhookInject_validationOrder.patch",
-			templateFile: "TestWebhookInject_validationOrder_template.yaml",
-		},
-		{
-			inputFile:    "TestWebhookInject_probe_rewrite_timeout_retention.yaml",
-			wantFile:     "TestWebhookInject_probe_rewrite_timeout_retention.patch",
-			templateFile: "TestWebhookInject_probe_rewrite_timeout_retention_template.yaml",
-		},
-		{
-			inputFile:    "TestWebhookInject_cron_job.yaml",
-			wantFile:     "TestWebhookInject_cron_job.patch",
-			templateFile: "TestWebhookInject_cron_job_template.yaml",
-		},
-	}
-
-	for i, c := range cases {
-		input := filepath.Join("testdata/webhook", c.inputFile)
-		want := filepath.Join("testdata/webhook", c.wantFile)
-		templateFile := "TestWebhookInject_template.yaml"
-		if c.templateFile != "" {
-			templateFile = c.templateFile
-		}
-		c := c
-		t.Run(fmt.Sprintf("[%d] %s", i, c.inputFile), func(t *testing.T) {
-			t.Parallel()
-			wh := createTestWebhookFromFile(filepath.Join("testdata/webhook", templateFile), t)
-			podYAML := util.ReadFile(input, t)
-			podJSON, err := yaml.YAMLToJSON(podYAML)
-			if err != nil {
-				t.Fatalf(err.Error())
-			}
-			got := wh.inject(&kube.AdmissionReview{
-				Request: &kube.AdmissionRequest{
-					Object: runtime.RawExtension{
-						Raw: podJSON,
-					},
-				},
-			}, "")
-			var prettyPatch bytes.Buffer
-			if err := json.Indent(&prettyPatch, got.Patch, "", "  "); err != nil {
-				t.Fatalf(err.Error())
-			}
-			util.CompareContent(prettyPatch.Bytes(), want, t)
-		})
 	}
 }
 
@@ -688,21 +529,6 @@ func objectToPod(t testing.TB, obj runtime.Object) *corev1.Pod {
 	return nil
 }
 
-func createTestWebhookFromFile(templateFile string, t *testing.T) *Webhook {
-	t.Helper()
-	injectConfig := &Config{}
-	if err := yaml.Unmarshal(util.ReadFile(templateFile, t), injectConfig); err != nil {
-		t.Fatalf("failed to unmarshal injectionConfig: %v", err)
-	}
-	m := mesh.DefaultMeshConfig()
-	return &Webhook{
-		Config:                 injectConfig,
-		sidecarTemplateVersion: "unit-test-fake-version",
-		meshConfig:             &m,
-		valuesConfig:           "{}",
-	}
-}
-
 // loadInjectionSettings will render the charts using the operator, with given yaml overrides.
 // This allows us to fully simulate what will actually happen at run time.
 func loadInjectionSettings(t testing.TB, setFlags []string, inFilePath string) (template *Config, values string, meshConfig *meshconfig.MeshConfig) {
@@ -743,12 +569,12 @@ func loadInjectionSettings(t testing.TB, setFlags []string, inFilePath string) (
 				if !ok {
 					t.Fatalf("failed to config %v", data)
 				}
-				template = &Config{}
-				if err := yaml.Unmarshal([]byte(config), template); err != nil {
+				template, err := UnmarshalConfig([]byte(config))
+				if err != nil {
 					t.Fatalf("failed to unmarshal injectionConfig: %v", err)
 				}
 				if meshConfig != nil {
-					return template, values, meshConfig
+					return &template, values, meshConfig
 				}
 			} else if out.GetName() == "istio" && (out.GroupVersionKind() == schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"}) {
 				data, ok := out.Object["data"].(map[string]interface{})
@@ -869,7 +695,7 @@ func jsonToUnstructured(obj []byte, t *testing.T) *unstructured.Unstructured {
 	return out
 }
 
-func normalizeAndCompareDeployments(got, want *corev1.Pod, t *testing.T) error {
+func normalizeAndCompareDeployments(got, want *corev1.Pod, ignoreIstioMetaJSONAnnotationsEnv bool, t *testing.T) error {
 	t.Helper()
 	// Scrub unimportant fields that tend to differ.
 	delete(got.Annotations, annotation.SidecarStatus.Name)
@@ -890,19 +716,32 @@ func normalizeAndCompareDeployments(got, want *corev1.Pod, t *testing.T) error {
 		}
 	}
 
-	marshaler := jsonpb.Marshaler{
-		Indent: "  ",
+	if ignoreIstioMetaJSONAnnotationsEnv {
+		removeContainerEnvEntry(got, "ISTIO_METAJSON_ANNOTATIONS")
+		removeContainerEnvEntry(want, "ISTIO_METAJSON_ANNOTATIONS")
 	}
-	gotString, err := marshaler.MarshalToString(got)
+
+	gotString, err := yaml.Marshal(got)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantString, err := marshaler.MarshalToString(want)
+	wantString, err := yaml.Marshal(want)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	return util.Compare([]byte(gotString), []byte(wantString))
+	return util.Compare(gotString, wantString)
+}
+
+func removeContainerEnvEntry(pod *corev1.Pod, envVarName string) {
+	for i, c := range pod.Spec.Containers {
+		for j, v := range c.Env {
+			if v.Name == envVarName {
+				pod.Spec.Containers[i].Env = append(c.Env[:j], c.Env[j+1:]...)
+				break
+			}
+		}
+	}
 }
 
 func makeTestData(t testing.TB, skip bool, apiVersion string) []byte {
@@ -1021,91 +860,56 @@ func TestRunAndServe(t *testing.T) {
 
 	// nolint: lll
 	validPatch := []byte(`[
-   {
-      "op":"add",
-      "path":"/spec/initContainers/-",
-      "value":{
-         "name":"istio-init",
-         "resources":{
-
-         }
-      }
-   },
-   {
-      "op":"add",
-      "path":"/spec/containers/-",
-      "value":{
-         "name":"istio-proxy",
-         "resources":{
-
-         }
-      }
-   },
-   {
-      "op":"add",
-      "path":"/spec/volumes/-",
-      "value":{
-         "name":"istio-envoy"
-      }
-   },
-   {
-      "op":"add",
-      "path":"/spec/imagePullSecrets/-",
-      "value":{
-         "name":"istio-image-pull-secrets"
-      }
-   },
-   {
-      "op":"add",
-      "path":"/spec/securityContext",
-      "value":{
-         "fsGroup":1337
-      }
-   },
-   {
-      "op":"add",
-      "path":"/metadata/annotations",
-      "value":{
-         "prometheus.io/path":"/stats/prometheus"
-      }
-   },
-   {
-      "op": "add",
-      "path": "/metadata/annotations/prometheus.io~1port",
-      "value": "15020"
-   },
-   {
-      "op": "add",
-      "path": "/metadata/annotations/prometheus.io~1scrape",
-      "value": "true"
-   },
-   {
-      "op":"add",
-      "path":"/metadata/annotations/sidecar.istio.io~1status",
-      "value": "{\"version\":\"461c380844de8df1d1e2a80a09b6d7b58b8313c4a7d6796530eb124740a1440f\",\"initContainers\":[\"istio-init\"],\"containers\":[\"istio-proxy\"],\"volumes\":[\"istio-envoy\"],\"imagePullSecrets\":[\"istio-image-pull-secrets\"]}"
-   },
-    {
-      "op":"add",
-      "path":"/metadata/labels",
-      "value":{
-         "istio.io/rev":""
-      }
-    },
-    {
-      "op":"add",
-      "path":"/metadata/labels/security.istio.io~1tlsMode",
-      "value":"istio"
-    },
-    {
-      "op": "add",
-      "path": "/metadata/labels/service.istio.io~1canonical-name",
-      "value": "test"
-	},
-	{
-		"op": "add",
-		"path": "/metadata/labels/service.istio.io~1canonical-revision",
-		"value": "latest"
-	}
+{
+    "op": "add",
+    "path": "/metadata/annotations",
+    "value": {
+        "prometheus.io/path": "/stats/prometheus",
+        "prometheus.io/port": "15020",
+        "prometheus.io/scrape": "true",
+        "sidecar.istio.io/status": "{\"initContainers\":[\"istio-init\"],\"containers\":[\"istio-proxy\"],\"volumes\":[\"istio-envoy\"],\"imagePullSecrets\":[\"istio-image-pull-secrets\"]}"
+    }
+},
+{
+    "op": "add",
+    "path": "/spec/volumes/1",
+    "value": {
+        "name": "v0"
+    }
+},
+{
+    "op": "replace",
+    "path": "/spec/volumes/0/name",
+    "value": "istio-envoy"
+},
+{
+    "op": "add",
+    "path": "/spec/initContainers/1",
+    "value": {
+        "name": "istio-init",
+        "resources": {}
+    }
+},
+{
+    "op": "add",
+    "path": "/spec/containers/1",
+    "value": {
+        "name": "istio-proxy",
+        "resources": {}
+    }
+},
+{
+    "op": "add",
+    "path": "/spec/imagePullSecrets/1",
+    "value": {
+        "name": "p0"
+    }
+},
+{
+    "op": "replace",
+    "path": "/spec/imagePullSecrets/0/name",
+    "value": "istio-image-pull-secrets"
+}
 ]`)
 
 	cases := []struct {
@@ -1210,41 +1014,27 @@ func TestRunAndServe(t *testing.T) {
 		})
 	}
 	// Now Validate that metrics are created.
-	testSideCarInjectorMetrics(t, wh)
+	testSideCarInjectorMetrics(t)
 }
 
-func testSideCarInjectorMetrics(t *testing.T, wh *Webhook) {
-	srv := httptest.NewServer(wh.mon.exporter)
-	defer srv.Close()
-	resp, err := http.Get(srv.URL)
-	if err != nil {
-		t.Fatalf("failed to get /metrics: %v", err)
+func testSideCarInjectorMetrics(t *testing.T) {
+	expected := []string{
+		"sidecar_injection_requests_total",
+		"sidecar_injection_success_total",
+		"sidecar_injection_skip_total",
+		"sidecar_injection_failure_total",
 	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("failed to read body: %v", err)
-	}
-	if err := resp.Body.Close(); err != nil {
-		t.Fatalf("failed to close: %v", err)
-	}
-
-	output := string(body)
-
-	if !strings.Contains(output, "sidecar_injection_requests_total") {
-		t.Fatalf("metric sidecar_injection_requests_total not found")
-	}
-
-	if !strings.Contains(output, "sidecar_injection_success_total") {
-		t.Fatalf("metric sidecar_injection_success_total not found")
-	}
-
-	if !strings.Contains(output, "sidecar_injection_skip_total") {
-		t.Fatalf("metric sidecar_injection_skip_total not found")
-	}
-
-	if !strings.Contains(output, "sidecar_injection_failure_total") {
-		t.Fatalf("incorrect value for metric sidecar_injection_failure_total")
+	for _, e := range expected {
+		retry.UntilSuccessOrFail(t, func() error {
+			got, err := sutil.GetMetricsCounterValue(e)
+			if err != nil {
+				return err
+			}
+			if got <= 0 {
+				return fmt.Errorf("metric empty")
+			}
+			return nil
+		})
 	}
 }
 
@@ -1378,5 +1168,5 @@ func defaultInstallPackageDir() string {
 	if err != nil {
 		panic(err)
 	}
-	return filepath.Join(wd, "../../../operator/cmd/mesh/testdata/manifest-generate/data-snapshot")
+	return filepath.Join(wd, "../../../manifests/")
 }

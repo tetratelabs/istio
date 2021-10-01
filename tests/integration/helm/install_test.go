@@ -56,6 +56,7 @@ const (
 	GatewayChartsDir    = "gateways"
 	retryDelay          = 2 * time.Second
 	retryTimeOut        = 5 * time.Minute
+	helmTimeout         = 2 * time.Minute
 )
 
 var (
@@ -73,7 +74,7 @@ func TestDefaultInstall(t *testing.T) {
 			if err != nil {
 				t.Fatal("failed to create test directory")
 			}
-			cs := ctx.Environment().(*kube.Environment).KubeClusters[0]
+			cs := ctx.Clusters().Default().(*kube.Cluster)
 			h := helm.New(cs.Filename(), ChartPath)
 			s, err := image.SettingsFromCommandLine()
 			if err != nil {
@@ -89,12 +90,12 @@ global:
 			if err := ioutil.WriteFile(overrideValuesFile, []byte(overrideValues), os.ModePerm); err != nil {
 				t.Fatalf("failed to write iop cr file: %v", err)
 			}
-			installIstio(t, cs, h, overrideValuesFile)
+			installGatewaysCharts(t, cs, h, overrideValuesFile)
 
 			verifyInstallation(t, ctx, cs)
 
 			t.Cleanup(func() {
-				deleteIstio(t, h)
+				deleteGatewayCharts(t, h)
 			})
 		})
 }
@@ -110,7 +111,7 @@ func TestInstallWithFirstPartyJwt(t *testing.T) {
 			if err != nil {
 				t.Fatal("failed to create test directory")
 			}
-			cs := ctx.Environment().(*kube.Environment).KubeClusters[0]
+			cs := ctx.Clusters().Default().(*kube.Cluster)
 			h := helm.New(cs.Filename(), ChartPath)
 			s, err := image.SettingsFromCommandLine()
 			if err != nil {
@@ -127,19 +128,19 @@ global:
 			if err := ioutil.WriteFile(overrideValuesFile, []byte(overrideValues), os.ModePerm); err != nil {
 				t.Fatalf("failed to write iop cr file: %v", err)
 			}
-			installIstio(t, cs, h, overrideValuesFile)
+			installGatewaysCharts(t, cs, h, overrideValuesFile)
 
 			verifyInstallation(t, ctx, cs)
 
 			t.Cleanup(func() {
-				deleteIstio(t, h)
+				deleteGatewayCharts(t, h)
 			})
 		})
 }
 
-// installIstio install Istio using Helm charts with the provided
+// installGatewaysCharts install Istio using Helm charts with the provided
 // override values file and fails the tests on any failures.
-func installIstio(t *testing.T, cs resource.Cluster,
+func installGatewaysCharts(t *testing.T, cs resource.Cluster,
 	h *helm.Helm, overrideValuesFile string) {
 	if _, err := cs.CoreV1().Namespaces().Create(context.TODO(), &v1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -153,49 +154,29 @@ func installIstio(t *testing.T, cs resource.Cluster,
 		}
 	}
 
-	// Install base chart
-	err := h.InstallChart(BaseReleaseName, BaseChart,
-		IstioNamespace, overrideValuesFile)
-	if err != nil {
-		t.Errorf("failed to install istio %s chart", BaseChart)
-	}
-
-	// Install discovery chart
-	err = h.InstallChart(IstiodReleaseName, filepath.Join(ControlChartsDir, DiscoveryChart),
-		IstioNamespace, overrideValuesFile)
-	if err != nil {
-		t.Errorf("failed to install istio %s chart", DiscoveryChart)
-	}
-
 	// Install ingress gateway chart
-	err = h.InstallChart(IngressReleaseName, filepath.Join(GatewayChartsDir, IngressGatewayChart),
-		IstioNamespace, overrideValuesFile)
+	err := h.InstallChart(IngressReleaseName, filepath.Join(GatewayChartsDir, IngressGatewayChart),
+		IstioNamespace, overrideValuesFile, helmTimeout)
 	if err != nil {
 		t.Errorf("failed to install istio %s chart", IngressGatewayChart)
 	}
 
 	// Install egress gateway chart
 	err = h.InstallChart(EgressReleaseName, filepath.Join(GatewayChartsDir, EgressGatewayChart),
-		IstioNamespace, overrideValuesFile)
+		IstioNamespace, overrideValuesFile, helmTimeout)
 	if err != nil {
 		t.Errorf("failed to install istio %s chart", EgressGatewayChart)
 	}
 }
 
-// deleteIstio deletes installed Istio Helm charts and resources
-func deleteIstio(t *testing.T, h *helm.Helm) {
+// deleteGatewayCharts deletes installed Istio Helm charts and resources
+func deleteGatewayCharts(t *testing.T, h *helm.Helm) {
 	scopes.Framework.Infof("cleaning up resources")
 	if err := h.DeleteChart(EgressReleaseName, IstioNamespace); err != nil {
 		t.Errorf("failed to delete %s release", EgressReleaseName)
 	}
 	if err := h.DeleteChart(IngressReleaseName, IstioNamespace); err != nil {
 		t.Errorf("failed to delete %s release", IngressReleaseName)
-	}
-	if err := h.DeleteChart(IstiodReleaseName, IstioNamespace); err != nil {
-		t.Errorf("failed to delete %s release", IngressReleaseName)
-	}
-	if err := h.DeleteChart(BaseReleaseName, IstioNamespace); err != nil {
-		t.Errorf("failed to delete %s release", BaseReleaseName)
 	}
 }
 

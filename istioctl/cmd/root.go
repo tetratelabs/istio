@@ -51,7 +51,7 @@ const (
 	// Location to read istioctl defaults from
 	defaultIstioctlConfig = "$HOME/.istioctl/config.yaml"
 
-	//deprection messages to be suffixed to the deprecated commands
+	// deprecation messages to be suffixed to the deprecated commands
 	deprecatedMsg = "[Deprecated, it will be removed in Istio 1.9]"
 
 	// ExperimentalMsg indicate active development and not for production use warning.
@@ -167,20 +167,10 @@ debug and diagnose their Istio mesh.
 	}
 
 	cmd.AddFlags(rootCmd)
-	registerCmd := register()
-	deprecate(registerCmd)
-	rootCmd.AddCommand(registerCmd)
-	deprecate(deregisterCmd)
-	rootCmd.AddCommand(deregisterCmd)
 
 	kubeInjectCmd := injectCommand()
 	hideInheritedFlags(kubeInjectCmd, "namespace")
 	rootCmd.AddCommand(kubeInjectCmd)
-
-	postInstallCmd := &cobra.Command{
-		Use:   "post-install",
-		Short: "Commands related to post-install",
-	}
 
 	experimentalCmd := &cobra.Command{
 		Use:     "experimental",
@@ -237,20 +227,11 @@ debug and diagnose their Istio mesh.
 	experimentalCmd.AddCommand(waitCmd())
 	experimentalCmd.AddCommand(mesh.UninstallCmd(loggingOptions))
 	experimentalCmd.AddCommand(configCmd())
-	postInstallWebhookCmd := Webhook()
-	deprecate(postInstallWebhookCmd)
-	postInstallCmd.AddCommand(postInstallWebhookCmd)
 	experimentalCmd.AddCommand(workloadCommands())
-	experimentalCmd.AddCommand(postInstallCmd)
 
 	analyzeCmd := Analyze()
 	hideInheritedFlags(analyzeCmd, "istioNamespace")
 	rootCmd.AddCommand(analyzeCmd)
-
-	convertIngressCmd := convertIngress()
-	deprecate(convertIngressCmd)
-	hideInheritedFlags(convertIngressCmd, "namespace", "istioNamespace")
-	rootCmd.AddCommand(convertIngressCmd)
 
 	dashboardCmd := dashboard()
 	hideInheritedFlags(dashboardCmd, "namespace", "istioNamespace")
@@ -261,7 +242,7 @@ debug and diagnose their Istio mesh.
 	rootCmd.AddCommand(manifestCmd)
 
 	operatorCmd := mesh.OperatorCmd()
-	hideInheritedFlags(operatorCmd, "charts")
+	hideInheritedFlags(operatorCmd, "namespace", "istioNamespace", "charts")
 	rootCmd.AddCommand(operatorCmd)
 
 	installCmd := mesh.InstallCmd(loggingOptions)
@@ -281,9 +262,6 @@ debug and diagnose their Istio mesh.
 	rootCmd.AddCommand(bugReportCmd)
 
 	experimentalCmd.AddCommand(multicluster.NewCreateRemoteSecretCommand())
-	multiclusterCmd := multicluster.NewMulticlusterCommand()
-	deprecate(multiclusterCmd)
-	experimentalCmd.AddCommand(multiclusterCmd)
 
 	rootCmd.AddCommand(collateral.CobraCommand(rootCmd, &doc.GenManHeader{
 		Title:   "Istio Control",

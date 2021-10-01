@@ -16,13 +16,11 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
-	"google.golang.org/grpc/grpclog"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"istio.io/istio/pilot/pkg/bootstrap"
@@ -35,12 +33,6 @@ import (
 	"istio.io/pkg/ctrlz"
 	"istio.io/pkg/log"
 	"istio.io/pkg/version"
-)
-
-const (
-	defaultMCPMaxMessageSize        = 1024 * 1024 * 4 // default gRPC maximum message size
-	defaultMCPInitialConnWindowSize = 1024 * 1024     // default gRPC InitialWindowSize
-	defaultMCPInitialWindowSize     = 1024 * 1024     // default gRPC ConnWindowSize
 )
 
 var (
@@ -95,7 +87,6 @@ var (
 )
 
 func configureLogging(_ *cobra.Command, _ []string) error {
-	grpclog.SetLoggerV2(grpclog.NewLoggerV2(ioutil.Discard, ioutil.Discard, ioutil.Discard))
 	if err := log.Configure(loggingOptions); err != nil {
 		return err
 	}
@@ -130,14 +121,6 @@ func init() {
 		"Select a namespace where the controller resides. If not set, uses ${POD_NAMESPACE} environment variable")
 	discoveryCmd.PersistentFlags().StringSliceVar(&serverArgs.Plugins, "plugins", bootstrap.DefaultPlugins,
 		"comma separated list of networking plugins to enable")
-
-	// MCP client flags
-	discoveryCmd.PersistentFlags().IntVar(&serverArgs.MCPOptions.MaxMessageSize, "mcpMaxMsgSize", defaultMCPMaxMessageSize,
-		"Max message size received by MCP's gRPC client")
-	discoveryCmd.PersistentFlags().IntVar(&serverArgs.MCPOptions.InitialWindowSize, "mcpInitialWindowSize", defaultMCPInitialWindowSize,
-		"Initial window size for MCP's gRPC connection")
-	discoveryCmd.PersistentFlags().IntVar(&serverArgs.MCPOptions.InitialConnWindowSize, "mcpInitialConnWindowSize", defaultMCPInitialConnWindowSize,
-		"Initial connection window size for MCP's gRPC connection")
 
 	// RegistryOptions Controller options
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.RegistryOptions.FileDir, "configDir", "",
@@ -176,10 +159,10 @@ func init() {
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.ServerOptions.TLSOptions.KeyFile, "tlsKeyFile", "",
 		"File containing the x509 private key matching --tlsCertFile")
 
-	discoveryCmd.PersistentFlags().Float32Var(&serverArgs.RegistryOptions.KubeOptions.KubernetesAPIQPS, "kubernetesApiQPS", 20.0,
+	discoveryCmd.PersistentFlags().Float32Var(&serverArgs.RegistryOptions.KubeOptions.KubernetesAPIQPS, "kubernetesApiQPS", 80.0,
 		"Maximum QPS when communicating with the kubernetes API")
 
-	discoveryCmd.PersistentFlags().IntVar(&serverArgs.RegistryOptions.KubeOptions.KubernetesAPIBurst, "kubernetesApiBurst", 40,
+	discoveryCmd.PersistentFlags().IntVar(&serverArgs.RegistryOptions.KubeOptions.KubernetesAPIBurst, "kubernetesApiBurst", 160,
 		"Maximum burst for throttle when communicating with the kubernetes API")
 
 	// Attach the Istio logging options to the command.
@@ -205,7 +188,7 @@ func init() {
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		log.Errora(err)
+		log.Error(err)
 		os.Exit(-1)
 	}
 }

@@ -163,10 +163,8 @@ func createRealSDSServer(t *testing.T, socket string) *Server {
 	stsclient.GKEClusterURL = msts.FakeGKEClusterURL
 	stsclient.SecureTokenEndpoint = mockSTSServer.URL + "/v1/identitybindingtoken"
 	arg := security.Options{
-		EnableGatewaySDS:  false,
-		EnableWorkloadSDS: true,
-		RecycleInterval:   100 * time.Millisecond,
-		WorkloadUDSPath:   socket,
+		RecycleInterval: 100 * time.Millisecond,
+		WorkloadUDSPath: socket,
 	}
 	caClient, err := gca.NewGoogleCAClient(mockMeshCAServer.Address, false)
 	if err != nil {
@@ -180,12 +178,11 @@ func createRealSDSServer(t *testing.T, socket string) *Server {
 	workloadSdsCacheOptions := &security.Options{}
 	workloadSdsCacheOptions.TrustDomain = "FakeTrustDomain"
 	workloadSdsCacheOptions.Pkcs8Keys = false
-	workloadSdsCacheOptions.TokenExchangers = NewPlugins([]string{"GoogleTokenExchange"})
+	workloadSdsCacheOptions.TokenExchangers = NewPlugins([]string{"GoogleTokenExchange"}, workloadSdsCacheOptions)
 	workloadSdsCacheOptions.RotationInterval = 10 * time.Minute
-	workloadSdsCacheOptions.InitialBackoffInMilliSec = 10
 	workloadSecretCache := cache.NewSecretCache(wSecretFetcher, NotifyProxy, workloadSdsCacheOptions)
 
-	server, err := NewServer(&arg, workloadSecretCache, nil)
+	server, err := NewServer(&arg, workloadSecretCache)
 	if err != nil {
 		t.Fatalf("failed to start grpc server for sds: %v", err)
 	}

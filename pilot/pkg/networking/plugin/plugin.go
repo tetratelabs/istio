@@ -20,12 +20,14 @@ import (
 )
 
 const (
+	// AuthzCustom is the name of the authorization plugin (CUSTOM action) passed through the command line
+	AuthzCustom = "ext_authz"
 	// Authn is the name of the authentication plugin passed through the command line
 	Authn = "authn"
-	// Authz is the name of the rbac plugin passed through the command line
+	// Authz is the name of the authorization plugin (ALLOW/DENY/AUDIT action) passed through the command line
 	Authz = "authz"
-	// Health is the name of the health plugin passed through the command line
-	Health = "health"
+	// MetadataExchange is the name of the telemetry plugin passed through the command line
+	MetadataExchange = "metadata_exchange"
 )
 
 // InputParams is a set of values passed to Plugin callback methods. Not all fields are guaranteed to
@@ -41,8 +43,6 @@ type InputParams struct {
 	Node *model.Proxy
 	// ServiceInstance is the service instance colocated with the listener (applies to sidecar).
 	ServiceInstance *model.ServiceInstance
-	// Service is the service colocated with the listener (applies to sidecar).
-	// For outbound TCP listeners, it is the destination service.
 	// Push holds stats and other information about the current push.
 	Push *model.PushContext
 }

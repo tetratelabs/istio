@@ -24,6 +24,7 @@ import (
 	"io/ioutil"
 	"math"
 	"net"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -34,7 +35,6 @@ import (
 	"golang.org/x/oauth2"
 	google_rpc "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/oauth"
@@ -43,6 +43,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
+	"istio.io/istio/pilot/cmd/pilot-agent/status/ready"
 	"istio.io/istio/pilot/pkg/dns"
 	nds "istio.io/istio/pilot/pkg/proto"
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
@@ -59,10 +60,6 @@ const (
 	defaultInitialConnWindowSize       = 1024 * 1024     // default gRPC InitialWindowSize
 	defaultInitialWindowSize           = 1024 * 1024     // default gRPC ConnWindowSize
 	sendTimeout                        = 5 * time.Second // default upstream send timeout.
-)
-
-const (
-	xdsUdsPath = "./etc/istio/proxy/XDS"
 )
 
 // XDS Proxy proxies all XDS requests from envoy to istiod, in addition to allowing
@@ -82,26 +79,42 @@ type XdsProxy struct {
 	localDNSServer       *dns.LocalDNSServer
 	healthChecker        *health.WorkloadHealthChecker
 	xdsHeaders           map[string]string
+	xdsUdsPath           string
 
 	// connected stores the active gRPC stream. The proxy will only have 1 connection at a time
 	connected      *ProxyConnection
+	initialRequest *discovery.DiscoveryRequest
 	connectedMutex sync.RWMutex
 }
 
 var proxyLog = log.RegisterScope("xdsproxy", "XDS Proxy in Istio Agent", 0)
 
+const (
+	localHostIPv4 = "127.0.0.1"
+	localHostIPv6 = "[::1]"
+)
+
 func initXdsProxy(ia *Agent) (*XdsProxy, error) {
 	var err error
+	localHostAddr := localHostIPv4
+	if ia.cfg.IsIPv6 {
+		localHostAddr = localHostIPv6
+	}
+	envoyProbe := &ready.Probe{
+		AdminPort:     uint16(ia.proxyConfig.ProxyAdminPort),
+		LocalHostAddr: localHostAddr,
+	}
 	proxy := &XdsProxy{
 		istiodAddress:  ia.proxyConfig.DiscoveryAddress,
 		clusterID:      ia.secOpts.ClusterID,
 		localDNSServer: ia.localDNSServer,
 		stopChan:       make(chan struct{}),
-		healthChecker:  health.NewWorkloadHealthChecker(ia.proxyConfig.ReadinessProbe),
+		healthChecker:  health.NewWorkloadHealthChecker(ia.proxyConfig.ReadinessProbe, envoyProbe),
 		xdsHeaders:     ia.cfg.XDSHeaders,
+		xdsUdsPath:     ia.cfg.XdsUdsPath,
 	}
 
-	proxyLog.Infof("Initializing with upstream address %s and cluster %s", proxy.istiodAddress, proxy.clusterID)
+	proxyLog.Infof("Initializing with upstream address %q and cluster %q", proxy.istiodAddress, proxy.clusterID)
 
 	if err = proxy.initDownstreamServer(); err != nil {
 		return nil, err
@@ -130,26 +143,44 @@ func initXdsProxy(ia *Agent) (*XdsProxy, error) {
 				},
 			}
 		}
-		proxy.SendRequest(req)
+		proxy.PersistRequest(req)
 	}, proxy.stopChan)
 	return proxy, nil
 }
 
-// SendRequest sends a request to the currently connected proxy
-func (p *XdsProxy) SendRequest(req *discovery.DiscoveryRequest) {
-	p.connectedMutex.RLock()
-	defer p.connectedMutex.RUnlock()
-	// TODO especially for health check purposes, we need a way to ensure the send succeeded. Otherwise,
-	// requests send to a disconnecting proxy will be permanently dropped.
+// PersistRequest sends a request to the currently connected proxy. Additionally, on any reconnection
+// to the upstream XDS request we will resend this request.
+func (p *XdsProxy) PersistRequest(req *discovery.DiscoveryRequest) {
+	var ch chan *discovery.DiscoveryRequest
+
+	p.connectedMutex.Lock()
 	if p.connected != nil {
-		p.connected.requestsChan <- req
+		ch = p.connected.requestsChan
 	}
+	p.initialRequest = req
+	p.connectedMutex.Unlock()
+
+	// Immediately send if we are currently connect
+	if ch != nil {
+		ch <- req
+	}
+}
+
+func (p *XdsProxy) UnregisterStream(c *ProxyConnection) {
+	p.connectedMutex.Lock()
+	defer p.connectedMutex.Unlock()
+	if p.connected != nil && p.connected == c {
+		proxyLog.Warnf("unregister stream")
+		close(p.connected.stopChan)
+	}
+	p.connected = nil
 }
 
 func (p *XdsProxy) RegisterStream(c *ProxyConnection) {
 	p.connectedMutex.Lock()
 	defer p.connectedMutex.Unlock()
 	if p.connected != nil {
+		proxyLog.Warnf("registered overlapping stream; closing previous")
 		close(p.connected.stopChan)
 	}
 	p.connected = c
@@ -181,10 +212,16 @@ func (p *XdsProxy) StreamAggregatedResources(downstream discovery.AggregatedDisc
 	}
 
 	p.RegisterStream(con)
+	defer p.UnregisterStream(con)
 
 	// Handle downstream xds
-	firstNDSSent := false
+	initialRequestsSent := false
 	go func() {
+		// Send initial request
+		p.connectedMutex.RLock()
+		initialRequest := p.initialRequest
+		p.connectedMutex.RUnlock()
+
 		for {
 			// From Envoy
 			req, err := downstream.Recv()
@@ -194,12 +231,18 @@ func (p *XdsProxy) StreamAggregatedResources(downstream discovery.AggregatedDisc
 			}
 			// forward to istiod
 			con.requestsChan <- req
-			if p.localDNSServer != nil && !firstNDSSent && req.TypeUrl == v3.ListenerType {
+			if !initialRequestsSent && req.TypeUrl == v3.ListenerType {
 				// fire off an initial NDS request
-				con.requestsChan <- &discovery.DiscoveryRequest{
-					TypeUrl: v3.NameTableType,
+				if p.localDNSServer != nil {
+					con.requestsChan <- &discovery.DiscoveryRequest{
+						TypeUrl: v3.NameTableType,
+					}
 				}
-				firstNDSSent = true
+				// Fire of a configured initial request, if there is one
+				if initialRequest != nil {
+					con.requestsChan <- initialRequest
+				}
+				initialRequestsSent = true
 			}
 		}
 	}()
@@ -275,6 +318,7 @@ func (p *XdsProxy) HandleUpstream(ctx context.Context, con *ProxyConnection, xds
 			// On downstream error, we will return. This propagates the error to downstream envoy which will trigger reconnect
 			return err
 		case <-con.stopChan:
+			proxyLog.Debugf("stream stopped")
 			return nil
 		}
 	}
@@ -395,7 +439,7 @@ func (ts *fileTokenSource) Token() (*oauth2.Token, error) {
 }
 
 func (p *XdsProxy) initDownstreamServer() error {
-	l, err := uds.NewListener(xdsUdsPath)
+	l, err := uds.NewListener(p.xdsUdsPath)
 	if err != nil {
 		return err
 	}
@@ -413,6 +457,14 @@ func (p *XdsProxy) getCertKeyPaths(agent *Agent) (string, string) {
 	if agent.secOpts.ProvCert != "" {
 		key = path.Join(agent.secOpts.ProvCert, constants.KeyFilename)
 		cert = path.Join(path.Join(agent.secOpts.ProvCert, constants.CertChainFilename))
+
+		// CSR may not have completed – use JWT to auth.
+		if _, err := os.Stat(key); os.IsNotExist(err) {
+			return "", ""
+		}
+		if _, err := os.Stat(cert); os.IsNotExist(err) {
+			return "", ""
+		}
 	} else if agent.secOpts.FileMountedCerts {
 		key = agent.proxyConfig.ProxyMetadata[MetadataClientCertKey]
 		cert = agent.proxyConfig.ProxyMetadata[MetadataClientCertChain]
@@ -438,12 +490,7 @@ func (p *XdsProxy) buildUpstreamClientDialOpts(sa *Agent) ([]grpc.DialOption, er
 	// connection to upstream has been made.
 	dialOptions := []grpc.DialOption{
 		tlsOpts,
-		grpc.WithConnectParams(grpc.ConnectParams{
-			Backoff:           backoff.DefaultConfig,
-			MinConnectTimeout: 1 * time.Second,
-		}),
 		keepaliveOption, initialWindowSizeOption, initialConnWindowSizeOption, msgSizeOption,
-		grpc.WithBlock(),
 	}
 
 	// TODO: This is not a valid way of detecting if we are on VM vs k8s

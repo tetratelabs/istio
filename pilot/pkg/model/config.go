@@ -16,6 +16,7 @@ package model
 
 import (
 	"hash/crc32"
+	"net"
 	"sort"
 	"strings"
 
@@ -134,10 +135,12 @@ type ConfigStore interface {
 
 	// Patch applies only the modifications made in the PatchFunc rather than doing a full replace. Useful to avoid
 	// read-modify-write conflicts when there are many concurrent-writers to the same resource.
-	Patch(typ config.GroupVersionKind, name, namespace string, patchFn config.PatchFunc) (string, error)
+	Patch(orig config.Config, patchFn config.PatchFunc) (string, error)
 
 	// Delete removes an object from the store by key
-	Delete(typ config.GroupVersionKind, name, namespace string) error
+	// For k8s, resourceVersion must be fulfilled before a deletion is carried out.
+	// If not possible, a 409 Conflict status will be returned.
+	Delete(typ config.GroupVersionKind, name, namespace string, resourceVersion *string) error
 }
 
 // ConfigStoreCache is a local fully-replicated cache of the config store.  The
@@ -197,6 +200,12 @@ func ResolveShortnameToFQDN(hostname string, meta config.Meta) host.Name {
 	if hostname == "*" {
 		return host.Name(out)
 	}
+
+	// if the hostname is a valid ipv4 or ipv6 address, do not append domain or namespace
+	if net.ParseIP(hostname) != nil {
+		return host.Name(out)
+	}
+
 	// if FQDN is specified, do not append domain or namespace to hostname
 	if !strings.Contains(hostname, ".") {
 		if meta.Namespace != "" {
@@ -251,9 +260,17 @@ func resolveGatewayName(gwname string, meta config.Meta) string {
 func MostSpecificHostMatch(needle host.Name, m map[host.Name]struct{}, stack []host.Name) (host.Name, bool) {
 	matches := []host.Name{}
 
-	// exact match, use map
-	if _, ok := m[needle]; ok {
-		return needle, true
+	// exact match first
+	if m != nil {
+		if _, ok := m[needle]; ok {
+			return needle, true
+		}
+	} else {
+		for _, h := range stack {
+			if h == needle {
+				return needle, true
+			}
+		}
 	}
 
 	if needle.IsWildCarded() {

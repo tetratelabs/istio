@@ -16,6 +16,7 @@ package istio
 
 import (
 	"net"
+	"time"
 
 	"istio.io/istio/pkg/test"
 	"istio.io/istio/pkg/test/framework/components/environment/kube"
@@ -87,6 +88,7 @@ func Setup(i *Instance, cfn SetupConfigFn, ctxFns ...SetupContextFn) resource.Se
 				scopes.Framework.Info("=== SUCCESS: context setup function ===")
 			}
 		}
+
 		ins, err := Deploy(ctx, &cfg)
 		if err != nil {
 			return err
@@ -109,15 +111,20 @@ func Deploy(ctx resource.Context, cfg *Config) (i Instance, err error) {
 		cfg = &c
 	}
 
+	t0 := time.Now()
 	scopes.Framework.Infof("=== BEGIN: Deploy Istio [Suite=%s] ===", ctx.Settings().TestID)
 	defer func() {
 		if err != nil {
-			scopes.Framework.Infof("=== FAILED: Deploy Istio [Suite=%s] ===", ctx.Settings().TestID)
+			scopes.Framework.Infof("=== FAILED: Deploy Istio in %v [Suite=%s] ===", time.Since(t0), ctx.Settings().TestID)
 		} else {
-			scopes.Framework.Infof("=== SUCCEEDED: Deploy Istio [Suite=%s]===", ctx.Settings().TestID)
+			scopes.Framework.Infof("=== SUCCEEDED: Deploy Istio in %v [Suite=%s]===", time.Since(t0), ctx.Settings().TestID)
 		}
 	}()
 
-	i, err = deploy(ctx, ctx.Environment().(*kube.Environment), *cfg)
+	if cfg.DeployHelm {
+		i, err = deployWithHelm(ctx, ctx.Environment().(*kube.Environment), *cfg)
+	} else {
+		i, err = deploy(ctx, ctx.Environment().(*kube.Environment), *cfg)
+	}
 	return
 }

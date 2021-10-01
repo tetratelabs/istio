@@ -1203,6 +1203,7 @@ spec:
     listKind: EnvoyFilterList
     plural: envoyfilters
     singular: envoyfilter
+  preserveUnknownFields: true
   scope: Namespaced
   subresources:
     status: {}
@@ -1288,6 +1289,10 @@ spec:
                                 description: Applies only to sidecars.
                                 format: string
                                 type: string
+                              destinationPort:
+                                description: The destination_port value used by a
+                                  filter chain's match condition.
+                                type: integer
                               filter:
                                 description: The name of a specific filter to apply
                                   the patch to.
@@ -2885,11 +2890,11 @@ spec:
                 - exec
               properties:
                 exec:
-                  description: health is determined by how the command that is executed
+                  description: Health is determined by how the command that is executed
                     exited.
                   properties:
                     command:
-                      description: command to run.
+                      description: Command to run.
                       items:
                         format: string
                         type: string
@@ -2907,7 +2912,7 @@ spec:
                       format: string
                       type: string
                     httpHeaders:
-                      description: headers the proxy will pass on to make the request.
+                      description: Headers the proxy will pass on to make the request.
                       items:
                         properties:
                           name:
@@ -2923,7 +2928,7 @@ spec:
                       format: string
                       type: string
                     port:
-                      description: port on which the endpoint lives.
+                      description: Port on which the endpoint lives.
                       type: integer
                     scheme:
                       format: string
@@ -2944,7 +2949,7 @@ spec:
                   format: int32
                   type: integer
                 tcpSocket:
-                  description: health is determined by if the proxy is able to connect.
+                  description: Health is determined by if the proxy is able to connect.
                   properties:
                     host:
                       format: string
@@ -3049,7 +3054,6 @@ spec:
               - CUSTOM
               type: string
             provider:
-              description: Specifies detailed configuration of the CUSTOM action.
               properties:
                 name:
                   description: Specifies the name of the extension provider.
@@ -3549,7 +3553,9 @@ rules:
     verbs: ["get", "list", "watch", "update"]
 
   # istio configuration
-  - apiGroups: ["config.istio.io", "security.istio.io", "networking.istio.io", "authentication.istio.io"]
+  # removing CRD permissions can break older versions of Istio running alongside this control plane (https://github.com/istio/istio/issues/29382)
+  # please proceed with caution
+  - apiGroups: ["config.istio.io", "security.istio.io", "networking.istio.io", "authentication.istio.io", "rbac.istio.io"]
     verbs: ["get", "watch", "list"]
     resources: ["*"]
   - apiGroups: ["networking.istio.io"]
@@ -3633,6 +3639,7 @@ rules:
       - "security.istio.io"
       - "networking.istio.io"
       - "authentication.istio.io"
+      - "rbac.istio.io"
     resources: ["*"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
@@ -3747,9 +3754,7 @@ webhooks:
         - CREATE
         - UPDATE
         apiGroups:
-        - config.istio.io
         - security.istio.io
-        - authentication.istio.io
         - networking.istio.io
         apiVersions:
         - "*"

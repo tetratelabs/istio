@@ -23,7 +23,7 @@ import (
 
 func TestInstallEmptyRevision(t *testing.T) {
 	g := gomega.NewWithT(t)
-	args := []string{"install", "--revision", ""}
+	args := []string{"install", "--dry-run", "--revision", ""}
 	rootCmd := GetRootCmd(args)
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -31,4 +31,17 @@ func TestInstallEmptyRevision(t *testing.T) {
 
 	err := rootCmd.Execute()
 	g.Expect(err).To(gomega.HaveOccurred())
+}
+
+func TestInstallInvalidRevision(t *testing.T) {
+	g := gomega.NewWithT(t)
+	args := []string{"install", "--dry-run", "--revision", "1.8.0"}
+
+	rootCmd := GetRootCmd(args)
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+
+	err := rootCmd.Execute()
+	g.Expect(err).To(gomega.MatchError("invalid revision specified: 1.8.0"))
 }

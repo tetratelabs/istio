@@ -27,7 +27,6 @@ import (
 
 	"istio.io/istio/pkg/test/env"
 	"istio.io/istio/pkg/test/framework"
-	"istio.io/istio/pkg/test/framework/components/environment/kube"
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/label"
@@ -179,6 +178,7 @@ values:
       #    no identities ([spiffe://cluster.local/ns/mounted-certs/sa/client client.mounted-certs.svc]) matched istio-fd-sds-1-4523/default
       XDS_AUTH: "false"
 `
+	cfg.DeployEastWestGW = false
 }
 
 func CreateCustomIstiodSecret(ctx resource.Context) error {
@@ -208,7 +208,7 @@ func CreateCustomSecret(ctx resource.Context, name string, namespace namespace.I
 		return err
 	}
 
-	kubeAccessor := ctx.Environment().(*kube.Environment).KubeClusters[0]
+	kubeAccessor := ctx.Clusters().Default()
 	secret := &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,

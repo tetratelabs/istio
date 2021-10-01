@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"time"
 
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/test/echo/client"
@@ -30,6 +31,7 @@ import (
 	"istio.io/istio/pkg/test/echo/proto"
 	"istio.io/istio/pkg/test/echo/server/forwarder"
 	"istio.io/istio/pkg/test/framework/components/echo"
+	"istio.io/istio/pkg/test/scopes"
 	"istio.io/istio/pkg/test/util/retry"
 )
 
@@ -103,8 +105,10 @@ func callInternal(srcName string, opts *echo.CallOptions, send sendFunc,
 		return responses, formatError(err)
 	}
 
+	t0 := time.Now()
 	// Retry not enabled for this call.
 	err := sendAndValidate()
+	scopes.Framework.Debugf("echo call complete with duration %v", time.Since(t0))
 	return responses, formatError(err)
 }
 
@@ -170,8 +174,8 @@ func fillInCallOptions(opts *echo.CallOptions) error {
 				return fmt.Errorf("callOptions: no port named %s available in Target Instance", opts.PortName)
 			}
 		}
-	} else if opts.Port == nil || opts.Port.ServicePort == 0 || opts.Port.Protocol == "" || opts.Address == "" {
-		return fmt.Errorf("if target is not set, then port.servicePort, port.protocol, and host must be set")
+	} else if opts.Port == nil || opts.Port.ServicePort == 0 || (opts.Port.Protocol == "" && opts.Scheme == "") || opts.Address == "" {
+		return fmt.Errorf("if target is not set, then port.servicePort, port.protocol or schema, and address must be set")
 	}
 
 	if opts.Scheme == "" {

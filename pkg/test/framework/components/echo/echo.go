@@ -76,6 +76,9 @@ type Instance interface {
 	// options. If no options are provided, uses defaults.
 	CallWithRetry(options CallOptions, retryOptions ...retry.Option) (client.ParsedResponses, error)
 	CallWithRetryOrFail(t test.Failer, options CallOptions, retryOptions ...retry.Option) client.ParsedResponses
+
+	// Restart restarts the workloads associated with this echo instance
+	Restart() error
 }
 
 // Workload port exposed by an Echo instance
@@ -115,6 +118,9 @@ type Port struct {
 
 	// ServerFirst determines whether the port will use server first communication, meaning the client will not send the first byte.
 	ServerFirst bool
+
+	// InstanceIP determines if echo will listen on the instance IP, or wildcard
+	InstanceIP bool
 }
 
 // Workload provides an interface for a single deployed echo server.

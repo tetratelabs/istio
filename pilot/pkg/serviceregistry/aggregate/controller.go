@@ -20,7 +20,6 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 
-	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry"
 	"istio.io/istio/pkg/config/host"
@@ -44,6 +43,7 @@ type Controller struct {
 	registries []serviceregistry.Instance
 	storeLock  sync.RWMutex
 	meshHolder mesh.Holder
+	running    bool
 }
 
 type Options struct {
@@ -63,9 +63,7 @@ func (c *Controller) AddRegistry(registry serviceregistry.Instance) {
 	c.storeLock.Lock()
 	defer c.storeLock.Unlock()
 
-	registries := c.registries
-	registries = append(registries, registry)
-	c.registries = registries
+	c.registries = append(c.registries, registry)
 }
 
 // DeleteRegistry deletes specified registry from the aggregated controller
@@ -82,9 +80,7 @@ func (c *Controller) DeleteRegistry(clusterID string) {
 		log.Warnf("Registry is not found in the registries list, nothing to delete")
 		return
 	}
-	registries := c.registries
-	registries = append(registries[:index], registries[index+1:]...)
-	c.registries = registries
+	c.registries = append(c.registries[:index], c.registries[index+1:]...)
 	log.Infof("Registry for the cluster %s has been deleted.", clusterID)
 }
 
@@ -124,11 +120,7 @@ func (c *Controller) Services() ([]*model.Service, error) {
 		// Race condition: multiple threads may call Services, and multiple services
 		// may modify one of the service's cluster ID
 		clusterAddressesMutex.Lock()
-		if r.Cluster() == "" { // Should we instead check for registry name to be on safe side?
-			// If the service does not have a cluster ID (ServiceEntries, CloudFoundry, etc.)
-			// Do not bother checking for the cluster ID.
-			// DO NOT ASSIGN CLUSTER ID to non-k8s registries. This will prevent service entries with multiple
-			// VIPs or CIDR ranges in the address field
+		if r.Provider() != serviceregistry.Kubernetes {
 			services = append(services, svcs...)
 		} else {
 			// This is K8S typically
@@ -164,7 +156,7 @@ func (c *Controller) GetService(hostname host.Name) (*model.Service, error) {
 		if service == nil {
 			continue
 		}
-		if r.Cluster() == "" {
+		if r.Provider() != serviceregistry.Kubernetes {
 			return service, nil
 		}
 		service.Mutex.RLock()
@@ -222,31 +214,22 @@ func nodeClusterID(node *model.Proxy) string {
 
 // Skip the service registry when there won't be a match
 // because the proxy is in a different cluster.
-func skipSearchingRegistryForProxy(nodeClusterID, registryClusterID, selfClusterID string) bool {
-	// We can't trust the default service registry because its always
-	// named `Kubernetes`. Use the `CLUSTER_ID` envvar to find the
-	// local cluster name in these cases.
-	// TODO(https://github.com/istio/istio/issues/22093)
-	if registryClusterID == string(serviceregistry.Kubernetes) {
-		registryClusterID = selfClusterID
-	}
-
-	// Kube registries can have WorkloadEntry instances
-	if registryClusterID == "" || nodeClusterID == "" {
+func skipSearchingRegistryForProxy(nodeClusterID string, r serviceregistry.Instance) bool {
+	// Always search non-kube (usually serviceentry) registry.
+	// Check every registry if cluster ID isn't specified.
+	if r.Provider() != serviceregistry.Kubernetes || nodeClusterID == "" {
 		return false
 	}
 
-	return registryClusterID != nodeClusterID
+	return r.Cluster() != nodeClusterID
 }
 
 // GetProxyServiceInstances lists service instances co-located with a given proxy
 func (c *Controller) GetProxyServiceInstances(node *model.Proxy) []*model.ServiceInstance {
 	out := make([]*model.ServiceInstance, 0)
-	// It doesn't make sense for a single proxy to be found in more than one registry.
-	// TODO: if otherwise, warning or else what to do about it.
 	for _, r := range c.GetRegistries() {
 		nodeClusterID := nodeClusterID(node)
-		if skipSearchingRegistryForProxy(nodeClusterID, r.Cluster(), features.ClusterName) {
+		if skipSearchingRegistryForProxy(nodeClusterID, r) {
 			log.Debugf("GetProxyServiceInstances(): not searching registry %v: proxy %v CLUSTER_ID is %v",
 				r.Cluster(), node.ID, nodeClusterID)
 			continue
@@ -255,7 +238,6 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) []*model.Servic
 		instances := r.GetProxyServiceInstances(node)
 		if len(instances) > 0 {
 			out = append(out, instances...)
-			break
 		}
 	}
 
@@ -279,13 +261,18 @@ func (c *Controller) GetProxyWorkloadLabels(proxy *model.Proxy) labels.Collectio
 
 // Run starts all the controllers
 func (c *Controller) Run(stop <-chan struct{}) {
-
 	for _, r := range c.GetRegistries() {
 		go r.Run(stop)
 	}
-
+	c.running = true
 	<-stop
 	log.Info("Registry Aggregator terminated")
+}
+
+// Running returns true after Run has been called. If already running, registries passed to AddRegistry
+// should be started outside of this aggregate controller.
+func (c *Controller) Running() bool {
+	return c.running
 }
 
 // HasSynced returns true when all registries have synced
@@ -299,24 +286,16 @@ func (c *Controller) HasSynced() bool {
 }
 
 // AppendServiceHandler implements a service catalog operation
-func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) error {
+func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) {
 	for _, r := range c.GetRegistries() {
-		if err := r.AppendServiceHandler(f); err != nil {
-			log.Infof("Fail to append service handler to adapter %s", r.Provider())
-			return err
-		}
+		r.AppendServiceHandler(f)
 	}
-	return nil
 }
 
-func (c *Controller) AppendWorkloadHandler(f func(*model.WorkloadInstance, model.Event)) error {
+func (c *Controller) AppendWorkloadHandler(f func(*model.WorkloadInstance, model.Event)) {
 	for _, r := range c.GetRegistries() {
-		if err := r.AppendWorkloadHandler(f); err != nil {
-			log.Infof("Fail to append workload handler to adapter %s", r.Provider())
-			return err
-		}
+		r.AppendWorkloadHandler(f)
 	}
-	return nil
 }
 
 // GetIstioServiceAccounts implements model.ServiceAccounts operation.

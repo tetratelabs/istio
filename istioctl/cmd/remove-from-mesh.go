@@ -32,9 +32,9 @@ import (
 	"istio.io/api/annotation"
 	analyzer_util "istio.io/istio/galley/pkg/config/analysis/analyzers/util"
 	"istio.io/istio/istioctl/pkg/util/handlers"
-	istioStatus "istio.io/istio/pilot/cmd/pilot-agent/status"
 	"istio.io/istio/pkg/config/resource"
 	"istio.io/istio/pkg/config/schema/collections"
+	"istio.io/istio/pkg/kube/inject"
 	"istio.io/pkg/log"
 )
 
@@ -90,7 +90,7 @@ func deploymentUnMeshifyCmd() *cobra.Command {
 			}
 			ns := handlers.HandleNamespace(namespace, defaultNamespace)
 			if analyzer_util.IsSystemNamespace(resource.Namespace(ns)) || ns == istioNamespace {
-				return fmt.Errorf("namespace %s is a system namesapce and has no Istio sidecar injected", ns)
+				return fmt.Errorf("namespace %s is a system namespace and has no Istio sidecar injected", ns)
 			}
 			client, err := interfaceFactory(kubeconfig)
 			if err != nil {
@@ -131,7 +131,7 @@ func svcUnMeshifyCmd() *cobra.Command {
 			}
 			ns := handlers.HandleNamespace(namespace, defaultNamespace)
 			if analyzer_util.IsSystemNamespace(resource.Namespace(ns)) || ns == istioNamespace {
-				return fmt.Errorf("namespace %s is a system namesapce and has no Istio sidecar injected", ns)
+				return fmt.Errorf("namespace %s is a system namespace and has no Istio sidecar injected", ns)
 			}
 			client, err := interfaceFactory(kubeconfig)
 			if err != nil {
@@ -223,7 +223,7 @@ func unInjectSideCarFromDeployment(client kubernetes.Interface, deps []appsv1.De
 			}
 		}
 
-		var appProbe istioStatus.KubeAppProbers
+		var appProbe inject.KubeAppProbers
 		appProbeStr := retrieveAppProbe(podSpec.Containers)
 		if appProbeStr != "" {
 			err := json.Unmarshal([]byte(appProbeStr), &appProbe)

@@ -24,6 +24,7 @@ import (
 	"go.uber.org/atomic"
 	"google.golang.org/grpc"
 
+	"istio.io/istio/pilot/pkg/controller/workloadentry"
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/apigen"
@@ -114,11 +115,12 @@ type DiscoveryServer struct {
 	// Authenticators for XDS requests. Should be same/subset of the CA authenticators.
 	Authenticators []authenticate.Authenticator
 
-	// InternalGen is notified of connect/disconnect/nack on all connections
-	InternalGen *InternalGen
+	// StatusGen is notified of connect/disconnect/nack on all connections
+	StatusGen               *StatusGen
+	WorkloadEntryController *workloadentry.Controller
 
 	// serverReady indicates caches have been synced up and server is ready to process requests.
-	serverReady bool
+	serverReady atomic.Bool
 
 	debounceOptions debounceOptions
 
@@ -159,7 +161,6 @@ func NewDiscoveryServer(env *model.Environment, plugins []string, instanceID str
 		pushQueue:               NewPushQueue(),
 		debugHandlers:           map[string]string{},
 		adsClients:              map[string]*Connection{},
-		serverReady:             false,
 		debounceOptions: debounceOptions{
 			debounceAfter:     features.DebounceAfter,
 			debounceMax:       features.DebounceMax,
@@ -198,21 +199,15 @@ var (
 // CachesSynced is called when caches have been synced so that server can accept connections.
 func (s *DiscoveryServer) CachesSynced() {
 	adsLog.Infof("All caches have been synced up in %v, marking server ready", time.Since(processStartTime))
-	s.updateMutex.Lock()
-	s.serverReady = true
-	s.updateMutex.Unlock()
+	s.serverReady.Store(true)
 }
 
 func (s *DiscoveryServer) IsServerReady() bool {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-	return s.serverReady
+	return s.serverReady.Load()
 }
 
 func (s *DiscoveryServer) Start(stopCh <-chan struct{}) {
-	if s.InternalGen != nil {
-		s.InternalGen.Run(stopCh)
-	}
+	go s.WorkloadEntryController.Run(stopCh)
 	go s.handleUpdates(stopCh)
 	go s.periodicRefreshMetrics(stopCh)
 	go s.sendPushes(stopCh)
@@ -476,7 +471,7 @@ func (s *DiscoveryServer) sendPushes(stopCh <-chan struct{}) {
 // initGenerators initializes generators to be used by XdsServer.
 func (s *DiscoveryServer) initGenerators() {
 	edsGen := &EdsGenerator{Server: s}
-	s.InternalGen = NewInternalGen(s)
+	s.StatusGen = NewStatusGen(s)
 	s.Generators[v3.ClusterType] = &CdsGenerator{Server: s}
 	s.Generators[v3.ListenerType] = &LdsGenerator{Server: s}
 	s.Generators[v3.RouteType] = &RdsGenerator{Server: s}
@@ -492,12 +487,55 @@ func (s *DiscoveryServer) initGenerators() {
 	s.Generators["api"] = &apigen.APIGenerator{}
 	s.Generators["api/"+v3.EndpointType] = edsGen
 
-	s.Generators["api/"+TypeURLConnections] = s.InternalGen
+	s.Generators["api/"+TypeURLConnect] = s.StatusGen
 
-	s.Generators["event"] = s.InternalGen
+	s.Generators["event"] = s.StatusGen
 }
 
 // shutdown shutsdown DiscoveryServer components.
 func (s *DiscoveryServer) Shutdown() {
 	s.pushQueue.ShutDown()
+}
+
+// Clients returns all currently connected clients. This method can be safely called concurrently, but care
+// should be taken with the underlying objects (ie model.Proxy) to ensure proper locking.
+func (s *DiscoveryServer) Clients() []*Connection {
+	s.adsClientsMutex.RLock()
+	defer s.adsClientsMutex.RUnlock()
+	clients := make([]*Connection, 0, len(s.adsClients))
+	for _, con := range s.adsClients {
+		clients = append(clients, con)
+	}
+	return clients
+}
+
+// SendResponse will immediately send the response to all connections.
+// TODO: additional filters can be added, for example namespace.
+func (s *DiscoveryServer) SendResponse(res *discovery.DiscoveryResponse) {
+	pending := []*Connection{}
+	for _, v := range s.Clients() {
+		if v.Watching(res.TypeUrl) {
+			pending = append(pending, v)
+		}
+	}
+
+	// only marshal resources if there are connected clients
+	if len(pending) == 0 {
+		return
+	}
+
+	for _, p := range pending {
+		// p.send() waits for an ACK - which is reasonable for normal push,
+		// but in this case we want to sync fast and not bother with stuck connections.
+		// This is expecting a relatively small number of watchers - each other istiod
+		// plus few admin tools or bridges to real message brokers. The normal
+		// push expects 1000s of envoy connections.
+		con := p
+		go func() {
+			err := con.stream.Send(res)
+			if err != nil {
+				adsLog.Info("Failed to send internal event ", con.ConID, " ", err)
+			}
+		}()
+	}
 }
