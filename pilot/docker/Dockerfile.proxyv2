@@ -15,6 +15,7 @@ FROM gcr.io/istio-release/base:${BASE_VERSION} as default
 FROM gcr.io/istio-release/iptables@sha256:e5bbbcdab26db1b5bf580bd823204dc82485545e27ce877ca2ad2eb0dc3b55a0 as distroless
 
 # Prepare the system libraries, adding ModSecurity dependency libraries to there.
+# hadolint ignore=DL3006
 FROM ${BASE_DISTRIBUTION} as final_image_libs
 FROM docker.io/istio/base:${BASE_VERSION} as modsecurity_deps
 
@@ -24,8 +25,10 @@ COPY modsecurity_plugin_deps /etc/modsecurity_plugin_deps
 # finally, make the final system libraries, adding ModSecurity dependency libraries
 # which don't exist in the existing system libraries. Note that this shell script
 # cannot be moved to the next FROM section because the final image doesn't have the shell
-RUN cd /etc/modsecurity_plugin_deps/; \
-    for lib in $(find . -type f); do \
+WORKDIR /etc/modsecurity_plugin_deps/
+# libs never contain spaces in their names, and there's no easy POSIX-compliant way to do this, so ignore SC2044
+# hadolint ignore=SC2044
+RUN for lib in $(find . -type f); do \
         if [ ! -e "/etc/libs/${lib}" ]; then \
             cp "/etc/modsecurity_plugin_deps/${lib}" "/etc/libs/${lib}"; \
         fi; \
