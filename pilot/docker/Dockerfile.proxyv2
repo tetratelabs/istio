@@ -22,6 +22,7 @@ FROM docker.io/istio/base:${BASE_VERSION} as modsecurity_deps
 COPY --from=final_image_libs /lib/x86_64-linux-gnu /etc/libs/lib/x86_64-linux-gnu
 COPY --from=final_image_libs /usr/lib/x86_64-linux-gnu /etc/libs/usr/lib/x86_64-linux-gnu
 COPY --chown=0:0 modsecurity_plugin_deps /etc/modsecurity_plugin_deps
+
 # finally, make the final system libraries, adding ModSecurity dependency libraries
 # which don't exist in the existing system libraries. Note that this cp cannot be 
 # moved to the next FROM section because the final image doesn't have cp
