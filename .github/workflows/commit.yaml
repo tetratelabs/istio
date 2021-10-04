@@ -54,6 +54,11 @@ jobs:
     - name: "Checkout"
       uses: actions/checkout@v2
 
+    - name: "GCS Credentials"
+      env:
+        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
+      run: echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+
     - run: make -e T=-v init racetest
 
   release:
@@ -91,6 +96,12 @@ jobs:
       env:
         GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
       run: echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+
+    - name: "GitHub PAT for Istio release-builder"
+      env:
+        GITHUB_TOKEN: ${{ secrets.TETRATE_CI_GITHUB_TOKEN }}
+      run: |
+        echo -e "machine github.com\nlogin tetrate-ci\npassword ${GITHUB_TOKEN}" > "${HOME}/.netrc"
 
     - env:
         DOCKER_HUB: ${{ secrets.TETRATE_CI_DOCKER_HUB }}
