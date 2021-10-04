@@ -139,9 +139,10 @@ func SetupApps(ctx resource.Context, apps *EchoDeployments) error {
 				},
 			},
 			TLSSettings: &common.TLSSettings{
-				RootCert:   rootCert,
-				ClientCert: clientCert,
-				Key:        Key,
+				RootCert:      rootCert,
+				ClientCert:    clientCert,
+				Key:           Key,
+				AcceptAnyALPN: true,
 			},
 		}).
 		WithConfig(echo.Config{
@@ -163,9 +164,10 @@ func SetupApps(ctx resource.Context, apps *EchoDeployments) error {
 				},
 			},
 			TLSSettings: &common.TLSSettings{
-				RootCert:   rootCert,
-				ClientCert: clientCert,
-				Key:        Key,
+				RootCert:      rootCert,
+				ClientCert:    clientCert,
+				Key:           Key,
+				AcceptAnyALPN: true,
 			},
 		}).
 		WithConfig(echo.Config{
@@ -188,9 +190,10 @@ func SetupApps(ctx resource.Context, apps *EchoDeployments) error {
 				},
 			},
 			TLSSettings: &common.TLSSettings{
-				RootCert:   rootCertAlt,
-				ClientCert: clientCertAlt,
-				Key:        keyAlt,
+				RootCert:      rootCertAlt,
+				ClientCert:    clientCertAlt,
+				Key:           keyAlt,
+				AcceptAnyALPN: true,
 			},
 		}).
 		WithConfig(echo.Config{
