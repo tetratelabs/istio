@@ -121,7 +121,7 @@ endif
 
 # Envoy binary variables Keep the default URLs up-to-date with the latest push from istio/proxy.
 
-# NOTE: Makefile.overrides.mk overrides ISTIO_ENVOY_BASE_URL
+# NOTE: Makefile.tetrate.mk overrides this. Update it appropriately as well if this line conflicts with the upstream change.
 export ISTIO_ENVOY_BASE_URL ?= https://storage.googleapis.com/istio-build/proxy
 
 # Use envoy as the sidecar by default
@@ -131,10 +131,9 @@ export SIDECAR ?= envoy
 export ISTIO_ENVOY_VERSION ?= ${PROXY_REPO_SHA}
 export ISTIO_ENVOY_DEBUG_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-debug-$(ISTIO_ENVOY_VERSION).tar.gz
 export ISTIO_ENVOY_CENTOS_DEBUG_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-centos-debug-$(ISTIO_ENVOY_VERSION).tar.gz
-# NOTE: Makefile.overrides.mk overrides ISTIO_ENVOY_RELEASE_URL
+# NOTE: Makefile.tetrate.mk overrides ISTIO_ENVOY_RELEASE_URL. Update it as well if this line conflicts with the upstream change.
 export ISTIO_ENVOY_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-alpha-$(ISTIO_ENVOY_VERSION).tar.gz
 export ISTIO_ENVOY_CENTOS_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-centos-alpha-$(ISTIO_ENVOY_VERSION).tar.gz
-export TETRATE_MODSECURITYDEPS_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/modsecurity-plugin-deps-$(ISTIO_ENVOY_VERSION).tar.gz
 
 # Envoy Linux vars.
 export ISTIO_ENVOY_LINUX_VERSION ?= ${ISTIO_ENVOY_VERSION}

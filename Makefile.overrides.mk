@@ -21,13 +21,6 @@
 BUILD_WITH_CONTAINER ?= 1
 CONTAINER_OPTIONS = --mount type=bind,source=/tmp,destination=/tmp --net=host
 
-ifeq ($(PROXY_REPO_SHA),)
-  export PROXY_REPO_SHA:=$(shell grep PROXY_REPO_SHA istio.deps  -A 4 | grep lastStableSHA | cut -f 4 -d '"')
-endif
-# We override these variables to build envoy with our modsecurity filter, and push it to our private storage.
-export ISTIO_ENVOY_BASE_URL ?= gs://tetrate-istio-build/proxy
-export ISTIO_ENVOY_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-alpha-modsecurity-$(PROXY_REPO_SHA).tar.gz
-
 ifeq ($(BUILD_WITH_CONTAINER),1)
 # create phony targets for the top-level items in the repo
 PHONYS := $(shell ls | grep -v Makefile)
@@ -45,3 +38,5 @@ istioctl-install: istioctl-install-container
 # Update to focal/debian10
 # see https://github.com/istio/istio/pull/33231
 BASE_VERSION ?= 1.11-dev.8
+
+include Makefile.tetrate.mk

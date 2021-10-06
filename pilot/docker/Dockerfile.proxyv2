@@ -27,6 +27,7 @@ COPY modsecurity_plugin_deps /etc/modsecurity_plugin_deps
 # which don't exist in the existing system libraries. Note that this cp cannot be 
 # moved to the next FROM section because the final image doesn't have cp
 WORKDIR /etc/modsecurity_plugin_deps/
+# Use cp, not COPY, because COPY overwrites existing files while cp -n keeps existing ones.
 RUN cp -r --parents -n ./* /etc/libs/
 
 
@@ -62,9 +63,9 @@ COPY metadata-exchange-filter.compiled.wasm /etc/istio/extensions/metadata-excha
 # Embed OWASP Core Rule Set
 COPY owasp-modsecurity-crs /etc/owasp-modsecurity-crs
 
-# Copy the system libraries to which ModSecurity dependency libraries are added.
-# This is kind of a hack to handle with ModSecurity dependencies. We will work on linking ModSecurity statically
-# to remove these parts soon.
+# Copy ModSecurity dependency libraries. COPY overwrites the entire directory, but it's OK because this direcroy
+# includes the original system libraries as well. This is kind of a hack to handle with ModSecurity dependencies.
+# We will work on linking ModSecurity statically to remove these parts soon.
 COPY --from=modsecurity_deps /etc/libs/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu
 COPY --from=modsecurity_deps /etc/libs/usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu
 

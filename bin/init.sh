@@ -161,11 +161,12 @@ function download_modsecurty_deps_if_necessary () {
   out_path="$2/modsecurity_plugin_deps"
   if [[ ! -d "${out_path}" ]] ; then
     # Enter the output directory.
-    cd "$2"
+    pushd "$2"
 
     # Download and extract the binary to the output directory.
     echo "Downloading ModSecurity runtime dependencies: ${DOWNLOAD_COMMAND} $1 to ${out_path}"
     time ${DOWNLOAD_COMMAND} --header "${AUTH_HEADER:-}" "$1" | tar xz  # The extracted directory is "modsecurity_plugin_deps"
+    popd
   fi
 }
 
@@ -212,11 +213,7 @@ function download_crs_if_necessary () {
 
     # Download and extract the binary to the output directory.
     echo "Downloading OWASP CRS: ${DOWNLOAD_COMMAND} $1 to $4"
-    if [[ ${DOWNLOAD_COMMAND} == curl* ]]; then
-      time ${DOWNLOAD_COMMAND} --header "${AUTH_HEADER:-}" "$1" -o "crs.tar.gz"
-    elif [[ ${DOWNLOAD_COMMAND} == wget* ]]; then
-      time ${DOWNLOAD_COMMAND} --header "${AUTH_HEADER:-}" "$1" -O "crs.tar.gz"
-    fi
+    time ${DOWNLOAD_COMMAND} --header "${AUTH_HEADER:-}" "$1" -o "crs.tar.gz"
     if ! sha1sum --quiet -c <(echo "$2 crs.tar.gz"); then
       echo "Error: sha1sum of '$1' doesn't match. Expected: $2. Actual: $(sha1sum "crs.tar.gz")."
       exit 1
@@ -273,9 +270,9 @@ done
 
 # Download OWASP Core Rule Set files
 CRS_RELEASE_DIR=${ISTIO_ENVOY_LINUX_RELEASE_DIR}/owasp-modsecurity-crs
-CRS_URL="https://github.com/coreruleset/coreruleset/archive/refs/tags/v3.3.0.tar.gz"
-CRS_SHA1="1f4002b5cf941a9172b6250cea7e3465a85ef6ee"  # You can find the official value at https://coreruleset.org/installation/
 CRS_VERSION="3.3.0"
+CRS_URL="https://github.com/coreruleset/coreruleset/archive/refs/tags/v${CRS_VERSION}.tar.gz"
+CRS_SHA1="1f4002b5cf941a9172b6250cea7e3465a85ef6ee"  # You can find the official value at https://coreruleset.org/installation/
 download_crs_if_necessary "${CRS_URL}" "${CRS_SHA1}" "${CRS_VERSION}" "${CRS_RELEASE_DIR}"
 
 # Copy native envoy binary to ISTIO_OUT
