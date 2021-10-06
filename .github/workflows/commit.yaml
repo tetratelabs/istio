@@ -49,17 +49,53 @@ jobs:
     - run: make -e T=-v build binaries-test
 
   unit-tests:
+    needs: config
     runs-on: ubuntu-latest
+
+    container:
+      image: ${{ needs.config.outputs.image }} # ISTIO_BUILD_TOOLS
+      env:
+        BUILD_WITH_CONTAINER: "0"
+        GOOGLE_APPLICATION_CREDENTIALS: /gcs.key.json
+
     steps:
+    # The make targets need .git folder, which is missing without installing a newer git command
+    # https://github.com/actions/checkout/issues/335
+    - name: "Install latest `git`"
+      run: |
+        apt-get purge git -y
+        add-apt-repository ppa:git-core/ppa -y
+        apt-get update && apt-get install -y --no-install-recommends \
+            git \
+         && apt-get clean \
+         && rm -rf /var/lib/apt/lists/*
     - name: "Checkout"
       uses: actions/checkout@v2
+      with:
+        fetch-depth: 0 # fetch all history for all tags and branches
 
     - name: "GCS Credentials"
       env:
         GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
-      run: echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        gcloud auth activate-service-account --key-file="${GOOGLE_APPLICATION_CREDENTIALS}"
 
-    - run: make -e T=-v init racetest
+    - name: "Download Envoy, Wasm plugins, and ModSecurity resources"
+      run: |
+        make -e T=-v init
+
+    # Currently, ModSecurity requires runtime shared libraries, so copy them into the system's
+    # library directories. This part can be omitted after we make ModSecuirty fully statically
+    # compiled.
+    - name: "Copy ModSecurity dependencies"
+      run: |
+        cd out/linux_amd64/release/modsecurity_plugin_deps
+        cp -r --parents -n ./* /
+
+    - name: "Run Tests"
+      run: |
+        make -e T=-v racetest
 
   release:
     needs: config
@@ -72,6 +108,8 @@ jobs:
         GOOGLE_APPLICATION_CREDENTIALS: /gcs.key.json
 
     steps:
+    # The makefiles need .git folder, which is missing without installing a newer git command
+    # https://github.com/actions/checkout/issues/335
     - name: "Install latest `git`"
       run: |
         apt-get purge git -y
@@ -95,7 +133,9 @@ jobs:
     - name: "GCS Credentials"
       env:
         GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
-      run: echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+      run: |
+        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
+        gcloud auth activate-service-account --key-file="${GOOGLE_APPLICATION_CREDENTIALS}"
 
     - name: "GitHub PAT for Istio release-builder"
       env:
