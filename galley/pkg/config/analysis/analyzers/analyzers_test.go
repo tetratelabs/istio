@@ -288,6 +288,12 @@ var testGrid = []testCase{
 		},
 	},
 	{
+		name:       "deploymentMultiServicesInDifferentNamespace",
+		inputFiles: []string{"testdata/deployment-multi-service-different-ns.yaml"},
+		analyzer:   &deployment.ServiceAssociationAnalyzer{},
+		expected:   []message{},
+	},
+	{
 		name: "regexes",
 		inputFiles: []string{
 			"testdata/virtualservice_regexes.yaml",
@@ -438,6 +444,16 @@ var testGrid = []testCase{
 		},
 	},
 	{
+		name: "host defined in virtualservice not found in the gateway",
+		inputFiles: []string{
+			"testdata/virtualservice_host_not_found_gateway_with_ns_prefix.yaml",
+		},
+		analyzer: &virtualservice.GatewayAnalyzer{},
+		expected: []message{
+			{msg.VirtualServiceHostNotFoundInGateway, "VirtualService testing-service-01-test-01.default"},
+		},
+	},
+	{
 		name: "missing Addresses and Protocol in Service Entry",
 		inputFiles: []string{
 			"testdata/serviceentry-missing-addresses-protocol.yaml",
@@ -531,7 +547,7 @@ var testGrid = []testCase{
 		},
 		analyzer: &injection.ImageAutoAnalyzer{},
 		expected: []message{
-			{msg.ImageAutoWithoutInjectionWarning, "Deployment non-injected-gateway-deployment"},
+			{msg.ImageAutoWithoutInjectionWarning, "Deployment non-injected-gateway-deployment.not-injected"},
 			{msg.ImageAutoWithoutInjectionError, "Pod injected-pod.default"},
 		},
 	},
