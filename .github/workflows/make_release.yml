@@ -40,6 +40,7 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
+          set +e
           SHA=$(git rev-parse --verify HEAD)
           gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}
           echo ::set-output name=should_build::$?
