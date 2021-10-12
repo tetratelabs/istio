@@ -157,7 +157,7 @@ function download_envoy_if_necessary () {
 # Params:
 #   $1: The URL of the libraries tar.gz to be downloaded.
 #   $2: The full path of the output directory.
-function download_modsecurty_deps_if_necessary () {
+function download_modsecurity_deps_if_necessary () {
   out_path="$2/modsecurity_plugin_deps"
   if [[ ! -d "${out_path}" ]] ; then
     # Enter the output directory.
@@ -248,7 +248,7 @@ fi
 download_envoy_if_necessary "${ISTIO_ENVOY_LINUX_RELEASE_URL}" "$ISTIO_ENVOY_LINUX_RELEASE_PATH" "${SIDECAR}-modsecurity"
 download_envoy_if_necessary "${ISTIO_ENVOY_CENTOS_RELEASE_URL}" "$ISTIO_ENVOY_CENTOS_LINUX_RELEASE_PATH" "${SIDECAR}-centos"
 
-download_modsecurty_deps_if_necessary "${TETRATE_MODSECURITYDEPS_RELEASE_URL}" "${ISTIO_ENVOY_LINUX_RELEASE_DIR}"
+download_modsecurity_deps_if_necessary "${TETRATE_MODSECURITYDEPS_RELEASE_URL}" "${ISTIO_ENVOY_LINUX_RELEASE_DIR}"
 
 if [[ "$GOOS_LOCAL" == "darwin" ]]; then
   # Download and extract the Envoy macOS release binary
