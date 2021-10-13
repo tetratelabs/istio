@@ -12,6 +12,10 @@
 ## See the License for the specific language governing permissions and
 ## limitations under the License.
 
+# Include Tetrate's overrides from this Makefile instead of overrides.mk so
+# that it can see variables defined in this file when BUILD_WITH_CONTAINER=1.
+include Makefile.tetrate.mk
+
 #-----------------------------------------------------------------------------
 # Global Variables
 #-----------------------------------------------------------------------------

@@ -38,7 +38,8 @@ BUILDER_SHA=78710040a7fb1ccfc7a51f977a1f511da25a5447
 # This will create a version like 1.4-alpha.sha
 NEXT_VERSION=1.9
 TAG=$(git rev-parse HEAD)
-VERSION="${VERSION:-${NEXT_VERSION}-alpha.${TAG}}"
+VERSION_SUFFIX="${VERSION_SUFFIX:-}"
+VERSION="${VERSION:-${NEXT_VERSION}-alpha${VERSION_SUFFIX}.${TAG}}"
 
 # In CI we want to store the outputs to artifacts, which will preserve the build
 # If not specified, we can just create a temporary directory
@@ -50,6 +51,7 @@ version: ${VERSION}
 docker: ${DOCKER_HUB}
 directory: ${WORK_DIR}
 ignoreVulnerability: true
+${BUILD_OUTPUTS_OVERRIDE:-}
 dependencies:
 ${DEPENDENCIES:-$(cat <<EOD
   istio:

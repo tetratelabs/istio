@@ -77,31 +77,31 @@ endif
 ${ISTIO_ENVOY_BOOTSTRAP_CONFIG_DIR}/envoy_bootstrap.json: ${ISTIO_ENVOY_BOOTSTRAP_CONFIG_PATH}
 	cp ${ISTIO_ENVOY_BOOTSTRAP_CONFIG_PATH} ${ISTIO_ENVOY_BOOTSTRAP_CONFIG_DIR}/envoy_bootstrap.json
 
+# OWASP Core Rule Set files for the ModSecurity plugin.
+$(ISTIO_ENVOY_LINUX_RELEASE_DIR)/owasp-modsecurity-crs: init
+# ModSecurity plugin dependency libraries
+$(ISTIO_ENVOY_LINUX_RELEASE_DIR)/modsecurity_plugin_deps: init
+
 # rule for wasm extensions.
 $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/stats-filter.wasm: init
 $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/stats-filter.compiled.wasm: init
 $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/metadata-exchange-filter.wasm: init
 $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/metadata-exchange-filter.compiled.wasm: init
 
-# OWASP Core Rule Set files for the ModSecurity plugin.
-$(ISTIO_ENVOY_LINUX_RELEASE_DIR)/owasp-modsecurity-crs: init
-# ModSecurity plugin dependency libraries
-$(ISTIO_ENVOY_LINUX_RELEASE_DIR)/modsecurity_plugin_deps: init
-
 # Default proxy image.
 docker.proxyv2: BUILD_PRE=&& chmod 755 ${SIDECAR} pilot-agent && chmod 644 envoy_bootstrap.json gcp_envoy_bootstrap.json
-docker.proxyv2: BUILD_ARGS=--build-arg proxy_version=istio-proxy:${PROXY_REPO_SHA} --build-arg istio_version=${VERSION} --build-arg BASE_VERSION=${BASE_VERSION} --build-arg SIDECAR=${SIDECAR}
+docker.proxyv2: BUILD_ARGS=--build-arg proxy_version=istio-proxy:${PROXY_REPO_SHA} --build-arg istio_version=${VERSION} --build-arg BASE_VERSION=${BASE_VERSION} --build-arg SIDECAR=${SIDECAR} --build-arg BUILD_MODSECURITY=${BUILD_MODSECURITY}
 docker.proxyv2: ${ISTIO_ENVOY_BOOTSTRAP_CONFIG_DIR}/envoy_bootstrap.json
 docker.proxyv2: ${ISTIO_ENVOY_BOOTSTRAP_CONFIG_DIR}/gcp_envoy_bootstrap.json
 docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/${SIDECAR}
+docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/owasp-modsecurity-crs
+docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/modsecurity_plugin_deps
 docker.proxyv2: $(ISTIO_OUT_LINUX)/pilot-agent
 docker.proxyv2: pilot/docker/Dockerfile.proxyv2
 docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/stats-filter.wasm
 docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/stats-filter.compiled.wasm
 docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/metadata-exchange-filter.wasm
 docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/metadata-exchange-filter.compiled.wasm
-docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/owasp-modsecurity-crs
-docker.proxyv2: $(ISTIO_ENVOY_LINUX_RELEASE_DIR)/modsecurity_plugin_deps
 	$(DOCKER_RULE)
 
 docker.pilot: BUILD_PRE=&& chmod 755 pilot-discovery

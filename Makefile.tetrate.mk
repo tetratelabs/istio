@@ -1,11 +1,17 @@
 # Copyright (c) Tetrate, Inc 2021 All Rights Reserved.
 
-# Populate the git version for istio/proxy (i.e. Envoy)
-ifeq ($(PROXY_REPO_SHA),)
-  export PROXY_REPO_SHA:=$(shell grep PROXY_REPO_SHA istio.deps  -A 4 | grep lastStableSHA | cut -f 4 -d '"')
-endif
+# Override variables for Tetrate. Note that there are also Makefiles that have been directly modified.
 
-# We override these variables to build envoy with our modsecurity filter, and push it to our private storage.
+BUILD_MODSECURITY ?= 0
+
+# Populate the git version for istio/proxy (i.e. Envoy)
 export ISTIO_ENVOY_BASE_URL ?= gs://tetrate-internal-istio-build/proxy
-export ISTIO_ENVOY_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-alpha-modsecurity-$(PROXY_REPO_SHA).tar.gz
-export TETRATE_MODSECURITYDEPS_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/modsecurity-plugin-deps-$(PROXY_REPO_SHA).tar.gz
+export TETRATE_MODSECURITYDEPS_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/modsecurity-plugin-deps-$(ISTIO_ENVOY_VERSION).tar.gz
+
+ifeq ($(BUILD_MODSECURITY),1)
+  # Override them to replace envoy with our modsecurity version
+  export TAG ?= modsecurity.$(shell git rev-parse --verify HEAD)
+  export ISTIO_ENVOY_DEBUG_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-debug-modsecurity-$(ISTIO_ENVOY_VERSION).tar.gz
+  export ISTIO_ENVOY_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-alpha-modsecurity-$(ISTIO_ENVOY_VERSION).tar.gz
+  export ISTIO_ENVOY_LINUX_RELEASE_NAME ?= envoy-modsecurity-$(ISTIO_ENVOY_VERSION)
+endif
