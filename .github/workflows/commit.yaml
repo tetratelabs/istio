@@ -156,7 +156,8 @@ jobs:
       run: |
         echo -e "machine github.com\nlogin tetrate-ci\npassword ${GITHUB_TOKEN}" > "${HOME}/.netrc"
 
-    - env:
+    - name: "Run prow/release-commit.sh"
+      env:
         DOCKER_HUB: ${{ secrets.TETRATE_CI_DOCKER_HUB }}
         GCS_BUCKET: ${{ secrets.TETRATE_CI_GCS_BUCKET }}
         PUBLISH_GCS_ALIASES: "0" # don't publish aliases to GCS
