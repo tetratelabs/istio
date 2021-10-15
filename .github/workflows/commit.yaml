@@ -48,9 +48,13 @@ jobs:
 
     - run: make -e T=-v build binaries-test
 
-  unit-tests-with-modsecurity:
+  unit-tests:
     needs: config
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        build_modsecurity: [0, 1]
 
     container:
       image: ${{ needs.config.outputs.image }} # ISTIO_BUILD_TOOLS
@@ -83,7 +87,7 @@ jobs:
 
     - name: "Download Envoy, Wasm plugins, and ModSecurity resources"
       env:
-        BUILD_MODSECURITY: 1
+        BUILD_MODSECURITY: ${{ matrix.build_modsecurity }}
       run: |
         make -e T=-v init
 
@@ -91,6 +95,7 @@ jobs:
     # library directories. This part can be omitted after we make ModSecuirty fully statically
     # compiled.
     - name: "Copy ModSecurity dependencies"
+      if: ${{ matrix.build_modsecurity == 1 }}
       run: |
         cd out/linux_amd64/release/modsecurity_plugin_deps
         cp -r --parents -n ./* /
@@ -101,103 +106,13 @@ jobs:
       run: |
         make -e T=-v racetest
 
-  unit-tests:
-    needs: config
-    runs-on: ubuntu-latest
-
-    container:
-      image: ${{ needs.config.outputs.image }} # ISTIO_BUILD_TOOLS
-      env:
-        BUILD_WITH_CONTAINER: "0"
-        GOOGLE_APPLICATION_CREDENTIALS: /gcs.key.json
-
-    steps:
-    # The make targets need .git folder, which is missing without installing a newer git command
-    # https://github.com/actions/checkout/issues/335
-    - name: "Install latest `git`"
-      run: |
-        apt-get purge git -y
-        add-apt-repository ppa:git-core/ppa -y
-        apt-get update && apt-get install -y --no-install-recommends \
-            git \
-         && apt-get clean \
-         && rm -rf /var/lib/apt/lists/*
-    - name: "Checkout"
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: 0 # fetch all history for all tags and branches
-
-    - name: "GCS Credentials"
-      env:
-        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
-      run: |
-        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
-        gcloud auth activate-service-account --key-file="${GOOGLE_APPLICATION_CREDENTIALS}"
-
-    - name: "Download Envoy, Wasm plugins, and ModSecurity resources"
-      run: |
-        make -e T=-v init
-
-    - name: "Run Tests"
-      run: |
-        make -e T=-v racetest
-
   release:
     needs: config
     runs-on: [self-hosted, linux, x64, medium] # we use a self-host runner here to get more disk space
 
-    container:
-      image: ${{ needs.config.outputs.image }} # ISTIO_BUILD_TOOLS
-      env:
-        BUILD_WITH_CONTAINER: "0"
-        GOOGLE_APPLICATION_CREDENTIALS: /gcs.key.json
-
-    steps:
-    # The makefiles need .git folder, which is missing without installing a newer git command
-    # https://github.com/actions/checkout/issues/335
-    - name: "Install latest `git`"
-      run: |
-        apt-get purge git -y
-        add-apt-repository ppa:git-core/ppa -y
-        apt-get update && apt-get install -y --no-install-recommends \
-            git \
-         && apt-get clean \
-         && rm -rf /var/lib/apt/lists/*
-
-    - name: "Checkout"
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: 0 # fetch all history for all tags and branches
-
-    - name: "Docker login"
-      env:
-        DOCKER_HUB_USER: ${{ secrets.TETRATE_CI_DOCKER_HUB_USER }}
-        DOCKER_HUB_PASSWORD: ${{ secrets.TETRATE_CI_DOCKER_HUB_PASSWORD }}
-      run: docker login --username "${DOCKER_HUB_USER}" --password "${DOCKER_HUB_PASSWORD}"
-
-    - name: "GCS Credentials"
-      env:
-        GCS_CREDENTIALS: ${{ secrets.TETRATE_CI_GCS_CREDENTIALS }}
-      run: |
-        echo "${GCS_CREDENTIALS}" | base64 -d > ${GOOGLE_APPLICATION_CREDENTIALS}
-        gcloud auth activate-service-account --key-file="${GOOGLE_APPLICATION_CREDENTIALS}"
-
-    - name: "GitHub PAT for Istio release-builder"
-      env:
-        GITHUB_TOKEN: ${{ secrets.TETRATE_CI_GITHUB_TOKEN }}
-      run: |
-        echo -e "machine github.com\nlogin tetrate-ci\npassword ${GITHUB_TOKEN}" > "${HOME}/.netrc"
-
-    - env:
-        DOCKER_HUB: ${{ secrets.TETRATE_CI_DOCKER_HUB }}
-        GCS_BUCKET: ${{ secrets.TETRATE_CI_GCS_BUCKET }}
-        PUBLISH_GCS_ALIASES: "0" # don't publish aliases to GCS
-        VERSION: ${{ needs.config.outputs.tag }}
-      run: prow/release-commit.sh
-
-  release-modsecurity:
-    needs: config
-    runs-on: [self-hosted, linux, x64, medium] # we use a self-host runner here to get more disk space
+    strategy:
+      matrix:
+        build_modsecurity: [0, 1]
 
     container:
       image: ${{ needs.config.outputs.image }} # ISTIO_BUILD_TOOLS
@@ -246,13 +161,18 @@ jobs:
         GCS_BUCKET: ${{ secrets.TETRATE_CI_GCS_BUCKET }}
         PUBLISH_GCS_ALIASES: "0" # don't publish aliases to GCS
         VERSION: ${{ needs.config.outputs.tag }}
-        BUILD_MODSECURITY: 1
-        VERSION_SUFFIX: -modsecurity
-        BUILD_OUTPUTS_OVERRIDE: | # ModSecurity version doesn't build .deb and .rpm currently
+        BUILD_MODSECURITY: ${{ matrix.build_modsecurity }}
+        VERSION_SUFFIX_MODSEC: -modsecurity
+        BUILD_OUTPUTS_OVERRIDE_MODSEC: | # ModSecurity version doesn't build .deb and .rpm currently
           buildOutputs:
             - docker
             - archive
-      run: prow/release-commit.sh
+      run: |
+        if [ "${BUILD_MODSECURITY}" == 1 ]; then
+          export VERSION_SUFFIX=$VERSION_SUFFIX_MODSEC
+          export BUILD_OUTPUTS_OVERRIDE=$BUILD_OUTPUTS_OVERRIDE_MODSEC
+        fi
+        prow/release-commit.sh
 
   lint:
     if: ${{ github.event_name == 'pull_request' }}
@@ -284,6 +204,10 @@ jobs:
   integ-pilot-k8s-tests:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: [self-hosted, linux, x64, large] # we use a self-host runner to get more vCPU(s)
+    strategy:
+      matrix:
+        build_modsecurity: [0, 1]
+
     steps:
     - name: "Checkout"
       uses: actions/checkout@v2
