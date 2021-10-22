@@ -96,6 +96,7 @@ jobs:
           SHA=$(git rev-parse --verify HEAD)
           gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
           gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
+          gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
 
   create-test-images:
     name: create-test-images
