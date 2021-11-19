@@ -38,14 +38,15 @@ require (
 	contrib.go.opencensus.io/exporter/stackdriver v0.12.9
 	contrib.go.opencensus.io/exporter/zipkin v0.1.1
 	fortio.org/fortio v1.4.1
-	github.com/Azure/go-autorest/autorest v0.9.4 // indirect
-	github.com/Azure/go-autorest/autorest/adal v0.8.3 // indirect
-	github.com/DataDog/datadog-go v2.2.0+incompatible
+	github.com/Azure/go-autorest/autorest v0.10.0 // indirect
+	github.com/Azure/go-autorest/autorest/adal v0.9.7 // indirect
+	github.com/DataDog/datadog-go v3.2.0+incompatible
 	github.com/Masterminds/semver v1.4.2 // indirect
 	github.com/Masterminds/sprig v2.20.0+incompatible
 	github.com/alicebob/gopher-json v0.0.0-20180125190556-5a6b3ba71ee6 // indirect
 	github.com/alicebob/miniredis v2.5.0+incompatible
-	github.com/aws/aws-sdk-go v1.23.20
+	github.com/armon/go-metrics v0.3.8 // indirect
+	github.com/aws/aws-sdk-go v1.25.41
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
 	github.com/cactus/go-statsd-client v3.1.1+incompatible
 	github.com/cenkalti/backoff v2.0.0+incompatible
@@ -72,9 +73,9 @@ require (
 	github.com/emicklei/go-restful v2.9.6+incompatible // indirect
 	github.com/envoyproxy/go-control-plane v0.9.8-0.20210420150603-831d6316d7b9
 	github.com/evanphx/json-patch v4.9.0+incompatible
-	github.com/fatih/color v1.7.0
+	github.com/fatih/color v1.9.0
 	github.com/fluent/fluent-logger-golang v1.3.0
-	github.com/frankban/quicktest v1.4.1 // indirect
+	github.com/frankban/quicktest v1.11.0 // indirect
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-logr/zapr v0.1.1 // indirect
@@ -87,8 +88,8 @@ require (
 	github.com/golang/sync v0.0.0-20180314180146-1d60e4601c6f
 	github.com/gomodule/redigo v1.8.0 // indirect
 	github.com/google/cel-go v0.4.1
-	github.com/google/go-cmp v0.5.0
-	github.com/google/gofuzz v1.1.0
+	github.com/google/go-cmp v0.5.2
+	github.com/google/gofuzz v1.2.0
 	github.com/google/uuid v1.1.1
 	github.com/googleapis/gax-go v2.0.2+incompatible
 	github.com/googleapis/gax-go/v2 v2.0.5
@@ -98,23 +99,28 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.1-0.20190118093823-f849b5445de4
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/grpc-ecosystem/grpc-opentracing v0.0.0-20171214222146-0e7658f8ee99
-	github.com/hashicorp/consul v1.3.1
+	github.com/hashicorp/consul/api v1.10.0
+	github.com/hashicorp/consul/sdk v0.8.0 // indirect
+	github.com/hashicorp/go-hclog v0.14.1 // indirect
+	github.com/hashicorp/go-immutable-radix v1.3.0 // indirect
 	github.com/hashicorp/go-msgpack v0.5.5 // indirect
 	github.com/hashicorp/go-multierror v1.1.0
-	github.com/hashicorp/go-version v1.2.0
+	github.com/hashicorp/go-retryablehttp v0.6.7 // indirect
+	github.com/hashicorp/go-version v1.2.1
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
-	github.com/hashicorp/serf v0.8.5 // indirect
-	github.com/hashicorp/vault/api v1.0.3
+	github.com/hashicorp/memberlist v0.2.4 // indirect
+	github.com/hashicorp/vault/api v1.0.5-0.20200717191844-f687267c8086
 	github.com/howeyc/fsnotify v0.9.0
-	github.com/json-iterator/go v1.1.9 // indirect
-	github.com/kr/pretty v0.1.0
+	github.com/kr/pretty v0.2.1
 	github.com/kylelemons/godebug v1.1.0
 	github.com/lestrrat-go/jwx v0.9.0
 	github.com/mattn/go-isatty v0.0.12
 	github.com/mholt/archiver v3.1.1+incompatible
-	github.com/miekg/dns v1.0.14
+	github.com/miekg/dns v1.1.41
 	github.com/mitchellh/copystructure v1.0.0
 	github.com/mitchellh/go-homedir v1.1.0
+	github.com/mitchellh/go-testing-interface v1.14.0 // indirect
+	github.com/mitchellh/mapstructure v1.4.1-0.20210112042008-8ebf2d61a8b4 // indirect
 	github.com/mitchellh/reflectwalk v1.0.1 // indirect
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/nwaples/rardecode v1.0.0 // indirect
@@ -125,13 +131,13 @@ require (
 	github.com/openzipkin/zipkin-go v0.1.7
 	github.com/pelletier/go-toml v1.3.0 // indirect
 	github.com/philhofer/fwd v1.0.0 // indirect
-	github.com/pierrec/lz4 v2.2.7+incompatible // indirect
+	github.com/pierrec/lz4 v2.5.2+incompatible // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/pmezard/go-difflib v1.0.0
-	github.com/pquerna/cachecontrol v0.0.0-20180306154005-525d0eb5f91d // indirect
-	github.com/prometheus/client_golang v1.2.1
+	github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35 // indirect
+	github.com/prometheus/client_golang v1.4.0
 	github.com/prometheus/client_model v0.2.0
-	github.com/prometheus/common v0.7.0
+	github.com/prometheus/common v0.9.1
 	github.com/prometheus/prom2json v1.2.2
 	github.com/ryanuber/go-glob v1.0.0
 	github.com/satori/go.uuid v1.2.0
@@ -139,7 +145,7 @@ require (
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.4.0
-	github.com/stretchr/testify v1.5.1
+	github.com/stretchr/testify v1.6.1
 	github.com/tinylib/msgp v1.0.2 // indirect
 	github.com/tv42/httpunix v0.0.0-20191220191345-2ba4b9c3382c // indirect
 	github.com/uber/jaeger-client-go v0.0.0-20190228190846-ecf2d03a9e80
@@ -156,18 +162,18 @@ require (
 	go.uber.org/multierr v1.1.0
 	go.uber.org/zap v1.10.0
 	golang.org/x/crypto v0.0.0-20210817164053-32db794688a5
-	golang.org/x/net v0.0.0-20210226172049-e18ecbb05110
+	golang.org/x/net v0.0.0-20210410081132-afb366fc7cd1
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
-	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
+	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/term v0.0.0-20210615171337-6886f2dfbf5b
-	golang.org/x/time v0.0.0-20190921001708-c4c64cad1fd0
+	golang.org/x/time v0.0.0-20200630173020-3af7569d3a1e
 	golang.org/x/tools v0.0.0-20210106214847-113979e3529a
 	google.golang.org/api v0.15.0
 	google.golang.org/genproto v0.0.0-20200619004808-3e7fca5c55db
 	google.golang.org/grpc v1.29.1
 	google.golang.org/protobuf v1.25.0
 	gopkg.in/d4l3k/messagediff.v1 v1.2.1
-	gopkg.in/square/go-jose.v2 v2.3.1
+	gopkg.in/square/go-jose.v2 v2.5.1
 	gopkg.in/yaml.v2 v2.3.0
 	helm.sh/helm/v3 v3.2.4
 	istio.io/api v0.0.0-20201002153436-e6e7bbc4ebea
@@ -185,3 +191,7 @@ require (
 	sigs.k8s.io/service-apis v0.0.0-20200708220836-10c7cb28ed93
 	sigs.k8s.io/yaml v1.2.0
 )
+
+replace github.com/prometheus/client_golang => github.com/prometheus/client_golang v1.2.1
+
+replace github.com/DataDog/datadog-go => github.com/DataDog/datadog-go v2.2.0+incompatible
