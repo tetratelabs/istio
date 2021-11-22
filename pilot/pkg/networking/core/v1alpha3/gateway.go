@@ -40,9 +40,21 @@ import (
 	"istio.io/istio/pkg/config/gateway"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/protocol"
+	"istio.io/istio/pkg/config/security"
 	"istio.io/istio/pkg/proto"
 	"istio.io/pkg/log"
 )
+
+// DisableGatewayPortTranslationLabel is a label on Service that declares that, for that particular
+// service, we should not translate Gateway ports to target ports. For example, if I have a Service
+// on port 80 with target port 8080, with the label. Gateways on port 80 would *not* match. Instead,
+// only Gateways on port 8080 would be used. This prevents ambiguities when there are multiple
+// Services on port 80 referring to different target ports. Long term, this will be replaced by
+// Gateways directly referencing a Service, rather than label selectors. Warning: this label is
+// intended solely for as a workaround for Knative's Istio integration, and not intended for any
+// other usage. It can, and will, be removed immediately after the new direct reference is ready for
+// use.
+const DisableGatewayPortTranslationLabel = "experimental.istio.io/disable-gateway-port-translation"
 
 func (configgen *ConfigGeneratorImpl) buildGatewayListeners(builder *ListenerBuilder) *ListenerBuilder {
 	if builder.node.MergedGateway == nil {
@@ -62,7 +74,15 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(builder *ListenerBui
 	for portNumber, servers := range mergedGateway.Servers {
 		var si *model.ServiceInstance
 		services := make(map[host.Name]struct{}, len(builder.node.ServiceInstances))
+		foundDirectPortTranslation := false
 		for _, w := range builder.node.ServiceInstances {
+			_, directPortTranslation := w.Service.Attributes.Labels[DisableGatewayPortTranslationLabel]
+			if directPortTranslation {
+				if w.Endpoint.EndpointPort == portNumber {
+					foundDirectPortTranslation = true
+				}
+				continue
+			}
 			if w.ServicePort.Port == int(portNumber) {
 				if si == nil {
 					si = w
@@ -70,14 +90,19 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(builder *ListenerBui
 				services[w.Service.Hostname] = struct{}{}
 			}
 		}
-		if len(services) != 1 {
+		if len(services) == 0 && foundDirectPortTranslation {
+			log.Debugf("buildGatewayListeners: using direct port mapping due to disable label for %v",
+				portNumber)
+		} else if len(services) != 1 {
 			log.Warnf("buildGatewayListeners: found %d services on port %d: %v",
 				len(services), portNumber, services)
 		}
+
 		// if we found a ServiceInstance with matching ServicePort, listen on TargetPort
 		if si != nil && si.Endpoint != nil {
 			portNumber = si.Endpoint.EndpointPort
 		}
+
 		if builder.node.Metadata.UnprivilegedPod != "" && portNumber < 1024 {
 			log.Warnf("buildGatewayListeners: skipping privileged gateway port %d for node %s as it is an unprivileged pod",
 				portNumber, builder.node.ID)
@@ -489,11 +514,24 @@ func buildGatewayListenerTLSContext(
 		ctx.CommonTlsContext.TlsParams = &tls.TlsParameters{
 			TlsMinimumProtocolVersion: convertTLSProtocol(server.Tls.MinProtocolVersion),
 			TlsMaximumProtocolVersion: convertTLSProtocol(server.Tls.MaxProtocolVersion),
-			CipherSuites:              server.Tls.CipherSuites,
+			CipherSuites:              filteredCipherSuites(server.Tls.CipherSuites),
 		}
 	}
 
 	return ctx
+}
+
+// Invalid cipher suites lead Envoy to NACKing. This filters the list down to just the supported set.
+func filteredCipherSuites(suites []string) []string {
+	ret := make([]string, 0, len(suites))
+	for _, s := range suites {
+		if security.IsValidCipherSuite(s) {
+			ret = append(ret, s)
+		} else {
+			log.Debugf("ignoring unsupported cipherSuite: %q", s)
+		}
+	}
+	return ret
 }
 
 func convertTLSProtocol(in networking.ServerTLSSettings_TLSProtocol) tls.TlsParameters_TlsProtocol {
@@ -609,12 +647,16 @@ func buildGatewayNetworkFiltersFromTLSRoutes(node *model.Proxy, push *model.Push
 	filterChains := make([]*filterChainOpts, 0)
 
 	if server.Tls.Mode == networking.ServerTLSSettings_AUTO_PASSTHROUGH {
-		// auto passthrough does not require virtual services. It sets up envoy.filters.network.sni_cluster filter
-		filterChains = append(filterChains, &filterChainOpts{
-			sniHosts:       node.MergedGateway.SNIHostsByServer[server],
-			tlsContext:     nil, // NO TLS context because this is passthrough
-			networkFilters: buildOutboundAutoPassthroughFilterStack(push, node, port),
-		})
+		if features.EnableLegacyAutoPassthrough {
+			// auto passthrough does not require virtual services. It sets up envoy.filters.network.sni_cluster filter
+			filterChains = append(filterChains, &filterChainOpts{
+				sniHosts:       node.MergedGateway.SNIHostsByServer[server],
+				tlsContext:     nil, // NO TLS context because this is passthrough
+				networkFilters: buildOutboundAutoPassthroughFilterStack(push, node, port),
+			})
+		} else {
+			filterChains = append(filterChains, builtAutoPassthroughFilterChains(push, node, node.MergedGateway.SNIHostsByServer[server])...)
+		}
 	} else {
 		virtualServices := push.VirtualServicesForGateway(node, gatewayName)
 		for _, v := range virtualServices {
@@ -649,6 +691,69 @@ func buildGatewayNetworkFiltersFromTLSRoutes(node *model.Proxy, push *model.Push
 		}
 	}
 
+	return filterChains
+}
+
+// builtAutoPassthroughFilterChains builds a set of filter chains for auto_passthrough gateway servers.
+// These servers allow connecting to any SNI-DNAT upstream cluster that matches the server's hostname.
+// To handle this, we generate a filter chain per upstream cluster
+func builtAutoPassthroughFilterChains(push *model.PushContext, proxy *model.Proxy, hosts []string) []*filterChainOpts {
+	filterChains := make([]*filterChainOpts, 0)
+	for _, service := range push.Services(proxy) {
+		if service.MeshExternal {
+			continue
+		}
+		for _, port := range service.Ports {
+			if port.Protocol == protocol.UDP {
+				continue
+			}
+			matchFound := false
+			for _, h := range hosts {
+				if service.Hostname.SubsetOf(host.Name(h)) {
+					matchFound = true
+					break
+				}
+			}
+			if !matchFound {
+				continue
+			}
+			clusterName := model.BuildDNSSrvSubsetKey(model.TrafficDirectionOutbound, "", service.Hostname, port.Port)
+			statPrefix := clusterName
+			if len(push.Mesh.OutboundClusterStatName) != 0 {
+				statPrefix = util.BuildStatPrefix(push.Mesh.OutboundClusterStatName, string(service.Hostname), "", port, service.Attributes)
+			}
+			// First, we build the standard cluster. We match on the SNI matching the cluster name
+			// (per the spec of AUTO_PASSTHROUGH), as well as all possible Istio mTLS ALPNs. This,
+			// along with filtering out plaintext destinations in EDS, ensures that our requests will
+			// always hit an Istio mTLS filter chain on the inbound side. As a result, it should not
+			// be possible for anyone to access a cluster without mTLS. Note that we cannot actually
+			// check for mTLS here, as we are doing passthrough TLS.
+			filterChains = append(filterChains, &filterChainOpts{
+				sniHosts:       []string{clusterName},
+				match:          &listener.FilterChainMatch{ApplicationProtocols: allIstioMtlsALPNs},
+				tlsContext:     nil, // NO TLS context because this is passthrough
+				networkFilters: buildOutboundNetworkFiltersWithSingleDestination(push, proxy, statPrefix, clusterName, port),
+			})
+
+			destRule := push.DestinationRule(proxy, service)
+			destinationRule := castDestinationRuleOrDefault(destRule)
+			// Do the same, but for each subset
+			for _, subset := range destinationRule.Subsets {
+				subsetClusterName := model.BuildDNSSrvSubsetKey(model.TrafficDirectionOutbound, subset.Name, service.Hostname, port.Port)
+				subsetStatPrefix := subsetClusterName
+				// If stat name is configured, build the stat prefix from configured pattern.
+				if len(push.Mesh.OutboundClusterStatName) != 0 {
+					subsetStatPrefix = util.BuildStatPrefix(push.Mesh.OutboundClusterStatName, string(service.Hostname), subset.Name, port, service.Attributes)
+				}
+				filterChains = append(filterChains, &filterChainOpts{
+					sniHosts:       []string{subsetClusterName},
+					match:          &listener.FilterChainMatch{ApplicationProtocols: allIstioMtlsALPNs},
+					tlsContext:     nil, // NO TLS context because this is passthrough
+					networkFilters: buildOutboundNetworkFiltersWithSingleDestination(push, proxy, subsetStatPrefix, subsetClusterName, port),
+				})
+			}
+		}
+	}
 	return filterChains
 }
 

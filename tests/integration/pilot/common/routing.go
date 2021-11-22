@@ -24,7 +24,10 @@ import (
 	"strings"
 	"time"
 
+	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/protocol"
+	"istio.io/istio/pkg/config/security"
 	"istio.io/istio/pkg/test"
 	echoclient "istio.io/istio/pkg/test/echo/client"
 	"istio.io/istio/pkg/test/echo/common/scheme"
@@ -33,6 +36,7 @@ import (
 	"istio.io/istio/pkg/test/framework/components/echo/echotest"
 	"istio.io/istio/pkg/test/util/retry"
 	"istio.io/istio/pkg/test/util/tmpl"
+	ingressutil "istio.io/istio/tests/integration/security/sds_ingress/util"
 )
 
 func httpGateway(host string) string {
@@ -54,6 +58,7 @@ spec:
 `, host)
 }
 
+// nolint: unparam
 func httpVirtualService(gateway, host string, port int) string {
 	return tmpl.MustEvaluate(`apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
@@ -487,6 +492,80 @@ func trafficLoopCases(apps *EchoDeployments) []TrafficTestCase {
 	return cases
 }
 
+// autoPassthroughCases tests that we cannot hit unexpected destinations when using AUTO_PASSTHROUGH
+func autoPassthroughCases(apps *EchoDeployments) []TrafficTestCase {
+	cases := []TrafficTestCase{}
+	// We test the cross product of all Istio ALPNs (or no ALPN), all mTLS modes, and various backends
+	alpns := []string{"istio", "istio-peer-exchange", "istio-http/1.0", "istio-http/1.1", "istio-h2", "", "h2"}
+	modes := []string{"STRICT", "PERMISSIVE", "DISABLE"}
+
+	mtlsHost := host.Name(apps.PodA[0].Config().FQDN())
+	nakedHost := host.Name(apps.Naked[0].Config().FQDN())
+	httpsPort := FindPortByName("https").ServicePort
+	httpsAutoPort := FindPortByName("auto-https").ServicePort
+	snis := []string{
+		model.BuildSubsetKey(model.TrafficDirectionOutbound, "", mtlsHost, httpsPort),
+		model.BuildDNSSrvSubsetKey(model.TrafficDirectionOutbound, "", mtlsHost, httpsPort),
+		model.BuildSubsetKey(model.TrafficDirectionOutbound, "", nakedHost, httpsPort),
+		model.BuildDNSSrvSubsetKey(model.TrafficDirectionOutbound, "", nakedHost, httpsPort),
+		model.BuildSubsetKey(model.TrafficDirectionOutbound, "", mtlsHost, httpsAutoPort),
+		model.BuildDNSSrvSubsetKey(model.TrafficDirectionOutbound, "", mtlsHost, httpsAutoPort),
+		model.BuildSubsetKey(model.TrafficDirectionOutbound, "", nakedHost, httpsAutoPort),
+		model.BuildDNSSrvSubsetKey(model.TrafficDirectionOutbound, "", nakedHost, httpsAutoPort),
+	}
+	for _, mode := range modes {
+		childs := []TrafficCall{}
+		for _, sni := range snis {
+			for _, alpn := range alpns {
+				alpn, sni, mode := alpn, sni, mode
+				al := &epb.Alpn{Value: []string{alpn}}
+				if alpn == "" {
+					al = nil
+				}
+				childs = append(childs, TrafficCall{
+					name: fmt.Sprintf("mode:%v,sni:%v,alpn:%v", mode, sni, alpn),
+					call: apps.Ingress.CallEchoWithRetryOrFail,
+					opts: echo.CallOptions{
+						Port: &echo.Port{
+							ServicePort: 443,
+							Protocol:    protocol.HTTPS,
+						},
+						ServerName: sni,
+						Alpn:       al,
+						Validator:  echo.ExpectError(),
+					},
+				},
+				)
+			}
+		}
+		cases = append(cases, TrafficTestCase{
+			config: globalPeerAuthentication(mode) + `
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: cross-network-gateway-test
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 443
+        name: tls
+        protocol: TLS
+      tls:
+        mode: AUTO_PASSTHROUGH
+      hosts:
+        - "*.local"
+`,
+			children: childs,
+		})
+	}
+
+	return cases
+}
+
 func gatewayCases(apps *EchoDeployments) []TrafficTestCase {
 	cases := []TrafficTestCase{}
 
@@ -534,6 +613,45 @@ func gatewayCases(apps *EchoDeployments) []TrafficTestCase {
 					"Host": {"foo.bar"},
 				},
 				Validator: echo.ExpectCode("404"),
+			},
+		},
+		TrafficTestCase{
+			name: "cipher suite",
+			config: httpVirtualService("gateway", apps.PodA[0].Config().FQDN(), apps.PodA[0].Config().PortByName("http").ServicePort) +
+				ingressutil.IngressKubeSecretYAML("cred", "istio-system", ingressutil.TLS, ingressutil.IngressCredentialA) +
+				tmpl.MustEvaluate(`
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: gateway
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: cred
+      cipherSuites:
+{{- range $cipher := . }}
+      - "{{$cipher}}"
+{{- end }}
+    hosts:
+    - "*"
+---
+`, append(security.ValidCipherSuites.SortedList(), "fake")),
+			call: apps.Ingress.CallEchoWithRetryOrFail,
+			opts: echo.CallOptions{
+				Port: &echo.Port{
+					Protocol: protocol.HTTPS,
+				},
+				Headers: map[string][]string{
+					"Host": {apps.PodA[0].Config().FQDN()},
+				},
+				Validator: echo.ExpectCode("200"),
 			},
 		},
 		TrafficTestCase{
@@ -1245,6 +1363,18 @@ spec:
     mode: %s
 ---
 `, app, app, mode)
+}
+
+func globalPeerAuthentication(mode string) string {
+	return fmt.Sprintf(`apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+spec:
+  mtls:
+    mode: %s
+---
+`, mode)
 }
 
 func serverFirstTestCases(apps *EchoDeployments) []TrafficTestCase {

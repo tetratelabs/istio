@@ -375,6 +375,13 @@ var (
 		"The timeout to send the XDS configuration to proxies. After this timeout is reached, Pilot will discard that push.",
 	).Get()
 
+	RemoteClusterTimeout = env.RegisterDurationVar(
+		"PILOT_REMOTE_CLUSTER_TIMEOUT",
+		30*time.Second,
+		"After this timeout expires, pilot can become ready without syncing data from clusters added via remote-secrets. "+
+			"Setting the timeout to 0 disables this behavior.",
+	).Get()
+
 	EndpointTelemetryLabel = env.RegisterBoolVar("PILOT_ENDPOINT_TELEMETRY_LABEL", true,
 		"If true, pilot will add telemetry related metadata to Endpoint resource, which will be consumed by telemetry filter.",
 	).Get()
@@ -432,4 +439,10 @@ var (
 		"If enabled, addition runtime asserts will be performed. "+
 			"These checks are both expensive and panic on failure. As a result, this should be used only for testing.",
 	).Get()
+
+	EnableLegacyAutoPassthrough = env.RegisterBoolVar(
+		"PILOT_ENABLE_LEGACY_AUTO_PASSTHROUGH",
+		false,
+		"If enabled, pilot will allow any upstream cluster to be used with AUTO_PASSTHROUGH. "+
+			"This option is intended for backwards compatibility only and is not secure with untrusted downstreams; it will be removed in the future.").Get()
 )
