@@ -54,7 +54,7 @@ jobs:
 
     strategy:
       matrix:
-        build_modsecurity: [0, 1]
+        with_modsecurity: ["without_modsecurity", "with_modsecurity"]
 
     container:
       image: ${{ needs.config.outputs.image }} # ISTIO_BUILD_TOOLS
@@ -71,8 +71,8 @@ jobs:
         add-apt-repository ppa:git-core/ppa -y
         apt-get update && apt-get install -y --no-install-recommends \
             git \
-         && apt-get clean \
-         && rm -rf /var/lib/apt/lists/*
+          && apt-get clean \
+          && rm -rf /var/lib/apt/lists/*
     - name: "Checkout"
       uses: actions/checkout@v2
       with:
@@ -87,7 +87,7 @@ jobs:
 
     - name: "Download Envoy, Wasm plugins, and ModSecurity resources"
       env:
-        BUILD_MODSECURITY: ${{ matrix.build_modsecurity }}
+        WITH_MODSECURITY: ${{ matrix.with_modsecurity }}
       run: |
         make -e T=-v init
 
@@ -95,14 +95,14 @@ jobs:
     # library directories. This part can be omitted after we make ModSecuirty fully statically
     # compiled.
     - name: "Copy ModSecurity dependencies"
-      if: ${{ matrix.build_modsecurity == 1 }}
+      if: ${{ matrix.with_modsecurity == 'with_modsecurity' }}
       run: |
         cd out/linux_amd64/release/modsecurity_plugin_deps
         cp -r --parents -n ./* /
 
     - name: "Run Tests"
       env:
-        BUILD_MODSECURITY: 1
+        WITH_MODSECURITY: "with_modsecurity"
       run: |
         make -e T=-v racetest
 
@@ -112,7 +112,7 @@ jobs:
 
     strategy:
       matrix:
-        build_modsecurity: [0, 1]
+        with_modsecurity: ["without_modsecurity", "with_modsecurity"]
 
     container:
       image: ${{ needs.config.outputs.image }} # ISTIO_BUILD_TOOLS
@@ -129,8 +129,8 @@ jobs:
         add-apt-repository ppa:git-core/ppa -y
         apt-get update && apt-get install -y --no-install-recommends \
             git \
-         && apt-get clean \
-         && rm -rf /var/lib/apt/lists/*
+          && apt-get clean \
+          && rm -rf /var/lib/apt/lists/*
 
     - name: "Checkout"
       uses: actions/checkout@v2
@@ -162,16 +162,22 @@ jobs:
         GCS_BUCKET: ${{ secrets.TETRATE_CI_GCS_BUCKET }}
         PUBLISH_GCS_ALIASES: "0" # don't publish aliases to GCS
         VERSION: ${{ needs.config.outputs.tag }}
-        BUILD_MODSECURITY: ${{ matrix.build_modsecurity }}
         VERSION_SUFFIX_MODSEC: -modsecurity
-        BUILD_OUTPUTS_OVERRIDE_MODSEC: | # ModSecurity version doesn't build .deb and .rpm currently
+        WITH_MODSECURITY: ${{ matrix.with_modsecurity }}
+        BUILD_OUTPUTS_OVERRIDE_MODSEC:
+          | # ModSecurity version doesn't build .deb and .rpm currently
           buildOutputs:
             - docker
             - archive
+      shell: bash
       run: |
-        if [ "${BUILD_MODSECURITY}" == 1 ]; then
-          export VERSION_SUFFIX=$VERSION_SUFFIX_MODSEC
-          export BUILD_OUTPUTS_OVERRIDE=$BUILD_OUTPUTS_OVERRIDE_MODSEC
+        if [[ "${WITH_MODSECURITY}" = "with_modsecurity" ]]; then
+          export BUILD_OUTPUTS_OVERRIDE="${BUILD_OUTPUTS_OVERRIDE_MODSEC}"
+          if [[ -z "${VERSION}" ]]; then
+            export VERSION_SUFFIX="${VERSION_SUFFIX_MODSEC}"
+          else
+            export VERSION="${VERSION}${VERSION_SUFFIX_MODSEC}"
+          fi
         fi
         prow/release-commit.sh
 
@@ -205,9 +211,6 @@ jobs:
   integ-pilot-k8s-tests:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: [self-hosted, linux, x64, large] # we use a self-host runner to get more vCPU(s)
-    strategy:
-      matrix:
-        build_modsecurity: [0, 1]
 
     steps:
     - name: "Checkout"

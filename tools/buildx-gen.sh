@@ -108,6 +108,7 @@ target "$image-$variant" {
       istio_version = "${VERSION}"
       VM_IMAGE_NAME = "${VM_IMAGE_NAME}"
       VM_IMAGE_VERSION = "${VM_IMAGE_VERSION}"
+      WITH_MODSECURITY = "${WITH_MODSECURITY}"
     }
     ${output}
 }

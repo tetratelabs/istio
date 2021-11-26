@@ -1,6 +1,6 @@
-# WITH_MODSECURIY is used to switch between the pure proxyv2 image and the proxyv2 image with ModSecurity dependencies
-# Values: 0, 1
-ARG BUILD_MODSECURITY=0
+# WITH_MODSECURITY is used to switch between the pure proxyv2 image and the proxyv2 image with ModSecurity dependencies
+# Values: with_modsecurity, without_modsecurity
+ARG WITH_MODSECURITY=without_modsecurity
 
 # BASE_DISTRIBUTION is used to switch between the old base distribution and distroless base images
 ARG BASE_DISTRIBUTION=default
@@ -37,7 +37,7 @@ RUN cp -r --parents -n ./* /etc/libs/
 
 # This will build the final image based on either default or distroless from above
 # hadolint ignore=DL3006
-FROM ${BASE_DISTRIBUTION} as with_build_modsecurity_0
+FROM ${BASE_DISTRIBUTION} as build_without_modsecurity
 
 WORKDIR /
 
@@ -66,7 +66,7 @@ COPY metadata-exchange-filter.compiled.wasm /etc/istio/extensions/metadata-excha
 
 # This will build the final image with the dependencies of ModSecurity filter plugin installed
 # hadolint ignore=DL3006
-FROM with_build_modsecurity_0 as with_build_modsecurity_1
+FROM build_without_modsecurity as build_with_modsecurity
 
 # Embed OWASP Core Rule Set
 COPY owasp-modsecurity-crs /etc/owasp-modsecurity-crs
@@ -79,7 +79,7 @@ COPY --from=modsecurity_deps /etc/libs/usr/lib/x86_64-linux-gnu /usr/lib/x86_64-
 
 # Switch the final image depending on whether ModSecurity is built with or without.
 # hadolint ignore=DL3006
-FROM with_build_modsecurity_${BUILD_MODSECURITY}
+FROM build_${WITH_MODSECURITY}
 
 # The pilot-agent will bootstrap Envoy.
 ENTRYPOINT ["/usr/local/bin/pilot-agent"]

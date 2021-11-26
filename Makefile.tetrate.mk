@@ -2,13 +2,13 @@
 
 # Override variables for Tetrate. Note that there are also Makefiles that have been directly modified.
 
-BUILD_MODSECURITY ?= 0
+WITH_MODSECURITY ?= without_modsecurity
 
 # Populate the git version for istio/proxy (i.e. Envoy)
 export ISTIO_ENVOY_BASE_URL ?= gs://tetrate-internal-istio-build/proxy
 export TETRATE_MODSECURITYDEPS_RELEASE_URL ?= $(ISTIO_ENVOY_BASE_URL)/modsecurity-plugin-deps-$(ISTIO_ENVOY_VERSION).tar.gz
 
-ifeq ($(BUILD_MODSECURITY),1)
+ifeq ($(WITH_MODSECURITY),with_modsecurity)
   # Override them to replace envoy with our modsecurity version
   export TAG ?= modsecurity.$(shell git rev-parse --verify HEAD)
   export ISTIO_ENVOY_DEBUG_URL ?= $(ISTIO_ENVOY_BASE_URL)/envoy-debug-modsecurity-$(ISTIO_ENVOY_VERSION).tar.gz
