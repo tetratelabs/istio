@@ -18,23 +18,6 @@ FROM gcr.io/istio-release/base:${BASE_VERSION} as default
 # This version is from commit a2477f8b37647391020a12527a3a7126ced2b582.
 FROM gcr.io/istio-release/iptables@sha256:e5bbbcdab26db1b5bf580bd823204dc82485545e27ce877ca2ad2eb0dc3b55a0 as distroless
 
-# Prepare the system libraries, adding ModSecurity dependency libraries to there.
-# hadolint ignore=DL3006
-FROM ${BASE_DISTRIBUTION} as final_image_libs
-FROM docker.io/istio/base:${BASE_VERSION} as modsecurity_deps
-
-COPY --from=final_image_libs /lib/x86_64-linux-gnu /etc/libs/lib/x86_64-linux-gnu
-COPY --from=final_image_libs /usr/lib/x86_64-linux-gnu /etc/libs/usr/lib/x86_64-linux-gnu
-COPY modsecurity_plugin_deps /etc/modsecurity_plugin_deps
-
-# finally, make the final system libraries, adding ModSecurity dependency libraries
-# which don't exist in the existing system libraries. Note that this cp cannot be 
-# moved to the next FROM section because the final image doesn't have cp
-WORKDIR /etc/modsecurity_plugin_deps/
-# Use cp, not COPY, because COPY overwrites existing files while cp -n keeps existing ones.
-RUN cp -r --parents -n ./* /etc/libs/
-
-
 # This will build the final image based on either default or distroless from above
 # hadolint ignore=DL3006
 FROM ${BASE_DISTRIBUTION} as build_without_modsecurity
@@ -63,6 +46,26 @@ COPY stats-filter.wasm /etc/istio/extensions/stats-filter.wasm
 COPY stats-filter.compiled.wasm /etc/istio/extensions/stats-filter.compiled.wasm
 COPY metadata-exchange-filter.wasm /etc/istio/extensions/metadata-exchange-filter.wasm
 COPY metadata-exchange-filter.compiled.wasm /etc/istio/extensions/metadata-exchange-filter.compiled.wasm
+
+# The pilot-agent will bootstrap Envoy.
+ENTRYPOINT ["/usr/local/bin/pilot-agent"]
+
+
+# Prepare the system libraries, adding ModSecurity dependency libraries to there.
+# hadolint ignore=DL3006
+FROM docker.io/istio/base:${BASE_VERSION} as modsecurity_deps
+
+COPY --from=build_without_modsecurity /lib/x86_64-linux-gnu /etc/libs/lib/x86_64-linux-gnu
+COPY --from=build_without_modsecurity /usr/lib/x86_64-linux-gnu /etc/libs/usr/lib/x86_64-linux-gnu
+COPY modsecurity_plugin_deps /etc/modsecurity_plugin_deps
+
+# finally, make the final system libraries, adding ModSecurity dependency libraries
+# which don't exist in the existing system libraries. Note that this cp cannot be
+# moved to the next FROM section because the final image doesn't have cp
+WORKDIR /etc/modsecurity_plugin_deps/
+# Use cp, not COPY, because COPY overwrites existing files while cp -n keeps existing ones.
+RUN cp -r --parents -n ./* /etc/libs/
+
 
 # This will build the final image with the dependencies of ModSecurity filter plugin installed
 # hadolint ignore=DL3006
