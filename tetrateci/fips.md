@@ -2,93 +2,50 @@
 
 Google's BoringCrypto [module][1] is used for [FIPS-compliant Istio builds][2]. BoringCrypto is a core module of the
 BoringSSL library and has been tested by CMVP to be [FIPS validated][3]. Both the Istio control plane and data plane
-are built with these modules. The quickest way to get started with FIPS Istio is to use [our distribution][4].
+are built with these modules. The quickest way to get started with FIPS Istio is to use the
+[Tetrate Istio Distribution][4].
 
 ## FIPS Verification
 
-The easiest way to verify the Go version is with Docker. First, pull the container images from [CloudSmith][5]:
+The easiest way to verify the Go version is with Docker. First, create the containers from the [CloudSmith][5] images.
 ```shell
+HUB=containers.istio.tetratelabs.com
 TAG=1.11.4-tetratefips-v0
-$ docker pull containers.istio.tetratelabs.com/operator:$TAG
-$ docker pull containers.istio.tetratelabs.com/pilot:$TAG
-$ docker pull containers.istio.tetratelabs.com/proxyv2:$TAG
+PILOT_CONTAINER_ID=$(docker create $HUB/pilot:$TAG)
+PROXY_CONTAINER_ID=$(docker create $HUB/proxyv2:$TAG)
+OPERATOR_CONTAINER_ID=$(docker create $HUB/operator:$TAG)
+ISTIOCTL_CONTAINER_ID=$(docker create $HUB/istioctl:$TAG)
+CNI_CONTAINER_ID=$(docker create $HUB/install-cni:$TAG)
 ```
 
-Get the operator, pilot, and proxyv2 image digests:
+Copy the binaries from the containers to your local machine.
 ```shell
-$ docker images --digests | grep $TAG
-containers.istio.tetratelabs.com/operator 1.11.4-tetratefips-v0  sha256:62c37026ccf32b832a0c52e8ca15873c9b08212e893163bc72d4de3cbbe623be  ...
-containers.istio.tetratelabs.com/proxyv2  1.11.4-tetratefips-v0  sha256:ba4b6bf458602af1706fd72c956ee2682afed1b87455f300ce6dfe79ba6eb35d  ...
-containers.istio.tetratelabs.com/pilot    1.11.4-tetratefips-v0  sha256:f591c6c3059d036034d34fd9435b7923332a9f26582e3999960b6854407ec275  ...
-...
+docker cp $PILOT_CONTAINER_ID:/usr/local/bin/pilot-discovery pilot-discovery
+docker cp $PROXY_CONTAINER_ID:/usr/local/bin/pilot-agent pilot-agent
+docker cp $PROXY_CONTAINER_ID:/usr/local/bin/envoy envoy
+docker cp $OPERATOR_CONTAINER_ID:/usr/local/bin/operator operator
+docker cp $ISTIOCTL_CONTAINER_ID:/usr/local/bin/istioctl istioctl
+docker cp $CNI_CONTAINER_ID:/usr/local/bin/install-cni install-cni
 ```
 
-Create the Dockerfile used to test the Istio operator build:
+Verify the Go version used by the binaries.
 ```shell
-DIGEST=62c37026ccf32b832a0c52e8ca15873c9b08212e893163bc72d4de3cbbe623be
-cat <<EOF >>Dockerfile.operator
-FROM golang:1.16
-COPY --from=containers.istio.tetratelabs.com/operator:$TAG@sha256:$DIGEST /usr/local/bin/operator /tmp/operator
-EOF
+go version pilot-discovery | cut -f2 -d" "
+go version pilot-agent | cut -f2 -d" "
+go version operator | cut -f2 -d" "
+go version istioctl | cut -f2 -d" "
+go version install-cni | cut -f2 -d" "
 ```
-
-Build the operator test image:
-```shell
-docker build -f Dockerfile.operator -t test-op .
-```
-
-Run `go version` from the container to verify the Go version used for the operator build.
-```shell
-docker run -it test-op go version /tmp/operator
-```
-__Note__: The Go version should include `b` to indicate BoringSSL, `go1.16.9b7` for example.
-
-Create the Dockerfile used to test the Istio control-plane build:
-```shell
-DIGEST=f591c6c3059d036034d34fd9435b7923332a9f26582e3999960b6854407ec275
-cat <<EOF >>Dockerfile.control-plane
-FROM golang:1.16
-COPY --from=containers.istio.tetratelabs.com/pilot:$TAG@sha256:$DIGEST /usr/local/bin/pilot-discovery /tmp/pilot-discovery
-EOF
-```
-
-Build the control-plane test image:
-```shell
-docker build -f Dockerfile.control-plane -t test-cp .
-```
-
-Run `go version` from the container to verify the Go version used for the pilot build:
-```shell
-docker run -it test-cp go version /tmp/pilot-discovery
-```
-
-Create the Dockerfile used to test the Istio data-plane, i.e. proxyv2, build:
-```shell
-DIGEST=ba4b6bf458602af1706fd72c956ee2682afed1b87455f300ce6dfe79ba6eb35d
-cat <<EOF >>Dockerfile.data-plane
-FROM golang:1.16
-COPY --from=containers.istio.tetratelabs.com/proxyv2:$TAG@sha256:$DIGEST /usr/local/bin/envoy /tmp/envoy
-COPY --from=containers.istio.tetratelabs.com/proxyv2:$TAG@sha256:$DIGEST /usr/local/bin/pilot-agent /tmp/pilot-agent
-EOF
-```
-
-Build the data-plane test image:
-```shell
-docker build -f Dockerfile.data-plane -t test-dp .
-```
-
-Run `go version` from the container image to verify the Go version used for the pilot-agent build.
-```shell
-docker run -it test-dp go version /tmp/pilot-agent
-```
+The Go version should include `b` to indicate BoringSSL, `go1.16.9b7` for example.
 
 Verify Envoy is using BoringSSL FIPS:
 ```shell
-docker run -it test-dp /tmp/envoy --version
+envoy --version | cut -f4 -d" "
 ```
-__Note:__ The version should include `BoringSSL-FIPS`, for example:
+
+The version should include `BoringSSL-FIPS`, for example:
 ```shell
-/tmp/envoy  version: ed148b62dfb0dc79adc8c8573ced4806883389c0/1.19.2-dev/Modified/RELEASE/BoringSSL-FIPS
+ed148b62dfb0dc79adc8c8573ced4806883389c0/1.19.2-dev/Modified/RELEASE/BoringSSL-FIPS
 ```
 
 [1]: https://go.googlesource.com/go/+/dev.boringcrypto/README.boringcrypto.md
