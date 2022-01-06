@@ -2,6 +2,7 @@
 
 set -o errexit
 set -o pipefail
+set -x
 
 BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
