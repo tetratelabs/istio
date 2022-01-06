@@ -4,7 +4,7 @@ from jinja2 import Template
 import time
 import yaml
 
-script_path = os.path.dirname(os.path.realpath(__file__))
+script_path = os.path.dirname(os.path.realpath(f"{__file__}/.."))
 
 def save_file(fname, content):
     with open(fname, "w") as f:

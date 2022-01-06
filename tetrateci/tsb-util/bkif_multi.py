@@ -1,9 +1,7 @@
 import os
 import sys
 import argparse
-import config
-import certs
-import tsb_objects, k8s_objects, common
+from tsblibs import *
 from marshmallow_dataclass import marshmallow
 import shutil
 
@@ -17,6 +15,21 @@ def gen_common_tsb_objects(arguments, key, folder):
     tsb_objects.generate_groups(arguments, f"{folder}/tsb-objects/{key}/groups.yaml")
     # perm
     tsb_objects.generate_perm(arguments, f"{folder}/tsb-objects/{key}/perm.yaml")
+
+def gen_tier1_gateway(arguments, key, folder):
+    os.makedirs(f"{folder}/tier1-objects/tsb/{key}", exist_ok=True)
+    os.makedirs(f"{folder}/tier1-objects/k8s/{key}", exist_ok=True)
+    tsb_objects.generate_tier1_gateway(
+        arguments, f"{folder}/tier1-objects/tsb/{key}/gateway.yaml"
+    )
+
+    k8s_objects.generate_tier1_ingress(
+        arguments, f"{folder}/tier1-objects/k8s/{key}/ingress.yaml"
+    )
+
+    k8s_objects.generate_tier1_ingress_namespace(
+        arguments, f"{folder}/tier1-objects/k8s/{key}/01namespace.yaml"
+    )
 
 def gen_bridge_specific_objects(arguments, key, folder):
     os.makedirs(f"{folder}/tsb-objects/{key}/bridged", exist_ok=True)
@@ -126,7 +139,15 @@ def install_bookinfo(
                 "ipType": "InternalIP"
                 if conf.traffic_gen_ip == "internal"
                 else "ExternalIP",
+                "tier1GatewayName": f"{namespaces['product']}-t1gw",
+                "externalServerName": "ext",  # have to keep it short or else the vs fails to come up
+                "tier1GatewayIngress": f"{namespaces['product']}-t1lb",
+                "tier1GatewayIngressNs": f"{namespaces['product']}",
             }
+
+            if replica.tier1:
+                gen_tier1_gateway(arguments, key, folder)
+                arguments["tier1Cluster"] = replica.tier1
 
             k8s_objects.generate_bookinfo(
                 arguments, f"{folder}/k8s-objects/{key}/bookinfo.yaml"
@@ -152,6 +173,12 @@ def install_bookinfo(
             certs.create_secret(
                 namespaces["product"], f"{folder}/k8s-objects/{key}/secret.yaml", folder
             )
+
+            if replica.tier1:
+                shutil.copy(
+                    f"{folder}/k8s-objects/{key}/secret.yaml",
+                    f"{folder}/tier1-objects/k8s/{key}/secret.yaml",
+                )
 
             arguments["secretName"] = certs.create_trafficgen_secret(
                 namespaces["product"],

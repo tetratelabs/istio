@@ -56,6 +56,26 @@ After generating the yamls, there would be the tenant yamls in the root director
 
 Every bookinfo instance would have its own workspace, gateway group, traffic group and security group. Added to that they would have 3 namespaces, with namespace types `f`, `m` and `b`, corresponding to front, mid and back. The front would contain the productpage service, mid would contain the ratings service and the back would contain, reviews and details service.
 
+```yaml
+org: "tetrate"
+provider: "others" # the management plane provider, possible values "aws", "others"
+tctl_version: "1.2.0" # tctl version to be used to edit serviceroute
+# an array of configuration
+app:
+- replicas:
+  - bridged: 1
+    direct: 0
+    tenant_id: 0
+    tier1: "demo"
+  - bridged: 0
+    direct: 1
+    tenant_id: 1
+  cluster_name: "demo2"
+  traffic_gen_ip: "internal" # possible values: `external` or `internal`
+```
+For generating the tier1 configuration just need to pass on the tier1 cluster name along with bridged, direct, tenant_id. The corresponding the configuration would be generated and saved in a tier1-objects directory. 
+
+
 #### Single Gateway HttpBin
 `htbn_single.py` script is the one responsible to generate this config. It takes 2 arguments, 1 optional and 1 mandatory. Example:
 ```bash

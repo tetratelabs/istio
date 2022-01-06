@@ -12,7 +12,7 @@ spec:
     labels:
       app: tsb-gateway-{{ ns }}
   http:
-  {% for entry in entries %}
+  {% for entry in entries -%}
   - name: {{ entry }}
     port: 8443
     hostname: {{ entry }}.tetrate.test.com

@@ -10,6 +10,9 @@ spec:
   namespaceSelector:
     names:
     - {{ clusterName }}/{{ (namespaces and namespaces['product']) or namespace }}
+    {%- if tier1Cluster %}
+    - {{ tier1Cluster }}/{{ tier1GatewayIngressNs }}
+    {%- endif %}
   configMode: {{ mode }}
 ---
 apiVersion: traffic.tsb.tetrate.io/v2

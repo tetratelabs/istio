@@ -1,0 +1,11 @@
+apiVersion: install.tetrate.io/v1alpha1
+kind: Tier1Gateway
+metadata:
+  name: {{ tier1GatewayIngress }}
+  namespace: {{ tier1GatewayIngressNs }}
+spec:
+  kubeSpec:
+    service:
+      type: LoadBalancer
+      annotations:
+        traffic.istio.io/nodeSelector: '{"kubernetes.io/os":"linux"}'
