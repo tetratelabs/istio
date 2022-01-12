@@ -18,7 +18,7 @@ if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.12" ]]; then
     export GOLANG_VERSION=1.17.3
 fi
 
-url="https://golang.org/dl/go$GOLANG_VERSION.linux-amd64.tar.gz"
+url="https://golang.org/dl/go$GOLANG_VERSION.linux-$(dpkg --print-architecture).tar.gz"
 
 wget -q -O go.tgz "$url"
 
