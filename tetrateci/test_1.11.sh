@@ -17,6 +17,7 @@ if [[ ${CLUSTER} == "gke" ]]; then
 
   echo "Applying GKE specific patches...."
   git apply tetrateci/patches/gke/chiron-gke.patch
+  git apply tetrateci/patches/gke/remove-first-party-jwt-install-test.patch
 fi
 
 if [[ ${CLUSTER} == "eks" ]]; then
