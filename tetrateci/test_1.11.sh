@@ -8,6 +8,7 @@ echo "Applying patches...."
 
 git apply tetrateci/patches/common/increase-dashboard-timeout.1.11.patch
 
+CLUSTERFLAGS=""
 if [[ ${CLUSTER} == "gke" ]]; then
   echo "Generating operator config for GKE"
   # Overlay CNI Parameters for GCP : https://github.com/tetratelabs/getistio/issues/76
