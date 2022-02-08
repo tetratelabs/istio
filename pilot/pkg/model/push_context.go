@@ -385,6 +385,8 @@ const (
 	NamespaceUpdate TriggerReason = "namespace"
 	// ClusterUpdate describes a push triggered by a Cluster change
 	ClusterUpdate TriggerReason = "cluster"
+	// NodeTrigger describes a push triggered due to node event
+	NodeTrigger TriggerReason = "node"
 )
 
 // Merge two update requests together
