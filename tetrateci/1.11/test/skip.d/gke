@@ -24,10 +24,10 @@
 
 istio.io/istio/tests/integration/helm/upgrade=*
 
-istio.io/istio/tests/integration/pilot=TestGateway TestIngress TestDescribe TestTraffic
-istio.io/istio/tests/integration/pilot/endpointslice=TestTraffic/jwt-claim-route
+istio.io/istio/tests/integration/pilot#=TestGateway TestIngress TestDescribe TestTraffic
+istio.io/istio/tests/integration/pilot/endpointslice#=TestTraffic/jwt-claim-route
 
-istio.io/istio/tests/integration/security=TestAuthorization_IngressGateway TestAuthorization_EgressGateway TestIngressRequestAuthentication/ingress-authn
+istio.io/istio/tests/integration/security#=TestAuthorization_IngressGateway TestAuthorization_EgressGateway TestIngressRequestAuthentication/ingress-authn
 
 istio.io/istio/tests/integration/telemetry/stackdriver=*
 istio.io/istio/tests/integration/telemetry/stackdriver/api=*
