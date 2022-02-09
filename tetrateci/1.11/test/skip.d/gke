@@ -26,7 +26,6 @@ istio.io/istio/tests/integration/helm/upgrade=TestRevisionTagsUpgradeFromPreviou
 MinorRelease
 
 istio.io/istio/tests/integration/pilot=TestGateway TestIngress TestDescribe TestTraffic
-istio.io/istio/tests/integration/pilot/endpointslice=TestTraffic/jwt-claim-route
 
 istio.io/istio/tests/integration/security=TestAuthorization_IngressGateway TestAuthorization_EgressGateway TestIngressRequestAuthentication/ingress-authn
 

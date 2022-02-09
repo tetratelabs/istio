@@ -26,7 +26,6 @@ istio.io/istio/tests/integration/helm/upgrade=TestRevisionTagsUpgradeFromPreviou
 MinorRelease
 
 istio.io/istio/tests/integration/pilot=*
-istio.io/istio/tests/integration/pilot/endpointslice=*
 istio.io/istio/tests/integration/pilot/revisions=TestMultiRevision
 
 istio.io/istio/tests/integration/security=*
