@@ -28,10 +28,6 @@ MinorRelease
 istio.io/istio/tests/integration/pilot=*
 istio.io/istio/tests/integration/pilot/revisions=TestMultiRevision
 
-istio.io/istio/tests/integration/security=*
-istio.io/istio/tests/integration/security/sds_ingress=*
-istio.io/istio/tests/integration/security/sds_tls_origination=TestSimpleTlsOrigination TestMutualTlsOrigination
-
 istio.io/istio/tests/integration/telemetry/tracing/zipkin/servertracing=TestProxyTracing
 
 istio.io/istio/tests/integration/telemetry/stackdriver=*
