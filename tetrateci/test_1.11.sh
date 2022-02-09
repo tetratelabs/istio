@@ -33,7 +33,7 @@ if [[ "${CLUSTER}" == "eks" ]]; then
   git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.11.patch"
 fi
 
-PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/..." | grep -e helm/upgrade -e stackdriver/vm -e prometheus/nullvm -e tracing/opencensusagent -e tracing/zipkin/clienttracing -e tracing/zipkin/servertracing)
+PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/..." | grep -e pilot/endpointslice)
 
 echo "Starting Testing"
 
