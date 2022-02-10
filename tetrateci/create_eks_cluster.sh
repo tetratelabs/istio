@@ -27,5 +27,19 @@ SHA8=$(git rev-parse --short $GITHUB_SHA)
 SUFFIX=$(sed 's/\.//g' <<< $K8S_VERSION)
 CLUSTER_NAME="test-istio-$SHA8-$SUFFIX"
 
+# Apparently, quite often `eksctl` fails to choose proper availability zones automatically.
+#
+# As a result, CloudFormation Stack creation fails with an error like this:
+#
+# ```
+# Resource handler returned message: "Cannot create cluster 'test-istio-d6c9b4a-118'
+# because us-east-1e, the targeted availability zone, does not currently have
+# sufficient capacity to support the cluster.
+# Retry and choose from these availability zones: us-east-1a, us-east-1b, us-east-1c, us-east-1d, us-east-1f
+# ```
+#
+# As a workaround, be ready to set availability zones explicitly.
+EKS_AWAILABILITY_ZONES=${EKS_AWAILABILITY_ZONES:-}
+
 echo "creating a eks cluster with \"$CLUSTER_NAME\" name..."
-eksctl create cluster --name $CLUSTER_NAME --version $K8S_VERSION --nodes 3 --node-type m5.xlarge
+eksctl create cluster --name $CLUSTER_NAME --version $K8S_VERSION --nodes 3 --node-type m5.xlarge "--zones=${EKS_AWAILABILITY_ZONES}"
