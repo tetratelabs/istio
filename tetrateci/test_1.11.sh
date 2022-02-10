@@ -59,7 +59,7 @@ for pkg in $PACKAGES; do
 
   go test \
     -test.v \
-    -timeout 2h \
+    -timeout 3h \
     -tags=integ \
     "${pkg}" \
     --istio.test.select=-postsubmit,-flaky \
