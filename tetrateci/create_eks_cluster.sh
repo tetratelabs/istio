@@ -42,4 +42,4 @@ CLUSTER_NAME="test-istio-$SHA8-$SUFFIX"
 EKS_AWAILABILITY_ZONES=${EKS_AWAILABILITY_ZONES:-}
 
 echo "creating a eks cluster with \"$CLUSTER_NAME\" name..."
-eksctl create cluster --name $CLUSTER_NAME --version $K8S_VERSION --nodes 3 --node-type m5.xlarge "--zones=${EKS_AWAILABILITY_ZONES}"
+eksctl create cluster --name $CLUSTER_NAME --version $K8S_VERSION --nodes 3 --node-type m5.xlarge "--zones=${EKS_AVAILABILITY_ZONES}"
