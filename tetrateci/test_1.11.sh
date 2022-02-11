@@ -16,6 +16,10 @@ source "${SCRIPTDIR}/setup_go.sh"
 
 COMMON_TEST_FLAGS=()
 
+echo "Applying patches...."
+
+git apply "${SCRIPTDIR}/patches/common/increase-dashboard-timeout.1.11.patch"
+
 if [[ "${CLUSTER}" == "gke" ]]; then
   echo "Generating operator config for GKE"
 
