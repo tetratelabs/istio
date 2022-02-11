@@ -210,7 +210,6 @@ jobs:
         env:
           K8S_VERSION: ${{ matrix.version }}
           ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-          EKS_AVAILABILITY_ZONES: ${{ secrets.EKS_AVAILABILITY_ZONES }}
 
       - name: integration-tests
         run: bash ./tetrateci/test_${ISTIO_MINOR_VER}.sh
