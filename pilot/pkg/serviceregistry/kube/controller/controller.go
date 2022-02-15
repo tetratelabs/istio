@@ -680,7 +680,7 @@ func (c *Controller) onNodeEvent(obj interface{}, event model.Event) error {
 	if updatedNeeded && c.updateServiceNodePortAddresses() {
 		c.opts.XDSUpdater.ConfigUpdate(&model.PushRequest{
 			Full:   true,
-			Reason: []model.TriggerReason{model.ServiceUpdate},
+			Reason: []model.TriggerReason{model.ServiceUpdate, model.NodeTrigger},
 		})
 	}
 	return nil
