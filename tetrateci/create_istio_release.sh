@@ -57,7 +57,7 @@ ${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/examp
 # if length $TEST is zero we are making a RELEASE. It should have both images and archives
 # The test flag is to check whether we are building images for testing or release
 # in case of release we build the istioctl too which we don't need in case of testing.
-echo "TEST flag is '$TEST'"
+echo "TEST flag is '${TEST:-}'"
 
 echo "Getting into release builder"
 cd release-builder
@@ -89,7 +89,7 @@ echo "Cleaning up the docker build...."
 [ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
 
 # If RELEASE, Build Archives
-if [[ -z $TEST ]]; then
+if [[ -z ${TEST:-} ]]; then
     echo "Building archives..."
     mkdir /tmp/istio-release
 	# if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
