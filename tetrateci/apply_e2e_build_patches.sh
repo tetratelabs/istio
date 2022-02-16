@@ -23,4 +23,4 @@ SCRIPTDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 while IFS= read -r -d '' patch
 do
     git apply "${patch}"
-done < <(find "${SCRIPTDIR}/patches/build/e2e/${REL_BRANCH_VER}" -type f -name '*.patch' -print0)
+done < <(find "${SCRIPTDIR}/patches/build/e2e/${ISTIO_MINOR_VER}" -type f -name '*.patch' -print0)
