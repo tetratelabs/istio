@@ -152,6 +152,11 @@ jobs:
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
 
+      - name: apply patches required in the context of e2e tests
+        run: tetrateci/apply_e2e_build_patches.sh
+        env:
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+
       - name: build and push images
         run: bash ./tetrateci/create_istio_release.sh
         env:
