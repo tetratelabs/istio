@@ -86,16 +86,16 @@ require (
 	google.golang.org/api v0.47.0
 	google.golang.org/genproto v0.0.0-20210517163617-5e0236093d7a
 	google.golang.org/grpc v1.39.0
-	google.golang.org/protobuf v1.26.0
+	google.golang.org/protobuf v1.27.2-0.20220217170731-3992ea83a23c
 	gopkg.in/square/go-jose.v2 v2.5.1
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b
 	helm.sh/helm/v3 v3.6.0
 	honnef.co/go/tools v0.0.1-2020.1.5 // indirect
-	istio.io/api v0.0.0-20220215161049-fd2106ba99db
-	istio.io/client-go v1.11.7-0.20220215162543-1fe506936df3
-	istio.io/gogo-genproto v0.0.0-20220126213228-fbb7617c3d36
-	istio.io/pkg v0.0.0-20220126213228-1356f485563a
+	istio.io/api v0.0.0-20220304045306-249321c725a9
+	istio.io/client-go v1.11.7-0.20220304051621-641e42f0cee1
+	istio.io/gogo-genproto v0.0.0-20220304045822-26ff2363d64b
+	istio.io/pkg v0.0.0-20220304045307-c5ff97a4cef4
 	k8s.io/api v0.21.2
 	k8s.io/apiextensions-apiserver v0.21.2
 	k8s.io/apimachinery v0.21.2
