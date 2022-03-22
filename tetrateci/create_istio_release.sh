@@ -16,6 +16,8 @@ else
 fi
 
 ## Set up release-builder
+go install sigs.k8s.io/bom/cmd/bom@latest
+cp go/bin/bom /usr/local/bin/
 sudo gem install fpm
 sudo apt-get install go-bindata -y
 export BRANCH=release-${REL_BRANCH_VER}
