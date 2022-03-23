@@ -16,6 +16,11 @@ else
 fi
 
 ## Set up release-builder
+
+# BOM is needed for generating bill of materials, required by Istio since 1.13, https://github.com/istio/release-builder/pull/893
+go install sigs.k8s.io/bom/cmd/bom@v0.2.2
+cp /home/runner/go/bin/bom /usr/local/bin/
+
 sudo gem install fpm
 sudo apt-get install go-bindata -y
 export BRANCH=release-${REL_BRANCH_VER}
@@ -70,6 +75,9 @@ cp -r ../istio .
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.docker.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
+
+#loading pilot image manually since docker container create command is failing due to unavailbilty of pilot image locally
+docker load -i /tmp/istio-release/out/docker/pilot.tar.gz
 
 CONTAINER_ID=$(docker create $HUB/pilot:$TAG)
 docker cp $CONTAINER_ID:/usr/local/bin/pilot-discovery pilot-bin
