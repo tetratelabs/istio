@@ -36,7 +36,7 @@ go version operator | cut -f2 -d" "
 go version istioctl | cut -f2 -d" "
 go version install-cni | cut -f2 -d" "
 ```
-The Go version should include `b` to indicate BoringSSL, `go1.16.9b7` for example.
+The Go version should include `b` to indicate BoringSSL, `go1.16.9b7` for example
 
 Verify Envoy is using BoringSSL FIPS:
 ```shell
