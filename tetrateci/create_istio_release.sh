@@ -93,8 +93,8 @@ if [ ${TAG} =~ "fips" ]; then
 fi
 
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
-echo "Cleaning up the docker build...."
-[ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
+echo "Cleaning up the istio source artificats...."
+sudo rm -rf /tmp/istio-release/sources/
 
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
@@ -116,5 +116,7 @@ if [[ -z ${TEST:-} ]]; then
         cloudsmith push raw tetrate/getistio /tmp/istio-release/out/$package
     done
 fi
+echo "Cleaning /tmp/istio...."
+[ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
 
 echo "Done building and pushing the artifacts."
