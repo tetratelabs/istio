@@ -25,7 +25,35 @@ In TID, we ensure the `CGO_ENABLED=1` is patched to this script. For example, in
 
 ### Istio Data Plane Build Process
 
-TODO(incfly): describe how envoy proxy is built with FIPs version.
+Istio dataplane, namely the sidecar proxy binaries, are built under FIPS compliant boringssl implementation.
+Per [envoyproxy document](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/security/ssl#fips-140-2),
+envoy must be built with `--define boringssl=fips` bazel option.
+
+TID does set that in the release pipeline, see [Add FIPS flags](https://github.com/istio/istio/blob/d0d39e76abd8c9293f5095bafc93f94808149c4d/.github/workflows/make_release.yml#L75) in our CI configuration.
+
+
+### Verify Cipher Suite
+
+Istio could serve TLS in gateway or sidecar.
+
+1. Gateway, you can choose which Cipher suite to use via [Gateway.Tls]() configuration.
+1. Sidecar mTLS, Istio configures a few [Cipher suite](https://github.com/istio/istio/pull/27500/files#diff-d125e7f730d1cbb88e68de5b3899a279868936baeaf2be780be5f052708a71c1R138).
+
+In either case, you can use the following command to figure out what's being used on both gateway and sidecar TLS.
+
+```sh
+istioctl proxy-config all <pod-name> -ojson | grep -i "cipherSuites" -A10
+                                "cipherSuites": [
+                                    "ECDHE-ECDSA-AES256-GCM-SHA384",
+                                    "ECDHE-RSA-AES256-GCM-SHA384",
+                                    "ECDHE-ECDSA-AES128-GCM-SHA256",
+                                    "ECDHE-RSA-AES128-GCM-SHA256",
+                                    "AES256-GCM-SHA384",
+                                    "AES128-GCM-SHA256"
+                                ]
+                            },
+                            "tlsCertificateSdsSecretConfigs": [
+```
 
 ### Verify Golang Version Used for Build
 
