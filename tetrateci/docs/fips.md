@@ -7,6 +7,28 @@ are built with these modules. The quickest way to get started with FIPS Istio is
 
 ## FIPS Verification
 
+### Istio Control Plane FIPS Build Process
+
+This [doc](https://gokulchandrapr.medium.com/go-crypto-and-kubernetes-fips-140-2-fedramp-compliance-66d852ccccd2)
+provides a good introduction on what's necessary to build a FIPS compliant go binaries by using boring crypto.
+
+Roughy speaking, we need to:
+
+1. Use boringcrypto version Golang toolset. In TID, we set up golang binaries differently, see [setup_boring_go.sh](https://github.com/istio/istio/blob/f7d03be560753dc71d4c764dceb06f961c4fcdbd/tetrateci/setup_boring_go.sh#L25).
+1. Configure `CGO_ENABLED=1` when invoking `go build`. Istio uses a wrapper `gobuild.sh` script to build all Go binaries.
+In TID, we ensure the `CGO_ENABLED=1` is patched to this script. For example, in [tetratefips-release-1.9](https://github.com/tetratelabs/istio/blob/tetratefips-release-1.9/common/scripts/gobuild.sh#L53).
+  TODO(psbrar99): provide link on other releases when we updated from 1.10 and beyond.
+1. Optionally, some tutorial may suggest to verify the FIPS compliant build via `go tool nm ./out/linux_amd64/pilot-discovery | grep 'boringcrypto.*'`.
+  For now, when you run this against TID go binaries, you may not see the symbols, because currently Istio(TID as well) strips off
+  the symbols by providing [`-ldflags  '-extldflags -static -s -w'`](https://github.com/tetratelabs/istio/blob/tetratefips-release-1.9/Makefile.core.mk#L270).
+  TODO(incfly): consider whether to retain the symbols this as part of the final build.
+
+### Istio Data Plane Build Process
+
+TODO(incfly): describe how envoy proxy is built with FIPs version.
+
+### Verify Golang Version Used for Build
+
 The easiest way to verify the Go version is with Docker. First, create the containers from the [CloudSmith][5] images.
 ```shell
 HUB=containers.istio.tetratelabs.com
