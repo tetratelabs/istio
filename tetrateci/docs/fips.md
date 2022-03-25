@@ -5,7 +5,7 @@ BoringSSL library and has been tested by CMVP to be [FIPS validated][3]. Both th
 are built with these modules. The quickest way to get started with FIPS Istio is to use the
 [Tetrate Istio Distribution][4].
 
-## FIPS Verification
+## FIPS Build Process and Verification
 
 ### Istio Control Plane FIPS Build Process
 
