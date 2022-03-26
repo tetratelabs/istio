@@ -14,7 +14,7 @@ provides a good introduction on what's necessary to build a FIPS compliant go bi
 
 Roughy speaking, we need to:
 
-1. Use boringcrypto version Golang toolset. In TID, we set up golang binaries differently, see [setup_boring_go.sh](https://github.com/istio/istio/blob/f7d03be560753dc71d4c764dceb06f961c4fcdbd/tetrateci/setup_boring_go.sh#L25).
+1. Use boringcrypto version Golang toolset. In TID, we set up golang binaries differently, see [setup_boring_go.sh](https://github.com/tetratelabs/istio/blob/f7d03be560753dc71d4c764dceb06f961c4fcdbd/tetrateci/setup_boring_go.sh#L25).
 1. Configure `CGO_ENABLED=1` when invoking `go build`. Istio uses a wrapper `gobuild.sh` script to build all Go binaries.
 In TID, we ensure the `CGO_ENABLED=1` is patched to this script. For example, in [tetratefips-release-1.9](https://github.com/tetratelabs/istio/blob/tetratefips-release-1.9/common/scripts/gobuild.sh#L53).
   TODO(psbrar99): provide link on other releases when we updated from 1.10 and beyond.
@@ -29,7 +29,7 @@ Istio dataplane, namely the sidecar proxy binaries, are built under FIPS complia
 Per [envoyproxy document](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/security/ssl#fips-140-2),
 envoy must be built with `--define boringssl=fips` bazel option.
 
-TID does set that in the release pipeline, see [Add FIPS flags](https://github.com/istio/istio/blob/d0d39e76abd8c9293f5095bafc93f94808149c4d/.github/workflows/make_release.yml#L75) in our CI configuration.
+TID does set that in the release pipeline, see [Add FIPS flags](https://github.com/tetratelabs/istio/blob/d0d39e76abd8c9293f5095bafc93f94808149c4d/.github/workflows/make_release.yml#L75) in our CI configuration.
 
 
 ### Verify Cipher Suite
