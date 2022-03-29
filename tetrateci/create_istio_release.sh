@@ -72,6 +72,7 @@ cp -r ../istio .
 # make shell TODO: https://github.com/tetratelabs/getistio/issues/82
 
 # "Enabling CGO for FIPS build via CGO_ENABLED=1"
+echo "Enabling CGO for FIPS build via CGO_ENABLED=1
 
 if [[ ${TAG} =~ "fips" ]]; then
   text="if [[ "\${GOARCH}" == "amd64" ]]; then export CGO_ENABLED=1; else export CGO_ENABLED=0; fi"
