@@ -71,6 +71,12 @@ cp -r ../istio .
 # export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
 # make shell TODO: https://github.com/tetratelabs/getistio/issues/82
 
+# Enable CGO flag"
+
+if [[ ${TAG} =~ "fips" ]]; then
+  text="if [[ "\${GOARCH}" == "amd64" ]]; then export CGO_ENABLED=1; else export CGO_ENABLED=0; fi"
+  sed -i '52s/.*/'"$text"'/g' istio/common/scripts/gobuild.sh
+fi
 # Build Docker Images
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.docker.yaml
