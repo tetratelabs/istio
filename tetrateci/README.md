@@ -1,18 +1,10 @@
-## Setting up the CI/CD system
+# Tetrate Istio Distro
 
-###### Required Creds
-1. AWS_ACCESS_KEY_ID 
-2. AWS_REGION
-3. AWS_SECRET_ACCESS_KEY
-4. AZURE_CREDENTIALS : [Note](https://github.com/Azure/login#configure-deployment-credentials)
-5. AZURE_RESOURCE : [ Note : The azure resource name corresponding to the creds ]
-6. BINTRAY_API_KEY
-7. BINTRAY_ARCHIVE_API : [ Note : The archive API url, example - https://api.bintray.com/content/hellozee/istio-archives/istio ]
-8. BINTRAY_USER
-9. DEPLOY_HUB : [ Note : Link to the docker registry where final images would be pushed ]
-10. GCP_PROJECT_ID
-11. GCP_SA_KEY
-12. GETISTIO_PUSH_KEY :  [ Note : DEPLOY KEY that can push to the repo ]
-13. TEST_HUB : [ Note : Link to docker registry for pushing test images ] 
-14. TEST_HUB_PASS
-15. TEST_HUB_USER
+This doc covers a few aspects of Tetrate Istio Distro.
+
+- [CI Workflow](https://github.com/tetratelabs/istio/blob/tetrate-workflow/tetrateci/docs/ci_workflow.md)
+is a good start to understand the overall TID build process.
+- [FIPS build](https://github.com/tetratelabs/istio/blob/tetrate-workflow/tetrateci/docs/fips.md)
+covers some information about how FIPS version TID is built.
+- [Release Process](https://github.com/tetratelabs/istio/blob/tetrate-workflow/tetrateci/docs/release.md)
+document what a release manager should do to create a release.
