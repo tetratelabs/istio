@@ -71,6 +71,13 @@ cp -r ../istio .
 # export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
 # make shell TODO: https://github.com/tetratelabs/getistio/issues/82
 
+# "Enabling CGO for FIPS build via CGO_ENABLED=1"
+echo "Enabling CGO for FIPS build via CGO_ENABLED=1 to istio/common/scripts/gobuild.sh"
+
+if [[ ${TAG} =~ "fips" ]]; then
+  text="if [[ "\${GOARCH}" == "amd64" ]]; then export CGO_ENABLED=1; else export CGO_ENABLED=0; fi"
+  sed -i '52s/.*/'"$text"'/g' istio/common/scripts/gobuild.sh
+fi
 # Build Docker Images
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.docker.yaml
@@ -99,13 +106,13 @@ sudo rm -rf /tmp/istio-release/sources/
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
     echo "Building archives..."
-    mkdir /tmp/istio-release
-	# if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
+    # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
     if [[ ${TAG} =~ "fips" ]]; then
         sudo rm -rf /usr/local/go
         source ${BASEDIR}/tetrateci/setup_go.sh
     fi
-
+    echo "Cleaning up older artifacts created in docker build stage ..."
+    sudo rm -rf /tmp/istio-release/sources/
     go run main.go build --manifest manifest.archive.yaml
 
     python3 -m pip install --upgrade cloudsmith-cli --user
