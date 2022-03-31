@@ -111,7 +111,8 @@ if [[ -z ${TEST:-} ]]; then
         sudo rm -rf /usr/local/go
         source ${BASEDIR}/tetrateci/setup_go.sh
     fi
-
+    echo "Cleaning up older artifacts created in docker build stage ..."
+    sudo rm -rf /tmp/istio-release/sources/
     go run main.go build --manifest manifest.archive.yaml
 
     python3 -m pip install --upgrade cloudsmith-cli --user
