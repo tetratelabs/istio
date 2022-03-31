@@ -106,7 +106,6 @@ sudo rm -rf /tmp/istio-release/sources/
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
     echo "Building archives..."
-    mkdir /tmp/istio-release
 	# if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
     if [[ ${TAG} =~ "fips" ]]; then
         sudo rm -rf /usr/local/go
