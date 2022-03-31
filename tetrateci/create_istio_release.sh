@@ -106,13 +106,13 @@ sudo rm -rf /tmp/istio-release/sources/
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
     echo "Building archives..."
-    mkdir /tmp/istio-release
-	# if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
+    # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
     if [[ ${TAG} =~ "fips" ]]; then
         sudo rm -rf /usr/local/go
         source ${BASEDIR}/tetrateci/setup_go.sh
     fi
-
+    echo "Cleaning up older artifacts created in docker build stage ..."
+    sudo rm -rf /tmp/istio-release/sources/
     go run main.go build --manifest manifest.archive.yaml
 
     python3 -m pip install --upgrade cloudsmith-cli --user
