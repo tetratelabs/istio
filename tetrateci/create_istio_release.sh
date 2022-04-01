@@ -111,7 +111,7 @@ if [[ -z ${TEST:-} ]]; then
         sudo rm -rf /usr/local/go
         source ${BASEDIR}/tetrateci/setup_boring_go.sh
         # for fips build, only linux-amd64 artifacts are needed since linux-amd64 is the only fips compliant OS Arch in the list" 
-        sed -i 's/"linux-amd64"\s,\s"linux-armv7",\s"linux-arm64",\s"osx",\s"osx-arm64",\s"win"/"linux-amd64"/g' pkg/build/archive.go
+        sed -i 's/"linux-amd64",\s"linux-armv7",\s"linux-arm64",\s"osx",\s"osx-arm64",\s"win"/"linux-amd64/g' pkg/build/archive.go
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/
