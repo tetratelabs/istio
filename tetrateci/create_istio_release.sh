@@ -76,7 +76,7 @@ echo "Enabling CGO for FIPS build via CGO_ENABLED=1 to istio/common/scripts/gobu
 
 if [[ ${TAG} =~ "fips" ]]; then
   text="if [[ "\${GOARCH}" == "amd64" ]]; then export CGO_ENABLED=1; else export CGO_ENABLED=0; fi"
-  sed -i '52s/.*/'"$text"'/g' istio/common/scripts/gobuild.sh
+  sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
 fi
 # Build Docker Images
 mkdir /tmp/istio-release
@@ -110,11 +110,11 @@ if [[ -z ${TEST:-} ]]; then
     if [[ ${TAG} =~ "fips" ]]; then
         sudo rm -rf /usr/local/go
         source ${BASEDIR}/tetrateci/setup_go.sh
+        #disabling cgo flag
+        sed -i '/then export CGO_ENABLED=1/c\export CGO_ENABLED=0' istio/common/scripts/gobuild.sh
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
-    #disabling cgo flag
-    sed -i '/then export CGO_ENABLED=1/c\export CGO_ENABLED=0' istio/common/scripts/gobuild.sh
     go run main.go build --manifest manifest.archive.yaml
 
     python3 -m pip install --upgrade cloudsmith-cli --user
