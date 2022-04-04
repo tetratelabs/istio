@@ -109,12 +109,12 @@ if [[ -z ${TEST:-} ]]; then
     # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
     if [[ ${TAG} =~ "fips" ]]; then
         sudo rm -rf /usr/local/go
-        source ${BASEDIR}/tetrateci/setup_boring_go.sh
-        # for fips build, only linux-amd64 artifacts are needed since linux-amd64 is the only fips compliant OS Arch in the list" 
-        sed -i 's/"linux-amd64",\s"linux-armv7",\s"linux-arm64",\s"osx",\s"osx-arm64",\s"win"/"linux-amd64"/g' pkg/build/archive.go
+        source ${BASEDIR}/tetrateci/setup_go.sh
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
-    sudo rm -rf /tmp/istio-release/sources/
+    sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
+    #disabling cgo flag
+    sed -i '/then export CGO_ENABLED=1/c\export CGO_ENABLED=0' istio/common/scripts/gobuild.sh
     go run main.go build --manifest manifest.archive.yaml
 
     python3 -m pip install --upgrade cloudsmith-cli --user
