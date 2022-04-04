@@ -75,6 +75,8 @@ cp -r ../istio .
 echo "Enabling CGO for FIPS build via CGO_ENABLED=1 to istio/common/scripts/gobuild.sh"
 
 if [[ ${TAG} =~ "fips" ]]; then
+  echo "Checking if the upstream file is not changed"
+  if ! grep -q 'CGO_ENABLED=${CGO_ENABLED:-0}' istio/common/scripts/gobuild.sh;then exit 1;fi
   text="if [[ "\${GOARCH}" == "amd64" ]]; then export CGO_ENABLED=1; else export CGO_ENABLED=0; fi"
   sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
 fi
