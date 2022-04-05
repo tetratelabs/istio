@@ -28,11 +28,11 @@ cd ..
 git clone https://github.com/istio/release-builder --branch ${BRANCH}
 
 
-# HACK : the github runner runs out of space sometimes so removing the 21 GB dotnet folder
+# HACK : the github runner runs provides 14 GB free space. (https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources).
 # Temporary thing, we should be moving to a custom runner instead.
-echo "Deleting /usr/share/dotnet to reclaim space"
-[ -d "/usr/share/dotnet" ] && sudo rm -rf /usr/share/dotnet
-echo "Deletetion complete"
+echo "Deleting /usr/share/dotnet, /opt/ghc, /usr/local/share/boost to reclaim space"
+for i in /usr/share/dotnet /opt/ghc /usr/local/share/boost; do echo deleting folder $i; [ -d $i ] && rm -rf "$i" ; done
+echo "Deletion complete"
 
 # HACK : This is needed during istio build for istiod to serve version command
 export ISTIO_VERSION=$TAG
