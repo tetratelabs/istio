@@ -118,7 +118,7 @@ if [[ -z ${TEST:-} ]]; then
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
     echo "Prunning docker images to reclaim more space for 1.13.x-fips release"
-    for i in `docker images | grep -v istioctl | awk {'print $3'} | tail -n +2`; do echo pruning $i; docker rmi $i --force; done
+    for i in `docker images | grep -i app_sidecar | awk {'print $3'} | tail -n +2`; do echo pruning $i; docker rmi $i --force; done
     go run main.go build --manifest manifest.archive.yaml
 
     python3 -m pip install --upgrade cloudsmith-cli --user
