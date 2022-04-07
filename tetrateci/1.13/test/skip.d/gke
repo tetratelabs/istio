@@ -26,5 +26,7 @@ istio.io/istio/tests/integration/helm/upgrade=TestRevisionTagsUpgradeFromPreviou
 MinorRelease
 
 istio.io/istio/tests/integration/pilot=TestGateway TestIngress TestDescribe TestTraffic
-
+istio.io/istio/tests/integration/helm/upgrade=*
+istio.io/istio/tests/integration/pilot/revisions=*
+istio.io/istio/tests/integration/security/sds_ingress/quic=*
 istio.io/istio/tests/integration/telemetry/stackdriver=*

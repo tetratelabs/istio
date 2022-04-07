@@ -1,0 +1,69 @@
+diff --cc security/pkg/pki/util/verify_cert.go
+index bf8246fbb0,d2a52e1b52..0000000000
+--- a/security/pkg/pki/util/verify_cert.go
++++ b/security/pkg/pki/util/verify_cert.go
+@@@ -122,37 -119,37 +122,47 @@@ func VerifyCertificate(privPem []byte, 
+  			return fmt.Errorf("the certificate doesn't have the expected SAN for: %s", host)
+  		}
+  	}
+ +	if expectedFields != nil {
+ +		if nb := expectedFields.NotBefore; !nb.IsZero() && !nb.Equal(cert.NotBefore) {
+ +			return fmt.Errorf("unexpected value for 'NotBefore' field: want %v but got %v", nb, cert.NotBefore)
+ +		}
+  
+ -	if nb := expectedFields.NotBefore; !nb.IsZero() && !nb.Equal(cert.NotBefore) {
+ -		return fmt.Errorf("unexpected value for 'NotBefore' field: want %v but got %v", nb, cert.NotBefore)
+ -	}
+ +		if ttl := expectedFields.TTL; ttl != 0 && ttl != (cert.NotAfter.Sub(cert.NotBefore)) {
+ +			return fmt.Errorf("unexpected value for 'NotAfter' - 'NotBefore': want %v but got %v", ttl, cert.NotAfter.Sub(cert.NotBefore))
+ +		}
+  
+ -	if ttl := expectedFields.TTL; ttl != 0 && ttl != (cert.NotAfter.Sub(cert.NotBefore)) {
+ -		return fmt.Errorf("unexpected value for 'NotAfter' - 'NotBefore': want %v but got %v", ttl, cert.NotAfter.Sub(cert.NotBefore))
+ -	}
+++<<<<<<< ours
+ +		if eku := sortExtKeyUsage(expectedFields.ExtKeyUsage); !reflect.DeepEqual(eku, sortExtKeyUsage(cert.ExtKeyUsage)) {
+ +			return fmt.Errorf("unexpected value for 'ExtKeyUsage' field: want %v but got %v", eku, cert.ExtKeyUsage)
+ +		}
+  
+ +		if ku := expectedFields.KeyUsage; ku != cert.KeyUsage {
+ +			return fmt.Errorf("unexpected value for 'KeyUsage' field: want %v but got %v", ku, cert.KeyUsage)
+ +		}
+++=======
++ 	// if eku := sortExtKeyUsage(expectedFields.ExtKeyUsage); !reflect.DeepEqual(eku, sortExtKeyUsage(cert.ExtKeyUsage)) {
++ 	// 	return fmt.Errorf("unexpected value for 'ExtKeyUsage' field: want %v but got %v", eku, cert.ExtKeyUsage)
++ 	// }
++ 
++ 	// if ku := expectedFields.KeyUsage; ku != cert.KeyUsage {
++ 	// 	return fmt.Errorf("unexpected value for 'KeyUsage' field: want %v but got %v", ku, cert.KeyUsage)
++ 	// }
+++>>>>>>> theirs
+  
+ -	if isCA := expectedFields.IsCA; isCA != cert.IsCA {
+ -		return fmt.Errorf("unexpected value for 'IsCA' field: want %t but got %t", isCA, cert.IsCA)
+ -	}
+ +		if isCA := expectedFields.IsCA; isCA != cert.IsCA {
+ +			return fmt.Errorf("unexpected value for 'IsCA' field: want %t but got %t", isCA, cert.IsCA)
+ +		}
+  
+ -	if org := expectedFields.Org; org != "" && !reflect.DeepEqual([]string{org}, cert.Issuer.Organization) {
+ -		return fmt.Errorf("unexpected value for 'Organization' field: want %v but got %v",
+ -			[]string{org}, cert.Issuer.Organization)
+ -	}
+ +		if org := expectedFields.Org; org != "" && !reflect.DeepEqual([]string{org}, cert.Issuer.Organization) {
+ +			return fmt.Errorf("unexpected value for 'Organization' field: want %v but got %v",
+ +				[]string{org}, cert.Issuer.Organization)
+ +		}
+  
+ -	if cn := expectedFields.CommonName; cn != cert.Subject.CommonName {
+ -		return fmt.Errorf("unexpected value for 'CommonName' field: want %v but got %v",
+ -			cn, cert.Subject.CommonName)
+ +		if cn := expectedFields.CommonName; cn != cert.Subject.CommonName {
+ +			return fmt.Errorf("unexpected value for 'CommonName' field: want %v but got %v",
+ +				cn, cert.Subject.CommonName)
+ +		}
+  	}
+ -
+  	return nil
+  }
+  
