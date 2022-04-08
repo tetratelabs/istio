@@ -97,6 +97,7 @@ func (i *operatorComponent) RemoteDiscoveryAddressFor(cluster cluster.Cluster) (
 	} else {
 		addr = i.CustomIngressFor(primary, eastWestIngressServiceName, eastWestIngressIstioLabel).DiscoveryAddress()
 	}
+
 	if addr.IP.String() == "<nil>" {
 		return net.TCPAddr{}, fmt.Errorf("failed to get ingress IP for %s", primary.Name())
 	}
@@ -162,6 +163,17 @@ func getRemoteServiceAddress(s *kube.Settings, cluster cluster.Cluster, ns, labe
 	if ingr.IP == "" && ingr.Hostname == "" {
 		return nil, false, fmt.Errorf("service %s/%s is not available yet: no ingress", svc.Namespace, svc.Name)
 	}
+
+	if ingr.Hostname != "" {
+		ip, err := net.LookupIP(ingr.Hostname)
+		if err != nil {
+			return nil, false, fmt.Errorf("service %s/%s is not available yet: no ingress", svc.Namespace, svc.Name)
+		}
+		if len(ip) > 0 {
+			ingr.IP = ip[0].String()
+		}
+	}
+
 	if ingr.IP != "" {
 		return net.TCPAddr{IP: net.ParseIP(ingr.IP), Port: port}, true, nil
 	}

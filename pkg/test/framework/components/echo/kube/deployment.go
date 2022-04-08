@@ -814,6 +814,7 @@ spec:
 			// LoadBalancer may not be supported and the command doesn't have NodePort fallback logic that the tests do
 			cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
 		}
+		cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
 		if nsLabels, err := cfg.Namespace.Labels(); err != nil {
 			log.Warnf("failed fetching labels for %s; assuming no-revision (can cause failures): %v", cfg.Namespace.Name(), err)
 		} else if rev := nsLabels[label.IoIstioRev.Name]; rev != "" {
