@@ -10,15 +10,19 @@ if $(grep -q "1.8" <<< $TAG || grep -q "1.9" <<< $TAG); then
     export GOLANG_VERSION=1.15.7
 fi
 
-if $(grep -q "1.10" <<< $TAG || grep -q "1.11" <<< $TAG); then
+if $(grep -q "1.10" <<< $TAG); then
     export GOLANG_VERSION=1.16.9
 fi
 
-if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.12" ]]; then
-    export GOLANG_VERSION=1.17.3
+if $(grep -q "1.11" <<< $TAG || grep -q "1.12" <<< $TAG); then
+    export GOLANG_VERSION=1.17.6
 fi
 
-url="https://golang.org/dl/go$GOLANG_VERSION.linux-$(dpkg --print-architecture).tar.gz"
+if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.13" ]]; then
+    export GOLANG_VERSION=1.17.8
+fi
+
+url="https://golang.org/dl/go$GOLANG_VERSION.linux-amd64.tar.gz"
 
 wget -q -O go.tgz "$url"
 
