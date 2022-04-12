@@ -75,6 +75,10 @@ func (envoyFilterGenerator) permission(key, value string, _ bool) (*rbacpb.Permi
 	// Split key of format "experimental.envoy.filters.a.b[c]" to "envoy.filters.a.b" and "c".
 	parts := strings.SplitN(strings.TrimSuffix(strings.TrimPrefix(key, "experimental."), "]"), "[", 2)
 
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid key: %v", key)
+	}
+
 	// If value is of format [v], create a list matcher.
 	// Else, if value is of format v, create a string matcher.
 	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
@@ -216,7 +220,7 @@ func (requestClaimGenerator) principal(key, value string, forTCP bool) (*rbacpb.
 }
 
 type hostGenerator struct {
-	isIstioVersionGE111 bool
+	isIstioVersionGE112 bool
 }
 
 func (hg hostGenerator) permission(key, value string, forTCP bool) (*rbacpb.Permission, error) {
@@ -224,7 +228,7 @@ func (hg hostGenerator) permission(key, value string, forTCP bool) (*rbacpb.Perm
 		return nil, fmt.Errorf("%q is HTTP only", key)
 	}
 
-	if hg.isIstioVersionGE111 {
+	if hg.isIstioVersionGE112 {
 		return permissionHeader(matcher.HostMatcher(hostHeader, value)), nil
 	}
 	return permissionHeader(matcher.HostMatcherWithRegex(hostHeader, value)), nil

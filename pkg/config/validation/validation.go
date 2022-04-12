@@ -560,13 +560,26 @@ func validateTLSOptions(tls *networking.ServerTLSSettings) (v Validation) {
 	}
 
 	invalidCiphers := sets.NewSet()
+	validCiphers := sets.NewSet()
+	duplicateCiphers := sets.NewSet()
 	for _, cs := range tls.CipherSuites {
 		if !security.IsValidCipherSuite(cs) {
 			invalidCiphers.Insert(cs)
+		} else {
+			if !validCiphers.Contains(cs) {
+				validCiphers.Insert(cs)
+			} else {
+				duplicateCiphers.Insert(cs)
+			}
 		}
 	}
+
 	if len(invalidCiphers) > 0 {
-		return WrapWarning(fmt.Errorf("ignoring invalid cipher suites: %v", invalidCiphers.SortedList()))
+		v = appendWarningf(v, "ignoring invalid cipher suites: %v", invalidCiphers.SortedList())
+	}
+
+	if len(duplicateCiphers) > 0 {
+		v = appendWarningf(v, "ignoring duplicate cipher suites: %v", duplicateCiphers.SortedList())
 	}
 
 	if tls.Mode == networking.ServerTLSSettings_ISTIO_MUTUAL {
@@ -581,8 +594,22 @@ func validateTLSOptions(tls *networking.ServerTLSSettings) (v Validation) {
 		if tls.CaCertificates != "" {
 			v = appendValidation(v, fmt.Errorf("ISTIO_MUTUAL TLS cannot have associated CA bundle"))
 		}
-
+		if tls.CredentialName != "" {
+			if features.EnableLegacyIstioMutualCredentialName {
+				// Legacy mode enabled, just warn
+				v = appendWarningf(v, "ISTIO_MUTUAL TLS cannot have associated credentialName")
+			} else {
+				v = appendValidation(v, fmt.Errorf("ISTIO_MUTUAL TLS cannot have associated credentialName"))
+			}
+		}
 		return
+	}
+
+	if tls.Mode == networking.ServerTLSSettings_PASSTHROUGH || tls.Mode == networking.ServerTLSSettings_AUTO_PASSTHROUGH {
+		if tls.ServerCertificate != "" || tls.PrivateKey != "" || tls.CaCertificates != "" || tls.CredentialName != "" {
+			// Warn for backwards compatibility
+			v = appendWarningf(v, "%v mode does not use certificates, they will be ignored", tls.Mode)
+		}
 	}
 
 	if (tls.Mode == networking.ServerTLSSettings_SIMPLE || tls.Mode == networking.ServerTLSSettings_MUTUAL) && tls.CredentialName != "" {
@@ -2272,20 +2299,11 @@ func analyzeUnreachableHTTPRules(routes []*networking.HTTPRoute,
 				if strings.Compare(matchHTTPRoutes[rIndex].Prefix, routePrefix.Prefix) == 0 {
 					continue
 				}
-				// Valid from A to B for matchHTTPRoutes
-				isAtoBCover := coveredValidation(routePrefix, matchHTTPRoutes[rIndex])
-				if isAtoBCover {
+				// Validate former prefix match does not cover the latter one.
+				if coveredValidation(routePrefix, matchHTTPRoutes[rIndex]) {
 					prefixMatchA := matchHTTPRoutes[rIndex].MatchStr + " of prefix " + matchHTTPRoutes[rIndex].Prefix
 					prefixMatchB := routePrefix.MatchStr + " of prefix " + routePrefix.Prefix + " on " + routePrefix.RouteStr
 					reportIneffective(matchHTTPRoutes[rIndex].RouteStr, prefixMatchA, prefixMatchB)
-				}
-
-				// Valid from B to A for matchHTTPRoutes
-				isBtoACover := coveredValidation(matchHTTPRoutes[rIndex], routePrefix)
-				if isBtoACover {
-					prefixMatchA := routePrefix.MatchStr + " of prefix " + routePrefix.Prefix
-					prefixMatchB := matchHTTPRoutes[rIndex].MatchStr + " of prefix " + matchHTTPRoutes[rIndex].Prefix + " on " + matchHTTPRoutes[rIndex].RouteStr
-					reportIneffective(routePrefix.RouteStr, prefixMatchA, prefixMatchB)
 				}
 			}
 		}

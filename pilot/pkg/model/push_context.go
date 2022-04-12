@@ -836,6 +836,9 @@ func (ps *PushContext) VirtualServicesForGateway(proxy *Proxy, gateway string) [
 // DelegateVirtualServicesConfigKey lists all the delegate virtual services configkeys associated with the provided virtual services
 func (ps *PushContext) DelegateVirtualServicesConfigKey(vses []config.Config) []ConfigKey {
 	var out []ConfigKey
+	if !features.EnableVirtualServiceDelegate {
+		return out
+	}
 	for _, vs := range vses {
 		out = append(out, ps.virtualServiceIndex.delegates[ConfigKey{Kind: gvk.VirtualService, Namespace: vs.Namespace, Name: vs.Name}]...)
 	}
@@ -1871,6 +1874,16 @@ func (ps *PushContext) getMatchedEnvoyFilters(proxy *Proxy, namespaces string) [
 		}
 	}
 	return matchedEnvoyFilters
+}
+
+// HasEnvoyFilters checks if an EnvoyFilter exists with the given name at the given namespace.
+func (ps *PushContext) HasEnvoyFilters(name, namespace string) bool {
+	for _, efw := range ps.envoyFiltersByNamespace[namespace] {
+		if efw.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // pre computes gateways per namespace
