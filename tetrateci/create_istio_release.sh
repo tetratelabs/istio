@@ -15,6 +15,7 @@ else
     source ${BASEDIR}/tetrateci/setup_go.sh
 fi
 
+exit 1
 ## Set up release-builder
 
 # BOM is needed for generating bill of materials, required by Istio since 1.13, https://github.com/istio/release-builder/pull/893
