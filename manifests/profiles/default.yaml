@@ -41,7 +41,6 @@ spec:
   # Global values passed through to helm global.yaml.
   # Please keep this in sync with manifests/charts/global.yaml
   values:
-    defaultRevision: ""
     global:
       istioNamespace: istio-system
       istiod:
@@ -134,7 +133,6 @@ spec:
       enableProtocolSniffingForOutbound: true
       enableProtocolSniffingForInbound: true
       deploymentLabels:
-      podLabels: {}
       configMap: true
 
     telemetry:
@@ -158,6 +156,7 @@ spec:
       
     gateways:
       istio-egressgateway:
+        zvpn: {}
         env: {}
         autoscaleEnabled: true
         type: ClusterIP
@@ -174,6 +173,7 @@ spec:
         autoscaleEnabled: true
         type: LoadBalancer
         name: istio-ingressgateway
+        zvpn: {}
         env: {}
         secretVolumes:
           - name: ingressgateway-certs

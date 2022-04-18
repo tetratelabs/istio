@@ -139,25 +139,18 @@ dispatcher.onGet(/^\/ratings\/[0-9]*/, function (req, res) {
           connection.end()
       })
     } else {
-      MongoClient.connect(url, function (err, client) {
+      MongoClient.connect(url, function (err, db) {
         if (err) {
           res.writeHead(500, {'Content-type': 'application/json'})
           res.end(JSON.stringify({error: 'could not connect to ratings database'}))
-          console.log(err)
         } else {
-          const db = client.db("test")
           db.collection('ratings').find({}).toArray(function (err, data) {
             if (err) {
               res.writeHead(500, {'Content-type': 'application/json'})
               res.end(JSON.stringify({error: 'could not load ratings from database'}))
-              console.log(err)
             } else {
-              if (data[0]) {
-                firstRating = data[0].rating
-              }
-              if (data[1]) {
-                secondRating = data[1].rating
-              }
+              firstRating = data[0].rating
+              secondRating = data[1].rating
               var result = {
                 id: productId,
                 ratings: {
@@ -168,8 +161,8 @@ dispatcher.onGet(/^\/ratings\/[0-9]*/, function (req, res) {
               res.writeHead(200, {'Content-type': 'application/json'})
               res.end(JSON.stringify(result))
             }
-            // close client once done:
-            client.close()
+            // close DB once done:
+            db.close()
           })
         }
       })

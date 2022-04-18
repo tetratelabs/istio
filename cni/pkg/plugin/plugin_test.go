@@ -23,7 +23,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	cniv1 "github.com/containernetworking/cni/pkg/types/100"
+	"github.com/containernetworking/cni/pkg/types/current"
 	"github.com/containernetworking/plugins/pkg/testutils"
 	"k8s.io/client-go/kubernetes"
 )
@@ -31,10 +31,9 @@ import (
 var (
 	ifname           = "eth0"
 	sandboxDirectory = "/tmp"
-	currentVersion   = "1.0.0"
+	currentVersion   = "0.3.0"
 	k8Args           = "K8S_POD_NAMESPACE=istio-system;K8S_POD_NAME=testPodName"
 	invalidVersion   = "0.1.0"
-	preVersion       = "0.2.0"
 
 	getKubePodInfoCalled = false
 	nsenterFuncCalled    = false
@@ -66,7 +65,7 @@ var conf = `{
         "options": ["testOption"]
     },
     "prevResult": {
-        "cniversion": "%s",
+        "cniversion": "0.3.0",
         "interfaces": [
             {
                 "name": "%s",
@@ -161,7 +160,7 @@ func testSetArgs(stdinData string) *skel.CmdArgs {
 }
 
 func testCmdInvalidVersion(t *testing.T, f func(args *skel.CmdArgs) error) {
-	cniConf := fmt.Sprintf(conf, invalidVersion, preVersion, ifname, sandboxDirectory, "mock")
+	cniConf := fmt.Sprintf(conf, invalidVersion, ifname, sandboxDirectory, "mock")
 	args := testSetArgs(cniConf)
 
 	err := f(args)
@@ -175,7 +174,7 @@ func testCmdInvalidVersion(t *testing.T, f func(args *skel.CmdArgs) error) {
 }
 
 func testCmdAdd(t *testing.T) {
-	cniConf := fmt.Sprintf(conf, currentVersion, currentVersion, ifname, sandboxDirectory, "mock")
+	cniConf := fmt.Sprintf(conf, currentVersion, ifname, sandboxDirectory, "mock")
 	testCmdAddWithStdinData(t, cniConf)
 }
 
@@ -185,19 +184,15 @@ func testCmdAddWithStdinData(t *testing.T, stdinData string) {
 
 	args := testSetArgs(stdinData)
 
-	result, _, err := testutils.CmdAddWithArgs(
-		&skel.CmdArgs{
-			Netns:     sandboxDirectory,
-			IfName:    ifname,
-			StdinData: []byte(stdinData),
-		}, func() error { return CmdAdd(args) })
+	result, _, err := testutils.CmdAddWithResult(
+		sandboxDirectory, ifname, []byte(stdinData), func() error { return CmdAdd(args) })
 	if err != nil {
 		t.Fatalf("failed with error: %v", err)
 	}
 
-	if result.Version() != cniv1.ImplementedSpecVersion {
+	if result.Version() != current.ImplementedSpecVersion {
 		t.Fatalf("failed with invalid version, expected: %v got:%v",
-			cniv1.ImplementedSpecVersion, result.Version())
+			current.ImplementedSpecVersion, result.Version())
 	}
 }
 
@@ -248,14 +243,14 @@ func TestCmdAddTwoContainers(t *testing.T) {
 		t.Fatalf("expect using mockInterceptRuleMgr, actual %v", InterceptRuleMgrTypes["mock"]())
 	}
 	r := mockIntercept.lastRedirect[len(mockIntercept.lastRedirect)-1]
-	if r.includeInboundPorts != "*" {
-		t.Fatalf("expect includeInboundPorts has value '*' set by istio, actual %v", r.includeInboundPorts)
+	if r.includePorts != "*" {
+		t.Fatalf("expect includePorts has value '*' set by istio, actual %v", r.includePorts)
 	}
 }
 
 func TestCmdAddTwoContainersWithStarInboundPort(t *testing.T) {
 	defer resetGlobalTestVariables()
-	testAnnotations[includeInboundPortsKey] = "*"
+	testAnnotations[includePortsKey] = "*"
 	testContainers = []string{"mockContainer", "mockContainer2"}
 	testCmdAdd(t)
 
@@ -267,16 +262,16 @@ func TestCmdAddTwoContainersWithStarInboundPort(t *testing.T) {
 		t.Fatalf("expect using mockInterceptRuleMgr, actual %v", InterceptRuleMgrTypes["mock"]())
 	}
 	r := mockIntercept.lastRedirect[len(mockIntercept.lastRedirect)-1]
-	if r.includeInboundPorts != "*" {
-		t.Fatalf("expect includeInboundPorts is '*', actual %v", r.includeInboundPorts)
+	if r.includePorts != "*" {
+		t.Fatalf("expect includePorts is '*', actual %v", r.includePorts)
 	}
 }
 
 func TestCmdAddTwoContainersWithEmptyInboundPort(t *testing.T) {
 	defer resetGlobalTestVariables()
-	delete(testAnnotations, includeInboundPortsKey)
+	delete(testAnnotations, includePortsKey)
 	testContainers = []string{"mockContainer", "mockContainer2"}
-	testAnnotations[includeInboundPortsKey] = ""
+	testAnnotations[includePortsKey] = ""
 	testCmdAdd(t)
 
 	if !nsenterFuncCalled {
@@ -287,14 +282,14 @@ func TestCmdAddTwoContainersWithEmptyInboundPort(t *testing.T) {
 		t.Fatalf("expect using mockInterceptRuleMgr, actual %v", InterceptRuleMgrTypes["mock"])
 	}
 	r := mockIntercept.lastRedirect[len(mockIntercept.lastRedirect)-1]
-	if r.includeInboundPorts != "" {
-		t.Fatalf("expect includeInboundPorts is \"\", actual %v", r.includeInboundPorts)
+	if r.includePorts != "" {
+		t.Fatalf("expect includePorts is \"\", actual %v", r.includePorts)
 	}
 }
 
 func TestCmdAddTwoContainersWithEmptyExcludeInboundPort(t *testing.T) {
 	defer resetGlobalTestVariables()
-	delete(testAnnotations, includeInboundPortsKey)
+	delete(testAnnotations, includePortsKey)
 	testContainers = []string{"mockContainer", "mockContainer2"}
 	testAnnotations[excludeInboundPortsKey] = ""
 	testCmdAdd(t)
@@ -314,7 +309,7 @@ func TestCmdAddTwoContainersWithEmptyExcludeInboundPort(t *testing.T) {
 
 func TestCmdAddTwoContainersWithExplictExcludeInboundPort(t *testing.T) {
 	defer resetGlobalTestVariables()
-	delete(testAnnotations, includeInboundPortsKey)
+	delete(testAnnotations, includePortsKey)
 	testContainers = []string{"mockContainer", "mockContainer2"}
 	testAnnotations[excludeInboundPortsKey] = "3306"
 	testCmdAdd(t)
@@ -418,7 +413,7 @@ func TestCmdAddInvalidK8sArgsKeyword(t *testing.T) {
 
 	k8Args = "K8S_POD_NAMESPACE_InvalidKeyword=istio-system"
 
-	cniConf := fmt.Sprintf(conf, currentVersion, currentVersion, ifname, sandboxDirectory, "mock")
+	cniConf := fmt.Sprintf(conf, currentVersion, ifname, sandboxDirectory, "mock")
 	args := testSetArgs(cniConf)
 
 	err := CmdAdd(args)
@@ -439,7 +434,7 @@ func TestCmdAddInvalidVersion(t *testing.T) {
 
 func TestCmdAddNoPrevResult(t *testing.T) {
 	confNoPrevResult := `{
-    "cniVersion": "1.0.0",
+    "cniVersion": "0.3.0",
 	"name": "istio-plugin-sample-test",
 	"type": "sample",
     "runtimeconfig": {

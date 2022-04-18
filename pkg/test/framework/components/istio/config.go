@@ -40,17 +40,13 @@ const (
 	// for integration tests
 	IntegrationTestDefaultsIOP = "tests/integration/iop-integration-test-defaults.yaml"
 
-	// IntegrationTestDefaultsIOPWithQUIC is the path of the default IstioOperator spec to
-	// use for integration tests involving QUIC
-	IntegrationTestDefaultsIOPWithQUIC = "tests/integration/iop-integration-test-defaults-with-quic.yaml"
-
 	// IntegrationTestRemoteDefaultsIOP is the path of the default IstioOperator spec to use
 	// on remote clusters for integration tests
 	IntegrationTestRemoteDefaultsIOP = "tests/integration/iop-remote-integration-test-defaults.yaml"
 
-	// IntegrationTestRemoteGatewaysIOP is the path of the default IstioOperator spec to use
-	// to install gateways on remote clusters for integration tests
-	IntegrationTestRemoteGatewaysIOP = "tests/integration/iop-remote-integration-test-gateways.yaml"
+	// IntegrationTestIstiodlessRemoteDefaultsIOP is the path of the default IstioOperator spec to use
+	// on remote clusters for integration tests when --istio.test.istio.istiodlessRemotes is set.
+	IntegrationTestIstiodlessRemoteDefaultsIOP = "tests/integration/iop-istiodless-remote-integration-test-defaults.yaml"
 
 	// IntegrationTestExternalIstiodPrimaryDefaultsIOP is the path of the default IstioOperator spec to use
 	// on external istiod primary clusters for integration tests
@@ -59,6 +55,10 @@ const (
 	// IntegrationTestExternalIstiodConfigDefaultsIOP is the path of the default IstioOperator spec to use
 	// on external istiod config clusters for integration tests
 	IntegrationTestExternalIstiodConfigDefaultsIOP = "tests/integration/iop-externalistiod-config-integration-test-defaults.yaml"
+
+	// IntegrationTestExternalIstiodRemoteDefaultsIOP is the path of the default IstioOperator spec to use
+	// on external istiod remote clusters for integration tests
+	IntegrationTestExternalIstiodRemoteDefaultsIOP = "tests/integration/iop-externalistiod-remote-integration-test-defaults.yaml"
 
 	// DefaultDeployTimeout for Istio
 	DefaultDeployTimeout = time.Second * 300

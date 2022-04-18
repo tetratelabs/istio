@@ -95,17 +95,6 @@ func (s Schemas) ForEach(handleSchema func(Schema) (done bool)) {
 	}
 }
 
-func (s Schemas) Intersect(otherSchemas Schemas) Schemas {
-	resultBuilder := NewSchemasBuilder()
-	for _, myschema := range s.All() {
-		if _, ok := otherSchemas.FindByGroupVersionResource(myschema.Resource().GroupVersionResource()); ok {
-			// an error indicates the schema has already been added, which doesn't negatively impact intersect
-			_ = resultBuilder.Add(myschema)
-		}
-	}
-	return resultBuilder.Build()
-}
-
 // Find looks up a Schema by its collection name.
 func (s Schemas) Find(collection string) (Schema, bool) {
 	i, ok := s.byCollection[Name(collection)]
@@ -121,7 +110,7 @@ func (s Schemas) MustFind(collection string) Schema {
 	return i
 }
 
-// FindByGroupVersionKind searches and returns the first schema with the given GVK
+// FindByKind searches and returns the first schema with the given kind
 func (s Schemas) FindByGroupVersionKind(gvk config.GroupVersionKind) (Schema, bool) {
 	for _, rs := range s.byAddOrder {
 		if rs.Resource().GroupVersionKind() == gvk {
@@ -132,7 +121,7 @@ func (s Schemas) FindByGroupVersionKind(gvk config.GroupVersionKind) (Schema, bo
 	return nil, false
 }
 
-// FindByGroupVersionResource searches and returns the first schema with the given GVR
+// FindByKind searches and returns the first schema with the given kind
 func (s Schemas) FindByGroupVersionResource(gvr schema.GroupVersionResource) (Schema, bool) {
 	for _, rs := range s.byAddOrder {
 		if rs.Resource().GroupVersionResource() == gvr {
@@ -143,7 +132,7 @@ func (s Schemas) FindByGroupVersionResource(gvr schema.GroupVersionResource) (Sc
 	return nil, false
 }
 
-// FindByPlural searches and returns the first schema with the given Group, Version and plural form of the Kind
+// FindByKind searches and returns the first schema with the given kind
 func (s Schemas) FindByPlural(group, version, plural string) (Schema, bool) {
 	for _, rs := range s.byAddOrder {
 		if rs.Resource().Plural() == plural &&
@@ -156,7 +145,7 @@ func (s Schemas) FindByPlural(group, version, plural string) (Schema, bool) {
 	return nil, false
 }
 
-// MustFindByGroupVersionKind calls FindByGroupVersionKind and panics if not found.
+// MustFind calls FindByGroupVersionKind and panics if not found.
 func (s Schemas) MustFindByGroupVersionKind(gvk config.GroupVersionKind) Schema {
 	r, found := s.FindByGroupVersionKind(gvk)
 	if !found {
@@ -234,6 +223,17 @@ func (s Schemas) Kinds() []string {
 
 	sort.Strings(out)
 	return out
+}
+
+// DisabledCollectionNames returns the names of disabled collections
+func (s Schemas) DisabledCollectionNames() Names {
+	disabledCollections := make(Names, 0)
+	for _, i := range s.byAddOrder {
+		if i.IsDisabled() {
+			disabledCollections = append(disabledCollections, i.Name())
+		}
+	}
+	return disabledCollections
 }
 
 // Validate the schemas. Returns error if there is a problem.

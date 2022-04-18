@@ -31,8 +31,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	xdscreds "google.golang.org/grpc/credentials/xds"
-	"google.golang.org/grpc/health"
-	grpcHealth "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
@@ -53,6 +51,7 @@ var _ Instance = &grpcInstance{}
 type grpcServer interface {
 	reflection.GRPCServer
 	Serve(listener net.Listener) error
+	RegisterService(sd *grpc.ServiceDesc, ss interface{})
 	Stop()
 }
 
@@ -115,10 +114,6 @@ func (s *grpcInstance) Start(onReady OnReadyFunc) error {
 	}
 	s.server = s.newServer(opts...)
 
-	// add the standard grpc health check
-	healthServer := health.NewServer()
-	grpcHealth.RegisterHealthServer(s.server, healthServer)
-
 	proto.RegisterEchoTestServiceServer(s.server, &grpcHandler{
 		Config: s.Config,
 	})
@@ -137,10 +132,7 @@ func (s *grpcInstance) Start(onReady OnReadyFunc) error {
 	}()
 
 	// Notify the WaitGroup once the port has transitioned to ready.
-	go s.awaitReady(func() {
-		healthServer.SetServingStatus("", grpcHealth.HealthCheckResponse_SERVING)
-		onReady()
-	}, listener)
+	go s.awaitReady(onReady, listener)
 
 	return nil
 }
@@ -153,21 +145,16 @@ func (s *grpcInstance) awaitReady(onReady OnReadyFunc, listener net.Listener) {
 		if err != nil {
 			return err
 		}
-		req := &proto.ForwardEchoRequest{
-			Url:           "grpc://" + listener.Addr().String(),
-			Message:       "hello",
-			TimeoutMicros: common.DurationToMicros(readyInterval),
-		}
-		if s.Port.XDSReadinessTLS {
-			// TODO: using the servers key/cert is not always valid, it may not be allowed to make requests to itself
-			req.CertFile = cert
-			req.KeyFile = key
-			req.CaCertFile = ca
-			req.InsecureSkipVerify = true
-		}
 		f, err := forwarder.New(forwarder.Config{
 			XDSTestBootstrap: s.Port.XDSTestBootstrap,
-			Request:          req,
+			Request: &proto.ForwardEchoRequest{
+				Url:           "grpc://" + listener.Addr().String(),
+				Message:       "hello",
+				TimeoutMicros: common.DurationToMicros(readyInterval),
+				CertFile:      cert,
+				KeyFile:       key,
+				CaCertFile:    ca,
+			},
 		})
 		defer func() {
 			_ = f.Close()

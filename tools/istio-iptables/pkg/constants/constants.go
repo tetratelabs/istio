@@ -53,13 +53,6 @@ const (
 	REDIRECT = "REDIRECT"
 	MARK     = "MARK"
 	CT       = "CT"
-	DROP     = "DROP"
-)
-
-const (
-	// IPVersionSpecific is used as an input to rules that will be replaced with an ip version (v4/v6)
-	// specific value
-	IPVersionSpecific = "PLACEHOLDER_IP_VERSION_SPECIFIC"
 )
 
 // iptables chains
@@ -91,7 +84,6 @@ const (
 	ProxyGID                  = "proxy-gid"
 	KubeVirtInterfaces        = "kube-virt-interfaces"
 	DryRun                    = "dry-run"
-	TraceLogging              = "iptables-trace-logging"
 	Clean                     = "clean"
 	RestoreFormat             = "restore-format"
 	SkipRuleApply             = "skip-rule-apply"
@@ -99,7 +91,6 @@ const (
 	IptablesProbePort         = "iptables-probe-port"
 	ProbeTimeout              = "probe-timeout"
 	RedirectDNS               = "redirect-dns"
-	DropInvalid               = "drop-invalid"
 	CaptureAllDNS             = "capture-all-dns"
 	OutputPath                = "output-paths"
 	NetworkNamespace          = "network-namespace"
@@ -124,6 +115,7 @@ const (
 	IP6TABLES        = "ip6tables"
 	IP6TABLESRESTORE = "ip6tables-restore"
 	IP6TABLESSAVE    = "ip6tables-save"
+	IP               = "ip"
 	NSENTER          = "nsenter"
 )
 
@@ -134,7 +126,7 @@ const (
 )
 
 const (
-	DefaultIptablesProbePort = "15002"
+	DefaultIptablesProbePort = 15002
 	DefaultProbeTimeout      = 5 * time.Second
 )
 
@@ -146,8 +138,4 @@ const (
 // DNS ports
 const (
 	IstioAgentDNSListenerPort = "15053"
-)
-
-const (
-	CommandConfigureRoutes = "configure-routes"
 )

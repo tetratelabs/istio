@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,7 +23,6 @@ import (
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/echo"
 	"istio.io/istio/pkg/test/framework/components/echo/echoboot"
-	"istio.io/istio/pkg/test/framework/components/echo/echotest"
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/label"
@@ -39,7 +36,7 @@ import (
 func TestMain(m *testing.M) {
 	framework.
 		NewSuite(m).
-		RequireMultiPrimary().
+		RequireSingleCluster().
 		// Requires two CPs with specific names to be configured.
 		Label(label.CustomSetup).
 		Setup(istio.Setup(nil, func(_ resource.Context, cfg *istio.Config) {
@@ -75,14 +72,14 @@ func TestMultiRevision(t *testing.T) {
 				Revision: "canary",
 			})
 
-			echos := echoboot.NewBuilder(t).
-				WithClusters(t.Clusters()...).
-				WithConfig(echo.Config{
+			var client, server, vm echo.Instance
+			echoboot.NewBuilder(t).
+				With(&client, echo.Config{
 					Service:   "client",
 					Namespace: stable,
 					Ports:     []echo.Port{},
 				}).
-				WithConfig(echo.Config{
+				With(&server, echo.Config{
 					Service:   "server",
 					Namespace: canary,
 					Ports: []echo.Port{
@@ -93,7 +90,8 @@ func TestMultiRevision(t *testing.T) {
 						},
 					},
 				}).
-				WithConfig(echo.Config{
+				// tests bootstrap
+				With(&vm, echo.Config{
 					Service:    "vm",
 					Namespace:  canary,
 					DeployAsVM: true,
@@ -101,19 +99,13 @@ func TestMultiRevision(t *testing.T) {
 				}).
 				BuildOrFail(t)
 
-			echotest.New(t, echos).
-				ConditionallyTo(echotest.ReachableDestinations).
-				To(echotest.FilterMatch(echo.Service("server"))).
-				Run(func(t framework.TestContext, src echo.Instance, dst echo.Instances) {
+			for _, src := range []echo.Instance{client, vm} {
+				src := src
+				t.NewSubTestf("from %s", src.Config().Service).Run(func(t framework.TestContext) {
 					retry.UntilSuccessOrFail(t, func() error {
 						resp, err := src.Call(echo.CallOptions{
-							Target:   dst[0],
+							Target:   server,
 							PortName: "http",
-							Count:    len(t.Clusters()) * 3,
-							Validator: echo.And(
-								echo.ExpectOK(),
-								echo.ExpectReachedClusters(t.Clusters()),
-							),
 						})
 						if err != nil {
 							return err
@@ -121,5 +113,6 @@ func TestMultiRevision(t *testing.T) {
 						return resp.CheckOK()
 					}, retry.Delay(time.Millisecond*100))
 				})
+			}
 		})
 }

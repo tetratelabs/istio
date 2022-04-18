@@ -28,7 +28,6 @@ import (
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
-	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/serviceregistry/kube"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/constants"
@@ -114,7 +113,7 @@ func ConvertIngressV1alpha3(ingress knetworking.Ingress, mesh *meshconfig.MeshCo
 	gatewayConfig := config.Config{
 		Meta: config.Meta{
 			GroupVersionKind: gvk.Gateway,
-			Name:             ingress.Name + "-" + constants.IstioIngressGatewayName + "-" + ingress.Namespace,
+			Name:             ingress.Name + "-" + constants.IstioIngressGatewayName,
 			Namespace:        ingressNamespace,
 			Domain:           domainSuffix,
 		},
@@ -151,11 +150,13 @@ func ConvertIngressVirtualService(ingress knetworking.Ingress, domainSuffix stri
 			host = "*"
 		}
 		virtualService := &networking.VirtualService{
-			Hosts:    []string{host},
-			Gateways: []string{fmt.Sprintf("%s/%s-%s-%s", ingressNamespace, ingress.Name, constants.IstioIngressGatewayName, ingress.Namespace)},
+			Hosts:    []string{},
+			Gateways: []string{fmt.Sprintf("%s/%s-%s", ingressNamespace, ingress.Name, constants.IstioIngressGatewayName)},
 		}
 
-		httpRoutes := make([]*networking.HTTPRoute, 0, len(rule.HTTP.Paths))
+		virtualService.Hosts = []string{host}
+
+		httpRoutes := make([]*networking.HTTPRoute, 0)
 		for _, httpPath := range rule.HTTP.Paths {
 			httpMatch := &networking.HTTPMatchRequest{}
 			if httpPath.PathType != nil {
@@ -171,16 +172,9 @@ func ConvertIngressVirtualService(ingress knetworking.Ingress, domainSuffix stri
 					// a "/" if not present since we won't match the prefix without trailing "/". Must be smarter and
 					// use regex.
 					path := httpPath.Path
-					if path == "/" {
-						// Optimize common case of / to not needed regex
-						httpMatch.Uri = &networking.StringMatch{
-							MatchType: &networking.StringMatch_Prefix{Prefix: path},
-						}
-					} else {
-						path = strings.TrimSuffix(path, "/")
-						httpMatch.Uri = &networking.StringMatch{
-							MatchType: &networking.StringMatch_Regex{Regex: regexp.QuoteMeta(path) + prefixMatchRegex},
-						}
+					path = strings.TrimSuffix(path, "/")
+					httpMatch.Uri = &networking.StringMatch{
+						MatchType: &networking.StringMatch_Regex{Regex: regexp.QuoteMeta(path) + prefixMatchRegex},
 					}
 				default:
 					// Fallback to the legacy string matching
@@ -215,36 +209,19 @@ func ConvertIngressVirtualService(ingress knetworking.Ingress, domainSuffix stri
 		if f {
 			vs := old.Spec.(*networking.VirtualService)
 			vs.Http = append(vs.Http, httpRoutes...)
-			if features.LegacyIngressBehavior {
-				sort.SliceStable(vs.Http, func(i, j int) bool {
-					r1 := vs.Http[i].Match[0].GetUri()
-					r2 := vs.Http[j].Match[0].GetUri()
-					_, r1Ex := r1.GetMatchType().(*networking.StringMatch_Exact)
-					_, r2Ex := r2.GetMatchType().(*networking.StringMatch_Exact)
-					// TODO: default at the end
-					if r1Ex && !r2Ex {
-						return true
-					}
-					return false
-				})
-			}
+			sort.SliceStable(vs.Http, func(i, j int) bool {
+				r1 := vs.Http[i].Match[0].GetUri()
+				r2 := vs.Http[j].Match[0].GetUri()
+				_, r1Ex := r1.GetMatchType().(*networking.StringMatch_Exact)
+				_, r2Ex := r2.GetMatchType().(*networking.StringMatch_Exact)
+				// TODO: default at the end
+				if r1Ex && !r2Ex {
+					return true
+				}
+				return false
+			})
 		} else {
 			ingressByHost[host] = &virtualServiceConfig
-		}
-
-		if !features.LegacyIngressBehavior {
-			// sort routes to meet ingress route precedence requirements
-			// see https://kubernetes.io/docs/concepts/services-networking/ingress/#multiple-matches
-			vs := ingressByHost[host].Spec.(*networking.VirtualService)
-			sort.SliceStable(vs.Http, func(i, j int) bool {
-				r1Len, r1Ex := getMatchURILength(vs.Http[i].Match[0])
-				r2Len, r2Ex := getMatchURILength(vs.Http[j].Match[0])
-				// TODO: default at the end
-				if r1Len == r2Len {
-					return r1Ex && !r2Ex
-				}
-				return r1Len > r2Len
-			})
 		}
 	}
 
@@ -254,22 +231,6 @@ func ConvertIngressVirtualService(ingress knetworking.Ingress, domainSuffix stri
 		log.Infof("Ignore default wildcard ingress, use VirtualService %s:%s",
 			ingress.Namespace, ingress.Name)
 	}
-}
-
-// getMatchURILength returns the length of matching path, and whether the match type is EXACT
-func getMatchURILength(match *networking.HTTPMatchRequest) (length int, exact bool) {
-	uri := match.GetUri()
-	switch uri.GetMatchType().(type) {
-	case *networking.StringMatch_Exact:
-		return len(uri.GetExact()), true
-	case *networking.StringMatch_Prefix:
-		return len(uri.GetPrefix()), false
-	case *networking.StringMatch_Regex:
-		// trim the regex suffix
-		return len(uri.GetRegex()) - len(prefixMatchRegex), false
-	}
-	// should not happen
-	return -1, false
 }
 
 func ingressBackendToHTTPRoute(backend *knetworking.IngressBackend, namespace string, domainSuffix string,

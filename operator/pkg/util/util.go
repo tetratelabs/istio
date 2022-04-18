@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -46,7 +47,7 @@ func ReadFilesWithFilter(path string, filter FileFilter) (string, error) {
 	}
 	var sb strings.Builder
 	for _, file := range fileList {
-		a, err := os.ReadFile(file)
+		a, err := ioutil.ReadFile(file)
 		if err != nil {
 			return "", err
 		}

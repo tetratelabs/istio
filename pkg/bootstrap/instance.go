@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path"
 	"strings"
@@ -139,7 +140,7 @@ func configFile(config string, templateFile string, epoch int) string {
 }
 
 func newTemplate(templateFilePath string) (*template.Template, error) {
-	cfgTmpl, err := os.ReadFile(templateFilePath)
+	cfgTmpl, err := ioutil.ReadFile(templateFilePath)
 	if err != nil {
 		return nil, err
 	}

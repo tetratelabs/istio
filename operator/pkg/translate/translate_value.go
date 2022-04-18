@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"strings"
 
-	"sigs.k8s.io/yaml"
+	"github.com/ghodss/yaml"
 
 	"istio.io/api/operator/v1alpha1"
 	"istio.io/istio/operator/pkg/metrics"

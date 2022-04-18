@@ -71,9 +71,7 @@ func callInternal(srcName string, opts *echo.CallOptions, send sendFunc,
 		Headers:            protoHeaders,
 		TimeoutMicros:      common.DurationToMicros(opts.Timeout),
 		Message:            opts.Message,
-		ExpectedResponse:   opts.ExpectedResponse,
 		Http2:              opts.HTTP2,
-		Http3:              opts.HTTP3,
 		Method:             opts.Method,
 		ServerFirst:        opts.Port.ServerFirst,
 		Cert:               opts.Cert,
@@ -85,11 +83,7 @@ func callInternal(srcName string, opts *echo.CallOptions, send sendFunc,
 		InsecureSkipVerify: opts.InsecureSkipVerify,
 		FollowRedirects:    opts.FollowRedirects,
 		ServerName:         opts.ServerName,
-	}
-	if opts.Alpn != nil {
-		req.Alpn = &proto.Alpn{
-			Value: opts.Alpn,
-		}
+		Alpn:               opts.Alpn,
 	}
 
 	var responses client.ParsedResponses
@@ -134,7 +128,6 @@ func CallEcho(opts *echo.CallOptions, retry bool, retryOptions ...retry.Option) 
 	send := func(req *proto.ForwardEchoRequest) (client.ParsedResponses, error) {
 		instance, err := forwarder.New(forwarder.Config{
 			Request: req,
-			Proxy:   opts.HTTPProxy,
 		})
 		if err != nil {
 			return nil, err
@@ -235,7 +228,7 @@ func fillInCallOptions(opts *echo.CallOptions) error {
 
 	if opts.Address == "" {
 		// No host specified, use the fully qualified domain name for the service.
-		opts.Address = opts.Target.Config().ClusterLocalFQDN()
+		opts.Address = opts.Target.Config().FQDN()
 	}
 
 	// Initialize the headers and add a default Host header if none provided.
@@ -245,9 +238,9 @@ func fillInCallOptions(opts *echo.CallOptions) error {
 		// Avoid mutating input, which can lead to concurrent writes
 		opts.Headers = opts.Headers.Clone()
 	}
-
-	if h := opts.GetHost(); len(h) > 0 {
-		opts.Headers["Host"] = []string{h}
+	if h := opts.Headers["Host"]; len(h) == 0 && opts.Target != nil {
+		// No host specified, use the hostname for the service.
+		opts.Headers["Host"] = []string{opts.Target.Config().HostHeader()}
 	}
 
 	if opts.Timeout <= 0 {

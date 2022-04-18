@@ -59,7 +59,7 @@ func IstioStatusJSONFromMap(jsonMap map[string]interface{}) (config.Status, erro
 	if err != nil {
 		return nil, err
 	}
-	return &status, nil
+	return status, nil
 }
 
 // FromYAML converts a canonical YAML to a proto message
@@ -180,7 +180,7 @@ func parseInputsImpl(inputs string, withValidate bool) ([]config.Config, []Istio
 		}
 
 		gvk := obj.GroupVersionKind()
-		s, exists := collections.PilotGatewayAPI.FindByGroupVersionKind(resource.FromKubernetesGVK(&gvk))
+		s, exists := collections.PilotServiceApi.FindByGroupVersionKind(resource.FromKubernetesGVK(&gvk))
 		if !exists {
 			log.Debugf("unrecognized type %v", obj.Kind)
 			others = append(others, obj)

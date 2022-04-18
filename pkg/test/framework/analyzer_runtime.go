@@ -17,6 +17,7 @@ package framework
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
 	"sync"
@@ -80,7 +81,7 @@ func dumpAnalysis() {
 	scopes.Framework.Info("\n" + string(marshaled))
 
 	outPath := path.Join(s.RunDir(), fmt.Sprintf("%s_analysis.yaml", analysis.SuiteID))
-	if err := os.WriteFile(outPath, marshaled, 0o666); err != nil {
+	if err := ioutil.WriteFile(outPath, marshaled, 0o666); err != nil {
 		scopes.Framework.Errorf("failed writing analysis to file for %s: %v", analysis.SuiteID, err)
 		return
 	}

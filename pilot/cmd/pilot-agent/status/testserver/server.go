@@ -45,6 +45,7 @@ func createHTTPServer(handlers map[string]func(rw http.ResponseWriter, _ *http.R
 
 func createDefaultFuncMap(statsToReturn string) map[string]func(rw http.ResponseWriter, _ *http.Request) {
 	return map[string]func(rw http.ResponseWriter, _ *http.Request){
+
 		"/stats": func(rw http.ResponseWriter, _ *http.Request) {
 			// Send response to be tested
 			_, err := rw.Write([]byte(statsToReturn))

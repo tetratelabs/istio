@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -139,10 +137,9 @@ func runMirrorTest(t *testing.T, options mirrorTestOptions) {
 						mirrorHost,
 					}
 
-					// we only apply to config clusters
 					deployment := tmpl.EvaluateOrFail(t,
 						file.AsStringOrFail(t, "testdata/traffic-mirroring-template.yaml"), vsc)
-					t.ConfigIstio().ApplyYAMLOrFail(t, apps.Namespace.Name(), deployment)
+					t.Config().ApplyYAMLOrFail(t, apps.Namespace.Name(), deployment)
 
 					for _, podA := range apps.PodA {
 						podA := podA

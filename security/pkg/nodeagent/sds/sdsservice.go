@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
+	"github.com/cenkalti/backoff"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
@@ -44,9 +44,8 @@ var sdsServiceLog = log.RegisterScope("sds", "SDS service debugging", 0)
 type sdsservice struct {
 	st security.SecretManager
 
-	XdsServer  *xds.DiscoveryServer
-	stop       chan struct{}
-	rootCaPath string
+	XdsServer *xds.DiscoveryServer
+	stop      chan struct{}
 }
 
 // Assert we implement the generator interface
@@ -75,7 +74,6 @@ func NewXdsServer(stop chan struct{}, gen model.XdsResourceGenerator) *xds.Disco
 		for name := range model.ConfigsOfKind(req.ConfigsUpdated, gvk.Secret) {
 			if names.Contains(name.Name) {
 				found = true
-				break
 			}
 		}
 		return found
@@ -91,8 +89,6 @@ func newSDSService(st security.SecretManager, options *security.Options) *sdsser
 		stop: make(chan struct{}),
 	}
 	ret.XdsServer = NewXdsServer(ret.stop, ret)
-
-	ret.rootCaPath = options.CARootPath
 
 	if options.FileMountedCerts {
 		return ret
@@ -148,7 +144,7 @@ func (s *sdsservice) generate(resourceNames []string) (model.Resources, error) {
 			return nil, fmt.Errorf("failed to generate secret for %v: %v", resourceName, err)
 		}
 
-		res := util.MessageToAny(toEnvoySecret(secret, s.rootCaPath))
+		res := util.MessageToAny(toEnvoySecret(secret))
 		resources = append(resources, &discovery.Resource{
 			Name:     resourceName,
 			Resource: res,
@@ -203,17 +199,12 @@ func (s *sdsservice) Close() {
 }
 
 // toEnvoySecret converts a security.SecretItem to an Envoy tls.Secret
-func toEnvoySecret(s *security.SecretItem, caRootPath string) *tls.Secret {
+func toEnvoySecret(s *security.SecretItem) *tls.Secret {
 	secret := &tls.Secret{
 		Name: s.ResourceName,
 	}
-	cfg := security.SdsCertificateConfig{}
-	ok := false
-	if s.ResourceName == security.FileRootSystemCACert {
-		cfg, ok = security.SdsCertificateConfigFromResourceNameForOSCACert(caRootPath)
-	} else {
-		cfg, ok = security.SdsCertificateConfigFromResourceName(s.ResourceName)
-	}
+
+	cfg, ok := model.SdsCertificateConfigFromResourceName(s.ResourceName)
 	if s.ResourceName == security.RootCertReqResourceName || (ok && cfg.IsRootCertificate()) {
 		secret.Type = &tls.Secret_ValidationContext{
 			ValidationContext: &tls.CertificateValidationContext{

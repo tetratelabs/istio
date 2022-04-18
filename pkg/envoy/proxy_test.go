@@ -20,14 +20,13 @@ import (
 
 	"github.com/gogo/protobuf/types"
 
-	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/config/mesh"
 )
 
 func TestEnvoyArgs(t *testing.T) {
 	proxyConfig := model.NodeMetaProxyConfig(mesh.DefaultProxyConfig())
-	proxyConfig.ClusterName = &meshconfig.ProxyConfig_ServiceCluster{ServiceCluster: "my-cluster"}
+	proxyConfig.ServiceCluster = "my-cluster"
 	proxyConfig.Concurrency = &types.Int32Value{Value: 8}
 
 	cfg := ProxyConfig{
@@ -61,6 +60,7 @@ func TestEnvoyArgs(t *testing.T) {
 		"--drain-strategy", "immediate",
 		"--parent-shutdown-time-s", "60",
 		"--local-address-ip-version", "v4",
+		"--bootstrap-version", "3",
 		"--file-flush-interval-msec", "1000",
 		"--disable-hot-restart",
 		"--log-format", "%Y-%m-%dT%T.%fZ\t%l\tenvoy %n\t%v",

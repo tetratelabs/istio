@@ -18,14 +18,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"google.golang.org/grpc/metadata"
 
 	"istio.io/pkg/env"
-	istiolog "istio.io/pkg/log"
 )
 
 const (
@@ -33,25 +31,14 @@ const (
 	// i.e. mounted Secret or external plugin.
 	// If present, FileMountedCerts should be true.
 
-	// DefaultCertChainFilePath is the well-known path for an existing certificate chain file
+	// The well-known path for an existing certificate chain file
 	DefaultCertChainFilePath = "./etc/certs/cert-chain.pem"
 
-	// DefaultKeyFilePath is the well-known path for an existing key file
+	// The well-known path for an existing key file
 	DefaultKeyFilePath = "./etc/certs/key.pem"
 
 	// DefaultRootCertFilePath is the well-known path for an existing root certificate file
 	DefaultRootCertFilePath = "./etc/certs/root-cert.pem"
-
-	// GkeWorkloadCertChainFilePath is the well-known path for the GKE workload certificate chain file.
-	// Quoted from https://cloud.google.com/traffic-director/docs/security-proxyless-setup#create-service:
-	// "On creation, each Pod gets a volume at /var/run/secrets/workload-spiffe-credentials."
-	GkeWorkloadCertChainFilePath = "./var/run/secrets/workload-spiffe-credentials/certificates.pem"
-
-	// GkeWorkloadKeyFilePath is the well-known path for the GKE workload certificate key file
-	GkeWorkloadKeyFilePath = "./var/run/secrets/workload-spiffe-credentials/private_key.pem"
-
-	// GkeWorkloadRootCertFilePath is the well-known path for the GKE workload root certificate file
-	GkeWorkloadRootCertFilePath = "./var/run/secrets/workload-spiffe-credentials/ca_certificates.pem"
 
 	// SystemRootCerts is special case input for root cert configuration to use system root certificates.
 	SystemRootCerts = "SYSTEM"
@@ -64,10 +51,8 @@ const (
 	// TODO: change all the pilot one reference definition here instead.
 	WorkloadKeyCertResourceName = "default"
 
-	// GCE is Credential fetcher type of Google plugin
-	GCE = "GoogleComputeEngine"
-
-	// Mock is Credential fetcher type of mock plugin
+	// Credential fetcher type
+	GCE  = "GoogleComputeEngine"
 	Mock = "Mock" // testing only
 
 	// GoogleCAProvider uses the Google CA for workload certificate signing
@@ -75,19 +60,13 @@ const (
 
 	// GoogleCASProvider uses the Google certificate Authority Service to sign workload certificates
 	GoogleCASProvider = "GoogleCAS"
-
-	// GkeWorkloadCertificateProvider uses the GKE workload certificates
-	GkeWorkloadCertificateProvider = "GkeWorkloadCertificate"
-
-	// FileRootSystemCACert is a unique resource name signaling that the system CA certificate should be used
-	FileRootSystemCACert = "file-root:system"
 )
 
 // TODO: For 1.8, make sure MeshConfig is updated with those settings,
 // they should be dynamic to allow migrations without restart.
 // Both are critical.
 var (
-	// Require3PToken disables the use of K8S 1P tokens. Note that 1P tokens can be used to request
+	// Require 3P TOKEN disables the use of K8S 1P tokens. Note that 1P tokens can be used to request
 	// 3P TOKENS. A 1P token is the token automatically mounted by Kubelet and used for authentication with
 	// the Apiserver.
 	Require3PToken = env.RegisterBoolVar("REQUIRE_3P_TOKEN", false,
@@ -104,9 +83,6 @@ const (
 	BearerTokenPrefix = "Bearer "
 
 	K8sTokenPrefix = "Istio "
-
-	// CertSigner info
-	CertSigner = "CertSigner"
 )
 
 // Options provides all of the configuration parameters for secret discovery service
@@ -119,9 +95,6 @@ type Options struct {
 
 	// CAEndpoint is the CA endpoint to which node agent sends CSR request.
 	CAEndpoint string
-
-	// CAEndpointSAN overrides the ServerName extracted from CAEndpoint.
-	CAEndpointSAN string
 
 	// The CA provider name.
 	CAProviderName string
@@ -203,22 +176,9 @@ type Options struct {
 	// Token manager for the token exchange of XDS
 	TokenManager TokenManager
 
-	// Cert signer info
-	CertSigner string
-
 	// Delay in reading certificates from file after the change is detected. This is useful in cases
 	// where the write operation of key and cert take longer.
 	FileDebounceDuration time.Duration
-
-	// Root Cert read from the OS
-	CARootPath string
-
-	// The path for an existing certificate chain file
-	CertChainFilePath string
-	// The path for an existing key file
-	KeyFilePath string
-	// The path for an existing root certificate bundle
-	RootCertFilePath string
 }
 
 // TokenManager contains methods for generating token.
@@ -314,7 +274,7 @@ type CredFetcher interface {
 	// GetType returns credential fetcher type. Currently the supported type is "GoogleComputeEngine".
 	GetType() string
 
-	// GetIdentityProvider returns the name of the IdentityProvider that can authenticate the workload credential.
+	// The name of the IdentityProvider that can authenticate the workload credential.
 	GetIdentityProvider() string
 
 	// Stop releases resources and cleans up.
@@ -379,96 +339,4 @@ func ExtractRequestToken(req *http.Request) (string, error) {
 	}
 
 	return "", fmt.Errorf("no bearer token exists in HTTP authorization header")
-}
-
-// GetOSRootFilePath returns the first file path detected from a list of known CA certificate file paths.
-// If none of the known CA certificate files are found, a warning in printed and an empty string is returned.
-func GetOSRootFilePath() string {
-	// Get and store the OS CA certificate path for Linux systems
-	// Source of CA File Paths: https://golang.org/src/crypto/x509/root_linux.go
-	certFiles := []string{
-		"/etc/ssl/certs/ca-certificates.crt",                // Debian/Ubuntu/Gentoo etc.
-		"/etc/pki/tls/certs/ca-bundle.crt",                  // Fedora/RHEL 6
-		"/etc/ssl/ca-bundle.pem",                            // OpenSUSE
-		"/etc/pki/tls/cacert.pem",                           // OpenELEC
-		"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
-		"/etc/ssl/cert.pem",                                 // Alpine Linux
-		"/usr/local/etc/ssl/cert.pem",                       // FreeBSD
-	}
-
-	for _, cert := range certFiles {
-		if _, err := os.Stat(cert); err == nil {
-			istiolog.Debugf("Using OS CA certificate for proxy: %s", cert)
-			return cert
-		}
-	}
-	istiolog.Warn("OS CA Cert could not be found for agent")
-	return ""
-}
-
-type SdsCertificateConfig struct {
-	CertificatePath   string
-	PrivateKeyPath    string
-	CaCertificatePath string
-}
-
-const (
-	ResourceSeparator = "~"
-)
-
-// GetResourceName converts a SdsCertificateConfig to a string to be used as an SDS resource name
-func (s SdsCertificateConfig) GetResourceName() string {
-	if s.IsKeyCertificate() {
-		return "file-cert:" + s.CertificatePath + ResourceSeparator + s.PrivateKeyPath // Format: file-cert:%s~%s
-	}
-	return ""
-}
-
-// GetRootResourceName converts a SdsCertificateConfig to a string to be used as an SDS resource name for the root
-func (s SdsCertificateConfig) GetRootResourceName() string {
-	if s.IsRootCertificate() {
-		return "file-root:" + s.CaCertificatePath // Format: file-root:%s
-	}
-	return ""
-}
-
-// IsRootCertificate returns true if this config represents a root certificate config.
-func (s SdsCertificateConfig) IsRootCertificate() bool {
-	return s.CaCertificatePath != ""
-}
-
-// IsKeyCertificate returns true if this config represents key certificate config.
-func (s SdsCertificateConfig) IsKeyCertificate() bool {
-	return s.CertificatePath != "" && s.PrivateKeyPath != ""
-}
-
-// SdsCertificateConfigFromResourceName converts the provided resource name into a SdsCertificateConfig
-// If the resource name is not valid, false is returned.
-func SdsCertificateConfigFromResourceName(resource string) (SdsCertificateConfig, bool) {
-	if strings.HasPrefix(resource, "file-cert:") {
-		filesString := strings.TrimPrefix(resource, "file-cert:")
-		split := strings.Split(filesString, ResourceSeparator)
-		if len(split) != 2 {
-			return SdsCertificateConfig{}, false
-		}
-		return SdsCertificateConfig{split[0], split[1], ""}, true
-	} else if strings.HasPrefix(resource, "file-root:") {
-		filesString := strings.TrimPrefix(resource, "file-root:")
-		split := strings.Split(filesString, ResourceSeparator)
-
-		if len(split) != 1 {
-			return SdsCertificateConfig{}, false
-		}
-		return SdsCertificateConfig{"", "", split[0]}, true
-	} else {
-		return SdsCertificateConfig{}, false
-	}
-}
-
-// SdsCertificateConfigFromResourceNameForOSCACert converts the OS resource name into a SdsCertificateConfig
-func SdsCertificateConfigFromResourceNameForOSCACert(resource string) (SdsCertificateConfig, bool) {
-	if resource == "" {
-		return SdsCertificateConfig{}, false
-	}
-	return SdsCertificateConfig{"", "", resource}, true
 }

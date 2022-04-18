@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,7 +31,6 @@ import (
 	"istio.io/istio/pkg/test/framework/components/echo/echoboot"
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/components/namespace"
-	"istio.io/istio/pkg/test/framework/label"
 	"istio.io/istio/pkg/test/kube"
 	"istio.io/istio/pkg/test/util/file"
 	"istio.io/istio/pkg/test/util/retry"
@@ -64,7 +61,7 @@ func TestAuthorization_mTLS(t *testing.T) {
 				}
 				policies := tmpl.EvaluateAllOrFail(t, args,
 					file.AsStringOrFail(t, "testdata/authz/v1beta1-mtls.yaml.tmpl"))
-				t.ConfigIstio().ApplyYAMLOrFail(t, apps.Namespace1.Name(), policies...)
+				t.Config().ApplyYAMLOrFail(t, apps.Namespace1.Name(), policies...)
 				util.WaitForConfig(t, apps.Namespace1, policies...)
 				for _, cluster := range t.Clusters() {
 					t.NewSubTest(fmt.Sprintf("From %s", cluster.StableName())).Run(func(t framework.TestContext) {
@@ -109,7 +106,6 @@ func TestAuthorization_mTLS(t *testing.T) {
 // TestAuthorization_JWT tests v1beta1 authorization with JWT token claims.
 func TestAuthorization_JWT(t *testing.T) {
 	framework.NewTest(t).
-		Label(label.IPv4). // https://github.com/istio/istio/issues/35835
 		Features("security.authorization.jwt-token").
 		Run(func(t framework.TestContext) {
 			ns := apps.Namespace1
@@ -124,7 +120,7 @@ func TestAuthorization_JWT(t *testing.T) {
 				}
 				policies := tmpl.EvaluateAllOrFail(t, args,
 					file.AsStringOrFail(t, "testdata/authz/v1beta1-jwt.yaml.tmpl"))
-				t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), policies...)
+				t.Config().ApplyYAMLOrFail(t, ns.Name(), policies...)
 				util.WaitForConfig(t, ns, policies...)
 				for _, srcCluster := range t.Clusters() {
 					t.NewSubTest(fmt.Sprintf("From %s", srcCluster.StableName())).Run(func(t framework.TestContext) {
@@ -303,7 +299,7 @@ func TestAuthorization_WorkloadSelector(t *testing.T) {
 							}
 							applyPolicy := func(filename string, ns namespace.Instance) {
 								policy := tmpl.EvaluateAllOrFail(t, args, file.AsStringOrFail(t, filename))
-								t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), policy...)
+								t.Config().ApplyYAMLOrFail(t, ns.Name(), policy...)
 								util.WaitForConfig(t, ns, policy...)
 							}
 							applyPolicy("testdata/authz/v1beta1-workload-ns1.yaml.tmpl", ns1)
@@ -340,7 +336,7 @@ func TestAuthorization_Deny(t *testing.T) {
 			}
 			applyPolicy := func(filename string, ns namespace.Instance) {
 				policy := tmpl.EvaluateAllOrFail(t, args, file.AsStringOrFail(t, filename))
-				t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), policy...)
+				t.Config().ApplyYAMLOrFail(t, ns.Name(), policy...)
 				util.WaitForConfig(t, ns, policy...)
 			}
 			applyPolicy("testdata/authz/v1beta1-deny.yaml.tmpl", ns)
@@ -426,7 +422,7 @@ func TestAuthorization_NegativeMatch(t *testing.T) {
 			}
 			applyPolicy := func(filename string) {
 				policy := tmpl.EvaluateAllOrFail(t, args, file.AsStringOrFail(t, filename))
-				t.ConfigIstio().ApplyYAMLOrFail(t, "", policy...)
+				t.Config().ApplyYAMLOrFail(t, "", policy...)
 			}
 			applyPolicy("testdata/authz/v1beta1-negative-match.yaml.tmpl")
 			callCount := 1
@@ -530,7 +526,7 @@ func TestAuthorization_IngressGateway(t *testing.T) {
 
 					applyPolicy := func(filename string) {
 						policy := tmpl.EvaluateAllOrFail(t, args, file.AsStringOrFail(t, filename))
-						t.ConfigIstio().ApplyYAMLOrFail(t, "", policy...)
+						t.Config().ApplyYAMLOrFail(t, "", policy...)
 					}
 					applyPolicy("testdata/authz/v1beta1-ingress-gateway.yaml.tmpl")
 
@@ -697,7 +693,6 @@ func TestAuthorization_IngressGateway(t *testing.T) {
 // TestAuthorization_EgressGateway tests v1beta1 authorization on egress gateway.
 func TestAuthorization_EgressGateway(t *testing.T) {
 	framework.NewTest(t).
-		Label(label.IPv4). // https://github.com/istio/istio/issues/35835
 		Features("security.authorization.egress-gateway").
 		Run(func(t framework.TestContext) {
 			ns := apps.Namespace1
@@ -717,7 +712,7 @@ func TestAuthorization_EgressGateway(t *testing.T) {
 					}
 					policies := tmpl.EvaluateAllOrFail(t, args,
 						file.AsStringOrFail(t, "testdata/authz/v1beta1-egress-gateway.yaml.tmpl"))
-					t.ConfigIstio().ApplyYAMLOrFail(t, "", policies...)
+					t.Config().ApplyYAMLOrFail(t, "", policies...)
 
 					cases := []struct {
 						name  string
@@ -896,7 +891,7 @@ func TestAuthorization_TCP(t *testing.T) {
 						"e":          e[0].Config().Service,
 						"a":          a[0].Config().Service,
 					}, file.AsStringOrFail(t, "testdata/authz/v1beta1-tcp.yaml.tmpl"))
-					t.ConfigIstio().ApplyYAMLOrFail(t, "", policy...)
+					t.Config().ApplyYAMLOrFail(t, "", policy...)
 					cases := []rbacUtil.TestCase{
 						// The policy on workload b denies request with path "/data" to port 8091:
 						// - request to port http-8091 should be denied because both path and port are matched.
@@ -958,7 +953,7 @@ func TestAuthorization_TCP(t *testing.T) {
 						"e":          e[0].Config().Service,
 						"a":          a[0].Config().Service,
 					}, file.AsStringOrFail(t, "testdata/authz/v1beta1-tcp.yaml.tmpl"))
-					t.ConfigIstio().ApplyYAMLOrFail(t, "", policy...)
+					t.Config().ApplyYAMLOrFail(t, "", policy...)
 					cases := []rbacUtil.TestCase{
 						// The policy on workload vm denies request to port 8091:
 						// - request to port http-8091 should be denied because the port is matched.
@@ -1022,7 +1017,7 @@ func TestAuthorization_Conditions(t *testing.T) {
 							}
 
 							policies := tmpl.EvaluateAllOrFail(t, args, file.AsStringOrFail(t, "testdata/authz/v1beta1-conditions.yaml.tmpl"))
-							t.ConfigIstio().ApplyYAMLOrFail(t, "", policies...)
+							t.Config().ApplyYAMLOrFail(t, "", policies...)
 							callCount := 1
 							if t.Clusters().IsMulticluster() {
 								// so we can validate all clusters are hit
@@ -1134,7 +1129,7 @@ func TestAuthorization_GRPC(t *testing.T) {
 							}
 							policies := tmpl.EvaluateAllOrFail(t, args,
 								file.AsStringOrFail(t, "testdata/authz/v1beta1-grpc.yaml.tmpl"))
-							t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), policies...)
+							t.Config().ApplyYAMLOrFail(t, ns.Name(), policies...)
 							util.WaitForConfig(t, ns, policies...)
 							cases := []rbacUtil.TestCase{
 								{
@@ -1199,7 +1194,7 @@ func TestAuthorization_Path(t *testing.T) {
 						}
 						policies := tmpl.EvaluateAllOrFail(t, args,
 							file.AsStringOrFail(t, "testdata/authz/v1beta1-path.yaml.tmpl"))
-						t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), policies...)
+						t.Config().ApplyYAMLOrFail(t, ns.Name(), policies...)
 						util.WaitForConfig(t, ns, policies...)
 
 						callCount := 1
@@ -1294,7 +1289,7 @@ func TestAuthorization_Audit(t *testing.T) {
 					}
 					applyPolicy := func(filename string, ns namespace.Instance) {
 						policy := tmpl.EvaluateAllOrFail(t, args, file.AsStringOrFail(t, filename))
-						t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), policy...)
+						t.Config().ApplyYAMLOrFail(t, ns.Name(), policy...)
 						util.WaitForConfig(t, ns, policy...)
 					}
 					applyPolicy("testdata/authz/v1beta1-audit.yaml.tmpl", ns)
@@ -1345,7 +1340,7 @@ func TestAuthorization_Audit(t *testing.T) {
 							"dst":       tc.dst[0].Config().Service,
 						}
 						policies := tmpl.EvaluateAllOrFail(t, args, file.AsStringOrFail(t, tc.configFile))
-						t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), policies...)
+						t.Config().ApplyYAMLOrFail(t, ns.Name(), policies...)
 						util.WaitForConfig(t, ns, policies...)
 						rbacUtil.RunRBACTest(t, tc.subCases)
 					})
@@ -1369,7 +1364,7 @@ func TestAuthorization_Custom(t *testing.T) {
 
 			applyYAML := func(filename string, namespace string) {
 				policy := tmpl.EvaluateAllOrFail(t, args, file.AsStringOrFail(t, filename))
-				t.ConfigIstio().ApplyYAMLOrFail(t, namespace, policy...)
+				t.Config().ApplyYAMLOrFail(t, namespace, policy...)
 			}
 
 			// Deploy and wait for the ext-authz server to be ready.

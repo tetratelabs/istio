@@ -18,13 +18,12 @@ import (
 	"math"
 
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
-	"google.golang.org/protobuf/proto"
-	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/wrappers"
 
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking"
 	"istio.io/istio/pilot/pkg/networking/util"
-	labelutil "istio.io/istio/pilot/pkg/serviceregistry/util/label"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/network"
@@ -71,11 +70,9 @@ func (b *EndpointBuilder) EndpointsByNetworkFilter(endpoints []*LocLbEndpointsAn
 			// When multiplying, be careful to avoid overflow - clipping the
 			// result at the maximum value for uint32.
 			weight := b.scaleEndpointLBWeight(lbEp, scaleFactor)
-			if lbEp.GetLoadBalancingWeight().GetValue() != weight {
-				lbEp = proto.Clone(lbEp).(*endpoint.LbEndpoint)
-				lbEp.LoadBalancingWeight = &wrappers.UInt32Value{
-					Value: weight,
-				}
+			lbEp := proto.Clone(lbEp).(*endpoint.LbEndpoint)
+			lbEp.LoadBalancingWeight = &wrappers.UInt32Value{
+				Value: weight,
 			}
 
 			istioEndpoint := ep.istioEndpoints[i]
@@ -88,7 +85,7 @@ func (b *EndpointBuilder) EndpointsByNetworkFilter(endpoints []*LocLbEndpointsAn
 			// directly from the local network.
 			if b.proxy.InNetwork(epNetwork) || len(gateways) == 0 {
 				// The endpoint is directly reachable - just add it.
-				lbEndpoints.append(ep.istioEndpoints[i], lbEp, ep.istioEndpoints[i].TunnelAbility)
+				lbEndpoints.emplace(lbEp, ep.tunnelMetadata[i])
 				continue
 			}
 
@@ -129,7 +126,6 @@ func (b *EndpointBuilder) EndpointsByNetworkFilter(endpoints []*LocLbEndpointsAn
 				Locality: model.Locality{
 					ClusterID: gw.Cluster,
 				},
-				Labels: labelutil.AugmentLabels(nil, gw.Cluster, "", gw.Network),
 			}
 
 			// Generate the EDS endpoint for this gateway.
@@ -221,11 +217,21 @@ func (b *EndpointBuilder) EndpointsWithMTLSFilter(endpoints []*LocLbEndpointsAnd
 				// no mTLS, skip it
 				continue
 			}
-			lbEndpoints.append(ep.istioEndpoints[i], lbEp, ep.istioEndpoints[i].TunnelAbility)
+			lbEndpoints.emplace(lbEp, ep.tunnelMetadata[i])
 		}
 
 		filtered = append(filtered, lbEndpoints)
 	}
 
 	return filtered
+}
+
+func envoytransportSocketMetadata(ep *endpoint.LbEndpoint, key string) string {
+	if ep.Metadata != nil &&
+		ep.Metadata.FilterMetadata[util.EnvoyTransportSocketMetadataKey] != nil &&
+		ep.Metadata.FilterMetadata[util.EnvoyTransportSocketMetadataKey].Fields != nil &&
+		ep.Metadata.FilterMetadata[util.EnvoyTransportSocketMetadataKey].Fields[key] != nil {
+		return ep.Metadata.FilterMetadata[util.EnvoyTransportSocketMetadataKey].Fields[key].GetStringValue()
+	}
+	return ""
 }

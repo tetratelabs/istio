@@ -18,12 +18,15 @@ import (
 	"sync"
 	"time"
 
-	udpa "github.com/cncf/xds/go/udpa/type/v1"
+	udpa "github.com/cncf/udpa/go/udpa/type/v1"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	wasm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3"
+	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/conversion"
+	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/any"
 	"go.uber.org/atomic"
-	any "google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 const (
@@ -61,6 +64,35 @@ func MaybeConvertWasmExtensionConfig(resources []*any.Any, cache Cache) bool {
 	return sendNack.Load()
 }
 
+// MaybeConvertWasmExtensionConfigDelta converts any presence of module remote download to local file.
+// It downloads the Wasm module and stores the module locally in the file system.
+func MaybeConvertWasmExtensionConfigDelta(resources []*discovery.Resource, cache Cache) bool {
+	var wg sync.WaitGroup
+	numResources := len(resources)
+	wg.Add(numResources)
+	sendNack := atomic.NewBool(false)
+	startTime := time.Now()
+	defer func() {
+		wasmConfigConversionDuration.Record(float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	for i := 0; i < numResources; i++ {
+		go func(i int) {
+			defer wg.Done()
+
+			newExtensionConfig, nack := convert(resources[i].Resource, cache)
+			if nack {
+				sendNack.Store(true)
+				return
+			}
+			resources[i].Resource = newExtensionConfig
+		}(i)
+	}
+
+	wg.Wait()
+	return sendNack.Load()
+}
+
 func convert(resource *any.Any, cache Cache) (newExtensionConfig *any.Any, sendNack bool) {
 	ec := &core.TypedExtensionConfig{}
 	newExtensionConfig = resource
@@ -76,35 +108,29 @@ func convert(resource *any.Any, cache Cache) (newExtensionConfig *any.Any, sendN
 		return
 	}
 
-	wasmHTTPFilterConfig := &wasm.Wasm{}
-	// Wasm filter can be configured using typed struct and Wasm filter type
+	// Currently Wasm filter can only be configured using typed struct via EnvoyFilter.
 	wasmLog.Debugf("original extension config resource %+v", ec)
-	if ec.GetTypedConfig() != nil && ec.GetTypedConfig().TypeUrl == wasmHTTPFilterType {
-		err := ec.GetTypedConfig().UnmarshalTo(wasmHTTPFilterConfig)
-		if err != nil {
-			wasmLog.Debugf("failed to unmarshal extension config resource into Wasm HTTP filter: %v", err)
-			return
-		}
-	} else if ec.GetTypedConfig() == nil || ec.GetTypedConfig().TypeUrl != typedStructType {
+	if ec.GetTypedConfig() == nil && ec.GetTypedConfig().TypeUrl != typedStructType {
 		wasmLog.Debugf("cannot find typed struct in %+v", ec)
 		return
-	} else {
-		wasmStruct := &udpa.TypedStruct{}
-		wasmTypedConfig := ec.GetTypedConfig()
-		if err := wasmTypedConfig.UnmarshalTo(wasmStruct); err != nil {
-			wasmLog.Debugf("failed to unmarshal typed config for wasm filter: %v", err)
-			return
-		}
+	}
+	wasmStruct := &udpa.TypedStruct{}
+	wasmTypedConfig := ec.GetTypedConfig()
+	// nolint: staticcheck
+	if err := ptypes.UnmarshalAny(wasmTypedConfig, wasmStruct); err != nil {
+		wasmLog.Debugf("failed to unmarshal typed config for wasm filter: %v", err)
+		return
+	}
 
-		if wasmStruct.TypeUrl != wasmHTTPFilterType {
-			wasmLog.Debugf("typed extension config %+v does not contain wasm http filter", wasmStruct)
-			return
-		}
+	if wasmStruct.TypeUrl != wasmHTTPFilterType {
+		wasmLog.Debugf("typed extension config %+v does not contain wasm http filter", wasmStruct)
+		return
+	}
 
-		if err := conversion.StructToMessage(wasmStruct.Value, wasmHTTPFilterConfig); err != nil {
-			wasmLog.Debugf("failed to convert extension config struct %+v to Wasm HTTP filter", wasmStruct)
-			return
-		}
+	wasmHTTPFilterConfig := &wasm.Wasm{}
+	if err := conversion.StructToMessage(wasmStruct.Value, wasmHTTPFilterConfig); err != nil {
+		wasmLog.Debugf("failed to convert extension config struct %+v to Wasm HTTP filter", wasmStruct)
+		return
 	}
 
 	if wasmHTTPFilterConfig.Config.GetVmConfig().GetCode().GetRemote() == nil {
@@ -126,15 +152,11 @@ func convert(resource *any.Any, cache Cache) (newExtensionConfig *any.Any, sendN
 		wasmLog.Errorf("wasm remote fetch %+v does not have httpUri specified", remote)
 		return
 	}
-	// checksum sent by istiod can be "nil" if not set by user - magic value used to avoid unmarshaling errors
-	if remote.Sha256 == "nil" {
-		remote.Sha256 = ""
-	}
 	timeout := time.Duration(0)
 	if remote.GetHttpUri().Timeout != nil {
 		timeout = remote.GetHttpUri().Timeout.AsDuration()
 	}
-	f, err := cache.Get(httpURI.GetUri(), remote.Sha256, timeout)
+	f, err := cache.Get(httpURI.GetUri(), remote.GetSha256(), timeout)
 	if err != nil {
 		status = fetchFailure
 		wasmLog.Errorf("cannot fetch Wasm module %v: %v", remote.GetHttpUri().GetUri(), err)
@@ -152,7 +174,7 @@ func convert(resource *any.Any, cache Cache) (newExtensionConfig *any.Any, sendN
 		},
 	}
 
-	wasmTypedConfig, err := any.New(wasmHTTPFilterConfig)
+	wasmTypedConfig, err = anypb.New(wasmHTTPFilterConfig)
 	if err != nil {
 		status = marshalFailure
 		wasmLog.Errorf("failed to marshal new wasm HTTP filter %+v to protobuf Any: %v", wasmHTTPFilterConfig, err)
@@ -161,7 +183,7 @@ func convert(resource *any.Any, cache Cache) (newExtensionConfig *any.Any, sendN
 	ec.TypedConfig = wasmTypedConfig
 	wasmLog.Debugf("new extension config resource %+v", ec)
 
-	nec, err := any.New(ec)
+	nec, err := anypb.New(ec)
 	if err != nil {
 		status = marshalFailure
 		wasmLog.Errorf("failed to marshal new extension config resource: %v", err)

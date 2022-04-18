@@ -17,15 +17,15 @@ package bugreport
 import (
 	"encoding/json"
 	"fmt"
-	"os"
+	"io/ioutil"
 	"time"
 
-	jsonpatch "github.com/evanphx/json-patch/v5"
+	jsonpatch "github.com/evanphx/json-patch"
+	"github.com/ghodss/yaml"
 	"github.com/spf13/cobra"
-	"sigs.k8s.io/yaml"
 
-	"istio.io/istio/pkg/kube/inject"
 	config2 "istio.io/istio/tools/bug-report/pkg/config"
+	"istio.io/pkg/log"
 )
 
 var (
@@ -73,12 +73,12 @@ func addFlags(cmd *cobra.Command, args *config2.BugReportConfig) {
 	// log time ranges
 	cmd.PersistentFlags().StringVar(&startTime, "start-time", "",
 		"Start time for the range of log entries to include in the archive. "+
-			"Default is the infinite past. If set, --duration must be unset.")
+			"Default is the infinite past. If set, Since must be unset.")
 	cmd.PersistentFlags().StringVar(&endTime, "end-time", "",
 		"End time for the range of log entries to include in the archive. Default is now.")
 	cmd.PersistentFlags().DurationVar(&since, "duration", 0,
 		"How far to go back in time from end-time for log entries to include in the archive. "+
-			"Default is infinity. If set, --start-time must be unset.")
+			"Default is infinity. If set, start-time must be unset.")
 
 	// log error control
 	cmd.PersistentFlags().StringSliceVar(&args.CriticalErrors, "critical-errs", nil,
@@ -96,7 +96,7 @@ func addFlags(cmd *cobra.Command, args *config2.BugReportConfig) {
 func parseConfig() (*config2.BugReportConfig, error) {
 	fileConfig := &config2.BugReportConfig{}
 	if configFile != "" {
-		b, err := os.ReadFile(configFile)
+		b, err := ioutil.ReadFile(configFile)
 		if err != nil {
 			return nil, err
 		}
@@ -105,8 +105,8 @@ func parseConfig() (*config2.BugReportConfig, error) {
 		}
 	}
 
-	if err := parseTimes(gConfig, startTime, endTime, since); err != nil {
-		return nil, err
+	if err := parseTimes(gConfig, startTime, endTime); err != nil {
+		log.Fatal(err.Error())
 	}
 	gConfig.CommandTimeout = config2.Duration(commandTimeout)
 	for _, s := range included {
@@ -128,17 +128,13 @@ func parseConfig() (*config2.BugReportConfig, error) {
 		if err := ess.UnmarshalJSON([]byte(s)); err != nil {
 			return nil, err
 		}
-		ess.Namespaces = filterSystemNamespacesOut(ess.Namespaces)
-		if len(ess.Namespaces) > 0 {
-			gConfig.Exclude = append(gConfig.Exclude, ess)
-		}
+		gConfig.Exclude = append(gConfig.Exclude, ess)
 	}
 	return overlayConfig(fileConfig, gConfig)
 }
 
-func parseTimes(config *config2.BugReportConfig, startTime, endTime string, duration time.Duration) error {
+func parseTimes(config *config2.BugReportConfig, startTime, endTime string) error {
 	config.EndTime = time.Now()
-	config.Since = config2.Duration(duration)
 	if endTime != "" {
 		var err error
 		config.EndTime, err = time.Parse(time.RFC3339, endTime)
@@ -148,7 +144,7 @@ func parseTimes(config *config2.BugReportConfig, startTime, endTime string, dura
 	}
 	if config.Since != 0 {
 		if startTime != "" {
-			return fmt.Errorf("only one --start-time or --duration may be set")
+			return fmt.Errorf("only one --start-time or --since may be set")
 		}
 		config.StartTime = config.EndTime.Add(-1 * time.Duration(config.Since))
 	} else {
@@ -159,9 +155,6 @@ func parseTimes(config *config2.BugReportConfig, startTime, endTime string, dura
 			config.StartTime, err = time.Parse(time.RFC3339, startTime)
 			if err != nil {
 				return fmt.Errorf("bad format for start-time: %s, expect RFC3339 e.g. %s", startTime, time.RFC3339)
-			}
-			if config.StartTime.After(config.EndTime) {
-				return fmt.Errorf("bad format for start-time and end-time: start-time is after end-time")
 			}
 		}
 	}
@@ -186,15 +179,4 @@ func overlayConfig(base, overlay *config2.BugReportConfig) (*config2.BugReportCo
 	out := &config2.BugReportConfig{}
 	err = json.Unmarshal(mj, out)
 	return out, err
-}
-
-func filterSystemNamespacesOut(namespaces []string) []string {
-	filteredNss := make([]string, 0)
-	for _, ns := range namespaces {
-		if inject.IgnoredNamespaces.Contains(ns) {
-			continue
-		}
-		filteredNss = append(filteredNss, ns)
-	}
-	return filteredNss
 }

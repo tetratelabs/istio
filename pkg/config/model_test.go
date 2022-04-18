@@ -24,7 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/gateway-api/apis/v1alpha2"
+	"sigs.k8s.io/gateway-api/apis/v1alpha1"
 
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pkg/test/config"
@@ -95,9 +95,9 @@ func TestDeepCopyTypes(t *testing.T) {
 		},
 		// gateway-api type
 		{
-			&v1alpha2.GatewayClassSpec{ControllerName: "foo"},
+			&v1alpha1.GatewayClassSpec{Controller: "foo"},
 			func(c Spec) Spec {
-				c.(*v1alpha2.GatewayClassSpec).ControllerName = "bar"
+				c.(*v1alpha1.GatewayClassSpec).Controller = "bar"
 				return c
 			},
 			nil,
@@ -120,52 +120,12 @@ func TestDeepCopyTypes(t *testing.T) {
 			},
 			protocmp.Transform(),
 		},
-		// Random struct pointer
+		// Random struct
 		{
 			&TestStruct{Name: "foobar"},
 			func(c Spec) Spec {
 				c.(*TestStruct).Name = "bar"
 				return c
-			},
-			nil,
-		},
-		// Random struct
-		{
-			TestStruct{Name: "foobar"},
-			func(c Spec) Spec {
-				x := c.(TestStruct)
-				x.Name = "bar"
-				return x
-			},
-			nil,
-		},
-		// Slice
-		{
-			[]string{"foo"},
-			func(c Spec) Spec {
-				x := c.([]string)
-				x[0] = "a"
-				return x
-			},
-			nil,
-		},
-		// Array
-		{
-			[1]string{"foo"},
-			func(c Spec) Spec {
-				x := c.([1]string)
-				x[0] = "a"
-				return x
-			},
-			nil,
-		},
-		// Map
-		{
-			map[string]string{"a": "b"},
-			func(c Spec) Spec {
-				x := c.(map[string]string)
-				x["a"] = "x"
-				return x
 			},
 			nil,
 		},
@@ -205,12 +165,13 @@ func TestApplyJSON(t *testing.T) {
 		},
 		// gateway-api type
 		{
-			input:  &v1alpha2.GatewayClassSpec{},
-			json:   `{"controllerName":"foobar","fake-field":1}`,
-			output: &v1alpha2.GatewayClassSpec{ControllerName: "foobar"},
+			input:  &v1alpha1.GatewayClassSpec{},
+			json:   `{"controller":"foobar","fake-field":1}`,
+			output: &v1alpha1.GatewayClassSpec{Controller: "foobar"},
 		},
 		// mock type
 		{
+
 			input:  &config.MockConfig{},
 			json:   `{"key":"foobar","fake-field":1}`,
 			output: &config.MockConfig{Key: "foobar"},
@@ -261,11 +222,12 @@ func TestToJSON(t *testing.T) {
 		},
 		// gateway-api type
 		{
-			input: &v1alpha2.GatewayClassSpec{ControllerName: "foobar"},
-			json:  `{"controllerName":"foobar"}`,
+			input: &v1alpha1.GatewayClassSpec{Controller: "foobar"},
+			json:  `{"controller":"foobar"}`,
 		},
 		// mock type
 		{
+
 			input: &config.MockConfig{Key: "foobar"},
 			json:  `{"key":"foobar"}`,
 		},
@@ -314,13 +276,14 @@ func TestToMap(t *testing.T) {
 		},
 		// gateway-api type
 		{
-			input: &v1alpha2.GatewayClassSpec{ControllerName: "foobar"},
+			input: &v1alpha1.GatewayClassSpec{Controller: "foobar"},
 			mp: map[string]interface{}{
-				"controllerName": "foobar",
+				"controller": "foobar",
 			},
 		},
 		// mock type
 		{
+
 			input: &config.MockConfig{Key: "foobar"},
 			mp: map[string]interface{}{
 				"key": "foobar",

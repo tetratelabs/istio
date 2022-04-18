@@ -15,18 +15,16 @@
 package xds
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"sort"
 	"strconv"
+	"strings"
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
-	"google.golang.org/protobuf/proto"
-	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/wrappers"
 
 	networkingapi "istio.io/api/networking/v1alpha3"
-	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking"
 	"istio.io/istio/pilot/pkg/networking/util"
@@ -102,10 +100,9 @@ func NewEndpointBuilder(clusterName string, proxy *model.Proxy, push *model.Push
 		hostname:   hostname,
 		port:       port,
 	}
-
-	// We need this for multi-network, or for clusters meant for use with AUTO_PASSTHROUGH.
-	if features.EnableAutomTLSCheckPolicies ||
-		b.push.NetworkManager().IsMultiNetworkEnabled() || model.IsDNSSrvSubsetKey(clusterName) {
+	if b.push.NetworkManager().IsMultiNetworkEnabled() || model.IsDNSSrvSubsetKey(clusterName) {
+		// We only need this for multi-network, or for clusters meant for use with AUTO_PASSTHROUGH
+		// As an optimization, we skip this logic entirely for everything else.
 		b.mtlsChecker = newMtlsChecker(push, port, dr)
 	}
 	return b
@@ -129,7 +126,7 @@ func (b EndpointBuilder) Key() string {
 		b.tunnelType.ToString(),
 	}
 	if b.push != nil && b.push.AuthnPolicies != nil {
-		params = append(params, b.push.AuthnPolicies.GetVersion())
+		params = append(params, b.push.AuthnPolicies.AggregateVersion)
 	}
 	if b.destinationRule != nil {
 		params = append(params, b.destinationRule.Name+"/"+b.destinationRule.Namespace)
@@ -145,12 +142,7 @@ func (b EndpointBuilder) Key() string {
 		sort.Strings(nv)
 		params = append(params, nv...)
 	}
-	hash := md5.New()
-	for _, param := range params {
-		hash.Write([]byte(param))
-	}
-	sum := hash.Sum(nil)
-	return hex.EncodeToString(sum)
+	return "eds://" + strings.Join(params, "~")
 }
 
 func (b EndpointBuilder) Cacheable() bool {
@@ -242,6 +234,11 @@ func (e *LocLbEndpointsAndOptions) append(ep *model.IstioEndpoint, le *endpoint.
 	e.tunnelMetadata = append(e.tunnelMetadata, MakeTunnelApplier(le, tunnelOpt))
 }
 
+func (e *LocLbEndpointsAndOptions) emplace(le *endpoint.LbEndpoint, tunnelMetadata EndpointTunnelApplier) {
+	e.llbEndpoints.LbEndpoints = append(e.llbEndpoints.LbEndpoints, le)
+	e.tunnelMetadata = append(e.tunnelMetadata, tunnelMetadata)
+}
+
 func (e *LocLbEndpointsAndOptions) refreshWeight() {
 	var weight *wrappers.UInt32Value
 	if len(e.llbEndpoints.LbEndpoints) == 0 {
@@ -278,21 +275,20 @@ func (b *EndpointBuilder) buildLocalityLbEndpointsFromShards(
 	// Extract shard keys so we can iterate in order. This ensures a stable EDS output. Since
 	// len(shards) ~= number of remote clusters which isn't too large, doing this sort shouldn't be
 	// too problematic. If it becomes an issue we can cache it in the EndpointShards struct.
-	keys := make([]model.ShardKey, 0, len(shards.Shards))
+	keys := make([]string, 0, len(shards.Shards))
 	for k := range shards.Shards {
 		keys = append(keys, k)
 	}
 	if len(keys) >= 2 {
-		sort.Slice(keys, func(i, j int) bool {
-			return keys[i] < keys[j]
-		})
+		sort.Strings(keys)
 	}
-	// The shards are updated independently, now need to filter and merge for this cluster
-	for _, shardKey := range keys {
-		endpoints := shards.Shards[shardKey]
+	// The shards are updated independently, now need to filter and merge
+	// for this cluster
+	for _, clusterID := range keys {
+		endpoints := shards.Shards[clusterID]
 		// If the downstream service is configured as cluster-local, only include endpoints that
 		// reside in the same cluster.
-		if isClusterLocal && (shardKey.Cluster() != b.clusterID) {
+		if isClusterLocal && (cluster.ID(clusterID) != b.clusterID) {
 			continue
 		}
 		for _, ep := range endpoints {
@@ -322,21 +318,13 @@ func (b *EndpointBuilder) buildLocalityLbEndpointsFromShards(
 			if ep.EnvoyEndpoint == nil {
 				ep.EnvoyEndpoint = buildEnvoyLbEndpoint(ep)
 			}
+			locLbEps.append(ep, ep.EnvoyEndpoint, ep.TunnelAbility)
+
 			// detect if mTLS is possible for this endpoint, used later during ep filtering
 			// this must be done while converting IstioEndpoints because we still have workload labels
 			if b.mtlsChecker != nil {
 				b.mtlsChecker.computeForEndpoint(ep)
-				if features.EnableAutomTLSCheckPolicies {
-					tlsMode := ep.TLSMode
-					if b.mtlsChecker.isMtlsDisabled(ep.EnvoyEndpoint) {
-						tlsMode = ""
-					}
-					if nep, modified := util.MaybeApplyTLSModeLabel(ep.EnvoyEndpoint, tlsMode); modified {
-						ep.EnvoyEndpoint = nep
-					}
-				}
 			}
-			locLbEps.append(ep, ep.EnvoyEndpoint, ep.TunnelAbility)
 		}
 	}
 	shards.mutex.Unlock()
@@ -412,7 +400,7 @@ func buildEnvoyLbEndpoint(e *model.IstioEndpoint) *endpoint.LbEndpoint {
 
 	// Istio telemetry depends on the metadata value being set for endpoints in the mesh.
 	// Istio endpoint level tls transport socket configuration depends on this logic
-	// Do not remove pilot/pkg/xds/fake.go
+	// Do not removepilot/pkg/xds/fake.go
 	ep.Metadata = util.BuildLbEndpointMetadata(e.Network, e.TLSMode, e.WorkloadName, e.Namespace, e.Locality.ClusterID, e.Labels)
 
 	return ep
@@ -463,7 +451,8 @@ func (c *mtlsChecker) isMtlsDisabled(lbEp *endpoint.LbEndpoint) bool {
 	return ok
 }
 
-// computeForEndpoint checks destination rule, peer authentication and tls mode labels to determine if mTLS was turned off.
+// computeForEndpoint checks destination rule, peer authentication and metadata to determine if mTLS was turned off.
+// This must be done during conversion from IstioEndpoint since we still have workload metadata.
 func (c *mtlsChecker) computeForEndpoint(ep *model.IstioEndpoint) {
 	if drMode := c.mtlsModeForDestinationRule(ep); drMode != nil {
 		switch *drMode {
@@ -476,29 +465,23 @@ func (c *mtlsChecker) computeForEndpoint(ep *model.IstioEndpoint) {
 		}
 	}
 
-	// if endpoint has no sidecar or explicitly tls disabled by "security.istio.io/tlsMode" label.
-	if ep.TLSMode != model.IstioMutualTLSModeLabel {
-		c.mtlsDisabledHosts[lbEpKey(ep.EnvoyEndpoint)] = struct{}{}
-		return
-	}
-
-	mtlsDisabledByPeerAuthentication := func(ep *model.IstioEndpoint) bool {
-		// apply any matching peer authentications
-		peerAuthnKey := ep.Labels.String() + ":" + strconv.Itoa(int(ep.EndpointPort))
-		if value, ok := c.peerAuthDisabledMTLS[peerAuthnKey]; ok {
-			// avoid recomputing since most EPs will have the same labels/port
-			return value
-		}
-		c.peerAuthDisabledMTLS[peerAuthnKey] = factory.
-			NewPolicyApplier(c.push, ep.Namespace, labels.Collection{ep.Labels}).
-			GetMutualTLSModeForPort(ep.EndpointPort) == model.MTLSDisable
-		return c.peerAuthDisabledMTLS[peerAuthnKey]
-	}
-
-	//  mtls disabled by PeerAuthentication
-	if mtlsDisabledByPeerAuthentication(ep) {
+	if envoytransportSocketMetadata(ep.EnvoyEndpoint, model.TLSModeLabelShortname) != model.IstioMutualTLSModeLabel ||
+		c.mtlsDisabledByPeerAuthentication(ep) {
 		c.mtlsDisabledHosts[lbEpKey(ep.EnvoyEndpoint)] = struct{}{}
 	}
+}
+
+func (c *mtlsChecker) mtlsDisabledByPeerAuthentication(ep *model.IstioEndpoint) bool {
+	// apply any matching peer authentications
+	peerAuthnKey := ep.Labels.String() + ":" + strconv.Itoa(int(ep.EndpointPort))
+	if value, ok := c.peerAuthDisabledMTLS[peerAuthnKey]; ok {
+		// avoid recomputing since most EPs will have the same labels/port
+		return value
+	}
+	c.peerAuthDisabledMTLS[peerAuthnKey] = factory.
+		NewPolicyApplier(c.push, ep.Namespace, labels.Collection{ep.Labels}).
+		GetMutualTLSModeForPort(ep.EndpointPort) == model.MTLSDisable
+	return c.peerAuthDisabledMTLS[peerAuthnKey]
 }
 
 func (c *mtlsChecker) mtlsModeForDestinationRule(ep *model.IstioEndpoint) *networkingapi.ClientTLSSettings_TLSmode {

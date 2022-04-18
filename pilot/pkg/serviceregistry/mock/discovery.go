@@ -47,23 +47,14 @@ func NewDiscovery(services map[host.Name]*model.Service, versions int) *ServiceD
 	}
 }
 
-type ServiceArgs struct {
-	Hostname        host.Name
-	Address         string
-	ServiceAccounts []string
-	ClusterID       cluster.ID
-}
-
 // MakeService creates a memory service
-func MakeService(args ServiceArgs) *model.Service {
+func MakeService(hostname host.Name, address string, serviceAccounts []string, clusterID cluster.ID) *model.Service {
 	return &model.Service{
-		CreationTime: time.Now(),
-		Hostname:     args.Hostname,
-		ClusterVIPs: model.AddressMap{
-			Addresses: map[cluster.ID][]string{args.ClusterID: {args.Address}},
-		},
-		DefaultAddress:  args.Address,
-		ServiceAccounts: args.ServiceAccounts,
+		CreationTime:    time.Now(),
+		Hostname:        hostname,
+		Address:         address,
+		ClusterVIPs:     map[cluster.ID]string{clusterID: address},
+		ServiceAccounts: serviceAccounts,
 		Ports: []*model.Port{
 			{
 				Name:     PortHTTPName,
@@ -97,10 +88,10 @@ func MakeService(args ServiceArgs) *model.Service {
 // MakeExternalHTTPService creates memory external service
 func MakeExternalHTTPService(hostname host.Name, isMeshExternal bool, address string) *model.Service {
 	return &model.Service{
-		CreationTime:   time.Now(),
-		Hostname:       hostname,
-		DefaultAddress: address,
-		MeshExternal:   isMeshExternal,
+		CreationTime: time.Now(),
+		Hostname:     hostname,
+		Address:      address,
+		MeshExternal: isMeshExternal,
 		Ports: []*model.Port{{
 			Name:     "http",
 			Port:     80,
@@ -112,10 +103,10 @@ func MakeExternalHTTPService(hostname host.Name, isMeshExternal bool, address st
 // MakeExternalHTTPSService creates memory external service
 func MakeExternalHTTPSService(hostname host.Name, isMeshExternal bool, address string) *model.Service {
 	return &model.Service{
-		CreationTime:   time.Now(),
-		Hostname:       hostname,
-		DefaultAddress: address,
-		MeshExternal:   isMeshExternal,
+		CreationTime: time.Now(),
+		Hostname:     hostname,
+		Address:      address,
+		MeshExternal: isMeshExternal,
 		Ports: []*model.Port{{
 			Name:     "https",
 			Port:     443,
@@ -155,7 +146,7 @@ func MakeIP(service *model.Service, version int) string {
 	if service.External() {
 		return ""
 	}
-	ip := net.ParseIP(service.DefaultAddress).To4()
+	ip := net.ParseIP(service.Address).To4()
 	ip[2] = byte(1)
 	ip[3] = byte(version)
 	return ip.String()
@@ -167,9 +158,8 @@ type ServiceDiscovery struct {
 	versions                      int
 	WantGetProxyServiceInstances  []*model.ServiceInstance
 	ServicesError                 error
+	GetServiceError               error
 	GetProxyServiceInstancesError error
-
-	model.NetworkGatewaysHandler
 }
 
 // Services implements discovery interface
@@ -185,8 +175,12 @@ func (sd *ServiceDiscovery) Services() ([]*model.Service, error) {
 }
 
 // GetService implements discovery interface
-func (sd *ServiceDiscovery) GetService(hostname host.Name) *model.Service {
-	return sd.services[hostname]
+func (sd *ServiceDiscovery) GetService(hostname host.Name) (*model.Service, error) {
+	if sd.GetServiceError != nil {
+		return nil, sd.GetServiceError
+	}
+	val := sd.services[hostname]
+	return val, sd.GetServiceError
 }
 
 // InstancesByPort implements discovery interface
@@ -232,7 +226,7 @@ func (sd *ServiceDiscovery) GetProxyServiceInstances(node *model.Proxy) []*model
 	return out
 }
 
-func (sd *ServiceDiscovery) GetProxyWorkloadLabels(*model.Proxy) labels.Collection {
+func (sd *ServiceDiscovery) GetProxyWorkloadLabels(proxy *model.Proxy) labels.Collection {
 	if sd.GetProxyServiceInstancesError != nil {
 		return nil
 	}
@@ -241,7 +235,7 @@ func (sd *ServiceDiscovery) GetProxyWorkloadLabels(*model.Proxy) labels.Collecti
 }
 
 // GetIstioServiceAccounts gets the Istio service accounts for a service hostname.
-func (sd *ServiceDiscovery) GetIstioServiceAccounts(svc *model.Service, _ []int) []string {
+func (sd *ServiceDiscovery) GetIstioServiceAccounts(svc *model.Service, ports []int) []string {
 	for h, s := range sd.services {
 		if h == svc.Hostname {
 			return s.ServiceAccounts
@@ -255,26 +249,12 @@ func (sd *ServiceDiscovery) NetworkGateways() []model.NetworkGateway {
 	return nil
 }
 
-func (sd *ServiceDiscovery) MCSServices() []model.MCSServiceInfo {
-	return nil
-}
+type Controller struct{}
 
-type Controller struct {
-	serviceHandler model.ControllerHandlers
-}
+func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) {}
 
-func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) {
-	c.serviceHandler.AppendServiceHandler(f)
-}
-
-func (c *Controller) AppendWorkloadHandler(func(*model.WorkloadInstance, model.Event)) {}
+func (c *Controller) AppendWorkloadHandler(f func(*model.WorkloadInstance, model.Event)) {}
 
 func (c *Controller) Run(<-chan struct{}) {}
 
 func (c *Controller) HasSynced() bool { return true }
-
-func (c *Controller) OnServiceEvent(s *model.Service, e model.Event) {
-	for _, h := range c.serviceHandler.GetServiceHandlers() {
-		h(s, e)
-	}
-}

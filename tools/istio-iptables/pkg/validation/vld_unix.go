@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris
 // +build aix darwin dragonfly freebsd linux netbsd openbsd solaris
 
 package validation
@@ -62,10 +61,11 @@ func GetOriginalDestination(conn net.Conn) (daddr net.IP, dport uint16, err erro
 	// 2. it is provide the port field value
 	var addr *unix.IPv6MTUInfo
 	if isIpv4 {
-		addr, err = unix.GetsockoptIPv6MTUInfo(
-			int(fd),
-			unix.IPPROTO_IP,
-			constants.SoOriginalDst)
+		addr, err =
+			unix.GetsockoptIPv6MTUInfo(
+				int(fd),
+				unix.IPPROTO_IP,
+				constants.SoOriginalDst)
 		if err != nil {
 			log.Errorf("Error ipv4 getsockopt: %v", err)
 			return

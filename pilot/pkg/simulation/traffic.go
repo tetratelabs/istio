@@ -85,8 +85,6 @@ type Expect struct {
 
 type CallMode string
 
-type CustomFilterChainValidation func(filterChain *listener.FilterChain) error
-
 var (
 	// CallModeGateway simulate no iptables
 	CallModeGateway CallMode = "gateway"
@@ -116,10 +114,6 @@ type Call struct {
 
 	// CallMode describes the type of call to make.
 	CallMode CallMode
-
-	CustomListenerValidations []CustomFilterChainValidation
-
-	MtlsSecretConfigName string
 }
 
 func (c Call) FillDefaults() Call {
@@ -295,25 +289,11 @@ func (sim *Simulation) Run(input Call) (result Result) {
 		result.Error = ErrTLSError
 		return
 	}
-
-	mTLSSecretConfigName := "default"
-	if input.MtlsSecretConfigName != "" {
-		mTLSSecretConfigName = input.MtlsSecretConfigName
-	}
-
 	// mTLS listener will only accept mTLS traffic
-	if fc.TransportSocket != nil && sim.requiresMTLS(fc, mTLSSecretConfigName) != (input.TLS == MTLS) {
+	if fc.TransportSocket != nil && sim.requiresMTLS(fc) != (input.TLS == MTLS) {
 		// If there is no tls inspector, then
 		result.Error = ErrMTLSError
 		return
-	}
-
-	if len(input.CustomListenerValidations) > 0 {
-		for _, validation := range input.CustomListenerValidations {
-			if err := validation(fc); err != nil {
-				result.Error = err
-			}
-		}
 	}
 
 	if hcm := xdstest.ExtractHTTPConnectionManager(sim.t, fc); hcm != nil {
@@ -367,7 +347,7 @@ func (sim *Simulation) Run(input Call) (result Result) {
 	return
 }
 
-func (sim *Simulation) requiresMTLS(fc *listener.FilterChain, mTLSSecretConfigName string) bool {
+func (sim *Simulation) requiresMTLS(fc *listener.FilterChain) bool {
 	if fc.TransportSocket == nil {
 		return false
 	}
@@ -380,13 +360,7 @@ func (sim *Simulation) requiresMTLS(fc *listener.FilterChain, mTLSSecretConfigNa
 		return false
 	}
 	// This is a lazy heuristic, we could check for explicit default resource or spiffe if it becomes necessary
-	if t.GetCommonTlsContext().GetTlsCertificateSdsSecretConfigs()[0].Name != mTLSSecretConfigName {
-		return false
-	}
-	if !t.RequireClientCertificate.Value {
-		return false
-	}
-	return true
+	return t.GetCommonTlsContext().GetTlsCertificateSdsSecretConfigs()[0].Name == "default"
 }
 
 func (sim *Simulation) matchRoute(vh *route.VirtualHost, input Call) *route.Route {
@@ -404,7 +378,7 @@ func (sim *Simulation) matchRoute(vh *route.VirtualHost, input Call) *route.Rout
 		case *route.RouteMatch_SafeRegex:
 			r, err := regexp.Compile(pt.SafeRegex.GetRegex())
 			if err != nil {
-				sim.t.Fatalf("invalid regex %v: %v", pt.SafeRegex.GetRegex(), err)
+				sim.t.Fatalf("invalid regex %v: %v", r, err)
 			}
 			if !r.MatchString(input.Path) {
 				continue
@@ -558,7 +532,6 @@ func filter(chains []*listener.FilterChain,
 	for _, c := range chains {
 		if !empty(c.GetFilterChainMatch()) {
 			anySet = true
-			break
 		}
 	}
 	if !anySet {

@@ -19,14 +19,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/prometheus/prometheus/util/strutil"
 	"gomodules.xyz/jsonpatch/v3"
 	kubeApiAdmissionv1 "k8s.io/api/admission/v1"
 	kubeApiAdmissionv1beta1 "k8s.io/api/admission/v1beta1"
@@ -36,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	kjson "k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
-	"k8s.io/kube-openapi/pkg/util/sets"
 
 	"istio.io/api/annotation"
 	"istio.io/api/label"
@@ -68,13 +66,6 @@ func init() {
 }
 
 const (
-	// prometheus will convert annotation to this format
-	// `prometheus.io/scrape` `prometheus.io.scrape` `prometheus-io/scrape` have the same meaning in Prometheus
-	// for more details, please checkout [here](https://github.com/prometheus/prometheus/blob/71a0f42331566a8849863d77078083edbb0b3bc4/util/strutil/strconv.go#L40)
-	prometheusScrapeAnnotation = "prometheus_io_scrape"
-	prometheusPortAnnotation   = "prometheus_io_port"
-	prometheusPathAnnotation   = "prometheus_io_path"
-
 	watchDebounceDelay = 100 * time.Millisecond
 )
 
@@ -93,7 +84,7 @@ type Webhook struct {
 
 // nolint directives: interfacer
 func loadConfig(injectFile, valuesFile string) (*Config, string, error) {
-	data, err := os.ReadFile(injectFile)
+	data, err := ioutil.ReadFile(injectFile)
 	if err != nil {
 		return nil, "", err
 	}
@@ -103,7 +94,7 @@ func loadConfig(injectFile, valuesFile string) (*Config, string, error) {
 		return nil, "", err
 	}
 
-	valuesConfig, err := os.ReadFile(valuesFile)
+	valuesConfig, err := ioutil.ReadFile(valuesFile)
 	if err != nil {
 		return nil, "", err
 	}
@@ -240,6 +231,42 @@ func enablePrometheusMerge(mesh *meshconfig.MeshConfig, anno map[string]string) 
 	return true
 }
 
+func ExtractCanonicalServiceLabels(podLabels map[string]string, workloadName string) (string, string) {
+	return extractCanonicalServiceLabel(podLabels, workloadName), extractCanonicalServiceRevision(podLabels)
+}
+
+func extractCanonicalServiceRevision(podLabels map[string]string) string {
+	if rev, ok := podLabels[model.IstioCanonicalServiceRevisionLabelName]; ok {
+		return rev
+	}
+
+	if rev, ok := podLabels["app.kubernetes.io/version"]; ok {
+		return rev
+	}
+
+	if rev, ok := podLabels["version"]; ok {
+		return rev
+	}
+
+	return "latest"
+}
+
+func extractCanonicalServiceLabel(podLabels map[string]string, workloadName string) string {
+	if svc, ok := podLabels[model.IstioCanonicalServiceLabelName]; ok {
+		return svc
+	}
+
+	if svc, ok := podLabels["app.kubernetes.io/name"]; ok {
+		return svc
+	}
+
+	if svc, ok := podLabels["app"]; ok {
+		return svc
+	}
+
+	return workloadName
+}
+
 func toAdmissionResponse(err error) *kube.AdmissionResponse {
 	return &kube.AdmissionResponse{Result: &metav1.Status{Message: err.Error()}}
 }
@@ -252,7 +279,6 @@ type InjectionParameters struct {
 	defaultTemplate     []string
 	aliases             map[string][]string
 	meshConfig          *meshconfig.MeshConfig
-	proxyConfig         *meshconfig.ProxyConfig
 	valuesConfig        string
 	revision            string
 	proxyEnvs           map[string]string
@@ -351,6 +377,16 @@ func injectPod(req InjectionParameters) ([]byte, error) {
 	return patch, nil
 }
 
+// OverrideAnnotation is used to store the overrides for injected containers
+// TODO move this to api repo
+const OverrideAnnotation = "proxy.istio.io/overrides"
+
+// TemplatesAnnotation declares the set of templates to use for injection. If not specified, DefaultTemplates
+// will take precedence, which will inject a standard sidecar.
+// The format is a comma separated list. For example, `inject.istio.io/templates: sidecar,debug`.
+// TODO move this to api repo
+const TemplatesAnnotation = "inject.istio.io/templates"
+
 // reapplyOverwrittenContainers enables users to provide container level overrides for settings in the injection template
 // * originalPod: the pod before injection. If needed, we will apply some configurations from this pod on top of the final pod
 // * templatePod: the rendered injection template. This is needed only to see what containers we injected
@@ -370,7 +406,7 @@ func reapplyOverwrittenContainers(finalPod *corev1.Pod, originalPod *corev1.Pod,
 
 	overrides := podOverrides{}
 	existingOverrides := podOverrides{}
-	if annotationOverrides, f := originalPod.Annotations[annotation.ProxyOverrides.Name]; f {
+	if annotationOverrides, f := originalPod.Annotations[OverrideAnnotation]; f {
 		if err := json.Unmarshal([]byte(annotationOverrides), &existingOverrides); err != nil {
 			return nil, err
 		}
@@ -425,7 +461,7 @@ func reapplyOverwrittenContainers(finalPod *corev1.Pod, originalPod *corev1.Pod,
 		if finalPod.Annotations == nil {
 			finalPod.Annotations = map[string]string{}
 		}
-		finalPod.Annotations[annotation.ProxyOverrides.Name] = string(js)
+		finalPod.Annotations[OverrideAnnotation] = string(js)
 	}
 
 	return finalPod, nil
@@ -443,7 +479,7 @@ func reinsertOverrides(pod *corev1.Pod) (*corev1.Pod, error) {
 	}
 
 	existingOverrides := podOverrides{}
-	if annotationOverrides, f := pod.Annotations[annotation.ProxyOverrides.Name]; f {
+	if annotationOverrides, f := pod.Annotations[OverrideAnnotation]; f {
 		if err := json.Unmarshal([]byte(annotationOverrides), &existingOverrides); err != nil {
 			return nil, err
 		}
@@ -562,10 +598,6 @@ func reorderPod(pod *corev1.Pod, req InjectionParameters) error {
 }
 
 func applyRewrite(pod *corev1.Pod, req InjectionParameters) error {
-	sidecar := FindSidecar(pod.Spec.Containers)
-	if sidecar == nil {
-		return nil
-	}
 	valuesStruct := &opconfig.Values{}
 	if err := gogoprotomarshal.ApplyYAML(req.valuesConfig, valuesStruct); err != nil {
 		log.Infof("Failed to parse values config: %v [%v]\n", err, req.valuesConfig)
@@ -573,8 +605,10 @@ func applyRewrite(pod *corev1.Pod, req InjectionParameters) error {
 	}
 
 	rewrite := ShouldRewriteAppHTTPProbers(pod.Annotations, valuesStruct.GetSidecarInjectorWebhook().GetRewriteAppHTTPProbe())
+	sidecar := FindSidecar(pod.Spec.Containers)
+
 	// We don't have to escape json encoding here when using golang libraries.
-	if rewrite {
+	if rewrite && sidecar != nil {
 		if prober := DumpAppProbers(&pod.Spec, req.meshConfig.GetDefaultConfig().GetStatusPort()); prober != "" {
 			sidecar.Env = append(sidecar.Env, corev1.EnvVar{Name: status.KubeAppProberEnvName, Value: prober})
 		}
@@ -583,25 +617,27 @@ func applyRewrite(pod *corev1.Pod, req InjectionParameters) error {
 	return nil
 }
 
-var emptyScrape = status.PrometheusScrapeConfiguration{}
-
 // applyPrometheusMerge configures prometheus scraping annotations for the "metrics merge" feature.
 // This moves the current prometheus.io annotations into an environment variable and replaces them
 // pointing to the agent.
 func applyPrometheusMerge(pod *corev1.Pod, mesh *meshconfig.MeshConfig) error {
-	if getPrometheusScrape(pod) &&
-		enablePrometheusMerge(mesh, pod.ObjectMeta.Annotations) {
+	sidecar := FindSidecar(pod.Spec.Containers)
+	if enablePrometheusMerge(mesh, pod.ObjectMeta.Annotations) {
 		targetPort := strconv.Itoa(int(mesh.GetDefaultConfig().GetStatusPort()))
-		if cur, f := getPrometheusPort(pod); f {
+		if cur, f := pod.Annotations["prometheus.io/port"]; f {
 			// We have already set the port, assume user is controlling this or, more likely, re-injected
 			// the pod.
 			if cur == targetPort {
 				return nil
 			}
 		}
-		scrape := getPrometheusScrapeConfiguration(pod)
-		sidecar := FindSidecar(pod.Spec.Containers)
-		if sidecar != nil && scrape != emptyScrape {
+		scrape := status.PrometheusScrapeConfiguration{
+			Scrape: pod.Annotations["prometheus.io/scrape"],
+			Path:   pod.Annotations["prometheus.io/path"],
+			Port:   pod.Annotations["prometheus.io/port"],
+		}
+		empty := status.PrometheusScrapeConfiguration{}
+		if sidecar != nil && scrape != empty {
 			by, err := json.Marshal(scrape)
 			if err != nil {
 				return err
@@ -611,83 +647,11 @@ func applyPrometheusMerge(pod *corev1.Pod, mesh *meshconfig.MeshConfig) error {
 		if pod.Annotations == nil {
 			pod.Annotations = map[string]string{}
 		}
-		// if a user sets `prometheus/io/path: foo`, then we add `prometheus.io/path: /stats/prometheus`
-		// prometheus will pick a random one
-		// need to clear out all variants and then set ours
-		clearPrometheusAnnotations(pod)
 		pod.Annotations["prometheus.io/port"] = targetPort
 		pod.Annotations["prometheus.io/path"] = "/stats/prometheus"
 		pod.Annotations["prometheus.io/scrape"] = "true"
-		return nil
 	}
-
 	return nil
-}
-
-// getPrometheusScrape respect prometheus scrape config
-// not to doing prometheusMerge if this return false
-func getPrometheusScrape(pod *corev1.Pod) bool {
-	for k, val := range pod.Annotations {
-		if strutil.SanitizeLabelName(k) != prometheusScrapeAnnotation {
-			continue
-		}
-
-		if scrape, err := strconv.ParseBool(val); err == nil {
-			return scrape
-		}
-	}
-
-	return true
-}
-
-var prometheusAnnotations = sets.NewString(
-	prometheusPathAnnotation,
-	prometheusPortAnnotation,
-	prometheusScrapeAnnotation,
-)
-
-func clearPrometheusAnnotations(pod *corev1.Pod) {
-	needRemovedKeys := make([]string, 0, 2)
-	for k := range pod.Annotations {
-		anno := strutil.SanitizeLabelName(k)
-		if prometheusAnnotations.Has(anno) {
-			needRemovedKeys = append(needRemovedKeys, k)
-		}
-	}
-
-	for _, k := range needRemovedKeys {
-		delete(pod.Annotations, k)
-	}
-}
-
-func getPrometheusScrapeConfiguration(pod *corev1.Pod) status.PrometheusScrapeConfiguration {
-	cfg := status.PrometheusScrapeConfiguration{}
-
-	for k, val := range pod.Annotations {
-		anno := strutil.SanitizeLabelName(k)
-		switch anno {
-		case prometheusPortAnnotation:
-			cfg.Port = val
-		case prometheusScrapeAnnotation:
-			cfg.Scrape = val
-		case prometheusPathAnnotation:
-			cfg.Path = val
-		}
-	}
-
-	return cfg
-}
-
-func getPrometheusPort(pod *corev1.Pod) (string, bool) {
-	for k, val := range pod.Annotations {
-		if strutil.SanitizeLabelName(k) != prometheusPortAnnotation {
-			continue
-		}
-
-		return val, true
-	}
-
-	return "", false
 }
 
 const (
@@ -767,7 +731,7 @@ func (wh *Webhook) inject(ar *kube.AdmissionReview, path string) *kube.Admission
 	log.Debugf("OldObject: %v", string(req.OldObject.Raw))
 
 	wh.mu.RLock()
-	if !injectRequired(IgnoredNamespaces.UnsortedList(), wh.Config, &pod.Spec, pod.ObjectMeta) {
+	if !injectRequired(IgnoredNamespaces, wh.Config, &pod.Spec, pod.ObjectMeta) {
 		log.Infof("Skipping %s/%s due to policy check", pod.ObjectMeta.Namespace, podName)
 		totalSkippedInjections.Increment()
 		wh.mu.RUnlock()
@@ -776,17 +740,6 @@ func (wh *Webhook) inject(ar *kube.AdmissionReview, path string) *kube.Admission
 		}
 	}
 
-	proxyConfig := mesh.DefaultProxyConfig()
-	if wh.env.PushContext != nil && wh.env.PushContext.ProxyConfigs != nil {
-		if generatedProxyConfig := wh.env.PushContext.ProxyConfigs.EffectiveProxyConfig(
-			&model.NodeMetadata{
-				Namespace:   pod.Namespace,
-				Labels:      pod.Labels,
-				Annotations: pod.Annotations,
-			}, wh.meshConfig); generatedProxyConfig != nil {
-			proxyConfig = *generatedProxyConfig
-		}
-	}
 	deploy, typeMeta := kube.GetDeployMetaFromPod(&pod)
 	params := InjectionParameters{
 		pod:                 &pod,
@@ -796,7 +749,6 @@ func (wh *Webhook) inject(ar *kube.AdmissionReview, path string) *kube.Admission
 		defaultTemplate:     wh.Config.DefaultTemplates,
 		aliases:             wh.Config.Aliases,
 		meshConfig:          wh.meshConfig,
-		proxyConfig:         &proxyConfig,
 		valuesConfig:        wh.valuesConfig,
 		revision:            wh.revision,
 		injectedAnnotations: wh.Config.InjectedAnnotations,

@@ -23,10 +23,9 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
-	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -39,7 +38,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/credentials/xds"
 	xdsresolver "google.golang.org/grpc/xds"
-	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
 
 	"istio.io/istio/pkg/test/echo/common"
 	"istio.io/istio/pkg/test/echo/common/scheme"
@@ -47,14 +45,13 @@ import (
 )
 
 type request struct {
-	URL              string
-	Header           http.Header
-	RequestID        int
-	Message          string
-	ExpectedResponse *wrappers.StringValue
-	Timeout          time.Duration
-	ServerFirst      bool
-	Method           string
+	URL         string
+	Header      http.Header
+	RequestID   int
+	Message     string
+	Timeout     time.Duration
+	ServerFirst bool
+	Method      string
 }
 
 type protocol interface {
@@ -89,12 +86,12 @@ func newProtocol(cfg Config) (protocol, error) {
 
 	var getClientCertificate func(info *tls.CertificateRequestInfo) (*tls.Certificate, error)
 	if cfg.Request.KeyFile != "" && cfg.Request.CertFile != "" {
-		certData, err := os.ReadFile(cfg.Request.CertFile)
+		certData, err := ioutil.ReadFile(cfg.Request.CertFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load client certificate: %v", err)
 		}
 		cfg.Request.Cert = string(certData)
-		keyData, err := os.ReadFile(cfg.Request.KeyFile)
+		keyData, err := ioutil.ReadFile(cfg.Request.KeyFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load client certificate key: %v", err)
 		}
@@ -139,7 +136,7 @@ func newProtocol(cfg Config) (protocol, error) {
 		ServerName:           cfg.Request.ServerName,
 	}
 	if cfg.Request.CaCertFile != "" {
-		certData, err := os.ReadFile(cfg.Request.CaCertFile)
+		certData, err := ioutil.ReadFile(cfg.Request.CaCertFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load client certificate: %v", err)
 		}
@@ -183,13 +180,6 @@ func newProtocol(cfg Config) (protocol, error) {
 			},
 			do: cfg.Dialer.HTTP,
 		}
-		if len(cfg.Proxy) > 0 {
-			proxyURL, err := url.Parse(cfg.Proxy)
-			if err != nil {
-				return nil, err
-			}
-			proto.client.Transport.(*http.Transport).Proxy = http.ProxyURL(proxyURL)
-		}
 		if cfg.Request.Http3 && scheme.Instance(urlScheme) == scheme.HTTP {
 			return nil, fmt.Errorf("http3 requires HTTPS")
 		} else if cfg.Request.Http3 {
@@ -227,7 +217,7 @@ func newProtocol(cfg Config) (protocol, error) {
 		// grpc-go sets incorrect authority header
 
 		// transport security
-		security := grpc.WithTransportCredentials(insecure.NewCredentials())
+		security := grpc.WithInsecure()
 		if s == scheme.XDS {
 			creds, err := xds.NewClientCredentials(xds.ClientOptions{FallbackCreds: insecure.NewCredentials()})
 			if err != nil {
@@ -291,21 +281,6 @@ func newProtocol(cfg Config) (protocol, error) {
 					return cfg.Dialer.TCP(dialer, ctx, address)
 				}
 				return tls.Dial("tcp", address, tlsConfig)
-			},
-		}, nil
-	case scheme.TLS:
-		return &tlsProtocol{
-			conn: func() (*tls.Conn, error) {
-				dialer := net.Dialer{
-					Timeout: timeout,
-				}
-				address := rawURL[len(urlScheme+"://"):]
-
-				con, err := tls.DialWithDialer(&dialer, "tcp", address, tlsConfig)
-				if err != nil {
-					return nil, err
-				}
-				return con, nil
 			},
 		}, nil
 	}

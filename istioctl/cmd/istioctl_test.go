@@ -109,7 +109,7 @@ func verifyOutput(t *testing.T, c testCase) {
 	}
 
 	if c.goldenFilename != "" {
-		util.CompareContent(t, []byte(output), c.goldenFilename)
+		util.CompareContent([]byte(output), c.goldenFilename, t)
 	}
 
 	if c.wantException {

@@ -48,6 +48,11 @@ gateways:
     loadBalancerSourceRanges: []
     serviceAnnotations: {}
 
+    # Enable cross-cluster access using SNI matching
+    zvpn:
+      enabled: false
+      suffix: global
+
     # To generate an internal load balancer:
     # --set serviceAnnotations.cloud.google.com/load-balancer-type=internal
     #serviceAnnotations:
@@ -77,7 +82,12 @@ gateways:
       annotations: {}
 
     ### Advanced options ############
-    env: {}
+    env:
+      # A gateway with this mode ensures that pilot generates an additional
+      # set of clusters for internal services but without Istio mTLS, to
+      # enable cross cluster routing.
+      ISTIO_META_ROUTER_MODE: "standard"
+
     nodeSelector: {}
     tolerations: []
 
@@ -176,7 +186,7 @@ global:
   # To output all istio components logs in json format by adding --log_as_json argument to each container argument
   logAsJson: false
 
-  # Specify pod scheduling arch(amd64, ppc64le, s390x, arm64) and weight as follows:
+  # Specify pod scheduling arch(amd64, ppc64le, s390x) and weight as follows:
   #   0 - Never scheduled
   #   1 - Least preferred
   #   2 - No preference
@@ -185,7 +195,6 @@ global:
     amd64: 2
     s390x: 2
     ppc64le: 2
-    arm64: 2
 
   # Comma-separated minimum per-scope logging level of messages to output, in the form of <scope>:<level>,<scope>:<level>
   # The control plane has different scopes depending on component, but can configure default log level across all components

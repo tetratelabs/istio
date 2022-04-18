@@ -17,6 +17,7 @@ package mesh
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -30,7 +31,6 @@ import (
 
 	"istio.io/istio/operator/pkg/compare"
 	"istio.io/istio/operator/pkg/helm"
-	"istio.io/istio/operator/pkg/helmreconciler"
 	"istio.io/istio/operator/pkg/manifest"
 	"istio.io/istio/operator/pkg/name"
 	"istio.io/istio/operator/pkg/object"
@@ -45,9 +45,8 @@ import (
 )
 
 const (
-	istioTestVersion            = "istio-1.7.0"
-	testTGZFilename             = istioTestVersion + "-linux.tar.gz"
-	testIstioDiscoveryChartPath = "charts/istio-control/istio-discovery/templates"
+	istioTestVersion = "istio-1.7.0"
+	testTGZFilename  = istioTestVersion + "-linux.tar.gz"
 )
 
 // chartSourceType defines where charts used in the test come from.
@@ -61,7 +60,7 @@ var (
 
 	// Snapshot charts are in testdata/manifest-generate/data-snapshot
 	snapshotCharts = func() chartSourceType {
-		d, err := os.MkdirTemp("", "data-snapshot-*")
+		d, err := ioutil.TempDir("", "data-snapshot-*")
 		if err != nil {
 			panic(fmt.Errorf("failed to make temp dir: %v", err))
 		}
@@ -197,57 +196,6 @@ func TestManifestGenerateGateways(t *testing.T) {
 	}
 }
 
-func TestManifestGenerateWithDuplicateMutatingWebhookConfig(t *testing.T) {
-	testResourceFile := "duplicate_mwc"
-
-	testCases := []struct {
-		name       string
-		force      bool
-		assertFunc func(g *WithT, objs *ObjectSet, err error)
-	}{
-		{
-			name:  "Duplicate MutatingWebhookConfiguration should be allowed when --force is enabled",
-			force: true,
-			assertFunc: func(g *WithT, objs *ObjectSet, err error) {
-				g.Expect(err).Should(BeNil())
-				g.Expect(objs.kind(name.MutatingWebhookConfigurationStr).size()).Should(Equal(2))
-			},
-		},
-		{
-			name:  "Duplicate MutatingWebhookConfiguration should not be allowed when --force is disabled",
-			force: false,
-			assertFunc: func(g *WithT, objs *ObjectSet, err error) {
-				g.Expect(err.Error()).To(ContainSubstring("Webhook overlaps with others"))
-				g.Expect(objs).Should(BeNil())
-			},
-		},
-	}
-
-	recreateSimpleTestEnv()
-
-	rs, err := readFile(filepath.Join(testDataDir, "input-extra-resources", testResourceFile+".yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = writeFile(filepath.Join(env.IstioSrc, helm.OperatorSubdirFilePath+"/"+testIstioDiscoveryChartPath+"/"+testResourceFile+".yaml"), []byte(rs))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() {
-		removeFile(filepath.Join(env.IstioSrc, helm.OperatorSubdirFilePath+"/"+testIstioDiscoveryChartPath+"/"+testResourceFile+".yaml"))
-	})
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-			objs, err := fakeControllerReconcile(testResourceFile, liveCharts, &helmreconciler.Options{Force: tc.force})
-			tc.assertFunc(g, objs, err)
-		})
-	}
-}
-
 func TestManifestGenerateIstiodRemote(t *testing.T) {
 	g := NewWithT(t)
 
@@ -277,7 +225,7 @@ func TestManifestGenerateIstiodRemote(t *testing.T) {
 		mwc := mustGetMutatingWebhookConfiguration(g, objs, "istio-sidecar-injector").Unstructured()
 		g.Expect(mwc).Should(HavePathValueEqual(PathValue{"webhooks.[0].clientConfig.url", "https://xxx:15017/inject"}))
 
-		ep := mustGetEndpoint(g, objs, "istiod-remote").Unstructured()
+		ep := mustGetEndpoint(g, objs, "istiod").Unstructured()
 		g.Expect(ep).Should(HavePathValueEqual(PathValue{"subsets.[0].addresses.[0]", endpointSubsetAddressVal("", "169.10.112.88", "")}))
 		g.Expect(ep).Should(HavePathValueContain(PathValue{"subsets.[0].ports.[0]", portVal("tcp-istiod", 15012, -1)}))
 
@@ -507,14 +455,6 @@ func TestBareSpec(t *testing.T) {
 	}
 }
 
-func TestMultipleSpecOneFile(t *testing.T) {
-	inPathBase := filepath.Join(testDataDir, "input/multiple_iops.yaml")
-	_, err := runManifestGenerate([]string{inPathBase}, "", liveCharts)
-	if !strings.Contains(err.Error(), "contains multiple IstioOperator CRs, only one per file is supported") {
-		t.Fatalf("got %v, expected error for file with multiple IOPs", err)
-	}
-}
-
 func TestBareValues(t *testing.T) {
 	inPathBase := filepath.Join(testDataDir, "input/bare_values.yaml")
 	// As long as the generate doesn't panic, we pass it.  bare_values.yaml doesn't
@@ -532,7 +472,7 @@ func TestBogusControlPlaneSec(t *testing.T) {
 }
 
 func TestInstallPackagePath(t *testing.T) {
-	serverDir, err := os.MkdirTemp(os.TempDir(), "istio-test-server-*")
+	serverDir, err := ioutil.TempDir(os.TempDir(), "istio-test-server-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -751,7 +691,7 @@ func runTestGroup(t *testing.T, tests testGroup) {
 				}
 			}
 
-			tutil.RefreshGoldenFile(t, []byte(got), outPath)
+			tutil.RefreshGoldenFile([]byte(got), outPath, t)
 
 			want, err := readFile(outPath)
 			if err != nil {

@@ -15,12 +15,9 @@
 package wasm
 
 import (
-	"bytes"
-	"context"
 	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -28,7 +25,6 @@ import (
 	"sync"
 	"time"
 
-	"istio.io/istio/pilot/pkg/util/sets"
 	"istio.io/pkg/log"
 )
 
@@ -51,7 +47,7 @@ type Cache interface {
 // LocalFileCache for downloaded Wasm modules. Currently it stores the Wasm module as local file.
 type LocalFileCache struct {
 	// Map from Wasm module checksum to cache entry.
-	modules map[cacheKey]*cacheEntry
+	modules map[cacheKey]cacheEntry
 
 	// http fetcher fetches Wasm module with HTTP get.
 	httpFetcher *HTTPFetcher
@@ -63,9 +59,8 @@ type LocalFileCache struct {
 	mux sync.Mutex
 
 	// Duration for stale Wasm module purging.
-	purgeInterval      time.Duration
-	wasmModuleExpiry   time.Duration
-	insecureRegistries sets.Set
+	purgeInterval    time.Duration
+	wasmModuleExpiry time.Duration
 
 	// stopChan currently is only used by test
 	stopChan chan struct{}
@@ -88,15 +83,14 @@ type cacheEntry struct {
 }
 
 // NewLocalFileCache create a new Wasm module cache which downloads and stores Wasm module files locally.
-func NewLocalFileCache(dir string, purgeInterval, moduleExpiry time.Duration, insecureRegistries []string) *LocalFileCache {
+func NewLocalFileCache(dir string, purgeInterval, moduleExpiry time.Duration) *LocalFileCache {
 	cache := &LocalFileCache{
-		httpFetcher:        NewHTTPFetcher(),
-		modules:            make(map[cacheKey]*cacheEntry),
-		dir:                dir,
-		purgeInterval:      purgeInterval,
-		wasmModuleExpiry:   moduleExpiry,
-		stopChan:           make(chan struct{}),
-		insecureRegistries: sets.NewSet(insecureRegistries...),
+		httpFetcher:      NewHTTPFetcher(),
+		modules:          make(map[cacheKey]cacheEntry),
+		dir:              dir,
+		purgeInterval:    purgeInterval,
+		wasmModuleExpiry: moduleExpiry,
+		stopChan:         make(chan struct{}),
 	}
 	go func() {
 		cache.purge()
@@ -106,86 +100,52 @@ func NewLocalFileCache(dir string, purgeInterval, moduleExpiry time.Duration, in
 
 // Get returns path the local Wasm module file.
 func (c *LocalFileCache) Get(downloadURL, checksum string, timeout time.Duration) (string, error) {
+	url, err := url.Parse(downloadURL)
+	if err != nil {
+		return "", fmt.Errorf("fail to parse Wasm module fetch url: %s", downloadURL)
+	}
 	// Construct Wasm cache key with downloading URL and provided checksum of the module.
 	key := cacheKey{
 		downloadURL: downloadURL,
 		checksum:    checksum,
 	}
 
-	// First check if the cache entry is already downloaded.
-	if modulePath := c.getEntry(key); modulePath != "" {
-		return modulePath, nil
-	}
-
-	// If not, fetch images.
-	u, err := url.Parse(downloadURL)
-	if err != nil {
-		return "", fmt.Errorf("fail to parse Wasm module fetch url: %s", downloadURL)
-	}
-
-	// Byte array of Wasm binary.
-	var b []byte
-	// Hex-Encoded sha256 checksum of binary.
-	var dChecksum string
-	switch u.Scheme {
+	switch url.Scheme {
 	case "http", "https":
-		// Download the Wasm module with http fetcher.
-		b, err = c.httpFetcher.Fetch(downloadURL, timeout)
+		// First check if the cache entry is already downloaded.
+		if modulePath := c.getEntry(key); modulePath != "" {
+			return modulePath, nil
+		}
+
+		// If the module is not available locally, download the Wasm module with http fetcher.
+		b, err := c.httpFetcher.Fetch(downloadURL, timeout)
 		if err != nil {
 			wasmRemoteFetchCount.With(resultTag.Value(downloadFailure)).Increment()
 			return "", err
 		}
 
 		// Get sha256 checksum and check if it is the same as provided one.
-		sha := sha256.Sum256(b)
-		dChecksum = hex.EncodeToString(sha[:])
+		dChecksum := fmt.Sprintf("%x", sha256.Sum256(b))
 		if checksum != "" && dChecksum != checksum {
 			wasmRemoteFetchCount.With(resultTag.Value(checksumMismatch)).Increment()
 			return "", fmt.Errorf("module downloaded from %v has checksum %v, which does not match: %v", downloadURL, dChecksum, checksum)
 		}
-	case "oci":
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
 
-		insecure := false
-		if c.insecureRegistries.Contains(u.Host) {
-			insecure = true
+		wasmRemoteFetchCount.With(resultTag.Value(fetchSuccess)).Increment()
+
+		// TODO(bianpengyuan): Add sanity check on downloaded file to make sure it is a valid Wasm module.
+
+		key.checksum = dChecksum
+		f := filepath.Join(c.dir, fmt.Sprintf("%s.wasm", dChecksum))
+
+		if err := c.addEntry(key, b, f); err != nil {
+			return "", err
 		}
-		// TODO: support imagePullSecret and pass it to ImageFetcherOption.
-		imgFetcherOps := ImageFetcherOption{
-			Insecure: insecure,
-		}
-		wasmLog.Debugf("wasm oci fetch %s with options: %v", downloadURL, imgFetcherOps)
-		fetcher := NewImageFetcher(ctx, imgFetcherOps)
-		b, err = fetcher.Fetch(u.Host+u.Path, checksum)
-		if err != nil {
-			if errors.Is(err, errWasmOCIImageDigestMismatch) {
-				wasmRemoteFetchCount.With(resultTag.Value(checksumMismatch)).Increment()
-			} else {
-				wasmRemoteFetchCount.With(resultTag.Value(downloadFailure)).Increment()
-			}
-			return "", fmt.Errorf("could not fetch Wasm OCI image: %v", err)
-		}
-		sha := sha256.Sum256(b)
-		dChecksum = hex.EncodeToString(sha[:])
+
+		return f, nil
 	default:
-		return "", fmt.Errorf("unsupported Wasm module downloading URL scheme: %v", u.Scheme)
+		return "", fmt.Errorf("unsupported Wasm module downloading URL scheme: %v", url.Scheme)
 	}
-
-	if !isValidWasmBinary(b) {
-		wasmRemoteFetchCount.With(resultTag.Value(fetchFailure)).Increment()
-		return "", fmt.Errorf("fetched Wasm binary from %s is invalid", downloadURL)
-	}
-
-	wasmRemoteFetchCount.With(resultTag.Value(fetchSuccess)).Increment()
-
-	key.checksum = dChecksum
-	f := filepath.Join(c.dir, fmt.Sprintf("%s.wasm", dChecksum))
-
-	if err := c.addEntry(key, b, f); err != nil {
-		return "", err
-	}
-	return f, nil
 }
 
 // Cleanup closes background Wasm module purge routine.
@@ -205,7 +165,7 @@ func (c *LocalFileCache) addEntry(key cacheKey, wasmModule []byte, f string) err
 	}
 
 	// Materialize the Wasm module into a local file. Use checksum as name of the module.
-	if err := os.WriteFile(f, wasmModule, 0o644); err != nil {
+	if err := ioutil.WriteFile(f, wasmModule, 0o644); err != nil {
 		return err
 	}
 
@@ -213,7 +173,7 @@ func (c *LocalFileCache) addEntry(key cacheKey, wasmModule []byte, f string) err
 		modulePath: f,
 		last:       time.Now(),
 	}
-	c.modules[key] = &ce
+	c.modules[key] = ce
 	wasmCacheEntries.Record(float64(len(c.modules)))
 	return nil
 }
@@ -265,11 +225,4 @@ func (c *LocalFileCache) purge() {
 func (ce *cacheEntry) expired(expiry time.Duration) bool {
 	now := time.Now()
 	return now.Sub(ce.last) > expiry
-}
-
-var wasmMagicNumber = []byte{0x00, 0x61, 0x73, 0x6d}
-
-func isValidWasmBinary(in []byte) bool {
-	// Wasm file header is 8 bytes (magic number + version).
-	return len(in) >= 8 && bytes.Equal(in[:4], wasmMagicNumber)
 }

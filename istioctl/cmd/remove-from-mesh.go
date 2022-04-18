@@ -21,18 +21,17 @@ import (
 	"io"
 	"strings"
 
-	"github.com/hashicorp/go-multierror"
+	multierror "github.com/hashicorp/go-multierror"
 	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
-	apierror "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
 	"istio.io/api/annotation"
+	analyzer_util "istio.io/istio/galley/pkg/config/analysis/analyzers/util"
 	"istio.io/istio/istioctl/pkg/util/handlers"
-	"istio.io/istio/pkg/config/analysis/analyzers/util"
 	"istio.io/istio/pkg/config/resource"
 	"istio.io/istio/pkg/config/schema/collections"
 	"istio.io/istio/pkg/kube/inject"
@@ -93,7 +92,7 @@ func deploymentUnMeshifyCmd() *cobra.Command {
 				return fmt.Errorf("expecting deployment name")
 			}
 			ns := handlers.HandleNamespace(namespace, defaultNamespace)
-			if util.IsSystemNamespace(resource.Namespace(ns)) || ns == istioNamespace {
+			if analyzer_util.IsSystemNamespace(resource.Namespace(ns)) || ns == istioNamespace {
 				return fmt.Errorf("namespace %s is a system namespace and has no Istio sidecar injected", ns)
 			}
 			client, err := interfaceFactory(kubeconfig)
@@ -102,10 +101,7 @@ func deploymentUnMeshifyCmd() *cobra.Command {
 			}
 			dep, err := client.AppsV1().Deployments(ns).Get(context.TODO(), args[0], metav1.GetOptions{})
 			if err != nil {
-				if apierror.IsNotFound(err) {
-					return fmt.Errorf("deployment %q does not exist", args[0])
-				}
-				return err
+				return fmt.Errorf("deployment %q does not exist", args[0])
 			}
 			writer := cmd.OutOrStdout()
 			deps := []appsv1.Deployment{}
@@ -137,7 +133,7 @@ func svcUnMeshifyCmd() *cobra.Command {
 				return fmt.Errorf("expecting service name")
 			}
 			ns := handlers.HandleNamespace(namespace, defaultNamespace)
-			if util.IsSystemNamespace(resource.Namespace(ns)) || ns == istioNamespace {
+			if analyzer_util.IsSystemNamespace(resource.Namespace(ns)) || ns == istioNamespace {
 				return fmt.Errorf("namespace %s is a system namespace and has no Istio sidecar injected", ns)
 			}
 			client, err := interfaceFactory(kubeconfig)
@@ -146,10 +142,7 @@ func svcUnMeshifyCmd() *cobra.Command {
 			}
 			_, err = client.CoreV1().Services(ns).Get(context.TODO(), args[0], metav1.GetOptions{})
 			if err != nil {
-				if apierror.IsNotFound(err) {
-					return fmt.Errorf("service %q does not exist, skip", args[0])
-				}
-				return err
+				return fmt.Errorf("service %q does not exist, skip", args[0])
 			}
 			matchingDeployments, err := findDeploymentsForSvc(client, ns, args[0])
 			if err != nil {
@@ -201,10 +194,7 @@ The typical usage scenario is Mesh Expansion on VMs.`,
 			if err == nil {
 				return removeServiceOnVMFromMesh(seClient, client, ns, args[0], writer)
 			}
-			if apierror.IsNotFound(err) {
-				return fmt.Errorf("service %q does not exist, skip", args[0])
-			}
-			return err
+			return fmt.Errorf("service %q does not exist, skip", args[0])
 		},
 	}
 	cmd.Long += "\n\n" + ExperimentalMsg

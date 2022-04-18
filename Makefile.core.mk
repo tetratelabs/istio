@@ -19,10 +19,10 @@ ISTIO_GO := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 export ISTIO_GO
 SHELL := /bin/bash -o pipefail
 
-export VERSION ?= 1.13-dev
+export VERSION ?= 1.11-dev
 
 # Base version of Istio image to use
-BASE_VERSION ?= 1.13-2022-03-02T14-45-05
+BASE_VERSION ?= 1.11-dev.14
 
 export GO111MODULE ?= on
 export GOPROXY ?= https://proxy.golang.org
@@ -158,6 +158,22 @@ export ISTIO_ENVOY_MACOS_RELEASE_URL ?= https://github.com/istio/proxy/releases/
 export ISTIO_ENVOY_MACOS_RELEASE_DIR ?= ${TARGET_OUT}/release
 export ISTIO_ENVOY_MACOS_RELEASE_NAME ?= envoy-${ISTIO_ENVOY_MACOS_VERSION}
 export ISTIO_ENVOY_MACOS_RELEASE_PATH ?= ${ISTIO_ENVOY_MACOS_RELEASE_DIR}/${ISTIO_ENVOY_MACOS_RELEASE_NAME}
+
+# Allow user-override for a local Envoy build.
+export USE_LOCAL_PROXY ?= 0
+ifeq ($(USE_LOCAL_PROXY),1)
+  export ISTIO_ENVOY_LOCAL ?= $(realpath ${ISTIO_GO}/../proxy/bazel-bin/src/envoy/envoy)
+  # Point the native paths to the local envoy build.
+  ifeq ($(GOOS_LOCAL), Darwin)
+    export ISTIO_ENVOY_MACOS_RELEASE_DIR = $(dir ${ISTIO_ENVOY_LOCAL})
+    export ISTIO_ENVOY_MACOS_RELEASE_PATH = ${ISTIO_ENVOY_LOCAL}
+  else
+    export ISTIO_ENVOY_LINUX_DEBUG_DIR = $(dir ${ISTIO_ENVOY_LOCAL})
+    export ISTIO_ENVOY_LINUX_RELEASE_DIR = $(dir ${ISTIO_ENVOY_LOCAL})
+    export ISTIO_ENVOY_LINUX_DEBUG_PATH = ${ISTIO_ENVOY_LOCAL}
+    export ISTIO_ENVOY_LINUX_RELEASE_PATH = ${ISTIO_ENVOY_LOCAL}
+  endif
+endif
 
 # Allow user-override envoy bootstrap config path.
 export ISTIO_ENVOY_BOOTSTRAP_CONFIG_PATH ?= ${ISTIO_GO}/tools/packaging/common/envoy_bootstrap.json
@@ -313,10 +329,7 @@ $(foreach bin,$(AGENT_BINARIES),$(eval $(call build-linux,$(bin),"agent")))
 # Create helper targets for each binary, like "pilot-discovery"
 # As an optimization, these still build everything
 $(foreach bin,$(BINARIES),$(shell basename $(bin))): build
-ifneq ($(ISTIO_OUT_LINUX),$(LOCAL_OUT))
-# if we are on linux already, then this rule is handled by build-linux above, which handles BUILD_ALL variable
 $(foreach bin,$(BINARIES),${LOCAL_OUT}/$(shell basename $(bin))): build
-endif
 
 MARKDOWN_LINT_ALLOWLIST=localhost:8080,storage.googleapis.com/istio-artifacts/pilot/,http://ratings.default.svc.cluster.local:9080/ratings
 
@@ -327,7 +340,7 @@ lint-helm-global:
 lint: lint-python lint-copyright-banner lint-scripts lint-go lint-dockerfiles lint-markdown lint-yaml lint-licenses lint-helm-global ## Runs all linters.
 	@bin/check_samples.sh
 	@testlinter
-	@envvarlinter istioctl pilot security
+	@envvarlinter galley istioctl pilot security
 
 go-gen:
 	@mkdir -p /tmp/bin
@@ -360,17 +373,14 @@ gen: \
 gen-check: gen check-clean-repo
 
 copy-templates:
-	rm manifests/charts/istiod-remote/templates/*
-	rm manifests/charts/gateways/istio-egress/templates/*
-
 	# gateway charts
+	rm -r manifests/charts/gateways/istio-egress/templates
+	mkdir manifests/charts/gateways/istio-egress/templates
 	cp -r manifests/charts/gateways/istio-ingress/templates/* manifests/charts/gateways/istio-egress/templates
 	find ./manifests/charts/gateways/istio-egress/templates -type f -exec sed -i -e 's/ingress/egress/g' {} \;
 	find ./manifests/charts/gateways/istio-egress/templates -type f -exec sed -i -e 's/Ingress/Egress/g' {} \;
 
 	# external istiod remote cluster charts
-	cp manifests/charts/base/templates/services.yaml manifests/charts/istiod-remote/templates
-	cp manifests/charts/base/templates/endpoints.yaml manifests/charts/istiod-remote/templates
 	cp manifests/charts/base/templates/reader-serviceaccount.yaml manifests/charts/istiod-remote/templates
 	cp manifests/charts/istio-control/istio-discovery/templates/mutatingwebhook.yaml manifests/charts/istiod-remote/templates
 	cp manifests/charts/istio-control/istio-discovery/templates/reader-clusterrole.yaml manifests/charts/istiod-remote/templates
@@ -381,7 +391,6 @@ copy-templates:
 	cp manifests/charts/istio-control/istio-discovery/files/gateway-injection-template.yaml manifests/charts/istiod-remote/files
 	cp manifests/charts/istio-control/istio-discovery/templates/istiod-injector-configmap.yaml manifests/charts/istiod-remote/templates
 	cp manifests/charts/istio-control/istio-discovery/templates/configmap.yaml manifests/charts/istiod-remote/templates
-	cp manifests/charts/istio-control/istio-discovery/templates/telemetryv2_*.yaml manifests/charts/istiod-remote/templates
 	sed -e '1 i {{- if .Values.global.configCluster }}' -e '$$ a {{- end }}' manifests/charts/base/crds/crd-all.gen.yaml > manifests/charts/istiod-remote/templates/crd-all.gen.yaml
 	sed -e '1 i {{- if .Values.global.configCluster }}' -e '$$ a {{- end }}' manifests/charts/base/crds/crd-operator.yaml > manifests/charts/istiod-remote/templates/crd-operator.yaml
 	sed -e '1 i {{- if .Values.global.configCluster }}' -e '$$ a {{- end }}' manifests/charts/istio-control/istio-discovery/templates/validatingwebhookconfiguration.yaml > manifests/charts/istiod-remote/templates/validatingwebhookconfiguration.yaml
@@ -390,7 +399,6 @@ copy-templates:
 	sed -e '1 i {{- if .Values.global.configCluster }}' -e '$$ a {{- end }}' manifests/charts/istio-control/istio-discovery/templates/rolebinding.yaml > manifests/charts/istiod-remote/templates/rolebinding.yaml
 	sed -e '1 i {{- if .Values.global.configCluster }}' -e '$$ a {{- end }}' manifests/charts/istio-control/istio-discovery/templates/clusterrole.yaml > manifests/charts/istiod-remote/templates/clusterrole.yaml
 	sed -e '1 i {{- if .Values.global.configCluster }}' -e '$$ a {{- end }}' manifests/charts/istio-control/istio-discovery/templates/clusterrolebinding.yaml > manifests/charts/istiod-remote/templates/clusterrolebinding.yaml
-
 	# copy istio-discovery values, but apply some local customizations
 	cp manifests/charts/istio-control/istio-discovery/values.yaml manifests/charts/istiod-remote/
 	yq w manifests/charts/istiod-remote/values.yaml telemetry.enabled false -i
@@ -403,7 +411,7 @@ gen-kustomize:
 	helm3 template istio --namespace istio-system --include-crds manifests/charts/base > manifests/charts/base/files/gen-istio-cluster.yaml
 	helm3 template istio --namespace istio-system manifests/charts/istio-control/istio-discovery \
 		> manifests/charts/istio-control/istio-discovery/files/gen-istio.yaml
-	helm3 template operator --namespace istio-operator manifests/charts/istio-operator \
+	helm3 template operator --namespace istio-system manifests/charts/istio-operator \
 		--set hub=gcr.io/istio-testing --set tag=${VERSION} > manifests/charts/istio-operator/files/gen-operator.yaml
 
 #-----------------------------------------------------------------------------

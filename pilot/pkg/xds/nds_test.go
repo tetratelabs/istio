@@ -18,6 +18,7 @@ import (
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
 
@@ -85,8 +86,9 @@ func TestNDS(t *testing.T) {
 				},
 			})
 
-			nt := &dnsProto.NameTable{}
-			err := res.Resources[0].UnmarshalTo(nt)
+			var nt dnsProto.NameTable
+			// nolint: staticcheck
+			err := ptypes.UnmarshalAny(res.Resources[0], &nt)
 			if err != nil {
 				t.Fatal("Failed to unmarshal name table", err)
 				return

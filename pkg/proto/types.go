@@ -15,7 +15,7 @@
 package proto
 
 import (
-	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
+	"github.com/golang/protobuf/ptypes/wrappers"
 )
 
 var (

@@ -16,7 +16,7 @@ package image
 
 import (
 	"fmt"
-	"os"
+	"io/ioutil"
 
 	"gopkg.in/yaml.v3"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -49,6 +49,9 @@ type Settings struct {
 	// Image pull policy to use for deployments. If not specified, the defaults of each deployment will be used.
 	PullPolicy string
 
+	// BitnamiHub value to use in Helm templates for bitnami images
+	BitnamiHub string
+
 	// ImagePullSecret path to a file containing a k8s secret in yaml so test pods can pull from protected registries.
 	ImagePullSecret string
 }
@@ -66,6 +69,7 @@ func (s *Settings) String() string {
 	result += fmt.Sprintf("Tag:             %s\n", s.Tag)
 	result += fmt.Sprintf("PullPolicy:      %s\n", s.PullPolicy)
 	result += fmt.Sprintf("ImagePullSecret: %s\n", s.ImagePullSecret)
+	result += fmt.Sprintf("BitnamiHub:      %s\n", s.BitnamiHub)
 
 	return result
 }
@@ -74,7 +78,7 @@ func (s *Settings) ImagePullSecretName() (string, error) {
 	if s.ImagePullSecret == "" {
 		return "", nil
 	}
-	data, err := os.ReadFile(s.ImagePullSecret)
+	data, err := ioutil.ReadFile(s.ImagePullSecret)
 	if err != nil {
 		return "", err
 	}
@@ -95,29 +99,4 @@ func PullSecretNameOrFail(t test.Failer) string {
 		t.Fatalf("failed getting name of image pull secret: %v", err)
 	}
 	return name
-}
-
-func PullImagePolicy(t test.Failer) string {
-	var (
-		Always       = "Always"
-		IfNotPresent = "IfNotPresent"
-		Never        = "Never"
-	)
-
-	s, err := SettingsFromCommandLine()
-	if err != nil || s == nil {
-		t.Logf("failed reading image settings: %v, set imagePullPolicy=Always", err)
-		return Always
-	}
-	switch s.PullPolicy {
-	case Always, "":
-		return Always
-	case IfNotPresent:
-		return IfNotPresent
-	case Never:
-		return Never
-	default:
-		t.Logf("invalid image pull policy: %s, set imagePullPolicy=Always", s.PullPolicy)
-		return Always
-	}
 }

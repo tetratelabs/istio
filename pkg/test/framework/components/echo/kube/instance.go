@@ -45,7 +45,7 @@ var (
 	_ echo.Instance = &instance{}
 	_ io.Closer     = &instance{}
 
-	startDelay = retry.BackoffDelay(time.Millisecond * 100)
+	startDelay = retry.Delay(2 * time.Second)
 )
 
 type instance struct {

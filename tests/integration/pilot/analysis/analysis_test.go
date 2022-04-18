@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"istio.io/api/meta/v1alpha1"
-	"istio.io/istio/pkg/config/analysis/msg"
+	"istio.io/istio/galley/pkg/config/analysis/msg"
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/features"
@@ -45,7 +43,6 @@ func TestAnalysisWritesStatus(t *testing.T) {
 		Features(features.Usability_Observability_Status).
 		// TODO: make feature labels heirarchical constants like:
 		// Label(features.Usability.Observability.Status).
-		RequiresLocalControlPlane().
 		Run(func(t framework.TestContext) {
 			ns := namespace.NewOrFail(t, t, namespace.Config{
 				Prefix:   "default",
@@ -53,23 +50,8 @@ func TestAnalysisWritesStatus(t *testing.T) {
 				Revision: "",
 				Labels:   nil,
 			})
-			t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), `
-apiVersion: v1
-kind: Service
-metadata:
-  name: reviews
-spec:
-  selector:
-    app: reviews
-  type: ClusterIP
-  ports:
-  - name: http-monitoring
-    port: 15014
-    protocol: TCP
-    targetPort: 15014
-`)
 			// Apply bad config (referencing invalid host)
-			t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), `
+			t.Config().ApplyYAMLOrFail(t, ns.Name(), `
 apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
 metadata:
@@ -88,7 +70,7 @@ spec:
 				return expectVirtualServiceStatus(t, ns, true)
 			}, retry.Timeout(time.Minute*5))
 			// Apply config to make this not invalid
-			t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), `
+			t.Config().ApplyYAMLOrFail(t, ns.Name(), `
 apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
 metadata:
@@ -123,7 +105,7 @@ func TestWorkloadEntryUpdatesStatus(t *testing.T) {
 			})
 
 			// create WorkloadEntry
-			t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), `
+			t.Config().ApplyYAMLOrFail(t, ns.Name(), `
 apiVersion: networking.istio.io/v1alpha3
 kind: WorkloadEntry
 metadata:
@@ -247,7 +229,7 @@ func expectVirtualServiceStatus(t framework.TestContext, ns namespace.Instance, 
 		if !found {
 			return fmt.Errorf("expected error %v to exist", msg.ReferencedResourceNotFound.Code())
 		}
-	} else if status.ValidationMessages != nil && len(status.ValidationMessages) > 0 {
+	} else if status.ValidationMessages != nil {
 		return fmt.Errorf("expected no validation messages, but got %d", len(status.ValidationMessages))
 	}
 

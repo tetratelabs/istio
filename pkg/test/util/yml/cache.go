@@ -16,6 +16,7 @@ package yml
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
 	"strings"
@@ -161,7 +162,7 @@ func (c *Cache) GetFileFor(k CacheKey) string {
 }
 
 func (c *Cache) writeFile(file string, contents string) error {
-	return os.WriteFile(file, []byte(contents), os.ModePerm)
+	return ioutil.WriteFile(file, []byte(contents), os.ModePerm)
 }
 
 func (c *Cache) deleteFile(file string) error {

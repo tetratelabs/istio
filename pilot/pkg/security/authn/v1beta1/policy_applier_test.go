@@ -25,14 +25,14 @@ import (
 	envoy_jwt "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/jwt_authn/v3"
 	http_conn "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes"
+	duration "github.com/golang/protobuf/ptypes/duration"
+	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/google/go-cmp/cmp"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/emptypb"
 
-	authn_alpha "istio.io/api/authentication/v1alpha1"
-	authn_filter "istio.io/api/envoy/config/filter/http/authn/v2alpha1"
 	"istio.io/api/security/v1beta1"
 	type_beta "istio.io/api/type/v1beta1"
 	"istio.io/istio/pilot/pkg/features"
@@ -42,6 +42,8 @@ import (
 	pilotutil "istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/host"
+	authn_alpha "istio.io/istio/pkg/envoy/config/authentication/v1alpha1"
+	authn_filter "istio.io/istio/pkg/envoy/config/filter/http/authn/v2alpha1"
 	protovalue "istio.io/istio/pkg/proto"
 )
 
@@ -111,7 +113,7 @@ func TestJwtFilter(t *testing.T) {
 														},
 														{
 															RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-																AllowMissing: &emptypb.Empty{},
+																AllowMissing: &empty.Empty{},
 															},
 														},
 													},
@@ -178,7 +180,7 @@ func TestJwtFilter(t *testing.T) {
 														},
 														{
 															RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-																AllowMissing: &emptypb.Empty{},
+																AllowMissing: &empty.Empty{},
 															},
 														},
 													},
@@ -198,9 +200,9 @@ func TestJwtFilter(t *testing.T) {
 												HttpUpstreamType: &core.HttpUri_Cluster{
 													Cluster: "outbound|7443||jwt-token-issuer.mesh.svc.cluster.local",
 												},
-												Timeout: &durationpb.Duration{Seconds: 5},
+												Timeout: &duration.Duration{Seconds: 5},
 											},
-											CacheDuration: &durationpb.Duration{Seconds: 5 * 60},
+											CacheDuration: &duration.Duration{Seconds: 5 * 60},
 										},
 									},
 									Forward:           false,
@@ -250,7 +252,7 @@ func TestJwtFilter(t *testing.T) {
 														},
 														{
 															RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-																AllowMissing: &emptypb.Empty{},
+																AllowMissing: &empty.Empty{},
 															},
 														},
 													},
@@ -347,7 +349,7 @@ func TestJwtFilter(t *testing.T) {
 																						},
 																						{
 																							RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-																								AllowMissing: &emptypb.Empty{},
+																								AllowMissing: &empty.Empty{},
 																							},
 																						},
 																					},
@@ -365,7 +367,7 @@ func TestJwtFilter(t *testing.T) {
 																						},
 																						{
 																							RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-																								AllowMissing: &emptypb.Empty{},
+																								AllowMissing: &empty.Empty{},
 																							},
 																						},
 																					},
@@ -451,7 +453,7 @@ func TestJwtFilter(t *testing.T) {
 														},
 														{
 															RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-																AllowMissing: &emptypb.Empty{},
+																AllowMissing: &empty.Empty{},
 															},
 														},
 													},
@@ -517,7 +519,7 @@ func TestJwtFilter(t *testing.T) {
 														},
 														{
 															RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-																AllowMissing: &emptypb.Empty{},
+																AllowMissing: &empty.Empty{},
 															},
 														},
 													},
@@ -584,7 +586,7 @@ func TestJwtFilter(t *testing.T) {
 														},
 														{
 															RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-																AllowMissing: &emptypb.Empty{},
+																AllowMissing: &empty.Empty{},
 															},
 														},
 													},
@@ -652,7 +654,7 @@ func TestJwtFilter(t *testing.T) {
 														},
 														{
 															RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-																AllowMissing: &emptypb.Empty{},
+																AllowMissing: &empty.Empty{},
 															},
 														},
 													},
@@ -691,7 +693,7 @@ func TestJwtFilter(t *testing.T) {
 
 	push.ServiceIndex.HostnameAndNamespace[host.Name("jwt-token-issuer.mesh")] = map[string]*model.Service{}
 	push.ServiceIndex.HostnameAndNamespace[host.Name("jwt-token-issuer.mesh")]["mesh"] = &model.Service{
-		Hostname: "jwt-token-issuer.mesh.svc.cluster.local",
+		Hostname: host.Name("jwt-token-issuer.mesh.svc.cluster.local"),
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -751,7 +753,7 @@ func TestConvertToEnvoyJwtConfig(t *testing.T) {
 											},
 											{
 												RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-													AllowMissing: &emptypb.Empty{},
+													AllowMissing: &empty.Empty{},
 												},
 											},
 										},
@@ -827,7 +829,7 @@ func TestConvertToEnvoyJwtConfig(t *testing.T) {
 																			},
 																			{
 																				RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-																					AllowMissing: &emptypb.Empty{},
+																					AllowMissing: &empty.Empty{},
 																				},
 																			},
 																		},
@@ -845,7 +847,7 @@ func TestConvertToEnvoyJwtConfig(t *testing.T) {
 																			},
 																			{
 																				RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-																					AllowMissing: &emptypb.Empty{},
+																					AllowMissing: &empty.Empty{},
 																				},
 																			},
 																		},
@@ -918,7 +920,7 @@ func TestConvertToEnvoyJwtConfig(t *testing.T) {
 											},
 											{
 												RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-													AllowMissing: &emptypb.Empty{},
+													AllowMissing: &empty.Empty{},
 												},
 											},
 										},
@@ -972,7 +974,7 @@ func TestConvertToEnvoyJwtConfig(t *testing.T) {
 											},
 											{
 												RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-													AllowMissing: &emptypb.Empty{},
+													AllowMissing: &empty.Empty{},
 												},
 											},
 										},
@@ -1020,8 +1022,9 @@ func humanReadableAuthnFilterDump(filter *http_conn.HttpFilter) string {
 		return "<nil>"
 	}
 	config := &authn_filter.FilterConfig{}
-	filter.GetTypedConfig().UnmarshalTo(config)
-	return spew.Sdump(config)
+	// nolint: staticcheck
+	ptypes.UnmarshalAny(filter.GetTypedConfig(), config)
+	return spew.Sdump(*config)
 }
 
 func TestAuthnFilterConfig(t *testing.T) {
@@ -1032,11 +1035,10 @@ func TestAuthnFilterConfig(t *testing.T) {
 	jwksURI := ms.URL + "/oauth2/v3/certs"
 
 	cases := []struct {
-		name       string
-		forSidecar bool
-		jwtIn      []*config.Config
-		peerIn     []*config.Config
-		expected   *http_conn.HttpFilter
+		name     string
+		jwtIn    []*config.Config
+		peerIn   []*config.Config
+		expected *http_conn.HttpFilter
 	}{
 		{
 			name:     "no-policy",
@@ -1061,42 +1063,6 @@ func TestAuthnFilterConfig(t *testing.T) {
 				ConfigType: &http_conn.HttpFilter_TypedConfig{
 					TypedConfig: pilotutil.MessageToAny(&authn_filter.FilterConfig{
 						SkipValidateTrustDomain: true,
-						Policy: &authn_alpha.Policy{
-							Origins: []*authn_alpha.OriginAuthenticationMethod{
-								{
-									Jwt: &authn_alpha.Jwt{
-										Issuer: "https://secret.foo.com",
-									},
-								},
-							},
-							OriginIsOptional: true,
-							PrincipalBinding: authn_alpha.PrincipalBinding_USE_ORIGIN,
-						},
-					}),
-				},
-			},
-		},
-		{
-			name:       "beta-jwt-for-sidecar",
-			forSidecar: true,
-			jwtIn: []*config.Config{
-				{
-					Spec: &v1beta1.RequestAuthentication{
-						JwtRules: []*v1beta1.JWTRule{
-							{
-								Issuer:  "https://secret.foo.com",
-								JwksUri: jwksURI,
-							},
-						},
-					},
-				},
-			},
-			expected: &http_conn.HttpFilter{
-				Name: "istio_authn",
-				ConfigType: &http_conn.HttpFilter_TypedConfig{
-					TypedConfig: pilotutil.MessageToAny(&authn_filter.FilterConfig{
-						SkipValidateTrustDomain: true,
-						DisableClearRouteCache:  true,
 						Policy: &authn_alpha.Policy{
 							Origins: []*authn_alpha.OriginAuthenticationMethod{
 								{
@@ -1258,7 +1224,7 @@ func TestAuthnFilterConfig(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := NewPolicyApplier("root-namespace", c.jwtIn, c.peerIn, &model.PushContext{}).AuthNFilter(c.forSidecar)
+			got := NewPolicyApplier("root-namespace", c.jwtIn, c.peerIn, &model.PushContext{}).AuthNFilter()
 			if !reflect.DeepEqual(c.expected, got) {
 				t.Errorf("got:\n%v\nwanted:\n%v\n", humanReadableAuthnFilterDump(got), humanReadableAuthnFilterDump(c.expected))
 			}
@@ -1617,7 +1583,7 @@ func TestComposePeerAuthentication(t *testing.T) {
 			},
 		},
 		{
-			name: "ignore non-emptypb selector in root namespace",
+			name: "ignore non-empty selector in root namespace",
 			configs: []*config.Config{
 				{
 					Meta: config.Meta{
@@ -2048,7 +2014,7 @@ func TestComposePeerAuthentication(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ComposePeerAuthentication("root-namespace", tt.configs); !reflect.DeepEqual(got, tt.want) {
+			if got := composePeerAuthentication("root-namespace", tt.configs); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("composePeerAuthentication() = %v, want %v", got, tt.want)
 			}
 		})

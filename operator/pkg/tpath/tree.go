@@ -30,9 +30,9 @@ import (
 	"strconv"
 	"strings"
 
+	yaml2 "github.com/ghodss/yaml"
 	"github.com/kylelemons/godebug/pretty"
 	"gopkg.in/yaml.v2"
-	yaml2 "sigs.k8s.io/yaml"
 
 	"istio.io/istio/operator/pkg/util"
 	"istio.io/pkg/log"
@@ -335,10 +335,6 @@ func setPathContext(nc *PathContext, value interface{}, merge bool) error {
 // setValueContext writes the given value to the Node in the given PathContext.
 // If setting the value requires growing the final slice, grows it.
 func setValueContext(nc *PathContext, value interface{}, merge bool) (bool, error) {
-	if nc.Parent == nil {
-		return false, nil
-	}
-
 	vv, mapFromString := tryToUnmarshalStringToYAML(value)
 
 	switch parentNode := nc.Parent.Node.(type) {

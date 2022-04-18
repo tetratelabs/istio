@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"os"
+	"io/ioutil"
 
 	"gopkg.in/yaml.v3"
 
@@ -43,7 +43,7 @@ var _ config.Value = &configs{}
 func (c *configs) String() string {
 	buf := &bytes.Buffer{}
 	for _, cc := range *c {
-		_, _ = fmt.Fprintf(buf, "FQDN:     %s\n", cc.ClusterLocalFQDN())
+		_, _ = fmt.Fprintf(buf, "FQDN:     %s\n", cc.FQDN())
 		_, _ = fmt.Fprintf(buf, "Headless: %v\n", cc.Headless)
 		_, _ = fmt.Fprintf(buf, "VM:       %v\n", cc.DeployAsVM)
 		if cc.DeployAsVM {
@@ -61,7 +61,7 @@ func (c *configs) Set(path string) error {
 	if err != nil {
 		return err
 	}
-	yml, err := os.ReadFile(path)
+	yml, err := ioutil.ReadFile(path)
 	if err != nil {
 		return err
 	}

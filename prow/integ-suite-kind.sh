@@ -29,6 +29,7 @@ set -u
 # Print commands
 set -x
 
+
 # shellcheck source=prow/lib.sh
 source "${ROOT}/prow/lib.sh"
 setup_and_export_git_sha
@@ -37,7 +38,7 @@ setup_and_export_git_sha
 source "${ROOT}/common/scripts/kind_provisioner.sh"
 
 TOPOLOGY=SINGLE_CLUSTER
-NODE_IMAGE="gcr.io/istio-testing/kind-node:v1.23.0"
+NODE_IMAGE="gcr.io/istio-testing/kind-node:v1.21.1"
 KIND_CONFIG=""
 CLUSTER_TOPOLOGY_CONFIG_FILE="${ROOT}/prow/config/topology/multicluster.json"
 
@@ -104,8 +105,12 @@ done
 # Default IP family of the cluster is IPv4
 export IP_FAMILY="${IP_FAMILY:-ipv4}"
 
-# LoadBalancer in Kind is supported using metallb
-export TEST_ENV=kind-metallb
+# KinD will not have a LoadBalancer, so we need to disable it
+export TEST_ENV=kind
+# LoadBalancer in Kind is supported using metallb if not ipv6.
+if [ "${IP_FAMILY}" != "ipv6" ]; then
+  export TEST_ENV=kind-metallb
+fi
 
 # See https://kind.sigs.k8s.io/docs/user/quick-start/#loading-an-image-into-your-cluster
 export PULL_POLICY=IfNotPresent
@@ -133,7 +138,7 @@ export ARTIFACTS="${ARTIFACTS:-$(mktemp -d)}"
 trace "init" make init
 
 if [[ -z "${SKIP_SETUP:-}" ]]; then
-  export DEFAULT_CLUSTER_YAML="./prow/config/default.yaml"
+  export DEFAULT_CLUSTER_YAML="./prow/config/trustworthy-jwt.yaml"
   export METRICS_SERVER_CONFIG_DIR='./prow/config/metrics'
 
   if [[ "${TOPOLOGY}" == "SINGLE_CLUSTER" ]]; then

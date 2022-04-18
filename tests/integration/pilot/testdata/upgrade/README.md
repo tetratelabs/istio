@@ -1,8 +1,7 @@
 # Upgrade dataset
 
-These files contain fully rendered manifests to install various Istio versions,
-and rendered CNI manifests to install various CNI versions.
-They are `tar`ed to avoid developer confusion and accidental edits.
+These files contain fully rendered manifests to install various Istio versions. They are `tar`ed to
+avoid developer confusion and accidental edits.
 
 ## Adding a new version
 
@@ -33,19 +32,3 @@ spec:
 ```
 
 1. Run `tar cf 1.x.y-install.yaml.tar 1.x.y-install.yaml`
-
-1. Generate a new CNI Daemonset manifest with the following settings:
-
-```yaml
-apiVersion: install.istio.io/v1alpha1
-kind: IstioOperator
-spec:
-  hub: gcr.io/istio-release
-  profile: empty
-  components:
-    cni:
-      enabled: true
-      namespace: kube-system
-```
-
-1. Run `tar cf 1.x.y-cni-install.yaml.tar 1.x.y-cni-install.yaml`

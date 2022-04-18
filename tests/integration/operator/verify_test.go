@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,7 +16,7 @@
 package operator
 
 import (
-	"io"
+	"io/ioutil"
 	"testing"
 
 	"istio.io/istio/istioctl/pkg/clioptions"
@@ -53,12 +51,10 @@ func TestPostInstallControlPlaneVerification(t *testing.T) {
 				"-y",
 			}
 			istioCtl.InvokeOrFail(t, installCmd)
-			tfLogger := clog.NewConsoleLogger(io.Discard, io.Discard, scopes.Framework)
-			statusVerifier, err := verifier.NewStatusVerifier(IstioNamespace, ManifestPath, "",
+
+			tfLogger := clog.NewConsoleLogger(ioutil.Discard, ioutil.Discard, scopes.Framework)
+			statusVerifier := verifier.NewStatusVerifier(IstioNamespace, ManifestPath, "",
 				"", []string{}, clioptions.ControlPlaneOptions{}, tfLogger, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
 			if err := statusVerifier.Verify(); err != nil {
 				t.Fatal(err)
 			}

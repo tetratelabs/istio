@@ -16,6 +16,7 @@ package kube
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -103,7 +104,7 @@ func TestBuildClientConfig(t *testing.T) {
 }
 
 func generateKubeConfig(cluster1Host string, cluster2Host string) (string, error) {
-	tempDir, err := os.MkdirTemp("/tmp/", ".kube")
+	tempDir, err := ioutil.TempDir("/tmp/", ".kube")
 	if err != nil {
 		return "", err
 	}
@@ -139,7 +140,7 @@ users:
     token: sdsddsd`
 
 	sampleConfig := fmt.Sprintf(template, cluster1Host, cluster2Host)
-	err = os.WriteFile(filePath, []byte(sampleConfig), 0o644)
+	err = ioutil.WriteFile(filePath, []byte(sampleConfig), 0o644)
 	if err != nil {
 		return "", err
 	}
@@ -214,86 +215,5 @@ func TestCronJobMetadata(t *testing.T) {
 				t.Errorf("Type metadata got %+v want %+v", gotTypeMeta, tt.wantTypeMetadata)
 			}
 		})
-	}
-}
-
-func TestDeploymentConfigMetadata(t *testing.T) {
-	tests := []struct {
-		name               string
-		pod                *kubeApiCore.Pod
-		wantTypeMetadata   metav1.TypeMeta
-		wantObjectMetadata metav1.ObjectMeta
-	}{
-		{
-			name: "deployconfig-name-deploy",
-			pod:  podForDeploymentConfig("deploy", true),
-			wantTypeMetadata: metav1.TypeMeta{
-				Kind:       "DeploymentConfig",
-				APIVersion: "v1",
-			},
-			wantObjectMetadata: metav1.ObjectMeta{
-				Name:         "deploy",
-				GenerateName: "deploy-rc-pod",
-				Labels:       map[string]string{},
-			},
-		},
-		{
-			name: "deployconfig-name-deploy2",
-			pod:  podForDeploymentConfig("deploy2", true),
-			wantTypeMetadata: metav1.TypeMeta{
-				Kind:       "DeploymentConfig",
-				APIVersion: "v1",
-			},
-			wantObjectMetadata: metav1.ObjectMeta{
-				Name:         "deploy2",
-				GenerateName: "deploy2-rc-pod",
-				Labels:       map[string]string{},
-			},
-		},
-		{
-			name: "non-deployconfig-label",
-			pod:  podForDeploymentConfig("dep", false),
-			wantTypeMetadata: metav1.TypeMeta{
-				Kind:       "ReplicationController",
-				APIVersion: "v1",
-			},
-			wantObjectMetadata: metav1.ObjectMeta{
-				Name:         "dep-rc",
-				GenerateName: "dep-rc-pod",
-				Labels:       map[string]string{},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotObjectMeta, gotTypeMeta := GetDeployMetaFromPod(tt.pod)
-			if !reflect.DeepEqual(gotObjectMeta, tt.wantObjectMetadata) {
-				t.Errorf("Object metadata got %+v want %+v", gotObjectMeta, tt.wantObjectMetadata)
-			}
-			if !reflect.DeepEqual(gotTypeMeta, tt.wantTypeMetadata) {
-				t.Errorf("Type metadata got %+v want %+v", gotTypeMeta, tt.wantTypeMetadata)
-			}
-		})
-	}
-}
-
-func podForDeploymentConfig(deployConfigName string, hasDeployConfigLabel bool) *kubeApiCore.Pod {
-	controller := true
-	labels := make(map[string]string)
-	if hasDeployConfigLabel {
-		labels["deploymentconfig"] = deployConfigName
-	}
-	return &kubeApiCore.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: deployConfigName + "-rc-pod",
-			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: "v1",
-				Controller: &controller,
-				Kind:       "ReplicationController",
-				Name:       deployConfigName + "-rc",
-			}},
-			Labels: labels,
-		},
 	}
 }

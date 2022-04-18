@@ -15,9 +15,11 @@
 package file
 
 import (
-	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
+
+	"github.com/pkg/errors"
 )
 
 // Copies file by reading the file then writing atomically into the target directory
@@ -27,7 +29,7 @@ func AtomicCopy(srcFilepath, targetDir, targetFilename string) error {
 		return err
 	}
 
-	input, err := os.ReadFile(srcFilepath)
+	input, err := ioutil.ReadFile(srcFilepath)
 	if err != nil {
 		return err
 	}
@@ -41,17 +43,17 @@ func Copy(srcFilepath, targetDir, targetFilename string) error {
 		return err
 	}
 
-	input, err := os.ReadFile(srcFilepath)
+	input, err := ioutil.ReadFile(srcFilepath)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(targetDir, targetFilename), input, info.Mode())
+	return ioutil.WriteFile(filepath.Join(targetDir, targetFilename), input, info.Mode())
 }
 
 // Write atomically by writing to a temporary file in the same directory then renaming
 func AtomicWrite(path string, data []byte, mode os.FileMode) (err error) {
-	tmpFile, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.")
+	tmpFile, err := ioutil.TempFile(filepath.Dir(path), filepath.Base(path)+".tmp.")
 	if err != nil {
 		return
 	}
@@ -59,7 +61,7 @@ func AtomicWrite(path string, data []byte, mode os.FileMode) (err error) {
 		if Exists(tmpFile.Name()) {
 			if rmErr := os.Remove(tmpFile.Name()); rmErr != nil {
 				if err != nil {
-					err = fmt.Errorf("%s: %w", rmErr.Error(), err)
+					err = errors.Wrap(err, rmErr.Error())
 				} else {
 					err = rmErr
 				}
@@ -74,7 +76,7 @@ func AtomicWrite(path string, data []byte, mode os.FileMode) (err error) {
 	_, err = tmpFile.Write(data)
 	if err != nil {
 		if closeErr := tmpFile.Close(); closeErr != nil {
-			err = fmt.Errorf("%s: %w", closeErr.Error(), err)
+			err = errors.Wrap(err, closeErr.Error())
 		}
 		return
 	}
@@ -101,7 +103,7 @@ const (
 // Inspired by etcd fileutil.
 func IsDirWriteable(dir string) error {
 	f := filepath.Join(dir, ".touch")
-	if err := os.WriteFile(f, []byte(""), PrivateFileMode); err != nil {
+	if err := ioutil.WriteFile(f, []byte(""), PrivateFileMode); err != nil {
 		return err
 	}
 	return os.Remove(f)

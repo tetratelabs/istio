@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 //  Copyright Istio Authors
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,7 +17,7 @@ package filemountedcerts
 
 import (
 	"context"
-	"os"
+	"io/ioutil"
 	"path"
 	"strings"
 	"testing"
@@ -59,7 +57,6 @@ func TestMain(m *testing.M) {
 		NewSuite(m).
 		Label(label.CustomSetup).
 		RequireSingleCluster().
-		RequireMultiPrimary().
 		Label("CustomSetup").
 		Setup(istio.Setup(&inst, setupConfig, CreateCustomIstiodSecret)).
 		Run()
@@ -223,7 +220,7 @@ func CreateCustomSecret(ctx resource.Context, name string, namespace namespace.I
 }
 
 func ReadCustomCertFromFile(certsPath string, f string) ([]byte, error) {
-	b, err := os.ReadFile(path.Join(env.IstioSrc, certsPath, f))
+	b, err := ioutil.ReadFile(path.Join(env.IstioSrc, certsPath, f))
 	if err != nil {
 		return nil, err
 	}

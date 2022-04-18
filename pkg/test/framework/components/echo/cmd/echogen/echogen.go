@@ -18,6 +18,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 
@@ -108,7 +109,7 @@ func newGenerator() generator {
 
 func (g *generator) load(input string) error {
 	// deserialize
-	bytes, err := os.ReadFile(input)
+	bytes, err := ioutil.ReadFile(input)
 	if err != nil {
 		return fmt.Errorf("failed reading file: %v", err)
 	}
@@ -127,7 +128,7 @@ func (g *generator) load(input string) error {
 		}
 		cfg.Cluster = c
 		if err := common.FillInDefaults(nil, &cfg); err != nil {
-			return fmt.Errorf("failed filling defaults for %s: %v", cfg.ClusterLocalFQDN(), err)
+			return fmt.Errorf("failed filling defaults for %s: %v", cfg.FQDN(), err)
 		}
 		g.configs[i] = cfg
 	}
@@ -138,7 +139,7 @@ func (g *generator) generate() error {
 	outputByFQDN := map[string]string{}
 	var errs error
 	for _, cfg := range g.configs {
-		id := cfg.ClusterLocalFQDN()
+		id := cfg.FQDN()
 		// generate
 		svc, err := kube.GenerateService(cfg)
 		if err != nil {
@@ -181,11 +182,11 @@ func (g *generator) writeOutputFile(path string, dir bool) error {
 		}
 		for id, yaml := range g.manifests {
 			fname := id + ".yaml"
-			if err := os.WriteFile(fname, []byte(yaml), 0o644); err != nil {
+			if err := ioutil.WriteFile(fname, []byte(yaml), 0o644); err != nil {
 				return fmt.Errorf("failed writing %s: %v", fname, err)
 			}
 		}
-	} else if err := os.WriteFile(path, []byte(g.joinManifests()), 0o644); err != nil {
+	} else if err := ioutil.WriteFile(path, []byte(g.joinManifests()), 0o644); err != nil {
 		return fmt.Errorf("failed writing %s: %v", path, err)
 	}
 	return nil

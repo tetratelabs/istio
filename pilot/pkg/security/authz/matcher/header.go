@@ -56,8 +56,8 @@ func HeaderMatcher(k, v string) *routepb.HeaderMatcher {
 	}
 }
 
-// HostMatcherWithRegex creates a host matcher for a host using regex for proxies before 1.11.
-func HostMatcherWithRegex(k, v string) *routepb.HeaderMatcher {
+// HostMatcher creates a host matcher for a host.
+func HostMatcher(k, v string) *routepb.HeaderMatcher {
 	var regex string
 	if v == "*" {
 		return &routepb.HeaderMatcher{
@@ -81,55 +81,6 @@ func HostMatcherWithRegex(k, v string) *routepb.HeaderMatcher {
 					GoogleRe2: &matcherpb.RegexMatcher_GoogleRE2{},
 				},
 				Regex: `(?i)` + regex,
-			},
-		},
-	}
-}
-
-// HostMatcher creates a host matcher for a host.
-func HostMatcher(k, v string) *routepb.HeaderMatcher {
-	// We must check "*" first to make sure we'll generate a non empty value in the prefix/suffix case.
-	// Empty prefix/suffix value is invalid in HeaderMatcher.
-	if v == "*" {
-		return &routepb.HeaderMatcher{
-			Name: k,
-			HeaderMatchSpecifier: &routepb.HeaderMatcher_PresentMatch{
-				PresentMatch: true,
-			},
-		}
-	} else if strings.HasPrefix(v, "*") {
-		return &routepb.HeaderMatcher{
-			Name: k,
-			HeaderMatchSpecifier: &routepb.HeaderMatcher_StringMatch{
-				StringMatch: &matcherpb.StringMatcher{
-					IgnoreCase: true,
-					MatchPattern: &matcherpb.StringMatcher_Suffix{
-						Suffix: v[1:],
-					},
-				},
-			},
-		}
-	} else if strings.HasSuffix(v, "*") {
-		return &routepb.HeaderMatcher{
-			Name: k,
-			HeaderMatchSpecifier: &routepb.HeaderMatcher_StringMatch{
-				StringMatch: &matcherpb.StringMatcher{
-					IgnoreCase: true,
-					MatchPattern: &matcherpb.StringMatcher_Prefix{
-						Prefix: v[:len(v)-1],
-					},
-				},
-			},
-		}
-	}
-	return &routepb.HeaderMatcher{
-		Name: k,
-		HeaderMatchSpecifier: &routepb.HeaderMatcher_StringMatch{
-			StringMatch: &matcherpb.StringMatcher{
-				IgnoreCase: true,
-				MatchPattern: &matcherpb.StringMatcher_Exact{
-					Exact: v,
-				},
 			},
 		},
 	}

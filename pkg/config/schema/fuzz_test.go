@@ -25,6 +25,7 @@ import (
 	fuzz "github.com/google/gofuzz"
 	"k8s.io/apimachinery/pkg/api/apitesting/fuzzer"
 	metafuzzer "k8s.io/apimachinery/pkg/apis/meta/fuzzer"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 
@@ -32,11 +33,14 @@ import (
 	networking "istio.io/api/networking/v1alpha3"
 	security "istio.io/api/security/v1beta1"
 	telemetry "istio.io/api/telemetry/v1alpha1"
+	clientnetworkingalpha "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	clientnetworkingbeta "istio.io/client-go/pkg/apis/networking/v1beta1"
+	clientsecurity "istio.io/client-go/pkg/apis/security/v1beta1"
+	clienttelemetry "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
 	"istio.io/istio/pilot/pkg/config/kube/crdclient"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/schema/collections"
 	istiofuzz "istio.io/istio/pkg/config/schema/fuzz"
-	"istio.io/istio/pkg/kube"
 )
 
 // This test exercises round tripping of marshaling/unmarshaling of all of our CRDs, based on fuzzing
@@ -52,7 +56,7 @@ func TestRoundtripFuzzing(t *testing.T) {
 				Version: gvk.Version,
 				Kind:    gvk.Kind,
 			}
-			istiofuzz.RoundTrip(t, kgvk, kube.IstioScheme, fz)
+			istiofuzz.RoundTrip(t, kgvk, scheme, fz)
 		})
 	}
 }
@@ -62,7 +66,7 @@ func TestValidationFuzzing(t *testing.T) {
 	fz := createFuzzer()
 	for _, r := range collections.Pilot.All() {
 		t.Run(r.VariableName(), func(t *testing.T) {
-			var iobj config.Config
+			var iobj *config.Config
 			defer func() {
 				if err := recover(); err != nil {
 					logPanic(t, err)
@@ -76,17 +80,26 @@ func TestValidationFuzzing(t *testing.T) {
 					Version: gvk.Version,
 					Kind:    gvk.Kind,
 				}
-				obj := istiofuzz.Fuzz(t, kgvk, kube.IstioScheme, fz)
+				obj := istiofuzz.Fuzz(t, kgvk, scheme, fz)
 				iobj = crdclient.TranslateObject(obj, gvk, "cluster.local")
-				_, _ = r.Resource().ValidateConfig(iobj)
+				_, _ = r.Resource().ValidateConfig(*iobj)
 			}
 		})
 	}
 }
 
+var scheme = runtime.NewScheme()
+
+func init() {
+	clientnetworkingalpha.AddToScheme(scheme)
+	clientnetworkingbeta.AddToScheme(scheme)
+	clientsecurity.AddToScheme(scheme)
+	clienttelemetry.AddToScheme(scheme)
+}
+
 func createFuzzer() *fuzz.Fuzzer {
 	fuzzerFuncs := fuzzer.MergeFuzzerFuncs(metafuzzer.Funcs, fixProtoFuzzer)
-	codecs := serializer.NewCodecFactory(kube.IstioScheme)
+	codecs := serializer.NewCodecFactory(scheme)
 	seed := time.Now().UTC().UnixNano()
 	fz := fuzzer.
 		FuzzerFor(fuzzerFuncs, rand.NewSource(seed), codecs).
@@ -125,12 +138,6 @@ func fixProtoFuzzer(codecs serializer.CodecFactory) []interface{} {
 		},
 		func(t *networking.HTTPFaultInjection_Delay, c fuzz.Continue) {
 			*t = networking.HTTPFaultInjection_Delay{}
-		},
-		func(t *networking.HTTPRedirect, c fuzz.Continue) {
-			*t = networking.HTTPRedirect{}
-		},
-		func(t *networking.HTTPRedirect_DerivePort, c fuzz.Continue) {
-			*t = networking.HTTPRedirect_DerivePort{}
 		},
 		func(t *networking.LoadBalancerSettings, c fuzz.Continue) {
 			*t = networking.LoadBalancerSettings{}

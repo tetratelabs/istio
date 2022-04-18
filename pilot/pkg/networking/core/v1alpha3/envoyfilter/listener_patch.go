@@ -20,14 +20,13 @@ import (
 	xdslistener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	"google.golang.org/protobuf/proto"
-	any "google.golang.org/protobuf/types/known/anypb"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/any"
 
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/util/runtime"
-	"istio.io/istio/pilot/pkg/util/sets"
 	"istio.io/istio/pkg/config/xds"
 	"istio.io/pkg/log"
 )
@@ -35,6 +34,8 @@ import (
 // ApplyListenerPatches applies patches to LDS output
 func ApplyListenerPatches(
 	patchContext networking.EnvoyFilter_PatchContext,
+	proxy *model.Proxy,
+	push *model.PushContext,
 	efw *model.EnvoyFilterWrapper,
 	listeners []*xdslistener.Listener,
 	skipAdds bool) (out []*xdslistener.Listener) {
@@ -74,17 +75,13 @@ func patchListeners(
 	if !skipAdds {
 		for _, lp := range efw.Patches[networking.EnvoyFilter_LISTENER] {
 			if lp.Operation == networking.EnvoyFilter_Patch_ADD {
-				// If listener ADD patch does not specify a patch context, only add for sidecar outbound and gateway.
-				if lp.Match.Context == networking.EnvoyFilter_ANY && patchContext != networking.EnvoyFilter_SIDECAR_OUTBOUND &&
-					patchContext != networking.EnvoyFilter_GATEWAY {
-					continue
-				}
 				if !commonConditionMatch(patchContext, lp) {
 					IncrementEnvoyFilterMetric(lp.Key(), Listener, false)
 					continue
 				}
+
 				// clone before append. Otherwise, subsequent operations on this listener will corrupt
-				// the master value stored in CP.
+				// the master value stored in CP..
 				listeners = append(listeners, proto.Clone(lp.Value).(*xdslistener.Listener))
 				IncrementEnvoyFilterMetric(lp.Key(), Listener, true)
 			}
@@ -239,11 +236,12 @@ func mergeTransportSocketListener(fc *xdslistener.FilterChain, lp *model.EnvoyFi
 func patchNetworkFilters(patchContext networking.EnvoyFilter_PatchContext,
 	patches map[networking.EnvoyFilter_ApplyTo][]*model.EnvoyFilterConfigPatchWrapper,
 	listener *xdslistener.Listener, fc *xdslistener.FilterChain) {
-	removedFilters := sets.NewSet()
+	networkFiltersRemoved := false
 	for i, filter := range fc.Filters {
-		if patchNetworkFilter(patchContext, patches, listener, fc, fc.Filters[i]) {
-			removedFilters.Insert(filter.Name)
+		if filter.Name == "" {
+			continue
 		}
+		patchNetworkFilter(patchContext, patches, listener, fc, fc.Filters[i], &networkFiltersRemoved)
 	}
 	for _, lp := range patches[networking.EnvoyFilter_NETWORK_FILTER] {
 		if !commonConditionMatch(patchContext, lp) ||
@@ -328,24 +326,21 @@ func patchNetworkFilters(patchContext networking.EnvoyFilter_PatchContext,
 		}
 		IncrementEnvoyFilterMetric(lp.Key(), NetworkFilter, applied)
 	}
-	if len(removedFilters) > 0 {
-		tempArray := make([]*xdslistener.Filter, 0, len(fc.Filters)-len(removedFilters))
+	if networkFiltersRemoved {
+		tempArray := make([]*xdslistener.Filter, 0, len(fc.Filters))
 		for _, filter := range fc.Filters {
-			if removedFilters.Contains(filter.Name) {
-				continue
+			if filter.Name != "" {
+				tempArray = append(tempArray, filter)
 			}
-			tempArray = append(tempArray, filter)
 		}
 		fc.Filters = tempArray
 	}
 }
 
-// patchNetworkFilter patches passed in filter if it is MERGE operation.
-// The return value indicates whether the filter has been removed for REMOVE operations.
 func patchNetworkFilter(patchContext networking.EnvoyFilter_PatchContext,
 	patches map[networking.EnvoyFilter_ApplyTo][]*model.EnvoyFilterConfigPatchWrapper,
 	listener *xdslistener.Listener, fc *xdslistener.FilterChain,
-	filter *xdslistener.Filter) bool {
+	filter *xdslistener.Filter, networkFilterRemoved *bool) {
 	for _, lp := range patches[networking.EnvoyFilter_NETWORK_FILTER] {
 		if !commonConditionMatch(patchContext, lp) ||
 			!listenerMatch(listener, lp) ||
@@ -355,7 +350,10 @@ func patchNetworkFilter(patchContext networking.EnvoyFilter_PatchContext,
 			continue
 		}
 		if lp.Operation == networking.EnvoyFilter_Patch_REMOVE {
-			return true
+			filter.Name = ""
+			*networkFilterRemoved = true
+			// nothing more to do in other patches as we removed this filter
+			return
 		} else if lp.Operation == networking.EnvoyFilter_Patch_MERGE {
 			// proto merge doesn't work well when merging two filters with ANY typed configs
 			// especially when the incoming cp.Value is a struct that could contain the json config
@@ -399,7 +397,6 @@ func patchNetworkFilter(patchContext networking.EnvoyFilter_PatchContext,
 	if filter.Name == wellknown.HTTPConnectionManager {
 		patchHTTPFilters(patchContext, patches, listener, fc, filter)
 	}
-	return false
 }
 
 func patchHTTPFilters(patchContext networking.EnvoyFilter_PatchContext,
@@ -413,11 +410,12 @@ func patchHTTPFilters(patchContext networking.EnvoyFilter_PatchContext,
 			//  as this loop will be called very frequently
 		}
 	}
-	removedFilters := sets.Set{}
+	httpFiltersRemoved := false
 	for _, httpFilter := range httpconn.HttpFilters {
-		if patchHTTPFilter(patchContext, patches, listener, fc, filter, httpFilter) {
-			removedFilters.Insert(httpFilter.Name)
+		if httpFilter.Name == "" {
+			continue
 		}
+		patchHTTPFilter(patchContext, patches, listener, fc, filter, httpFilter, &httpFiltersRemoved)
 	}
 	for _, lp := range patches[networking.EnvoyFilter_HTTP_FILTER] {
 		applied := false
@@ -506,11 +504,11 @@ func patchHTTPFilters(patchContext networking.EnvoyFilter_PatchContext,
 		}
 		IncrementEnvoyFilterMetric(lp.Key(), HttpFilter, applied)
 	}
-	if len(removedFilters) > 0 {
-		tempArray := make([]*hcm.HttpFilter, 0, len(httpconn.HttpFilters)-len(removedFilters))
+	if httpFiltersRemoved {
+		tempArray := make([]*hcm.HttpFilter, 0, len(httpconn.HttpFilters))
 		for _, filter := range httpconn.HttpFilters {
-			if removedFilters.Contains(filter.Name) {
-				continue
+			if filter.Name != "" {
+				tempArray = append(tempArray, filter)
 			}
 		}
 		httpconn.HttpFilters = tempArray
@@ -521,12 +519,10 @@ func patchHTTPFilters(patchContext networking.EnvoyFilter_PatchContext,
 	}
 }
 
-// patchHTTPFilter patches passed in filter if it is MERGE operation.
-// The return value indicates whether the filter has been removed for REMOVE operations.
 func patchHTTPFilter(patchContext networking.EnvoyFilter_PatchContext,
 	patches map[networking.EnvoyFilter_ApplyTo][]*model.EnvoyFilterConfigPatchWrapper,
 	listener *xdslistener.Listener, fc *xdslistener.FilterChain, filter *xdslistener.Filter,
-	httpFilter *hcm.HttpFilter) bool {
+	httpFilter *hcm.HttpFilter, httpFilterRemoved *bool) {
 	for _, lp := range patches[networking.EnvoyFilter_HTTP_FILTER] {
 		applied := false
 		if !commonConditionMatch(patchContext, lp) ||
@@ -538,7 +534,10 @@ func patchHTTPFilter(patchContext networking.EnvoyFilter_PatchContext,
 			continue
 		}
 		if lp.Operation == networking.EnvoyFilter_Patch_REMOVE {
-			return true
+			httpFilter.Name = ""
+			*httpFilterRemoved = true
+			// nothing more to do in other patches as we removed this filter
+			return
 		} else if lp.Operation == networking.EnvoyFilter_Patch_MERGE {
 			// proto merge doesn't work well when merging two filters with ANY typed configs
 			// especially when the incoming cp.Value is a struct that could contain the json config
@@ -580,7 +579,6 @@ func patchHTTPFilter(patchContext networking.EnvoyFilter_PatchContext,
 		}
 		IncrementEnvoyFilterMetric(lp.Key(), HttpFilter, applied)
 	}
-	return false
 }
 
 func listenerMatch(listener *xdslistener.Listener, lp *model.EnvoyFilterConfigPatchWrapper) bool {

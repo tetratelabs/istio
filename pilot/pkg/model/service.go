@@ -24,7 +24,6 @@ package model
 
 import (
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,13 +73,9 @@ type Service struct {
 	// Name of the service, e.g. "catalog.mystore.com"
 	Hostname host.Name `json:"hostname"`
 
-	// ClusterVIPs specifies the service address of the load balancer
-	// in each of the clusters where the service resides
-	ClusterVIPs AddressMap `json:"clusterVIPs,omitempty"`
-
-	// DefaultAddress specifies the default service IP of the load balancer.
-	// Do not access directly. Use GetAddressForProxy
-	DefaultAddress string `json:"defaultAddress,omitempty"`
+	// Address specifies the service IPv4 address of the load balancer
+	// Do not access directly. Use GetServiceAddressForProxy
+	Address string `json:"address,omitempty"`
 
 	// AutoAllocatedAddress specifies the automatically allocated
 	// IPv4 address out of the reserved Class E subnet
@@ -94,6 +89,13 @@ type Service struct {
 	// service entries.
 	AutoAllocatedAddress string `json:"autoAllocatedAddress,omitempty"`
 
+	// Protect concurrent ClusterVIPs read/write
+	Mutex sync.RWMutex
+
+	// ClusterVIPs specifies the service address of the load balancer
+	// in each of the clusters where the service resides
+	ClusterVIPs map[cluster.ID]string `json:"cluster-vips,omitempty"`
+
 	// Resolution indicates how the service instances need to be resolved before routing
 	// traffic. Most services in the service registry will use static load balancing wherein
 	// the proxy will decide the service instance that will receive the traffic. Service entries
@@ -105,9 +107,6 @@ type Service struct {
 	// MeshExternal (if true) indicates that the service is external to the mesh.
 	// These services are defined using Istio's ServiceEntry spec.
 	MeshExternal bool
-
-	// ResourceVersion represents the internal version of this object.
-	ResourceVersion string
 }
 
 func (s *Service) Key() string {
@@ -128,8 +127,6 @@ const (
 	DNSLB
 	// Passthrough implies that the proxy should forward traffic to the destination IP requested by the caller
 	Passthrough
-	// DNSRoundRobinLB implies that the proxy will resolve a DNS address and forward to the resolved address
-	DNSRoundRobinLB
 )
 
 // String converts Resolution in to String.
@@ -139,8 +136,6 @@ func (resolution Resolution) String() string {
 		return "ClientSide"
 	case DNSLB:
 		return "DNS"
-	case DNSRoundRobinLB:
-		return "DNSRoundRobin"
 	case Passthrough:
 		return "Passthrough"
 	default:
@@ -250,35 +245,11 @@ func (instance *ServiceInstance) DeepCopy() *ServiceInstance {
 	}
 }
 
-type workloadKind int
-
-const (
-	// PodKind indicates the workload is from pod
-	PodKind workloadKind = iota
-	// WorkloadEntryKind indicates the workload is from workloadentry
-	WorkloadEntryKind
-)
-
-func (k workloadKind) String() string {
-	if k == PodKind {
-		return "Pod"
-	}
-
-	if k == WorkloadEntryKind {
-		return "WorkloadEntry"
-	}
-	return ""
-}
-
 type WorkloadInstance struct {
-	Name      string `json:"name,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
-	// Where the workloadInstance come from, valid values are`Pod` or `WorkloadEntry`
-	Kind     workloadKind      `json:"kind"`
-	Endpoint *IstioEndpoint    `json:"endpoint,omitempty"`
-	PortMap  map[string]uint32 `json:"portMap,omitempty"`
-	// Can only be selected by service entry of DNS type.
-	DNSServiceEntryOnly bool `json:"dnsServiceEntryOnly,omitempty"`
+	Name      string            `json:"name,omitempty"`
+	Namespace string            `json:"namespace,omitempty"`
+	Endpoint  *IstioEndpoint    `json:"endpoint,omitempty"`
+	PortMap   map[string]uint32 `json:"portMap,omitempty"`
 }
 
 // DeepCopy creates a copy of WorkloadInstance.
@@ -290,7 +261,6 @@ func (instance *WorkloadInstance) DeepCopy() *WorkloadInstance {
 	return &WorkloadInstance{
 		Name:      instance.Name,
 		Namespace: instance.Namespace,
-		Kind:      instance.Kind,
 		PortMap:   pmap,
 		Endpoint:  instance.Endpoint.DeepCopy(),
 	}
@@ -327,9 +297,6 @@ func WorkloadInstancesEqual(first, second *WorkloadInstance) bool {
 		return false
 	}
 	if first.Name != second.Name {
-		return false
-	}
-	if first.Kind != second.Kind {
 		return false
 	}
 	if !portMapEquals(first.PortMap, second.PortMap) {
@@ -468,53 +435,27 @@ func (ep *IstioEndpoint) GetLoadBalancingWeight() uint32 {
 	return 1
 }
 
-// IsDiscoverableFromProxy indicates whether this endpoint is discoverable from the given Proxy.
+// IsDiscoverableFromProxy indicates whether or not this endpoint is discoverable from the given Proxy.
 func (ep *IstioEndpoint) IsDiscoverableFromProxy(p *Proxy) bool {
 	if ep == nil || ep.DiscoverabilityPolicy == nil {
 		// If no policy was assigned, default to discoverable mesh-wide.
-		// TODO(nmittler): Will need to re-think this default when cluster.local is actually cluster-local.
 		return true
 	}
-	return ep.DiscoverabilityPolicy.IsDiscoverableFromProxy(ep, p)
+	return ep.DiscoverabilityPolicy(ep, p)
 }
 
 // EndpointDiscoverabilityPolicy determines the discoverability of an endpoint throughout the mesh.
-type EndpointDiscoverabilityPolicy interface {
-	// IsDiscoverableFromProxy indicates whether an endpoint is discoverable from the given Proxy.
-	IsDiscoverableFromProxy(*IstioEndpoint, *Proxy) bool
-
-	// String returns name of this policy.
-	String() string
-}
-
-type endpointDiscoverabilityPolicyImpl struct {
-	name string
-	f    func(*IstioEndpoint, *Proxy) bool
-}
-
-func (p *endpointDiscoverabilityPolicyImpl) IsDiscoverableFromProxy(ep *IstioEndpoint, proxy *Proxy) bool {
-	return p.f(ep, proxy)
-}
-
-func (p *endpointDiscoverabilityPolicyImpl) String() string {
-	return p.name
-}
+type EndpointDiscoverabilityPolicy func(*IstioEndpoint, *Proxy) bool
 
 // AlwaysDiscoverable is an EndpointDiscoverabilityPolicy that allows an endpoint to be discoverable throughout the mesh.
-var AlwaysDiscoverable EndpointDiscoverabilityPolicy = &endpointDiscoverabilityPolicyImpl{
-	name: "AlwaysDiscoverable",
-	f: func(*IstioEndpoint, *Proxy) bool {
-		return true
-	},
+var AlwaysDiscoverable = func(*IstioEndpoint, *Proxy) bool {
+	return true
 }
 
 // DiscoverableFromSameCluster is an EndpointDiscoverabilityPolicy that only allows an endpoint to be discoverable
 // from proxies within the same cluster.
-var DiscoverableFromSameCluster EndpointDiscoverabilityPolicy = &endpointDiscoverabilityPolicyImpl{
-	name: "DiscoverableFromSameCluster",
-	f: func(ep *IstioEndpoint, p *Proxy) bool {
-		return p.InCluster(ep.Locality.ClusterID)
-	},
+var DiscoverableFromSameCluster = func(ep *IstioEndpoint, p *Proxy) bool {
+	return p.InCluster(ep.Locality.ClusterID)
 }
 
 // ServiceAttributes represents a group of custom attributes of the service.
@@ -529,6 +470,8 @@ type ServiceAttributes struct {
 	Namespace string
 	// Labels applied to the service
 	Labels map[string]string
+	// UID is "destination.service.uid" attribute
+	UID string
 	// ExportTo defines the visibility of Service in
 	// a namespace when the namespace is imported.
 	ExportTo map[visibility.Instance]bool
@@ -543,7 +486,7 @@ type ServiceAttributes struct {
 	// address(es) to access the service from outside the cluster.
 	// Used by the aggregator to aggregate the Attributes.ClusterExternalAddresses
 	// for clusters where the service resides
-	ClusterExternalAddresses AddressMap
+	ClusterExternalAddresses map[cluster.ID][]string
 
 	// ClusterExternalPorts is a mapping between a cluster name and the service port
 	// to node port mappings for a given service. When accessing the service via
@@ -553,24 +496,14 @@ type ServiceAttributes struct {
 	ClusterExternalPorts map[cluster.ID]map[uint32]uint32
 }
 
-// DeepCopy creates a deep copy of ServiceAttributes, but skips internal mutexes.
-func (s *ServiceAttributes) DeepCopy() ServiceAttributes {
-	// Nested mutexes are configured to be ignored by copystructure.Copy.
-	// Disabling `go vet` warning since this is actually safe in this case.
-	// nolint: vet
-	return copyInternal(*s).(ServiceAttributes)
-}
-
 // ServiceDiscovery enumerates Istio service instances.
 // nolint: lll
 type ServiceDiscovery interface {
-	NetworkGatewaysWatcher
-
 	// Services list declarations of all services in the system
 	Services() ([]*Service, error)
 
 	// GetService retrieves a service by host name if it exists
-	GetService(hostname host.Name) *Service
+	GetService(hostname host.Name) (*Service, error)
 
 	// InstancesByPort retrieves instances for a service on the given ports with labels that match
 	// any of the supplied labels. All instances match an empty tag list.
@@ -614,6 +547,7 @@ type ServiceDiscovery interface {
 	// services are not HTTP or H2-based, behavior is undefined, since the listener may not be able to
 	// determine the intended destination of a connection without a Host header on the request.
 	GetProxyServiceInstances(*Proxy) []*ServiceInstance
+
 	GetProxyWorkloadLabels(*Proxy) labels.Collection
 
 	// GetIstioServiceAccounts returns a list of service accounts looked up from
@@ -621,22 +555,9 @@ type ServiceDiscovery interface {
 	// Deprecated - service account tracking moved to XdsServer, incremental.
 	GetIstioServiceAccounts(svc *Service, ports []int) []string
 
-	// MCSServices returns information about the services that have been exported/imported via the
-	// Kubernetes Multi-Cluster Services (MCS) ServiceExport API. Only applies to services in
-	// Kubernetes clusters.
-	MCSServices() []MCSServiceInfo
-}
-
-// MCSServiceInfo combines the name of a service with a particular Kubernetes cluster. This
-// is used for debug information regarding the state of Kubernetes Multi-Cluster Services (MCS).
-type MCSServiceInfo struct {
-	Cluster         cluster.ID
-	Name            string
-	Namespace       string
-	Exported        bool
-	Imported        bool
-	ClusterSetVIP   string
-	Discoverability map[host.Name]string
+	// NetworkGateways returns a list of network gateways that can be used to access endpoints
+	// residing in this registry.
+	NetworkGateways() []NetworkGateway
 }
 
 // GetNames returns port names
@@ -737,23 +658,24 @@ func ParseSubsetKey(s string) (direction TrafficDirection, subsetName string, ho
 	return
 }
 
-// GetAddressForProxy returns a Service's address specific to the cluster where the node resides
-func (s *Service) GetAddressForProxy(node *Proxy) string {
-	if node.Metadata != nil {
-		if node.Metadata.ClusterID != "" {
-			addresses := s.ClusterVIPs.GetAddressesFor(node.Metadata.ClusterID)
-			if len(addresses) > 0 {
-				return addresses[0]
-			}
+// GetServiceAddressForProxy returns a Service's IP address specific to the cluster where the node resides
+func (s *Service) GetServiceAddressForProxy(node *Proxy) string {
+	clusterIP := func() string {
+		if node.Metadata == nil || node.Metadata.ClusterID == "" {
+			return ""
 		}
-
-		if node.Metadata.DNSCapture && node.Metadata.DNSAutoAllocate &&
-			s.DefaultAddress == constants.UnspecifiedIP && s.AutoAllocatedAddress != "" {
-			return s.AutoAllocatedAddress
-		}
+		s.Mutex.RLock()
+		defer s.Mutex.RUnlock()
+		return s.ClusterVIPs[node.Metadata.ClusterID]
+	}()
+	if clusterIP != "" {
+		return clusterIP
 	}
-
-	return s.DefaultAddress
+	if node.Metadata != nil && node.Metadata.DNSCapture && node.Metadata.DNSAutoAllocate &&
+		s.Address == constants.UnspecifiedIP && s.AutoAllocatedAddress != "" {
+		return s.AutoAllocatedAddress
+	}
+	return s.Address
 }
 
 // GetTLSModeFromEndpointLabels returns the value of the label
@@ -795,21 +717,23 @@ func GetServiceAccounts(svc *Service, ports []int, discovery ServiceDiscovery) [
 // TODO : See if there is any efficient alternative to this function - copystructure can not be used as is because
 // Service has sync.RWMutex that can not be copied.
 func (s *Service) DeepCopy() *Service {
+	attrs := copyInternal(s.Attributes)
 	ports := copyInternal(s.Ports)
 	accounts := copyInternal(s.ServiceAccounts)
+	s.Mutex.RLock()
+	clusterVIPs := copyInternal(s.ClusterVIPs)
+	s.Mutex.RUnlock()
 
 	return &Service{
-		Attributes:           s.Attributes.DeepCopy(),
-		Ports:                ports.(PortList),
-		ServiceAccounts:      accounts.([]string),
-		CreationTime:         s.CreationTime,
-		Hostname:             s.Hostname,
-		ClusterVIPs:          s.ClusterVIPs.DeepCopy(),
-		DefaultAddress:       s.DefaultAddress,
-		AutoAllocatedAddress: s.AutoAllocatedAddress,
-		Resolution:           s.Resolution,
-		MeshExternal:         s.MeshExternal,
-		ResourceVersion:      s.ResourceVersion,
+		Attributes:      attrs.(ServiceAttributes),
+		Ports:           ports.(PortList),
+		ServiceAccounts: accounts.([]string),
+		CreationTime:    s.CreationTime,
+		Hostname:        s.Hostname,
+		Address:         s.Address,
+		ClusterVIPs:     clusterVIPs.(map[cluster.ID]string),
+		Resolution:      s.Resolution,
+		MeshExternal:    s.MeshExternal,
 	}
 }
 
@@ -818,22 +742,8 @@ func (ep *IstioEndpoint) DeepCopy() *IstioEndpoint {
 	return copyInternal(ep).(*IstioEndpoint)
 }
 
-// Configure copystructure so that it will not copy mutexes.
-var copyInternalConfig = copystructure.Config{
-	Copiers: map[reflect.Type]copystructure.CopierFunc{
-		reflect.TypeOf(sync.Mutex{}): func(interface{}) (interface{}, error) {
-			// Return a new mutex.
-			return sync.Mutex{}, nil
-		},
-		reflect.TypeOf(sync.RWMutex{}): func(interface{}) (interface{}, error) {
-			// Return a new mutex.
-			return sync.RWMutex{}, nil
-		},
-	},
-}
-
 func copyInternal(v interface{}) interface{} {
-	copied, err := copyInternalConfig.Copy(v)
+	copied, err := copystructure.Copy(v)
 	if err != nil {
 		// There are 2 locations where errors are generated in copystructure.Copy:
 		//  * The reflection walk over the structure fails, which should never happen

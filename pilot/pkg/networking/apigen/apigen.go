@@ -19,8 +19,9 @@ import (
 
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	gogotypes "github.com/gogo/protobuf/types"
-	golangany "google.golang.org/protobuf/types/known/anypb"
+	golangany "github.com/golang/protobuf/ptypes/any"
 
+	mcp "istio.io/api/mcp/v1alpha1"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
 	"istio.io/istio/pilot/pkg/serviceregistry/serviceentry"
@@ -113,7 +114,7 @@ func (g *APIGenerator) Generate(proxy *model.Proxy, push *model.PushContext, w *
 		// Right now model.Config is not a proto - until we change it, mcp.Resource.
 		// This also helps migrating MCP users.
 
-		b, err := config.PilotConfigToResource(&c)
+		b, err := configToResource(&c)
 		if err != nil {
 			log.Warn("Resource error ", err, " ", c.Namespace, "/", c.Name)
 			continue
@@ -144,8 +145,8 @@ func (g *APIGenerator) Generate(proxy *model.Proxy, push *model.PushContext, w *
 			if s.Attributes.ServiceRegistry == provider.External {
 				continue
 			}
-			c := serviceentry.ServiceToServiceEntry(s, proxy)
-			b, err := config.PilotConfigToResource(c)
+			c := serviceentry.ServiceToServiceEntry(s)
+			b, err := configToResource(c)
 			if err != nil {
 				log.Warn("Resource error ", err, " ", c.Namespace, "/", c.Name)
 				continue
@@ -167,4 +168,31 @@ func (g *APIGenerator) Generate(proxy *model.Proxy, push *model.PushContext, w *
 	}
 
 	return resp, model.DefaultXdsLogDetails, nil
+}
+
+// Convert from model.Config, which has no associated proto, to MCP Resource proto.
+// TODO: define a proto matching Config - to avoid useless superficial conversions.
+func configToResource(c *config.Config) (*mcp.Resource, error) {
+	r := &mcp.Resource{}
+
+	// MCP, K8S and Istio configs use gogo configs
+	// On the wire it's the same as golang proto.
+	a, err := config.ToProtoGogo(c.Spec)
+	if err != nil {
+		return nil, err
+	}
+	r.Body = a
+	ts, err := gogotypes.TimestampProto(c.CreationTimestamp)
+	if err != nil {
+		return nil, err
+	}
+	r.Metadata = &mcp.Metadata{
+		Name:        c.Namespace + "/" + c.Name,
+		CreateTime:  ts,
+		Version:     c.ResourceVersion,
+		Labels:      c.Labels,
+		Annotations: c.Annotations,
+	}
+
+	return r, nil
 }

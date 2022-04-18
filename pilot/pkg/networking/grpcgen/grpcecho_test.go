@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -46,7 +48,6 @@ const grpcEchoPort = 14058
 type echoCfg struct {
 	version   string
 	namespace string
-	tls       bool
 }
 
 type configGenTest struct {
@@ -68,22 +69,13 @@ type configGenTest struct {
 //      ports:
 //        grpc: {generated portnum}
 func newConfigGenTest(t *testing.T, discoveryOpts xds.FakeOptions, servers ...echoCfg) *configGenTest {
-	if runtime.GOOS == "darwin" && len(servers) > 1 {
+	if runtime.GOOS == "darwin" {
 		// TODO always skip if this breaks anywhere else
-		t.Skip("cannot use 127.0.0.2-255 on OSX without manual setup")
+		t.Skip("cannot use 127.0.0.x on OSX")
 	}
 
 	cgt := &configGenTest{T: t}
 	wg := sync.WaitGroup{}
-	for i, s := range servers {
-		host := fmt.Sprintf("127.0.0.%d", i+1)
-		discoveryOpts.Configs = append(discoveryOpts.Configs, makeWE(s, host, grpcEchoPort))
-	}
-	discoveryOpts.ListenerBuilder = func() (net.Listener, error) {
-		return net.Listen("tcp", grpcXdsAddr)
-	}
-	// Start XDS server
-	cgt.ds = xds.NewFakeDiscoveryServer(t, discoveryOpts)
 	for i, s := range servers {
 		if s.namespace == "" {
 			s.namespace = "default"
@@ -102,7 +94,6 @@ func newConfigGenTest(t *testing.T, discoveryOpts xds.FakeOptions, servers ...ec
 				Port:             grpcEchoPort,
 				Protocol:         protocol.GRPC,
 				XDSServer:        true,
-				XDSReadinessTLS:  s.tls,
 				XDSTestBootstrap: bootstrapBytes,
 			},
 			ListenerIP: host,
@@ -118,12 +109,12 @@ func newConfigGenTest(t *testing.T, discoveryOpts xds.FakeOptions, servers ...ec
 			t.Fatal(err)
 		}
 		cgt.endpoints = append(cgt.endpoints, ep)
-		t.Cleanup(func() {
-			if err := ep.Close(); err != nil {
-				t.Errorf("failed to close endpoint %s: %v", host, err)
-			}
-		})
+		discoveryOpts.Configs = append(discoveryOpts.Configs, makeWE(s, host, grpcEchoPort))
 	}
+	discoveryOpts.ListenerBuilder = func() (net.Listener, error) {
+		return net.Listen("tcp", grpcXdsAddr)
+	}
+	cgt.ds = xds.NewFakeDiscoveryServer(t, discoveryOpts)
 	// we know onReady will get called because there are internal timeouts for this
 	wg.Wait()
 	return cgt
@@ -160,7 +151,7 @@ func (t *configGenTest) dialEcho(addr string) *client.Instance {
 	return out
 }
 
-func TestTrafficShifting(t *testing.T) {
+func TestGrpcVirtualService(t *testing.T) {
 	tt := newConfigGenTest(t, xds.FakeOptions{
 		KubernetesObjectString: `
 apiVersion: v1
@@ -238,7 +229,11 @@ spec:
 	}, retry.Timeout(5*time.Second), retry.Delay(0))
 }
 
-func TestMtls(t *testing.T) {
+func TestGrpcMtls(t *testing.T) {
+	// TODO this is eagerly resolved in gRPC making it difficult to force with os.Setenv
+	if !strings.EqualFold(os.Getenv("GRPC_XDS_EXPERIMENTAL_SECURITY_SUPPORT"), "true") {
+		t.Skip("Must set GRPC_XDS_EXPERIMENTAL_SECURITY_SUPPORT outside the test")
+	}
 	tt := newConfigGenTest(t, xds.FakeOptions{
 		KubernetesObjectString: `
 apiVersion: v1
@@ -278,7 +273,7 @@ spec:
   mtls:
     mode: STRICT
 `,
-	}, echoCfg{version: "v1", tls: true})
+	}, echoCfg{version: "v1"})
 
 	// ensure we can make 10 consecutive successful requests
 	retry.UntilSuccessOrFail(tt.T, func() error {
@@ -291,59 +286,6 @@ spec:
 		}
 		return nil
 	}, retry.Timeout(5*time.Second), retry.Delay(0))
-}
-
-func TestFault(t *testing.T) {
-	tt := newConfigGenTest(t, xds.FakeOptions{
-		KubernetesObjectString: `
-apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    app: echo-app
-  name: echo-app
-  namespace: default
-spec:
-  clusterIP: 1.2.3.4
-  selector:
-    app: echo
-  ports:
-  - name: grpc
-    targetPort: grpc
-    port: 7071
-`,
-		ConfigString: `
-apiVersion: networking.istio.io/v1alpha3
-kind: VirtualService
-metadata:
-  name: echo-delay
-spec:
-  hosts:
-  - echo-app.default.svc.cluster.local
-  http:
-  - fault:
-      delay:
-        percent: 100
-        fixedDelay: 100ms
-    route:
-    - destination:
-        host: echo-app.default.svc.cluster.local
-`,
-	}, echoCfg{version: "v1"})
-	c := tt.dialEcho("xds:///echo-app.default.svc.cluster.local:7071")
-
-	// without a delay it usually takes ~500us
-	st := time.Now()
-	_, err := c.Echo(context.Background(), &proto.EchoRequest{})
-	duration := time.Since(st)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if duration < time.Millisecond*100 {
-		t.Fatalf("expected to take over 1s but took %v", duration)
-	}
-
-	// TODO test timeouts, aborts
 }
 
 func expectAlmost(got, want int) error {

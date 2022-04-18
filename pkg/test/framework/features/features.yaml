@@ -54,7 +54,6 @@ features:
       servicediscovery:
     cni:
       race-condition-repair:
-      upgrade:
   usability:
     observability:
       describe:
@@ -64,11 +63,8 @@ features:
       proxy-config:
       proxy-status:
       authz-check:
-      remote-clusters:
       analysis:
         line-numbers:
-      tcp-probe:
-      grpc-probe:
     helpers:
       add-to-mesh:
       remove-from-mesh:
@@ -97,13 +93,6 @@ features:
           invalid-secret:
           K8sca:
           valid-secret:
-      quic:
-        sds:
-          tls:
-          mtls:
-        sds-k8sca:
-          tls:
-          mtls:
     egress:
       mtls:
         sds:

@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"strings"
 
-	"sigs.k8s.io/yaml"
+	"github.com/ghodss/yaml"
 )
 
 // Metadata metadata for a kubernetes resource.

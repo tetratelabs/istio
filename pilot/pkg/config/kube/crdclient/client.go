@@ -32,7 +32,7 @@ import (
 	jsonmerge "github.com/evanphx/json-patch/v5"
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/atomic"
-	"gomodules.xyz/jsonpatch/v3"
+	"gomodules.xyz/jsonpatch/v2"
 	crd "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,8 +48,9 @@ import (
 	//  import OIDC cluster authentication plugin, e.g. for Tectonic
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/client-go/tools/cache"
-	gatewayapiclient "sigs.k8s.io/gateway-api/pkg/client/clientset/gateway/versioned"
+	gatewayapiclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 
+	"istio.io/api/label"
 	istioclient "istio.io/client-go/pkg/clientset/versioned"
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
@@ -104,43 +105,10 @@ var _ model.ConfigStoreCache = &Client{}
 
 func New(client kube.Client, revision, domainSuffix string) (model.ConfigStoreCache, error) {
 	schemas := collections.Pilot
-	if features.EnableGatewayAPI {
-		schemas = collections.PilotGatewayAPI
+	if features.EnableServiceApis {
+		schemas = collections.PilotServiceApi
 	}
 	return NewForSchemas(context.Background(), client, revision, domainSuffix, schemas)
-}
-
-var crdWatches = map[config.GroupVersionKind]*waiter{
-	gvk.KubernetesGateway: newWaiter(),
-}
-
-type waiter struct {
-	once sync.Once
-	stop chan struct{}
-}
-
-func newWaiter() *waiter {
-	return &waiter{
-		once: sync.Once{},
-		stop: make(chan struct{}),
-	}
-}
-
-// WaitForCRD waits until the request CRD exists, and returns true on success. A false return value
-// indicates the CRD does not exist but the wait failed or was canceled.
-// This is useful to conditionally enable controllers based on CRDs being created.
-func WaitForCRD(k config.GroupVersionKind, stop <-chan struct{}) bool {
-	ch, f := crdWatches[k]
-	if !f {
-		log.Warnf("waiting for CRD that is not registered")
-		return false
-	}
-	select {
-	case <-stop:
-		return false
-	case <-ch.stop:
-		return true
-	}
 }
 
 func NewForSchemas(ctx context.Context, client kube.Client, revision, domainSuffix string, schemas collection.Schemas) (model.ConfigStoreCache, error) {
@@ -275,7 +243,7 @@ func (cl *Client) SyncAll() {
 					scope.Warnf("New Object can not be converted to runtime Object %v, is type %T", object, object)
 					continue
 				}
-				currConfig := TranslateObject(currItem, h.schema.Resource().GroupVersionKind(), h.client.domainSuffix)
+				currConfig := *TranslateObject(currItem, h.schema.Resource().GroupVersionKind(), h.client.domainSuffix)
 				for _, f := range handlers {
 					f(config.Config{}, currConfig, model.EventAdd)
 				}
@@ -306,10 +274,10 @@ func (cl *Client) Get(typ config.GroupVersionKind, name, namespace string) *conf
 	}
 
 	cfg := TranslateObject(obj, typ, cl.domainSuffix)
-	if !cl.objectInRevision(&cfg) {
+	if !cl.objectInRevision(cfg) {
 		return nil
 	}
-	return &cfg
+	return cfg
 }
 
 // Create implements store interface
@@ -382,8 +350,8 @@ func (cl *Client) List(kind config.GroupVersionKind, namespace string) ([]config
 	out := make([]config.Config, 0, len(list))
 	for _, item := range list {
 		cfg := TranslateObject(item, kind, cl.domainSuffix)
-		if cl.objectInRevision(&cfg) {
-			out = append(out, cfg)
+		if cl.objectInRevision(cfg) {
+			out = append(out, *cfg)
 		}
 	}
 
@@ -391,7 +359,13 @@ func (cl *Client) List(kind config.GroupVersionKind, namespace string) ([]config
 }
 
 func (cl *Client) objectInRevision(o *config.Config) bool {
-	return config.ObjectInRevision(o, cl.revision)
+	configEnv, f := o.Labels[label.IoIstioRev.Name]
+	if !f {
+		// This is a global object, and always included
+		return true
+	}
+	// Otherwise, only return if the
+	return configEnv == cl.revision
 }
 
 func (cl *Client) allKinds() []*cacheHandler {
@@ -440,11 +414,11 @@ func knownCRDs(ctx context.Context, crdClient apiextensionsclient.Interface) (ma
 	return mp, nil
 }
 
-func TranslateObject(r runtime.Object, gvk config.GroupVersionKind, domainSuffix string) config.Config {
+func TranslateObject(r runtime.Object, gvk config.GroupVersionKind, domainSuffix string) *config.Config {
 	translateFunc, f := translationMap[gvk]
 	if !f {
 		scope.Errorf("unknown type %v", gvk)
-		return config.Config{}
+		return nil
 	}
 	c := translateFunc(r)
 	c.Domain = domainSuffix
@@ -505,7 +479,7 @@ func handleCRDAdd(cl *Client, name string, stop <-chan struct{}) {
 	var i informers.GenericInformer
 	var ifactory starter
 	var err error
-	if s.Resource().Group() == gvk.KubernetesGateway.Group {
+	if s.Resource().Group() == gvk.ServiceApisGateway.Group {
 		ifactory = cl.client.GatewayAPIInformer()
 		i, err = cl.client.GatewayAPIInformer().ForResource(gvr)
 	} else {
@@ -518,13 +492,7 @@ func handleCRDAdd(cl *Client, name string, stop <-chan struct{}) {
 		scope.Errorf("failed to create informer for %v", resourceGVK)
 		return
 	}
-	cl.kinds[resourceGVK] = createCacheHandler(cl, s, i)
-	if w, f := crdWatches[resourceGVK]; f {
-		scope.Infof("notifying watchers %v was created", resourceGVK)
-		w.once.Do(func() {
-			close(w.stop)
-		})
-	}
+	cl.kinds[s.Resource().GroupVersionKind()] = createCacheHandler(cl, s, i)
 	if stop != nil {
 		// Start informer factory, only if stop is defined. In startup case, we will not start here as
 		// we will start all factories once we are ready to initialize.

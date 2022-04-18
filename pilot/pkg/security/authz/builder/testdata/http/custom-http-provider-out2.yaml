@@ -14,11 +14,8 @@ typedConfig:
       allowedHeaders:
         patterns:
         - exact: x-custom-id
-          ignoreCase: true
-        - ignoreCase: true
-          prefix: x-prefix-
-        - ignoreCase: true
-          suffix: -suffix
+        - prefix: x-prefix-
+        - suffix: -suffix
       headersToAdd:
       - key: x-header-1
         value: value-1
@@ -28,19 +25,13 @@ typedConfig:
       allowedClientHeaders:
         patterns:
         - exact: Set-cookie
-          ignoreCase: true
-        - ignoreCase: true
-          prefix: x-prefix-
-        - ignoreCase: true
-          suffix: -suffix
+        - prefix: x-prefix-
+        - suffix: -suffix
       allowedUpstreamHeaders:
         patterns:
         - exact: Authorization
-          ignoreCase: true
-        - ignoreCase: true
-          prefix: x-prefix-
-        - ignoreCase: true
-          suffix: -suffix
+        - prefix: x-prefix-
+        - suffix: -suffix
     pathPrefix: /check
     serverUri:
       cluster: outbound|9000||my-custom-ext-authz.foo.svc.cluster.local

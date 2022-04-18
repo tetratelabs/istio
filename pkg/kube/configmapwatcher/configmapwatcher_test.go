@@ -103,6 +103,7 @@ func Test_ConfigMapWatcher(t *testing.T) {
 	cache.WaitForCacheSync(stop, c.HasSynced)
 
 	cms := client.Kube().CoreV1().ConfigMaps(configMapNamespace)
+
 	for i, step := range steps {
 		resetCalled()
 

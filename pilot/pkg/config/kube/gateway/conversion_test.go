@@ -16,17 +16,17 @@ package gateway
 
 import (
 	"fmt"
-	"os"
+	"io/ioutil"
 	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/ghodss/yaml"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8s "sigs.k8s.io/gateway-api/apis/v1alpha2"
-	"sigs.k8s.io/yaml"
+	k8s "sigs.k8s.io/gateway-api/apis/v1alpha1"
 
 	"istio.io/istio/pilot/pkg/config/kube/crd"
 	"istio.io/istio/pilot/pkg/model"
@@ -43,28 +43,21 @@ import (
 
 func TestConvertResources(t *testing.T) {
 	validator := crdvalidation.NewIstioValidator(t)
-	cases := []struct {
-		name string
-	}{
-		{"http"},
-		{"tcp"},
-		{"tls"},
-		{"mismatch"},
-		{"weighted"},
-		{"zero"},
-		{"mesh"},
-		{"invalid"},
-		{"multi-gateway"},
-		{"delegated"},
-		{"route-binding"},
-		{"reference-policy-tls"},
-		{"serviceentry"},
-		{"eastwest"},
-		{"alias"},
+	cases := []string{
+		"http",
+		"tcp",
+		"tls",
+		"mismatch",
+		"weighted",
+		"backendpolicy",
+		"mesh",
+		"invalid",
+		"multi-gateway",
+		"delegated",
 	}
 	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			input := readConfig(t, fmt.Sprintf("testdata/%s.yaml", tt.name), validator)
+		t.Run(tt, func(t *testing.T) {
+			input := readConfig(t, fmt.Sprintf("testdata/%s.yaml", tt), validator)
 			// Setup a few preconfigured services
 			ports := []*model.Port{
 				{
@@ -82,10 +75,8 @@ func TestConvertResources(t *testing.T) {
 				Attributes: model.ServiceAttributes{
 					Name:      "istio-ingressgateway",
 					Namespace: "istio-system",
-					ClusterExternalAddresses: model.AddressMap{
-						Addresses: map[cluster.ID][]string{
-							"Kubernetes": {"1.2.3.4"},
-						},
+					ClusterExternalAddresses: map[cluster.ID][]string{
+						"Kubernetes": {"1.2.3.4"},
 					},
 				},
 				Ports:    ports,
@@ -111,13 +102,12 @@ func TestConvertResources(t *testing.T) {
 			kr := splitInput(input)
 			kr.Context = model.NewGatewayContext(cg.PushContext())
 			output := convertResources(kr)
-			output.AllowedReferences = nil       // Not tested here
-			output.ReferencedNamespaceKeys = nil // Not tested here
 
-			goldenFile := fmt.Sprintf("testdata/%s.yaml.golden", tt.name)
+			goldenFile := fmt.Sprintf("testdata/%s.yaml.golden", tt)
 			if util.Refresh() {
 				res := append(output.Gateway, output.VirtualService...)
-				if err := os.WriteFile(goldenFile, marshalYaml(t, res), 0o644); err != nil {
+				res = append(res, output.DestinationRule...)
+				if err := ioutil.WriteFile(goldenFile, marshalYaml(t, res), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -126,184 +116,19 @@ func TestConvertResources(t *testing.T) {
 				t.Fatalf("Diff:\n%s", diff)
 			}
 
-			outputStatus := getStatus(t, kr.GatewayClass, kr.Gateway, kr.HTTPRoute, kr.TLSRoute, kr.TCPRoute)
-			goldenStatusFile := fmt.Sprintf("testdata/%s.status.yaml.golden", tt.name)
+			outputStatus := getStatus(t, kr.GatewayClass, kr.Gateway, kr.HTTPRoute, kr.TLSRoute, kr.TCPRoute, kr.BackendPolicy)
+			goldenStatusFile := fmt.Sprintf("testdata/%s.status.yaml.golden", tt)
 			if util.Refresh() {
-				if err := os.WriteFile(goldenStatusFile, outputStatus, 0o644); err != nil {
+				if err := ioutil.WriteFile(goldenStatusFile, outputStatus, 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
-			goldenStatus, err := os.ReadFile(goldenStatusFile)
+			goldenStatus, err := ioutil.ReadFile(goldenStatusFile)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if diff := cmp.Diff(string(goldenStatus), string(outputStatus)); diff != "" {
 				t.Fatalf("Diff:\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestReferencePolicy(t *testing.T) {
-	validator := crdvalidation.NewIstioValidator(t)
-	type res struct {
-		name, namespace string
-		allowed         bool
-	}
-	cases := []struct {
-		name         string
-		config       string
-		expectations []res
-	}{
-		{
-			name: "simple",
-			config: `apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: ReferencePolicy
-metadata:
-  name: allow-gateways-to-ref-secrets
-  namespace: default
-spec:
-  from:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    namespace: istio-system
-  to:
-  - group: ""
-    kind: Secret
-`,
-			expectations: []res{
-				// allow cross namespace
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "istio-system", true},
-				// denied same namespace. We do not implicitly allow (in this code - higher level code does)
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "default", false},
-				// denied namespace
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "bad", false},
-			},
-		},
-		{
-			name: "multiple in one",
-			config: `apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: ReferencePolicy
-metadata:
-  name: allow-gateways-to-ref-secrets
-  namespace: default
-spec:
-  from:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    namespace: ns-1
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    namespace: ns-2
-  to:
-  - group: ""
-    kind: Secret
-`,
-			expectations: []res{
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "ns-1", true},
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "ns-2", true},
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "bad", false},
-			},
-		},
-		{
-			name: "multiple",
-			config: `apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: ReferencePolicy
-metadata:
-  name: ns1
-  namespace: default
-spec:
-  from:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    namespace: ns-1
-  to:
-  - group: ""
-    kind: Secret
----
-apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: ReferencePolicy
-metadata:
-  name: ns2
-  namespace: default
-spec:
-  from:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    namespace: ns-2
-  to:
-  - group: ""
-    kind: Secret
-`,
-			expectations: []res{
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "ns-1", true},
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "ns-2", true},
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "bad", false},
-			},
-		},
-		{
-			name: "same namespace",
-			config: `apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: ReferencePolicy
-metadata:
-  name: allow-gateways-to-ref-secrets
-  namespace: default
-spec:
-  from:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    namespace: default
-  to:
-  - group: ""
-    kind: Secret
-`,
-			expectations: []res{
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "istio-system", false},
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "default", true},
-				{"kubernetes-gateway://default/wildcard-example-com-cert", "bad", false},
-			},
-		},
-		{
-			name: "same name",
-			config: `apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: ReferencePolicy
-metadata:
-  name: allow-gateways-to-ref-secrets
-  namespace: default
-spec:
-  from:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    namespace: default
-  to:
-  - group: ""
-    kind: Secret
-    name: public
-`,
-			expectations: []res{
-				{"kubernetes-gateway://default/public", "istio-system", false},
-				{"kubernetes-gateway://default/public", "default", true},
-				{"kubernetes-gateway://default/private", "default", false},
-			},
-		},
-	}
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			input := readConfigString(t, tt.config, validator)
-			cg := v1alpha3.NewConfigGenTest(t, v1alpha3.TestOptions{})
-			kr := splitInput(input)
-			kr.Context = model.NewGatewayContext(cg.PushContext())
-			output := convertResources(kr)
-			c := &Controller{
-				state: output,
-			}
-			for _, sc := range tt.expectations {
-				t.Run(fmt.Sprintf("%v/%v", sc.name, sc.namespace), func(t *testing.T) {
-					got := c.SecretAllowed(sc.name, sc.namespace)
-					if got != sc.allowed {
-						t.Fatalf("expected allowed=%v, got allowed=%v", sc.allowed, got)
-					}
-				})
 			}
 		})
 	}
@@ -331,8 +156,9 @@ var timestampRegex = regexp.MustCompile(`lastTransitionTime:.*`)
 
 func splitOutput(configs []config.Config) OutputResources {
 	out := OutputResources{
-		Gateway:        []config.Config{},
-		VirtualService: []config.Config{},
+		Gateway:         []config.Config{},
+		VirtualService:  []config.Config{},
+		DestinationRule: []config.Config{},
 	}
 	for _, c := range configs {
 		c.Domain = "domain.suffix"
@@ -341,6 +167,8 @@ func splitOutput(configs []config.Config) OutputResources {
 			out.Gateway = append(out.Gateway, c)
 		case gvk.VirtualService:
 			out.VirtualService = append(out.VirtualService, c)
+		case gvk.DestinationRule:
+			out.DestinationRule = append(out.DestinationRule, c)
 		}
 	}
 	return out
@@ -354,7 +182,7 @@ func splitInput(configs []config.Config) *KubernetesResources {
 		switch c.GroupVersionKind {
 		case gvk.GatewayClass:
 			out.GatewayClass = append(out.GatewayClass, c)
-		case gvk.KubernetesGateway:
+		case gvk.ServiceApisGateway:
 			out.Gateway = append(out.Gateway, c)
 		case gvk.HTTPRoute:
 			out.HTTPRoute = append(out.HTTPRoute, c)
@@ -362,19 +190,14 @@ func splitInput(configs []config.Config) *KubernetesResources {
 			out.TCPRoute = append(out.TCPRoute, c)
 		case gvk.TLSRoute:
 			out.TLSRoute = append(out.TLSRoute, c)
-		case gvk.ReferencePolicy:
-			out.ReferencePolicy = append(out.ReferencePolicy, c)
+		case gvk.BackendPolicy:
+			out.BackendPolicy = append(out.BackendPolicy, c)
 		}
 	}
 	out.Namespaces = map[string]*corev1.Namespace{}
 	for ns := range namespaces {
 		out.Namespaces[ns] = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: ns,
-				Labels: map[string]string{
-					"istio.io/test-name-part": strings.Split(ns, "-")[0],
-				},
-			},
+			ObjectMeta: metav1.ObjectMeta{Name: ns},
 		}
 	}
 	out.Domain = "domain.suffix"
@@ -384,18 +207,14 @@ func splitInput(configs []config.Config) *KubernetesResources {
 func readConfig(t *testing.T, filename string, validator *crdvalidation.Validator) []config.Config {
 	t.Helper()
 
-	data, err := os.ReadFile(filename)
+	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		t.Fatalf("failed to read input yaml file: %v", err)
 	}
-	return readConfigString(t, string(data), validator)
-}
-
-func readConfigString(t *testing.T, data string, validator *crdvalidation.Validator) []config.Config {
-	if err := validator.ValidateCustomResourceYAML(data); err != nil {
+	if err := validator.ValidateCustomResourceYAML(string(data)); err != nil {
 		t.Error(err)
 	}
-	c, _, err := crd.ParseInputs(data)
+	c, _, err := crd.ParseInputs(string(data))
 	if err != nil {
 		t.Fatalf("failed to parse CRD: %v", err)
 	}
@@ -410,7 +229,7 @@ func insertDefaults(cfgs []config.Config) []config.Config {
 		switch c.GroupVersionKind {
 		case gvk.GatewayClass:
 			c.Status = kstatus.Wrap(&k8s.GatewayClassStatus{})
-		case gvk.KubernetesGateway:
+		case gvk.ServiceApisGateway:
 			c.Status = kstatus.Wrap(&k8s.GatewayStatus{})
 		case gvk.HTTPRoute:
 			c.Status = kstatus.Wrap(&k8s.HTTPRouteStatus{})
@@ -418,6 +237,8 @@ func insertDefaults(cfgs []config.Config) []config.Config {
 			c.Status = kstatus.Wrap(&k8s.TCPRouteStatus{})
 		case gvk.TLSRoute:
 			c.Status = kstatus.Wrap(&k8s.TLSRouteStatus{})
+		case gvk.BackendPolicy:
+			c.Status = kstatus.Wrap(&k8s.BackendPolicyStatus{})
 		}
 		res = append(res, c)
 	}
@@ -453,6 +274,7 @@ func TestStandardizeWeight(t *testing.T) {
 		{"single", []int{1}, []int{0}},
 		{"double", []int{1, 1}, []int{50, 50}},
 		{"zero", []int{1, 0}, []int{100, 0}},
+		{"all zero", []int{0, 0}, []int{50, 50}},
 		{"overflow", []int{1, 1, 1}, []int{34, 33, 33}},
 		{"skewed", []int{9, 1}, []int{90, 10}},
 		{"multiple overflow", []int{1, 1, 1, 1, 1, 1}, []int{17, 17, 17, 17, 16, 16}},
@@ -467,6 +289,200 @@ func TestStandardizeWeight(t *testing.T) {
 			}
 			if len(tt.output) > 1 && intSum(tt.output) != 100 {
 				t.Errorf("invalid weights, should sum to 100: %v", got)
+			}
+		})
+	}
+}
+
+func TestIsRouteMatch(t *testing.T) {
+	namespaces := map[string]*corev1.Namespace{
+		"select": {ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{"selected": "true"},
+		}},
+		"not-select": {ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{"selected": "false"},
+		}},
+	}
+	cases := []struct {
+		name     string
+		cfg      config.Config
+		gateway  config.Meta
+		routes   k8s.RouteBindingSelector
+		expected bool
+	}{
+		{
+			name: "defaults, same namespace",
+			cfg: config.Config{
+				Meta: config.Meta{Namespace: "default", GroupVersionKind: gvk.HTTPRoute},
+			},
+			gateway: config.Meta{Name: "gateway", Namespace: "default"},
+			routes: k8s.RouteBindingSelector{
+				Kind:  gvk.HTTPRoute.Kind,
+				Group: StrPointer(gvk.HTTPRoute.Group),
+			},
+			// Default for both selectors will match everything in the same namespace
+			expected: true,
+		},
+		{
+			name: "defaults, different namespace",
+			cfg: config.Config{
+				Meta: config.Meta{Namespace: "default", GroupVersionKind: gvk.HTTPRoute},
+			},
+			gateway: config.Meta{Name: "gateway", Namespace: "not-default"},
+			routes: k8s.RouteBindingSelector{
+				Kind:  gvk.HTTPRoute.Kind,
+				Group: StrPointer(gvk.HTTPRoute.Group),
+			},
+			// Default for both selectors will match everything in the same namespace
+			expected: false,
+		},
+		{
+			name: "route all, gateway all",
+			cfg: config.Config{
+				Meta: config.Meta{Namespace: "default", GroupVersionKind: gvk.HTTPRoute},
+				Spec: &k8s.HTTPRouteSpec{
+					Gateways: &k8s.RouteGateways{Allow: &gatewayAll},
+				},
+			},
+			gateway: config.Meta{Name: "gateway", Namespace: "not-default"},
+			routes: k8s.RouteBindingSelector{
+				Namespaces: &k8s.RouteNamespaces{From: &routeAll},
+				Group:      StrPointer(gvk.HTTPRoute.Group),
+				Kind:       gvk.HTTPRoute.Kind,
+			},
+			// Both allow cross namespace, this is allowed
+			expected: true,
+		},
+		{
+			name: "route all, gateway same",
+			cfg: config.Config{
+				Meta: config.Meta{Namespace: "default", GroupVersionKind: gvk.HTTPRoute},
+				Spec: &k8s.HTTPRouteSpec{
+					Gateways: &k8s.RouteGateways{Allow: &gatewayAll},
+				},
+			},
+			gateway: config.Meta{Name: "gateway", Namespace: "not-default"},
+			routes: k8s.RouteBindingSelector{
+				Group: StrPointer(gvk.HTTPRoute.Group),
+				Kind:  gvk.HTTPRoute.Kind,
+			},
+			// Gateway isn't looking in other namespaces
+			expected: false,
+		},
+		{
+			name: "route same, gateway all",
+			cfg: config.Config{
+				Meta: config.Meta{Namespace: "default", GroupVersionKind: gvk.HTTPRoute},
+			},
+			gateway: config.Meta{Name: "gateway", Namespace: "not-default"},
+			routes: k8s.RouteBindingSelector{
+				Namespaces: &k8s.RouteNamespaces{From: &routeAll},
+				Group:      StrPointer(gvk.HTTPRoute.Group),
+				Kind:       gvk.HTTPRoute.Kind,
+			},
+			// Route doesn't allow cross namespace
+			expected: false,
+		},
+		{
+			name: "route references match",
+			cfg: config.Config{
+				Meta: config.Meta{Namespace: "default", GroupVersionKind: gvk.HTTPRoute},
+				Spec: &k8s.HTTPRouteSpec{
+					Gateways: &k8s.RouteGateways{Allow: &gatewayAll, GatewayRefs: []k8s.GatewayReference{
+						{Name: "gateway", Namespace: "not-default"},
+					}},
+				},
+			},
+			gateway: config.Meta{Name: "gateway", Namespace: "not-default"},
+			routes: k8s.RouteBindingSelector{
+				Namespaces: &k8s.RouteNamespaces{From: &routeAll},
+				Group:      StrPointer(gvk.HTTPRoute.Group),
+				Kind:       gvk.HTTPRoute.Kind,
+			},
+			// direct reference matches
+			expected: true,
+		},
+		{
+			name: "route references no match",
+			cfg: config.Config{
+				Meta: config.Meta{Namespace: "default", GroupVersionKind: gvk.HTTPRoute},
+				Spec: &k8s.HTTPRouteSpec{
+					Gateways: &k8s.RouteGateways{
+						Allow: func() *k8s.GatewayAllowType {
+							x := k8s.GatewayAllowFromList
+							return &x
+						}(),
+						GatewayRefs: []k8s.GatewayReference{
+							{Name: "not-gateway", Namespace: "not-default"},
+						},
+					},
+				},
+			},
+			gateway: config.Meta{Name: "gateway", Namespace: "not-default"},
+			routes: k8s.RouteBindingSelector{
+				Namespaces: &k8s.RouteNamespaces{From: &routeAll},
+				Group:      StrPointer(gvk.HTTPRoute.Group),
+				Kind:       gvk.HTTPRoute.Kind,
+			},
+			// direct reference does not match
+			expected: false,
+		},
+		{
+			name: "gateway selector matches",
+			cfg: config.Config{
+				Meta: config.Meta{Namespace: "select", GroupVersionKind: gvk.HTTPRoute},
+				Spec: &k8s.HTTPRouteSpec{
+					Gateways: &k8s.RouteGateways{Allow: &routeAllow},
+				},
+			},
+			gateway: config.Meta{Name: "gateway", Namespace: "not-default"},
+			routes: k8s.RouteBindingSelector{
+				Namespaces: &k8s.RouteNamespaces{
+					From: func() *k8s.RouteSelectType {
+						x := k8s.RouteSelectSelector
+						return &x
+					}(),
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{
+						"selected": "true",
+					}},
+				},
+				Group: StrPointer(gvk.HTTPRoute.Group),
+				Kind:  gvk.HTTPRoute.Kind,
+			},
+			// selector matches namespace label
+			expected: true,
+		},
+		{
+			name: "gateway selector no match",
+			cfg: config.Config{
+				Meta: config.Meta{Namespace: "not-select", GroupVersionKind: gvk.HTTPRoute},
+				Spec: &k8s.HTTPRouteSpec{
+					Gateways: &k8s.RouteGateways{Allow: &gatewayAll},
+				},
+			},
+			gateway: config.Meta{Name: "gateway", Namespace: "not-default"},
+			routes: k8s.RouteBindingSelector{
+				Namespaces: &k8s.RouteNamespaces{
+					From: func() *k8s.RouteSelectType {
+						x := k8s.RouteSelectSelector
+						return &x
+					}(),
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{
+						"selected": "true",
+					}},
+				},
+				Group: StrPointer(gvk.HTTPRoute.Group),
+				Kind:  gvk.HTTPRoute.Kind,
+			},
+			// selector does not match namespace
+			expected: false,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isRouteMatch(tt.cfg, tt.gateway, tt.routes, namespaces)
+			if got != tt.expected {
+				t.Fatalf("expected match=%v, got match=%v", tt.expected, got)
 			}
 		})
 	}

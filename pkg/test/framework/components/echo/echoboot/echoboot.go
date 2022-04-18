@@ -92,17 +92,10 @@ func (b builder) WithConfig(cfg echo.Config) echo.Builder {
 }
 
 // With adds a new Echo configuration to the Builder. When a cluster is provided in the Config, it will only be applied
-// to that cluster, otherwise the Config is applied to all WithClusters. Once built, if being built for a single cluster,
+// to that cluster, otherwise the Config is applied to all WithClusters. Once built, if being built for a sngle cluster,
 // the instance pointer will be updated to point at the new Instance.
 func (b builder) With(i *echo.Instance, cfg echo.Config) echo.Builder {
 	if b.ctx.Settings().SkipVM && cfg.DeployAsVM {
-		return b
-	}
-	if b.ctx.Settings().SkipWorkloadClasses.Contains(cfg.Class()) {
-		return b
-	}
-
-	if b.ctx.Settings().SkipTProxy && cfg.IsTProxy() {
 		return b
 	}
 
@@ -135,7 +128,7 @@ func (b builder) With(i *echo.Instance, cfg echo.Config) echo.Builder {
 		}
 		if !b.validateTemplates(perClusterConfig, c) {
 			if c.Kind() == cluster.Kubernetes {
-				scopes.Framework.Warnf("%s does not contain injection templates for %s; skipping deployment", c.Name(), perClusterConfig.ClusterLocalFQDN())
+				scopes.Framework.Warnf("%s does not contain injection templates for %s; skipping deployment", c.Name(), perClusterConfig.FQDN())
 			}
 			// Don't error out when injection template missing.
 			shouldSkip = true
@@ -210,7 +203,7 @@ func (b builder) injectionTemplates() (map[string]sets.Set, error) {
 					t.Insert(name)
 				}
 				// either intersection has not been set or we intersect these templates
-				// with the current set.
+				// with the currenet set.
 				if intersection.Empty() {
 					intersection = t
 				} else {
@@ -283,13 +276,13 @@ func (b builder) deployServices() error {
 			if err != nil {
 				return err
 			}
-			if existing, ok := services[cfg.ClusterLocalFQDN()]; ok {
+			if existing, ok := services[cfg.FQDN()]; ok {
 				// we've already run the generation for another echo instance's config, make sure things are the same
 				if existing != svc {
 					return fmt.Errorf("inconsistency in %s Service definition:\n%s", cfg.Service, cmp.Diff(existing, svc))
 				}
 			}
-			services[cfg.ClusterLocalFQDN()] = svc
+			services[cfg.FQDN()] = svc
 		}
 	}
 
@@ -298,7 +291,7 @@ func (b builder) deployServices() error {
 		svcYaml := svcYaml
 		ns := strings.Split(svcNs, ".")[1]
 		errG.Go(func() error {
-			return b.ctx.ConfigKube().ApplyYAMLNoCleanup(ns, svcYaml)
+			return b.ctx.Config().ApplyYAMLNoCleanup(ns, svcYaml)
 		})
 	}
 	return errG.Wait().ErrorOrNil()

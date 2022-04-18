@@ -21,13 +21,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
-	"os"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -190,16 +188,12 @@ func newJwksResolverWithCABundlePaths(
 		caCertsFound = false
 		log.Errorf("Failed to fetch Cert from SystemCertPool: %v", err)
 	}
-
-	if caCertPool != nil {
-		for _, pemFile := range caBundlePaths {
-			caCert, err := os.ReadFile(pemFile)
-			if err == nil {
-				caCertsFound = caCertPool.AppendCertsFromPEM(caCert) || caCertsFound
-			}
+	for _, pemFile := range caBundlePaths {
+		caCert, err := ioutil.ReadFile(pemFile)
+		if err == nil {
+			caCertsFound = caCertPool.AppendCertsFromPEM(caCert) || caCertsFound
 		}
 	}
-
 	if caCertsFound {
 		ret.secureHTTPClient = &http.Client{
 			Timeout: jwksHTTPTimeOutInSec * time.Second,
@@ -333,31 +327,26 @@ func (r *JwksResolver) getRemoteContentWithRetry(uri string, retry int) ([]byte,
 	}
 
 	getPublicKey := func() (b []byte, e error) {
+		resp, err := client.Get(uri)
 		defer func() {
 			if e != nil {
 				networkFetchFailCounter.Increment()
-			} else {
-				networkFetchSuccessCounter.Increment()
+				return
 			}
+			networkFetchSuccessCounter.Increment()
+			_ = resp.Body.Close()
 		}()
-		resp, err := client.Get(uri)
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			return nil, err
 		}
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			message := strconv.Quote(string(body))
-			if len(message) > 100 {
-				message = message[:100]
-				return nil, fmt.Errorf("status %d, message %s(truncated)", resp.StatusCode, message)
-			}
-			return nil, fmt.Errorf("status %d, message %s", resp.StatusCode, message)
+			return nil, fmt.Errorf("status %d, %s", resp.StatusCode, string(body))
 		}
 
 		return body, nil
@@ -401,7 +390,8 @@ func (r *JwksResolver) refresher() {
 				r.refreshInterval = r.refreshDefaultInterval
 			}
 			lastHasError = currentHasError
-			r.refreshTicker.Reset(r.refreshInterval)
+			r.refreshTicker.Stop()
+			r.refreshTicker = time.NewTicker(r.refreshInterval)
 		case <-closeChan:
 			r.refreshTicker.Stop()
 			return

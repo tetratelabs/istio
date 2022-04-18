@@ -20,6 +20,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"istio.io/pkg/log"
 )
 
@@ -33,7 +35,7 @@ type lookupIPAddrType = func(ctx context.Context, addr string) ([]net.IPAddr, er
 
 // ErrResolveNoAddress error occurs when IP address resolution is attempted,
 // but no address was provided.
-var ErrResolveNoAddress = fmt.Errorf("no address specified")
+var ErrResolveNoAddress = errors.New("no address specified")
 
 // GetPrivateIPs blocks until private IP addresses are available, or a timeout is reached.
 func GetPrivateIPs(ctx context.Context) ([]string, bool) {
@@ -124,7 +126,7 @@ func ResolveAddr(addr string, lookupIPAddr ...lookupIPAddrType) (string, error) 
 	}
 
 	if lookupErr != nil || len(addrs) == 0 {
-		return "", fmt.Errorf("lookup failed for IP address: %w", lookupErr)
+		return "", errors.WithMessage(lookupErr, "lookup failed for IP address")
 	}
 	var resolvedAddr string
 
@@ -139,21 +141,4 @@ func ResolveAddr(addr string, lookupIPAddr ...lookupIPAddrType) (string, error) 
 	}
 	log.Infof("Addr resolved to: %s", resolvedAddr)
 	return resolvedAddr, nil
-}
-
-// IsIPv6Proxy check the addresses slice and returns true for all addresses are valid IPv6 address
-// for all other cases it returns false
-func IsIPv6Proxy(ipAddrs []string) bool {
-	for i := 0; i < len(ipAddrs); i++ {
-		addr := net.ParseIP(ipAddrs[i])
-		if addr == nil {
-			// Should not happen, invalid IP in proxy's IPAddresses slice should have been caught earlier,
-			// skip it to prevent a panic.
-			continue
-		}
-		if addr.To4() != nil {
-			return false
-		}
-	}
-	return true
 }

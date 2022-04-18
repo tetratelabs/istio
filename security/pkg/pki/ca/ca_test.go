@@ -19,7 +19,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"os"
+	"io/ioutil"
 	"reflect"
 	"testing"
 	"time"
@@ -562,8 +562,7 @@ func TestSignWithCertChain(t *testing.T) {
 		TTL:        time.Hour,
 		ForCA:      false,
 	}
-	certPEM, signErr := ca.signWithCertChain(csrPEM, caCertOpts.SubjectIDs, caCertOpts.TTL, true, caCertOpts.ForCA)
-
+	certPEM, signErr := ca.SignWithCertChain(csrPEM, caCertOpts)
 	if signErr != nil {
 		t.Error(err)
 	}
@@ -730,7 +729,7 @@ func createCA(maxTTL time.Duration, ecSigAlg util.SupportedECSignatureAlgorithms
 }
 
 func comparePem(expectedBytes []byte, file string) bool {
-	fileBytes, err := os.ReadFile(file)
+	fileBytes, err := ioutil.ReadFile(file)
 	if err != nil {
 		return false
 	}

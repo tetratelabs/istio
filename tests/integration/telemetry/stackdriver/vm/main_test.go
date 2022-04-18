@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,7 +17,7 @@ package vm
 
 import (
 	"fmt"
-	"os"
+	"io/ioutil"
 	"testing"
 
 	"github.com/gogo/protobuf/jsonpb"
@@ -37,7 +35,6 @@ import (
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/components/stackdriver"
-	"istio.io/istio/pkg/test/framework/label"
 	"istio.io/istio/pkg/test/framework/resource"
 	"istio.io/istio/pkg/test/util/tmpl"
 	"istio.io/istio/tests/integration/telemetry"
@@ -116,11 +113,7 @@ spec:
 func TestMain(m *testing.M) {
 	framework.
 		NewSuite(m).
-		// https://github.com/istio/istio/issues/35923. Since IPv6 has no external connectivity, we are "not on GCP"
-		// in the sense that we cannot access the metadata server
-		Label(label.IPv4).
 		RequireSingleCluster().
-		RequireMultiPrimary().
 		Setup(istio.Setup(&istioInst, func(_ resource.Context, cfg *istio.Config) {
 			cfg.Values["meshConfig.enableTracing"] = "true"
 			cfg.Values["meshConfig.defaultConfig.tracing.sampling"] = "100.0"
@@ -152,7 +145,7 @@ func testSetup(ctx resource.Context) error {
 		return err
 	}
 
-	templateBytes, err := os.ReadFile(stackdriverBootstrapOverride)
+	templateBytes, err := ioutil.ReadFile(stackdriverBootstrapOverride)
 	if err != nil {
 		return err
 	}
@@ -164,7 +157,7 @@ func testSetup(ctx resource.Context) error {
 		return err
 	}
 
-	if err = ctx.ConfigKube().ApplyYAML(ns.Name(), sdBootstrap); err != nil {
+	if err = ctx.Config().ApplyYAML(ns.Name(), sdBootstrap); err != nil {
 		return err
 	}
 
@@ -242,7 +235,7 @@ func testSetup(ctx resource.Context) error {
 }
 
 func goldenRequestCounts(trustDomain string) (cltRequestCount, srvRequestCount *monitoring.TimeSeries, err error) {
-	srvRequestCountTmpl, err := os.ReadFile(serverRequestCount)
+	srvRequestCountTmpl, err := ioutil.ReadFile(serverRequestCount)
 	if err != nil {
 		return
 	}
@@ -258,7 +251,7 @@ func goldenRequestCounts(trustDomain string) (cltRequestCount, srvRequestCount *
 	if err = jsonpb.UnmarshalString(sr, srvRequestCount); err != nil {
 		return
 	}
-	cltRequestCountTmpl, err := os.ReadFile(clientRequestCount)
+	cltRequestCountTmpl, err := ioutil.ReadFile(clientRequestCount)
 	if err != nil {
 		return
 	}
@@ -274,7 +267,7 @@ func goldenRequestCounts(trustDomain string) (cltRequestCount, srvRequestCount *
 }
 
 func goldenLogEntry(trustDomain string) (srvLogEntry *loggingpb.LogEntry, err error) {
-	srvlogEntryTmpl, err := os.ReadFile(serverLogEntry)
+	srvlogEntryTmpl, err := ioutil.ReadFile(serverLogEntry)
 	if err != nil {
 		return
 	}
@@ -293,7 +286,7 @@ func goldenLogEntry(trustDomain string) (srvLogEntry *loggingpb.LogEntry, err er
 }
 
 func goldenTrace(trustDomain string) (*cloudtrace.Trace, error) {
-	traceTmpl, err := os.ReadFile(traceTmplFile)
+	traceTmpl, err := ioutil.ReadFile(traceTmplFile)
 	if err != nil {
 		return nil, err
 	}

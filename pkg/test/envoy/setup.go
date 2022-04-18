@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 	"testing"
 	"time"
 
@@ -242,20 +241,8 @@ func (s *TestSetup) GetStatsMap() (map[string]uint64, error) {
 }
 
 type statEntry struct {
-	Name  string          `json:"name"`
-	Value json.RawMessage `json:"value"`
-}
-
-func (s statEntry) FloatValue() (float64, bool) {
-	b, err := s.Value.MarshalJSON()
-	if err != nil || len(b) == 0 {
-		return 0, false
-	}
-	f, err := strconv.ParseFloat(string(b), 64)
-	if err != nil {
-		return 0, false
-	}
-	return f, true
+	Name  string      `json:"name"`
+	Value json.Number `json:"value"`
 }
 
 type stats struct {
@@ -295,13 +282,16 @@ func (s *TestSetup) unmarshalStats(statsJSON string) map[string]uint64 {
 
 	var statsArray stats
 	if err := json.Unmarshal([]byte(statsJSON), &statsArray); err != nil {
-		s.t.Fatalf("unable to unmarshal stats from json: %v\n%v", err, statsJSON)
+		s.t.Fatalf("unable to unmarshal stats from json: %v", err)
 	}
 
 	for _, v := range statsArray.StatList {
-		tmp, ok := v.FloatValue()
-		if !ok {
+		if v.Value == "" {
 			continue
+		}
+		tmp, err := v.Value.Float64()
+		if err != nil {
+			s.t.Fatalf("unable to convert json.Number from stats: %v", err)
 		}
 		statsMap[v.Name] = uint64(tmp)
 	}

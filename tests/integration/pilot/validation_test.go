@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,8 +23,8 @@ import (
 	"gopkg.in/square/go-jose.v2/json"
 	"sigs.k8s.io/yaml"
 
-	"istio.io/istio/pkg/config/schema/collections"
-	"istio.io/istio/pkg/test/datasets/validation"
+	"istio.io/istio/galley/testdatasets/validation"
+	"istio.io/istio/pkg/config/schema"
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/util/yml"
@@ -60,6 +58,7 @@ func loadTestData(t framework.TestContext) []testData {
 	var result []testData
 	for _, e := range entries {
 		result = append(result, testData(e.Name()))
+		t.Logf("Found test data: %v", e)
 	}
 
 	return result
@@ -83,7 +82,7 @@ func TestValidation(t *testing.T) {
 				return strings.Contains(err.Error(), "denied the request")
 			}
 
-			for _, cluster := range t.Clusters().Configs() {
+			for _, cluster := range t.Clusters().Primaries() {
 				for i := range dataset {
 					d := dataset[i]
 					t.NewSubTest(string(d)).RunParallel(func(t framework.TestContext) {
@@ -165,7 +164,7 @@ func TestEnsureNoMissingCRDs(t *testing.T) {
 			recognized := make(map[string]struct{})
 
 			// TODO(jasonwzm) remove this after multi-version APIs are supported.
-			for _, r := range collections.Pilot.All() {
+			for _, r := range schema.MustGet().KubeCollections().All() {
 				s := strings.Join([]string{r.Resource().Group(), r.Resource().Version(), r.Resource().Kind()}, "/")
 				recognized[s] = struct{}{}
 			}
@@ -180,12 +179,12 @@ func TestEnsureNoMissingCRDs(t *testing.T) {
 			}
 			// These CRDs are validated outside of Istio
 			for _, gvk := range []string{
-				"gateway.networking.k8s.io/v1alpha2/Gateway",
-				"gateway.networking.k8s.io/v1alpha2/GatewayClass",
-				"gateway.networking.k8s.io/v1alpha2/HTTPRoute",
-				"gateway.networking.k8s.io/v1alpha2/TCPRoute",
-				"gateway.networking.k8s.io/v1alpha2/TLSRoute",
-				"gateway.networking.k8s.io/v1alpha2/ReferencePolicy",
+				"networking.x-k8s.io/v1alpha1/Gateway",
+				"networking.x-k8s.io/v1alpha1/GatewayClass",
+				"networking.x-k8s.io/v1alpha1/HTTPRoute",
+				"networking.x-k8s.io/v1alpha1/TCPRoute",
+				"networking.x-k8s.io/v1alpha1/TLSRoute",
+				"networking.x-k8s.io/v1alpha1/BackendPolicy",
 			} {
 				delete(recognized, gvk)
 			}

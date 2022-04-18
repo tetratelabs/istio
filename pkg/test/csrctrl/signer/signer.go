@@ -30,7 +30,7 @@ import (
 
 type Signer struct {
 	caProvider *caProvider
-	CertTTL    time.Duration
+	certTTL    time.Duration
 }
 
 func NewSigner(signerRoot, signerName string, certificateDuration time.Duration) (*Signer, error) {
@@ -41,18 +41,18 @@ func NewSigner(signerRoot, signerName string, certificateDuration time.Duration)
 
 	ret := &Signer{
 		caProvider: caProvider,
-		CertTTL:    certificateDuration,
+		certTTL:    certificateDuration,
 	}
 	return ret, nil
 }
 
-func (s *Signer) Sign(x509cr *x509.CertificateRequest, usages []capi.KeyUsage, requestedLifetime time.Duration, appendRootCert bool) ([]byte, error) {
+func (s *Signer) Sign(x509cr *x509.CertificateRequest, usages []capi.KeyUsage) ([]byte, error) {
 	currCA, err := s.caProvider.currentCA()
 	if err != nil {
 		return nil, err
 	}
 	der, err := currCA.Sign(x509cr.Raw, authority.PermissiveSigningPolicy{
-		TTL:    requestedLifetime,
+		TTL:    s.certTTL,
 		Usages: usages,
 	})
 	if err != nil {
@@ -70,20 +70,10 @@ func (s *Signer) Sign(x509cr *x509.CertificateRequest, usages []capi.KeyUsage, r
 		return nil, fmt.Errorf("error encoding certificate PEM: %s", err.Error())
 	}
 
-	intermediateCerts, err := util.AppendRootCerts(pemBytes.Bytes(), s.caProvider.caIntermediate.CertFile)
+	rootCerts, err := util.AppendRootCerts(pemBytes.Bytes(), s.caProvider.caLoader.CertFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to append intermediate certificates (%v)", err)
+		return nil, fmt.Errorf("failed to append root certificates (%v)", err)
 	}
-	if appendRootCert {
-		rootCerts, err := util.AppendRootCerts(intermediateCerts, s.caProvider.caLoader.CertFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to append root certificates (%v)", err)
-		}
-		return rootCerts, nil
-	}
-	return intermediateCerts, nil
-}
 
-func (s *Signer) GetRootCerts() string {
-	return s.caProvider.caLoader.CertFile
+	return rootCerts, nil
 }

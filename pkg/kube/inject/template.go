@@ -24,12 +24,12 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/ghodss/yaml"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/yaml"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pkg/config/mesh"
@@ -296,10 +296,8 @@ func cleanProxyConfig(msg proto.Message) proto.Message {
 	if pc.ControlPlaneAuthPolicy == defaults.ControlPlaneAuthPolicy {
 		pc.ControlPlaneAuthPolicy = 0
 	}
-	if x, ok := pc.GetClusterName().(*meshconfig.ProxyConfig_ServiceCluster); ok {
-		if x.ServiceCluster == defaults.GetClusterName().(*meshconfig.ProxyConfig_ServiceCluster).ServiceCluster {
-			pc.ClusterName = nil
-		}
+	if pc.ServiceCluster == defaults.ServiceCluster {
+		pc.ServiceCluster = ""
 	}
 	if reflect.DeepEqual(pc.DrainDuration, defaults.DrainDuration) {
 		pc.DrainDuration = nil

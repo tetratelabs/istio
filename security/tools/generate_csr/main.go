@@ -19,7 +19,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
+	"io/ioutil"
 
 	"istio.io/istio/security/pkg/pki/util"
 	"istio.io/pkg/log"
@@ -35,12 +35,12 @@ var (
 )
 
 func saveCreds(csrPem []byte, privPem []byte) {
-	err := os.WriteFile(*outCsr, csrPem, 0o644)
+	err := ioutil.WriteFile(*outCsr, csrPem, 0o644)
 	if err != nil {
 		log.Fatalf("Could not write output certificate request: %s.", err)
 	}
 
-	err = os.WriteFile(*outPriv, privPem, 0o600)
+	err = ioutil.WriteFile(*outPriv, privPem, 0o600)
 	if err != nil {
 		log.Fatalf("Could not write output private key: %s.", err)
 	}

@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +18,7 @@ package cacustomroot
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -106,7 +105,7 @@ func TestSecureNaming(t *testing.T) {
 		Features("security.peer.secure-naming").
 		Run(func(t framework.TestContext) {
 			// TODO https://github.com/istio/istio/issues/32292
-			if t.AllClusters().IsMulticluster() {
+			if t.Clusters().IsMulticluster() {
 				t.Skip()
 			}
 			istioCfg := istio.DefaultConfigOrFail(t, t)
@@ -127,11 +126,16 @@ func TestSecureNaming(t *testing.T) {
 			for _, cluster := range t.Clusters() {
 				t.NewSubTest(fmt.Sprintf("From %s", cluster.StableName())).Run(func(t framework.TestContext) {
 					a := apps.A.Match(echo.InCluster(cluster)).Match(echo.Namespace(testNamespace.Name()))[0]
-					b := apps.B.Match(echo.InCluster(cluster)).Match(echo.Namespace(testNamespace.Name()))[0]
 					t.NewSubTest("mTLS cert validation with plugin CA").
 						Run(func(t framework.TestContext) {
 							// Verify that the certificate issued to the sidecar is as expected.
-							out := cert.DumpCertFromSidecar(t, a, b, "http")
+							connectTarget := fmt.Sprintf("b.%s:8095", testNamespace.Name())
+							out, err := cert.DumpCertFromSidecar(testNamespace, "app=a", "istio-proxy",
+								connectTarget)
+							if err != nil {
+								t.Fatalf("failed to dump certificate: %v", err)
+								return
+							}
 							verifyCertificatesWithPluginCA(t, out)
 
 							// Verify mTLS works between a and b
@@ -180,7 +184,7 @@ func TestSecureNaming(t *testing.T) {
 						t.NewSubTest(tc.name).
 							Run(func(t framework.TestContext) {
 								dr := strings.ReplaceAll(tc.destinationRule, "NS", testNamespace.Name())
-								t.ConfigIstio().ApplyYAMLOrFail(t, testNamespace.Name(), dr)
+								t.Config().ApplyYAMLOrFail(t, testNamespace.Name(), dr)
 								// Verify mTLS works between a and b
 								callOptions := echo.CallOptions{
 									Target:   bSet[0],
@@ -205,7 +209,9 @@ func TestSecureNaming(t *testing.T) {
 		})
 }
 
-func verifyCertificatesWithPluginCA(t framework.TestContext, certs []string) {
+func verifyCertificatesWithPluginCA(t framework.TestContext, dump string) {
+	certExp := regexp.MustCompile("(?sU)-----BEGIN CERTIFICATE-----(.+)-----END CERTIFICATE-----")
+	certs := certExp.FindAll([]byte(dump), -1)
 	// Verify that the certificate chain length is as expected
 	if len(certs) != exampleCertChainLength {
 		t.Errorf("expect %v certs in the cert chain but getting %v certs",
@@ -219,9 +225,9 @@ func verifyCertificatesWithPluginCA(t framework.TestContext, certs []string) {
 		return
 	}
 	// Verify that the CA certificate is as expected
-	if strings.TrimSpace(string(rootCert)) != strings.TrimSpace(certs[2]) {
+	if strings.TrimSpace(string(rootCert)) != strings.TrimSpace(string(certs[2])) {
 		t.Errorf("the actual CA cert is different from the expected. expected: %v, actual: %v",
-			strings.TrimSpace(string(rootCert)), strings.TrimSpace(certs[2]))
+			strings.TrimSpace(string(rootCert)), strings.TrimSpace(string(certs[2])))
 		return
 	}
 	t.Log("the CA certificate is as expected")

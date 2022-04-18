@@ -19,7 +19,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
+	"io/ioutil"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -42,7 +42,7 @@ import (
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/kube"
-	"istio.io/istio/pkg/kube/multicluster"
+	"istio.io/istio/pkg/kube/secretcontroller"
 )
 
 var (
@@ -141,7 +141,7 @@ func createRemoteServiceAccountSecret(kubeconfig *api.Config, clusterName, secNa
 				clusterNameAnnotationKey: clusterName,
 			},
 			Labels: map[string]string{
-				multicluster.MultiClusterSecretLabel: "true",
+				secretcontroller.MultiClusterSecretLabel: "true",
 			},
 		},
 		Data: map[string][]byte{
@@ -395,7 +395,7 @@ func createNamespaceIfNotExist(client kube.Client, ns string) error {
 }
 
 func writeToTempFile(content string) (string, error) {
-	outFile, err := os.CreateTemp("", "remote-secret-manifest-*")
+	outFile, err := ioutil.TempFile("", "remote-secret-manifest-*")
 	if err != nil {
 		return "", fmt.Errorf("failed creating temp file for manifest: %v", err)
 	}
@@ -484,7 +484,7 @@ const (
 	// Use a bearer token for authentication to the remote kubernetes cluster.
 	RemoteSecretAuthTypeBearerToken RemoteSecretAuthType = "bearer-token"
 
-	// Use a custom authentication plugin for the remote kubernetes cluster.
+	// User a custom custom authentication plugin for the remote kubernetes cluster.
 	RemoteSecretAuthTypePlugin RemoteSecretAuthType = "plugin"
 
 	// Secret generated from remote cluster
@@ -532,9 +532,9 @@ type RemoteSecretOptions struct {
 
 func (o *RemoteSecretOptions) addFlags(flagset *pflag.FlagSet) {
 	flagset.StringVar(&o.ServiceAccountName, "service-account", "",
-		"Create a secret with this service account's credentials. Default value is \""+
-			constants.DefaultServiceAccountName+"\" if --type is \"remote\", \""+
-			constants.DefaultConfigServiceAccountName+"\" if --type is \"config\".")
+		"Create a secret with this service account's credentials. Use \""+
+			constants.DefaultServiceAccountName+"\" as default value if --type is \"remote\", use \""+
+			constants.DefaultConfigServiceAccountName+"\" as default value if --type is \"config\".")
 	flagset.BoolVar(&o.CreateServiceAccount, "create-service-account", true,
 		"If true, the service account needed for creating the remote secret will be created "+
 			"if it doesn't exist.")

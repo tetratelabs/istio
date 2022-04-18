@@ -69,7 +69,7 @@ type Options struct {
 func (o Options) Validate() error {
 	var errs *multierror.Error
 	if o.WatchedNamespace == "" || !labels.IsDNS1123Label(o.WatchedNamespace) {
-		errs = multierror.Append(errs, fmt.Errorf("invalid namespace: %q", o.WatchedNamespace))
+		errs = multierror.Append(errs, fmt.Errorf("invalid namespace: %q", o.WatchedNamespace)) // nolint: lll
 	}
 	if o.ServiceName == "" || !labels.IsDNS1123Label(o.ServiceName) {
 		errs = multierror.Append(errs, fmt.Errorf("invalid service name: %q", o.ServiceName))
@@ -80,7 +80,7 @@ func (o Options) Validate() error {
 	return errs.ErrorOrNil()
 }
 
-// String produces a string field version of the arguments for debugging.
+// String produces a stringified version of the arguments for debugging.
 func (o Options) String() string {
 	buf := &bytes.Buffer{}
 	_, _ = fmt.Fprintf(buf, "WatchedNamespace: %v\n", o.WatchedNamespace)
@@ -94,6 +94,7 @@ type Controller struct {
 	client kube.Client
 
 	webhookInformer               cache.SharedInformer
+	webhookName                   string
 	queue                         workqueue.RateLimitingInterface
 	dryRunOfInvalidConfigRejected bool
 }
@@ -120,11 +121,10 @@ const (
 type reconcileRequest struct {
 	event       eventType
 	description string
-	webhookName string // if empty, ALL webhooks should be updated in response
 }
 
 func (rr reconcileRequest) String() string {
-	return fmt.Sprintf("[description] %s, [eventType] %s, [name] %s", rr.description, rr.event, rr.webhookName)
+	return fmt.Sprintf("[description] %s, [eventType] %s", rr.description, rr.event)
 }
 
 func filterWatchedObject(obj metav1.Object) (skip bool, key string) {
@@ -147,9 +147,8 @@ func makeHandler(queue workqueue.Interface, gvk schema.GroupVersionKind) *cache.
 			if skip {
 				return
 			}
-			req := reconcileRequest{
+			req := &reconcileRequest{
 				event:       updateEvent,
-				webhookName: obj.GetName(),
 				description: fmt.Sprintf("add event (%v, Kind=%v) %v", gvk.GroupVersion(), gvk.Kind, key),
 			}
 			queue.Add(req)
@@ -171,10 +170,34 @@ func makeHandler(queue workqueue.Interface, gvk schema.GroupVersionKind) *cache.
 			if skip {
 				return
 			}
-			req := reconcileRequest{
+			req := &reconcileRequest{
 				event:       updateEvent,
-				webhookName: currObj.GetName(),
 				description: fmt.Sprintf("update event (%v, Kind=%v) %v", gvk.GroupVersion(), gvk.Kind, key),
+			}
+			queue.Add(req)
+		},
+		DeleteFunc: func(curr interface{}) {
+			if _, ok := curr.(metav1.Object); !ok {
+				// If the object doesn't have Metadata, assume it is a tombstone object
+				// of type DeletedFinalStateUnknown
+				tombstone, ok := curr.(cache.DeletedFinalStateUnknown)
+				if !ok {
+					return
+				}
+				curr = tombstone.Obj
+			}
+			currObj, err := meta.Accessor(curr)
+			if err != nil {
+				return
+			}
+			skip, key := filterWatchedObject(currObj)
+			scope.Debugf("HandlerDelete: key=%v skip=%v", key, skip)
+			if skip {
+				return
+			}
+			req := &reconcileRequest{
+				event:       updateEvent,
+				description: fmt.Sprintf("delete event (%v, Kind=%v) %v", gvk.GroupVersion(), gvk.Kind, key),
 			}
 			queue.Add(req)
 		},
@@ -191,9 +214,10 @@ func newController(
 	client kube.Client,
 ) *Controller {
 	c := &Controller{
-		o:      o,
-		client: client,
-		queue:  workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 5*time.Minute)),
+		o:           o,
+		client:      client,
+		queue:       workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 1*time.Minute)),
+		webhookName: o.validatingWebhookName(),
 	}
 
 	webhookInformer := cache.NewSharedIndexInformer(
@@ -229,20 +253,13 @@ func (c *Controller) Run(stop <-chan struct{}) {
 // startCaBundleWatcher listens for updates to the CA bundle and patches the webhooks.
 // shouldn't we be doing this for both validating and mutating webhooks...?
 func (c *Controller) startCaBundleWatcher(stop <-chan struct{}) {
-	if c.o.CABundleWatcher == nil {
-		return
-	}
-	id, watchCh := c.o.CABundleWatcher.AddWatcher()
-	defer c.o.CABundleWatcher.RemoveWatcher(id)
-	// trigger initial update
-	watchCh <- struct{}{}
+	watchCh := c.o.CABundleWatcher.AddWatcher()
 	for {
 		select {
 		case <-watchCh:
-			c.queue.AddRateLimited(reconcileRequest{
+			c.queue.AddRateLimited(&reconcileRequest{
 				updateEvent,
 				"CA bundle update",
-				"",
 			})
 		case <-stop:
 			return
@@ -262,25 +279,15 @@ func (c *Controller) processNextWorkItem() (cont bool) {
 	}
 	defer c.queue.Done(obj)
 
-	req, ok := obj.(reconcileRequest)
+	req, ok := obj.(*reconcileRequest)
 	if !ok {
 		// don't retry an invalid reconcileRequest item
 		c.queue.Forget(req)
 		return true
 	}
 
-	// empty webhook name means we must patch for each webhook
-	if req.webhookName == "" {
-		c.updateAll()
-		return true
-	}
-
 	if retry, err := c.reconcileRequest(req); retry || err != nil {
-		c.queue.AddRateLimited(reconcileRequest{
-			event:       retryEvent,
-			description: "retry reconcile request",
-			webhookName: req.webhookName,
-		})
+		c.queue.AddRateLimited(retryRequest)
 		utilruntime.HandleError(err)
 	} else {
 		c.queue.Forget(obj)
@@ -288,44 +295,27 @@ func (c *Controller) processNextWorkItem() (cont bool) {
 	return true
 }
 
-// updateAll updates all webhooks matching the controller's revision, generally in response
-// to a CA bundle update. updateAll reports an error only when there's an issue listing webhooks,
-// not when it has an issue updating a single webhook so that we can retry separately for the
-// two cases.
-func (c *Controller) updateAll() {
-	whs := c.webhookInformer.GetStore().List()
-	for _, item := range whs {
-		wh := item.(*kubeApiAdmission.ValidatingWebhookConfiguration)
-		if retry, err := c.reconcileRequest(reconcileRequest{
-			event:       updateEvent,
-			description: "CA bundle update",
-			webhookName: wh.Name,
-		}); retry || err != nil {
-			c.queue.AddRateLimited(reconcileRequest{
-				event:       retryEvent,
-				description: "retry reconcile request",
-				webhookName: wh.Name,
-			})
-		}
-	}
+var retryRequest = &reconcileRequest{
+	event:       retryEvent,
+	description: "retry reconcile request",
 }
 
 // reconcile the desired state with the kube-apiserver.
 // the returned results indicate if the reconciliation should be retried and/or
 // if there was an error.
-func (c *Controller) reconcileRequest(req reconcileRequest) (bool, error) {
+func (c *Controller) reconcileRequest(req *reconcileRequest) (bool, error) {
 	// Stop early if webhook is not present, rather than attempting (and failing) to reconcile permanently
 	// If the webhook is later added a new reconciliation request will trigger it to update
-	configuration, err := c.client.AdmissionregistrationV1().ValidatingWebhookConfigurations().Get(context.Background(), req.webhookName, metav1.GetOptions{})
+	configuration, err := c.client.AdmissionregistrationV1().ValidatingWebhookConfigurations().Get(context.Background(), c.webhookName, metav1.GetOptions{})
 	if err != nil {
 		if kubeErrors.IsNotFound(err) {
-			scope.Infof("Skip patching webhook, webhook %q not found", req.webhookName)
+			scope.Infof("Skip patching webhook, webhook %q not found", c.webhookName)
 			return false, nil
 		}
 		return false, err
 	}
 
-	scope.Debugf("Reconcile(enter): %v", req)
+	scope.Infof("Reconcile(enter): %v", req)
 	defer func() { scope.Debugf("Reconcile(exit)") }()
 
 	caBundle, err := util.LoadCABundle(c.o.CABundleWatcher)
@@ -356,9 +346,8 @@ func (c *Controller) readyForFailClose() bool {
 }
 
 const (
-	deniedRequestMessageFragment     = `denied the request`
-	missingResourceMessageFragment   = `the server could not find the requested resource`
-	unsupportedDryRunMessageFragment = `does not support dry run`
+	deniedRequestMessageFragment   = `denied the request`
+	missingResourceMessageFragment = `the server could not find the requested resource`
 )
 
 // Confirm invalid configuration is successfully rejected before switching to FAIL-CLOSE.
@@ -395,49 +384,46 @@ func (c *Controller) isDryRunOfInvalidConfigRejected() (rejected bool, reason st
 		scope.Warnf("Missing Gateway CRD, cannot perform validation check. Assuming validation is ready")
 		return true, ""
 	}
-	// If some validating webhooks does not support dryRun(sideEffects=Unknown or Some), we will get this error.
-	// We should assume valdiation is ready because there is no point in retrying this request.
-	if strings.Contains(err.Error(), unsupportedDryRunMessageFragment) {
-		scope.Warnf("One of the validating webhooks does not support DryRun, cannot perform validation check. Assuming validation is ready. Details: %v", err)
-		return true, ""
-	}
 	return false, fmt.Sprintf("dummy invalid rejected for the wrong reason: %v", err)
 }
 
 func (c *Controller) updateValidatingWebhookConfiguration(current *kubeApiAdmission.ValidatingWebhookConfiguration,
 	caBundle []byte, failurePolicy kubeApiAdmission.FailurePolicyType) error {
-	dirty := false
-	for i := range current.Webhooks {
-		if !bytes.Equal(current.Webhooks[i].ClientConfig.CABundle, caBundle) ||
-			(current.Webhooks[i].FailurePolicy != nil && *current.Webhooks[i].FailurePolicy != failurePolicy) {
-			dirty = true
-			break
-		}
-	}
-	if !dirty {
-		scope.Infof("validatingwebhookconfiguration %v (failurePolicy=%v, resourceVersion=%v) is up-to-date. No change required.",
-			current.Name, failurePolicy, current.ResourceVersion)
-		return nil
-	}
 	updated := current.DeepCopy()
 	for i := range updated.Webhooks {
 		updated.Webhooks[i].ClientConfig.CABundle = caBundle
 		updated.Webhooks[i].FailurePolicy = &failurePolicy
 	}
 
-	latest, err := c.client.AdmissionregistrationV1().
-		ValidatingWebhookConfigurations().Update(context.TODO(), updated, metav1.UpdateOptions{})
-	if err != nil {
-		scope.Errorf("Failed to update validatingwebhookconfiguration %v (failurePolicy=%v, resourceVersion=%v): %v",
-			updated.Name, failurePolicy, updated.ResourceVersion, err)
-		reportValidationConfigUpdateError(kubeErrors.ReasonForError(err))
-		return err
+	if !reflect.DeepEqual(updated, current) {
+		latest, err := c.client.AdmissionregistrationV1().
+			ValidatingWebhookConfigurations().Update(context.TODO(), updated, metav1.UpdateOptions{})
+		if err != nil {
+			scope.Errorf("Failed to update validatingwebhookconfiguration %v (failurePolicy=%v, resourceVersion=%v): %v",
+				updated.Name, failurePolicy, updated.ResourceVersion, err)
+			reportValidationConfigUpdateError(kubeErrors.ReasonForError(err))
+			return err
+		}
+
+		scope.Infof("Successfully updated validatingwebhookconfiguration %v (failurePolicy=%v,resourceVersion=%v)",
+			updated.Name, failurePolicy, latest.ResourceVersion)
+		reportValidationConfigUpdate()
+		return nil
 	}
 
-	scope.Infof("Successfully updated validatingwebhookconfiguration %v (failurePolicy=%v,resourceVersion=%v)",
-		updated.Name, failurePolicy, latest.ResourceVersion)
-	reportValidationConfigUpdate()
+	scope.Infof("validatingwebhookconfiguration %v (failurePolicy=%v, resourceVersion=%v) is up-to-date. No change required.",
+		current.Name, failurePolicy, current.ResourceVersion)
+
 	return nil
+}
+
+func (o *Options) validatingWebhookName() string {
+	name := "istio-validator"
+	if o.Revision != "default" {
+		name = fmt.Sprintf("%s-%s", name, o.Revision)
+	}
+	name = fmt.Sprintf("%s-%s", name, o.WatchedNamespace)
+	return name
 }
 
 var (

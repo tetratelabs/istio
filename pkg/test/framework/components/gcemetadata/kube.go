@@ -17,7 +17,6 @@ package gcemetadata
 import (
 	"fmt"
 	"io"
-	"net"
 
 	kubeApiCore "k8s.io/api/core/v1"
 
@@ -80,7 +79,7 @@ func newKube(ctx resource.Context, cfg Config) (Instance, error) {
 		return nil, err
 	}
 
-	c.address = net.JoinHostPort(svc.Spec.ClusterIP, fmt.Sprint(svc.Spec.Ports[0].TargetPort.IntVal))
+	c.address = fmt.Sprintf("%s:%d", svc.Spec.ClusterIP, svc.Spec.Ports[0].TargetPort.IntVal)
 	scopes.Framework.Infof("GCE Metadata Server in-cluster address: %s", c.address)
 
 	return c, nil

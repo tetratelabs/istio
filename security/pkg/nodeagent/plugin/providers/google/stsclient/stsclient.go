@@ -19,7 +19,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -51,7 +51,7 @@ type federatedTokenResponse struct {
 	ExpiresIn       int64  `json:"expires_in"` // Expiration time in seconds
 }
 
-// SecureTokenServiceExchanger for google securetoken api interaction.
+// TokenExchanger for google securetoken api interaction.
 type SecureTokenServiceExchanger struct {
 	httpClient  *http.Client
 	credFetcher security.CredFetcher
@@ -61,11 +61,7 @@ type SecureTokenServiceExchanger struct {
 }
 
 // NewSecureTokenServiceExchanger returns an instance of secure token service client plugin
-func NewSecureTokenServiceExchanger(credFetcher security.CredFetcher, trustDomain string) (*SecureTokenServiceExchanger, error) {
-	aud, err := constructAudience(credFetcher, trustDomain)
-	if err != nil {
-		return nil, err
-	}
+func NewSecureTokenServiceExchanger(credFetcher security.CredFetcher, trustDomain string) *SecureTokenServiceExchanger {
 	return &SecureTokenServiceExchanger{
 		httpClient: &http.Client{
 			Timeout: httpTimeout,
@@ -73,8 +69,8 @@ func NewSecureTokenServiceExchanger(credFetcher security.CredFetcher, trustDomai
 		backoff:     time.Millisecond * 50,
 		credFetcher: credFetcher,
 		trustDomain: trustDomain,
-		audience:    aud,
-	}, nil
+		audience:    constructAudience(credFetcher, trustDomain),
+	}
 }
 
 func retryable(code int) bool {
@@ -104,22 +100,21 @@ func (p *SecureTokenServiceExchanger) requestWithRetry(reqBytes []byte) ([]byte,
 			continue
 		}
 		if resp.StatusCode == http.StatusOK {
-			body, err := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			defer resp.Body.Close()
+			body, err := ioutil.ReadAll(resp.Body)
 			return body, err
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := ioutil.ReadAll(resp.Body)
 		lastError = fmt.Errorf("token exchange request failed: status code %v body %v", resp.StatusCode, string(body))
 		resp.Body.Close()
 		if !retryable(resp.StatusCode) {
 			break
 		}
 		monitoring.NumOutgoingRetries.With(monitoring.RequestType.Value(monitoring.TokenExchange)).Increment()
-		if stsClientLog.DebugEnabled() {
-			stsClientLog.Debugf("token exchange request failed: status code %v, body %v", resp.StatusCode, string(body))
-		} else {
+		if !stsClientLog.DebugEnabled() {
 			stsClientLog.Errorf("token exchange request failed: status code %v", resp.StatusCode)
 		}
+		stsClientLog.Debugf("token exchange request failed: status code %v, body %v", resp.StatusCode, string(body))
 		time.Sleep(p.backoff)
 	}
 	return nil, fmt.Errorf("exchange failed all retries, last error: %v", lastError)
@@ -153,7 +148,7 @@ func (p *SecureTokenServiceExchanger) ExchangeToken(k8sSAjwt string) (string, er
 	return respData.AccessToken, nil
 }
 
-func constructAudience(credFetcher security.CredFetcher, trustDomain string) (string, error) {
+func constructAudience(credFetcher security.CredFetcher, trustDomain string) string {
 	provider := ""
 	if credFetcher != nil {
 		provider = credFetcher.GetIdentityProvider()
@@ -164,16 +159,11 @@ func constructAudience(credFetcher security.CredFetcher, trustDomain string) (st
 		if GKEClusterURL != "" {
 			provider = GKEClusterURL
 		} else if platform.IsGCP() {
-			if clusterURL, found := platform.NewGCP().Metadata()[platform.GCPClusterURL]; found && len(clusterURL) > 0 {
-				provider = clusterURL
-				stsClientLog.Infof("GKE_CLUSTER_URL is not set, fetched cluster URL from metadata server: %q", provider)
-			} else {
-				return "", fmt.Errorf("failed to get GCPClusterURL from Metadata():  found (%v), clusterURL (%v)",
-					found, clusterURL)
-			}
+			provider = platform.NewGCP().Metadata()[platform.GCPClusterURL]
+			stsClientLog.Infof("GKE_CLUSTER_URL is not set, fetched cluster URL from metadata server: %q", provider)
 		}
 	}
-	return fmt.Sprintf("identitynamespace:%s:%s", trustDomain, provider), nil
+	return fmt.Sprintf("identitynamespace:%s:%s", trustDomain, provider)
 }
 
 func constructFederatedTokenRequest(aud, jwt string) ([]byte, error) {

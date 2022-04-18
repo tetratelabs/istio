@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func TestUdsListener(t *testing.T) {
@@ -39,7 +38,7 @@ func TestUdsListener(t *testing.T) {
 func connect(socket string) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
 
-	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+	opts = append(opts, grpc.WithInsecure(), grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(ctx, "unix", socket)
 	}))

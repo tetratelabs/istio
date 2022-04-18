@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +19,7 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
-	"os"
+	"io/ioutil"
 	"path"
 	"reflect"
 	"testing"
@@ -193,13 +191,13 @@ func createSidecarScope(t *testing.T, ctx resource.Context, tPolicy TrafficPolic
 	if err := tmpl.Execute(&buf, map[string]string{"ImportNamespace": serviceNamespace.Name(), "TrafficPolicyMode": tPolicy.String()}); err != nil {
 		t.Errorf("failed to create template: %v", err)
 	}
-	if err := ctx.ConfigIstio().ApplyYAML(appsNamespace.Name(), buf.String()); err != nil {
+	if err := ctx.Config().ApplyYAML(appsNamespace.Name(), buf.String()); err != nil {
 		t.Errorf("failed to apply service entries: %v", err)
 	}
 }
 
 func mustReadCert(t *testing.T, f string) string {
-	b, err := os.ReadFile(path.Join(env.IstioSrc, "tests/testdata/certs", f))
+	b, err := ioutil.ReadFile(path.Join(env.IstioSrc, "tests/testdata/certs", f))
 	if err != nil {
 		t.Fatalf("failed to read %v: %v", f, err)
 	}
@@ -218,7 +216,7 @@ func createGateway(t *testing.T, ctx resource.Context, appsNamespace namespace.I
 	if err := tmpl.Execute(&buf, map[string]string{"AppNamespace": appsNamespace.Name()}); err != nil {
 		t.Fatalf("failed to create template: %v", err)
 	}
-	if err := ctx.ConfigIstio().ApplyYAML(serviceNamespace.Name(), buf.String()); err != nil {
+	if err := ctx.Config().ApplyYAML(serviceNamespace.Name(), buf.String()); err != nil {
 		t.Fatalf("failed to apply gateway: %v. template: %v", err, buf.String())
 	}
 }
@@ -382,7 +380,7 @@ func setupEcho(t *testing.T, ctx resource.Context, mode TrafficPolicy) (echo.Ins
 
 	// External traffic should work even if we have service entries on the same ports
 	createSidecarScope(t, ctx, mode, appsNamespace, serviceNamespace)
-	if err := ctx.ConfigIstio().ApplyYAML(serviceNamespace.Name(), ServiceEntry); err != nil {
+	if err := ctx.Config().ApplyYAML(serviceNamespace.Name(), ServiceEntry); err != nil {
 		t.Errorf("failed to apply service entries: %v", err)
 	}
 

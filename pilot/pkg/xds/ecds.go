@@ -41,12 +41,9 @@ func ecdsNeedsPush(req *model.PushRequest) bool {
 	if len(req.ConfigsUpdated) == 0 {
 		return true
 	}
-	// Only push if config updates is triggered by EnvoyFilter or WasmPlugin.
+	// Only push if config updates is triggered by EnvoyFilter.
 	for config := range req.ConfigsUpdated {
-		switch config.Kind {
-		case gvk.EnvoyFilter:
-			return true
-		case gvk.WasmPlugin:
+		if config.Kind == gvk.EnvoyFilter {
 			return true
 		}
 	}

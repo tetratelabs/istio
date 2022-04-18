@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +18,7 @@ package autoexport
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"strconv"
 	"testing"
 	"time"
@@ -29,53 +28,93 @@ import (
 
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/echo"
+	"istio.io/istio/pkg/test/framework/components/echo/common"
+	"istio.io/istio/pkg/test/framework/components/echo/echoboot"
 	"istio.io/istio/pkg/test/framework/components/istio"
+	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/label"
 	"istio.io/istio/pkg/test/framework/resource"
 	"istio.io/istio/pkg/test/util/retry"
-	"istio.io/istio/tests/integration/pilot/mcs/common"
+)
+
+const (
+	serviceExportName = "test-service"
 )
 
 var (
-	i     istio.Instance
-	echos common.EchoDeployment
+	i               istio.Instance
+	serviceExportNS string
+	echos           echo.Instances
 )
 
 func TestMain(m *testing.M) {
 	framework.
 		NewSuite(m).
 		Label(label.CustomSetup).
-		RequireMultiPrimary().
 		RequireMinVersion(17).
-		Setup(common.InstallMCSCRDs).
-		Setup(istio.Setup(&i, enableMCSAutoExport)).
-		Setup(common.DeployEchosFunc("se", &echos)).
+		Setup(func(ctx resource.Context) error {
+			crd, err := ioutil.ReadFile("../../testdata/mcs-serviceexport-crd.yaml")
+			if err != nil {
+				return err
+			}
+			return ctx.Config().ApplyYAML("", string(crd))
+		}).
+		Setup(istio.Setup(&i, func(ctx resource.Context, cfg *istio.Config) {
+			cfg.ControlPlaneValues = `
+values:
+  pilot:
+    env:
+      ENABLE_MCS_AUTOEXPORT: "true"`
+		})).
+		Setup(func(ctx resource.Context) error {
+			// Create a new namespace in each cluster.
+			ns, err := namespace.New(ctx, namespace.Config{
+				Prefix: "se",
+				Inject: true,
+			})
+			if err != nil {
+				return err
+			}
+			serviceExportNS = ns.Name()
+
+			// Create an echo instance in each cluster.
+			echos, err = echoboot.NewBuilder(ctx).
+				WithClusters(ctx.Clusters()...).
+				WithConfig(echo.Config{
+					Service:   serviceExportName,
+					Namespace: ns,
+					Ports:     common.EchoPorts,
+				}).Build()
+			return err
+		}).
 		Run()
 }
 
 func TestAutoExport(t *testing.T) {
 	framework.NewTest(t).
 		Features("traffic.mcs.autoexport").
+		RequiresSingleCluster().
 		Run(func(ctx framework.TestContext) {
-			serviceExportGVR := common.KubeSettings(ctx).ServiceExportGVR()
 			// Verify that ServiceExport is created automatically for services.
 			ctx.NewSubTest("exported").RunParallel(
 				func(ctx framework.TestContext) {
-					for _, cluster := range echos.Match(echo.Service(common.ServiceB)).Clusters() {
-						cluster := cluster
-						ctx.NewSubTest(cluster.StableName()).RunParallel(func(ctx framework.TestContext) {
+					for i, e := range echos {
+						e := e
+						ctx.NewSubTest(strconv.Itoa(i)).RunParallel(func(ctx framework.TestContext) {
+							cluster := e.Config().Cluster
+							client := cluster.MCSApis().MulticlusterV1alpha1().ServiceExports(serviceExportNS)
+
 							// Verify that the ServiceExport was created.
 							ctx.NewSubTest("create").Run(func(ctx framework.TestContext) {
 								retry.UntilSuccessOrFail(ctx, func() error {
-									serviceExport, err := cluster.Dynamic().Resource(serviceExportGVR).Namespace(echos.Namespace).Get(
-										context.TODO(), common.ServiceB, v1.GetOptions{})
+									serviceExport, err := client.Get(context.TODO(), serviceExportName, v1.GetOptions{})
 									if err != nil {
 										return err
 									}
 
 									if serviceExport == nil {
 										return fmt.Errorf("serviceexport %s/%s not found in cluster %s",
-											echos.Namespace, common.ServiceB, cluster.Name())
+											serviceExportNS, serviceExportName, cluster.Name())
 									}
 
 									return nil
@@ -84,15 +123,14 @@ func TestAutoExport(t *testing.T) {
 
 							// Delete the echo Service and verify that the ServiceExport is automatically removed.
 							ctx.NewSubTest("delete").Run(func(ctx framework.TestContext) {
-								err := cluster.CoreV1().Services(echos.Namespace).Delete(
-									context.TODO(), common.ServiceB, v1.DeleteOptions{})
+								err := cluster.CoreV1().Services(serviceExportNS).Delete(
+									context.TODO(), serviceExportName, v1.DeleteOptions{})
 								if err != nil {
 									ctx.Fatalf("failed deleting service %s/%s in cluster %s: %v",
-										echos.Namespace, common.ServiceB, cluster.Name(), err)
+										serviceExportNS, serviceExportName, cluster.Name(), err)
 								}
 								retry.UntilSuccessOrFail(t, func() error {
-									_, err := cluster.Dynamic().Resource(serviceExportGVR).Namespace(echos.Namespace).Get(
-										context.TODO(), common.ServiceB, v1.GetOptions{})
+									_, err := client.Get(context.TODO(), serviceExportName, v1.GetOptions{})
 
 									if err != nil && k8sErrors.IsNotFound(err) {
 										// Success! We automatically removed the ServiceExport when the Service
@@ -105,7 +143,7 @@ func TestAutoExport(t *testing.T) {
 									}
 
 									return fmt.Errorf("failed to remove serviceExport %s/%s in cluster %s",
-										echos.Namespace, common.ServiceB, cluster.Name())
+										serviceExportNS, serviceExportName, cluster.Name())
 								}, retry.Timeout(30*time.Second))
 							})
 						})
@@ -118,8 +156,8 @@ func TestAutoExport(t *testing.T) {
 				for i, cluster := range ctx.Clusters() {
 					cluster := cluster
 					ctx.NewSubTest(strconv.Itoa(i)).RunParallel(func(ctx framework.TestContext) {
-						services, err := cluster.Dynamic().Resource(serviceExportGVR).Namespace(ns).List(
-							context.TODO(), v1.ListOptions{})
+						client := cluster.MCSApis().MulticlusterV1alpha1().ServiceExports(ns)
+						services, err := client.List(context.TODO(), v1.ListOptions{})
 						if err != nil {
 							ctx.Fatal(err)
 						}
@@ -131,16 +169,4 @@ func TestAutoExport(t *testing.T) {
 				}
 			})
 		})
-}
-
-func enableMCSAutoExport(t resource.Context, cfg *istio.Config) {
-	cfg.ControlPlaneValues = fmt.Sprintf(`
-values:
-  pilot:
-    env:
-      ENABLE_MCS_AUTO_EXPORT: "true"
-      MCS_API_GROUP: %s
-      MCS_API_VERSION: %s`,
-		common.KubeSettings(t).MCSAPIGroup,
-		common.KubeSettings(t).MCSAPIVersion)
 }

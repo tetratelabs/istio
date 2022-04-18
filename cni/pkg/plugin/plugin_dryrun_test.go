@@ -16,6 +16,7 @@ package plugin
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -24,7 +25,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/plugins/pkg/testutils"
 	"k8s.io/client-go/kubernetes"
 
@@ -32,7 +32,6 @@ import (
 	"istio.io/istio/pilot/cmd/pilot-agent/options"
 	diff "istio.io/istio/pilot/test/util"
 	"istio.io/istio/pkg/test/env"
-	"istio.io/istio/tools/istio-iptables/pkg/cmd"
 )
 
 type k8sPodInfoFunc func(*kubernetes.Clientset, string, string) (*PodInfo, error)
@@ -44,7 +43,7 @@ func generateMockK8sPodInfoFunc(pi *PodInfo) k8sPodInfoFunc {
 }
 
 func TestIPTablesRuleGeneration(t *testing.T) {
-	cniConf := fmt.Sprintf(conf, currentVersion, currentVersion, ifname, sandboxDirectory, "iptables")
+	cniConf := fmt.Sprintf(conf, currentVersion, ifname, sandboxDirectory, "iptables")
 	args := testSetArgs(cniConf)
 	newKubeClient = mocknewK8sClient
 
@@ -115,16 +114,6 @@ func TestIPTablesRuleGeneration(t *testing.T) {
 			},
 			golden: filepath.Join(env.IstioSrc, "cni/pkg/plugin/testdata/dns.txt.golden"),
 		},
-		{
-			name: "invalid-drop",
-			input: &PodInfo{
-				Containers:        []string{"test", "istio-proxy"},
-				InitContainers:    map[string]struct{}{"istio-validate": {}},
-				Annotations:       map[string]string{annotation.SidecarStatus.Name: "true"},
-				ProxyEnvironments: map[string]string{cmd.InvalidDropByIptables.Name: "true"},
-			},
-			golden: filepath.Join(env.IstioSrc, "cni/pkg/plugin/testdata/invalid-drop.txt.golden"),
-		},
 	}
 
 	for _, tt := range tests {
@@ -137,18 +126,14 @@ func TestIPTablesRuleGeneration(t *testing.T) {
 				t.Fatalf("Failed to create temp file for IPTables rule output: %v", err)
 			}
 			os.Setenv(dryRunFilePath.Name, outputFilePath)
-			_, _, err := testutils.CmdAddWithArgs(
-				&skel.CmdArgs{
-					Netns:     sandboxDirectory,
-					IfName:    ifname,
-					StdinData: []byte(cniConf),
-				}, func() error { return CmdAdd(args) })
+			_, _, err := testutils.CmdAddWithResult(
+				sandboxDirectory, ifname, []byte(cniConf), func() error { return CmdAdd(args) })
 			os.Unsetenv(dryRunFilePath.Name)
 			if err != nil {
 				t.Fatalf("CNI cmdAdd failed with error: %v", err)
 			}
 
-			generated, err := os.ReadFile(outputFilePath)
+			generated, err := ioutil.ReadFile(outputFilePath)
 			if err != nil {
 				log.Fatalf("Cannot read generated IPTables rule file: %v", err)
 			}
@@ -157,7 +142,7 @@ func TestIPTablesRuleGeneration(t *testing.T) {
 			refreshGoldens(t, tt.golden, generatedRules)
 
 			// Compare generated iptables rule with golden files.
-			golden, err := os.ReadFile(tt.golden)
+			golden, err := ioutil.ReadFile(tt.golden)
 			if err != nil {
 				log.Fatalf("Cannot read golden rule file: %v", err)
 			}
@@ -199,5 +184,5 @@ func refreshGoldens(t *testing.T, goldenFileName string, generatedRules map[stri
 	for _, t := range tables {
 		goldenFileContent += generatedRules[t] + "\n"
 	}
-	diff.RefreshGoldenFile(t, []byte(goldenFileContent), goldenFileName)
+	diff.RefreshGoldenFile([]byte(goldenFileContent), goldenFileName, t)
 }

@@ -44,9 +44,6 @@ spec:
         {{- else }}
         istio: pilot
         {{- end }}
-        {{- range $key, $val := .Values.pilot.podLabels }}
-        {{ $key }}: "{{ $val }}"
-        {{- end }}
       annotations:
         {{- if .Values.meshConfig.enablePrometheusMerge }}
         prometheus.io/port: "15014"
@@ -155,6 +152,10 @@ spec:
             value: "{{ .Values.global.istiod.enableAnalysis }}"
           - name: CLUSTER_ID
             value: "{{ $.Values.global.multiCluster.clusterName | default `Kubernetes` }}"
+{{- if not .Values.telemetry.v2.enabled }}
+          - name: PILOT_ENDPOINT_TELEMETRY_LABEL
+            value: "false"
+{{- end }}
           resources:
 {{- if .Values.pilot.resources }}
 {{ toYaml .Values.pilot.resources | trim | indent 12 }}
@@ -162,8 +163,6 @@ spec:
 {{ toYaml .Values.global.defaultResources | trim | indent 12 }}
 {{- end }}
           securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
             runAsUser: 1337
             runAsGroup: 1337
             runAsNonRoot: true

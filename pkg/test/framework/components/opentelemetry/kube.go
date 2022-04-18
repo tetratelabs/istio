@@ -16,8 +16,8 @@ package opentelemetry
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net"
-	"os"
 	"strings"
 
 	"istio.io/istio/pkg/test/env"
@@ -116,7 +116,7 @@ spec:
 )
 
 func getYaml() (string, error) {
-	b, err := os.ReadFile(env.OtelCollectorInstallFilePath)
+	b, err := ioutil.ReadFile(env.OtelCollectorInstallFilePath)
 	if err != nil {
 		return "", err
 	}
@@ -128,19 +128,19 @@ func install(ctx resource.Context, ns string) error {
 	if err != nil {
 		return err
 	}
-	return ctx.ConfigKube().ApplyYAML(ns, y)
+	return ctx.Config().ApplyYAML(ns, y)
 }
 
 func installServiceEntry(ctx resource.Context, ns, ingressAddr string) error {
 	// Setup remote access to zipkin in cluster
 	yaml := strings.ReplaceAll(remoteOtelEntry, "{INGRESS_DOMAIN}", ingressAddr)
-	if err := ctx.ConfigIstio().ApplyYAML(ns, yaml); err != nil {
+	if err := ctx.Config().ApplyYAML(ns, yaml); err != nil {
 		return err
 	}
 	// For all other clusters, add a service entry so that can access
 	// zipkin in cluster installed.
 	yaml = strings.ReplaceAll(extServiceEntry, "{INGRESS_DOMAIN}", ingressAddr)
-	if err := ctx.ConfigIstio().ApplyYAML(ns, yaml); err != nil {
+	if err := ctx.Config().ApplyYAML(ns, yaml); err != nil {
 		return err
 	}
 	return nil
@@ -171,7 +171,7 @@ func newCollector(ctx resource.Context, c Config) (*otel, error) {
 	isIP := net.ParseIP(c.IngressAddr).String() != "<nil>"
 	ingressDomain := c.IngressAddr
 	if isIP {
-		ingressDomain = fmt.Sprintf("%s.sslip.io", strings.ReplaceAll(c.IngressAddr, ":", "-"))
+		ingressDomain = fmt.Sprintf("%s.nip.io", c.IngressAddr)
 	}
 
 	err = installServiceEntry(ctx, istioCfg.TelemetryNamespace, ingressDomain)

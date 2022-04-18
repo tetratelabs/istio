@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang/protobuf/ptypes/duration"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"istio.io/istio/pilot/pkg/util/sets"
@@ -32,13 +33,6 @@ var (
 		"ISTIO_GPRC_MAXSTREAMS",
 		100000,
 		"Sets the maximum number of concurrent grpc streams.",
-	).Get()
-
-	// MaxRecvMsgSize The max receive buffer size of gRPC received channel of Pilot in bytes.
-	MaxRecvMsgSize = env.RegisterIntVar(
-		"ISTIO_GPRC_MAXRECVMSGSIZE",
-		4*1024*1024,
-		"Sets the max receive buffer size of gRPC stream in bytes.",
 	).Get()
 
 	traceSamplingVar = env.RegisterFloatVar(
@@ -74,8 +68,15 @@ var (
 
 	RequestLimit = env.RegisterFloatVar(
 		"PILOT_MAX_REQUESTS_PER_SECOND",
-		25.0,
+		0.0,
 		"Limits the number of incoming XDS requests per second. On larger machines this can be increased to handle more proxies concurrently.",
+	).Get()
+
+	// MaxRecvMsgSize The max receive buffer size of gRPC received channel of Pilot in bytes.
+	MaxRecvMsgSize = env.RegisterIntVar(
+		"ISTIO_GPRC_MAXRECVMSGSIZE",
+		4*1024*1024,
+		"Sets the max receive buffer size of gRPC stream in bytes.",
 	).Get()
 
 	// FilterGatewayClusterConfig controls if a subset of clusters(only those required) should be pushed to gateways
@@ -106,6 +107,9 @@ var (
 	).Get()
 
 	// HTTP10 will add "accept_http_10" to http outbound listeners. Can also be set only for specific sidecars via meta.
+	//
+	// Alpha in 1.1, may become the default or be turned into a Sidecar API or mesh setting. Only applies to namespaces
+	// where Sidecar is enabled.
 	HTTP10 = env.RegisterBoolVar(
 		"PILOT_HTTP10",
 		false,
@@ -149,11 +153,6 @@ var (
 		"PILOT_SKIP_VALIDATE_TRUST_DOMAIN",
 		false,
 		"Skip validating the peer is from the same trust domain when mTLS is enabled in authentication policy").Get()
-
-	EnableAutomTLSCheckPolicies = env.RegisterBoolVar(
-		"ENABLE_AUTO_MTLS_CHECK_POLICIES", true,
-		"Enable the auto mTLS EDS output to consult the PeerAuthentication Policy, only set the {tlsMode: istio} "+
-			" when server side policy enables mTLS PERMISSIVE or STRICT.").Get()
 
 	EnableProtocolSniffingForOutbound = env.RegisterBoolVar(
 		"PILOT_ENABLE_PROTOCOL_SNIFFING_FOR_OUTBOUND",
@@ -199,7 +198,7 @@ var (
 		"PILOT_JWT_ENABLE_REMOTE_JWKS",
 		false,
 		"If enabled, checks to see if the configured JwksUri in RequestAuthentication is a mesh cluster URL "+
-			"and configures remote Jwks to let Envoy fetch the Jwks instead of Istiod.",
+			"and configures Remote Jwks to let Envoy fetch the Jwks instead of Istiod.",
 	).Get()
 
 	EnableEDSForHeadless = env.RegisterBoolVar(
@@ -223,60 +222,30 @@ var (
 		"If enabled, Pilot will keep track of old versions of distributed config for this duration.",
 	).Get()
 
-	enableEndpointSliceController, endpointSliceControllerSpecified = env.RegisterBoolVar(
+	EnableEndpointSliceController = env.RegisterBoolVar(
 		"PILOT_USE_ENDPOINT_SLICE",
 		false,
 		"If enabled, Pilot will use EndpointSlices as the source of endpoints for Kubernetes services. "+
 			"By default, this is false, and Endpoints will be used. This requires the Kubernetes EndpointSlice controller to be enabled. "+
 			"Currently this is mutual exclusive - either Endpoints or EndpointSlices will be used",
-	).Lookup()
-
-	MCSAPIGroup = env.RegisterStringVar("MCS_API_GROUP", "multicluster.x-k8s.io",
-		"The group to be used for the Kubernetes Multi-Cluster Services (MCS) API.").Get()
-
-	MCSAPIVersion = env.RegisterStringVar("MCS_API_VERSION", "v1alpha1",
-		"The version to be used for the Kubernets Multi-Cluster Services (MCS) API.").Get()
-
-	EnableMCSAutoExport = env.RegisterBoolVar(
-		"ENABLE_MCS_AUTO_EXPORT",
-		false,
-		"If enabled, istiod will automatically generate Kubernetes "+
-			"Multi-Cluster Services (MCS) ServiceExport resources for every "+
-			"service in the mesh. Services defined to be cluster-local in "+
-			"MeshConfig are excluded.",
 	).Get()
 
-	EnableMCSServiceDiscovery = env.RegisterBoolVar(
-		"ENABLE_MCS_SERVICE_DISCOVERY",
+	EnableMCSAutoExport = env.RegisterBoolVar(
+		"ENABLE_MCS_AUTOEXPORT",
 		false,
-		"If enabled, istiod will enable Kubernetes Multi-Cluster "+
-			"Services (MCS) service discovery mode. In this mode, service "+
-			"endpoints in a cluster will only be discoverable within the "+
-			"same cluster unless explicitly exported via ServiceExport.").Get()
+		"If enabled, istiod will automatically generate MCS ServiceExport objects for each "+
+			"service in each cluster. Services defined to be cluster-local in MeshConfig are excluded.",
+	).Get()
 
-	EnableMCSHost = env.RegisterBoolVar(
-		"ENABLE_MCS_HOST",
-		false,
-		"If enabled, istiod will configure a Kubernetes Multi-Cluster "+
-			"Services (MCS) host (<svc>.<namespace>.svc.clusterset.local) "+
-			"for each service exported (via ServiceExport) in at least one "+
-			"cluster. Clients must, however, be able to successfully lookup "+
-			"these DNS hosts. That means that either Istio DNS interception "+
-			"must be enabled or an MCS controller must be used. Requires "+
-			"that ENABLE_MCS_SERVICE_DISCOVERY also be enabled.").Get() &&
-		EnableMCSServiceDiscovery
+	EnableMCSServiceDiscovery = env.RegisterBoolVar("ENABLE_MCS_SERVICE_DISCOVERY", false,
+		"If enabled, istiod will enable Kubernetes MCS service discovery mode. In this mode, service endpoints "+
+			"in a cluster will only discoverable within the same cluster unless explicitly exported "+
+			"(via the ServiceExport CR).").Get()
 
-	EnableMCSClusterLocal = env.RegisterBoolVar(
-		"ENABLE_MCS_CLUSTER_LOCAL",
-		false,
-		"If enabled, istiod will treat the host "+
-			"`<svc>.<namespace>.svc.cluster.local` as defined by the "+
-			"Kubernetes Multi-Cluster Services (MCS) spec. In this mode, "+
-			"requests to `cluster.local` will be routed to only those "+
-			"endpoints residing within the same cluster as the client. "+
-			"Requires that both ENABLE_MCS_SERVICE_DISCOVERY and "+
-			"ENABLE_MCS_HOST also be enabled.").Get() &&
-		EnableMCSHost
+	EnableMCSHost = env.RegisterBoolVar("ENABLE_MCS_HOST", false,
+		"If enabled, istiod will provide an alias <svc>.<namespace>.svc.clusterset.local for "+
+			"each Kubernetes service. Clients must, however, be able to successfully lookup these DNS hosts. "+
+			"That means that either Istio DNS interception must be enabled or an MCS controller must be used.").Get()
 
 	EnableAnalysis = env.RegisterBoolVar(
 		"PILOT_ENABLE_ANALYSIS",
@@ -311,10 +280,6 @@ var (
 			"See https://godoc.org/k8s.io/client-go/rest#Config Burst",
 	).Get()
 
-	StatusMaxWorkers = env.RegisterIntVar("PILOT_STATUS_MAX_WORKERS", 100, "The maximum number of workers"+
-		" Pilot will use to keep configuration status up to date.  Smaller numbers will result in higher status latency, "+
-		"but larger numbers may impact CPU in high scale environments.").Get()
-
 	// IstiodServiceCustomHost allow user to bring a custom address for istiod server
 	// for examples: istiod.mycompany.com
 	IstiodServiceCustomHost = env.RegisterStringVar("ISTIOD_CUSTOM_HOST", "",
@@ -334,23 +299,16 @@ var (
 		"Default Http and gRPC Request timeout",
 	)
 
-	DefaultRequestTimeout = func() *durationpb.Duration {
+	DefaultRequestTimeout = func() *duration.Duration {
 		return durationpb.New(defaultRequestTimeoutVar.Get())
 	}()
 
-	LegacyIngressBehavior = env.RegisterBoolVar("PILOT_LEGACY_INGRESS_BEHAVIOR", false,
-		"If this is set to true, istio ingress will perform the legacy behavior, "+
-			"which does not meet https://kubernetes.io/docs/concepts/services-networking/ingress/#multiple-matches.").Get()
-
-	EnableGatewayAPI = env.RegisterBoolVar("PILOT_ENABLE_GATEWAY_API", true,
+	EnableServiceApis = env.RegisterBoolVar("PILOT_ENABLED_SERVICE_APIS", true,
 		"If this is set to true, support for Kubernetes gateway-api (github.com/kubernetes-sigs/gateway-api) will "+
 			" be enabled. In addition to this being enabled, the gateway-api CRDs need to be installed.").Get()
 
 	EnableGatewayAPIStatus = env.RegisterBoolVar("PILOT_ENABLE_GATEWAY_API_STATUS", true,
 		"If this is set to true, gateway-api resources will have status written to them").Get()
-
-	EnableGatewayAPIDeploymentController = env.RegisterBoolVar("PILOT_ENABLE_GATEWAY_API_DEPLOYMENT_CONTROLLER", true,
-		"If this is set to true, gateway-api resources will automatically provision in cluster deployment, services, etc").Get()
 
 	EnableVirtualServiceDelegate = env.RegisterBoolVar(
 		"PILOT_ENABLE_VIRTUAL_SERVICE_DELEGATE",
@@ -370,7 +328,7 @@ var (
 		"If this is set to false, the debug interface will not be ebabled on Http, recommended for production").Get()
 
 	EnableUnsafeAdminEndpoints = env.RegisterBoolVar("UNSAFE_ENABLE_ADMIN_ENDPOINTS", false,
-		"If this is set to true, dangerous admin endpoints will be exposed on the debug interface. Not recommended for production.").Get()
+		"If this is set to true, dangerous admin endpoins will be exposed on the debug interface. Not recommended for production.").Get()
 
 	XDSAuth = env.RegisterBoolVar("XDS_AUTH", true,
 		"If true, will authenticate XDS clients.").Get()
@@ -409,13 +367,8 @@ var (
 
 	// EnableCDSCaching determines if CDS caching is enabled. This is explicitly split out of ENABLE_XDS_CACHE,
 	// so that in case there are issues with the CDS cache we can just disable the CDS cache.
-	EnableCDSCaching = env.RegisterBoolVar("PILOT_ENABLE_CDS_CACHE", true,
+	EnableCDSCaching = env.RegisterBoolVar("PILOT_ENABLE_CDS_CACHE", false,
 		"If true, Pilot will cache CDS responses. Note: this depends on PILOT_ENABLE_XDS_CACHE.").Get()
-
-	// EnableRDSCaching determines if RDS caching is enabled. This is explicitly split out of ENABLE_XDS_CACHE,
-	// so that in case there are issues with the RDS cache we can just disable the RDS cache.
-	EnableRDSCaching = env.RegisterBoolVar("PILOT_ENABLE_RDS_CACHE", true,
-		"If true, Pilot will cache RDS responses. Note: this depends on PILOT_ENABLE_XDS_CACHE.").Get()
 
 	EnableXDSCacheMetrics = env.RegisterBoolVar("PILOT_XDS_CACHE_STATS", false,
 		"If true, Pilot will collect metrics for XDS cache efficiency.").Get()
@@ -445,16 +398,8 @@ var (
 			"Setting the timeout to 0 disables this behavior.",
 	).Get()
 
-	EnableTelemetryLabel = env.RegisterBoolVar("PILOT_ENABLE_TELEMETRY_LABEL", true,
-		"If true, pilot will add telemetry related metadata to cluster and endpoint resources, which will be consumed by telemetry filter.",
-	).Get()
-
 	EndpointTelemetryLabel = env.RegisterBoolVar("PILOT_ENDPOINT_TELEMETRY_LABEL", true,
 		"If true, pilot will add telemetry related metadata to Endpoint resource, which will be consumed by telemetry filter.",
-	).Get()
-
-	MetadataExchange = env.RegisterBoolVar("PILOT_ENABLE_METADATA_EXCHANGE", true,
-		"If true, pilot will add metadata exchange filters, which will be consumed by telemetry filter.",
 	).Get()
 
 	WorkloadEntryAutoRegistration = env.RegisterBoolVar("PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION", true,
@@ -467,7 +412,7 @@ var (
 	WorkloadEntryHealthChecks = env.RegisterBoolVar("PILOT_ENABLE_WORKLOAD_ENTRY_HEALTHCHECKS", true,
 		"Enables automatic health checks of WorkloadEntries based on the config provided in the associated WorkloadGroup").Get()
 
-	WorkloadEntryCrossCluster = env.RegisterBoolVar("PILOT_ENABLE_CROSS_CLUSTER_WORKLOAD_ENTRY", true,
+	WorkloadEntryCrossCluster = env.RegisterBoolVar("PILOT_ENABLE_CROSS_CLUSTER_WORKLOAD_ENTRY", false,
 		"If enabled, pilot will read WorkloadEntry from other clusters, selectable by Services in that cluster.").Get()
 
 	EnableFlowControl = env.RegisterBoolVar(
@@ -489,6 +434,10 @@ var (
 		false,
 		"If set, workload specific DestinationRules will inherit configurations settings from mesh and namespace level rules",
 	).Get()
+
+	StatusMaxWorkers = env.RegisterIntVar("PILOT_STATUS_MAX_WORKERS", 100, "The maximum number of workers"+
+		" Pilot will use to keep configuration status up to date.  Smaller numbers will result in higher status latency, "+
+		"but larger numbers may impact CPU in high scale environments.").Get()
 
 	WasmRemoteLoadConversion = env.RegisterBoolVar("ISTIO_AGENT_ENABLE_WASM_REMOTE_LOAD_CONVERSION", true,
 		"If enabled, Istio agent will intercept ECDS resource update, downloads Wasm module, "+
@@ -528,7 +477,7 @@ var (
 			"Resource Request. This feature uses the delta xds api, but does not currently send the actual deltas.").Get()
 
 	EnableLegacyIstioMutualCredentialName = env.RegisterBoolVar("PILOT_ENABLE_LEGACY_ISTIO_MUTUAL_CREDENTIAL_NAME",
-		false,
+		true,
 		"If enabled, Gateway's with ISTIO_MUTUAL mode and credentialName configured will use simple TLS. "+
 			"This is to retain legacy behavior only and not recommended for use beyond migration.").Get()
 
@@ -550,54 +499,36 @@ var (
 	EnableRouteCollapse = env.RegisterBoolVar("PILOT_ENABLE_ROUTE_COLLAPSE_OPTIMIZATION", true,
 		"If true, Pilot will merge virtual hosts with the same routes into a single virtual host, as an optimization.").Get()
 
-	MulticlusterHeadlessEnabled = env.RegisterBoolVar("ENABLE_MULTICLUSTER_HEADLESS", true,
+	delayedCloseTimeoutVar = env.RegisterDurationVar(
+		"PILOT_HTTP_DELAYED_CLOSE_TIMEOUT",
+		1*time.Second,
+		"The delayed close timeout is for downstream HTTP connections. This should be set to a high value or disable it when "+
+			"peer is reading large chunk of data and to give an opportunity to initiate the close sequence properly. A value of 0s disables this").Get()
+
+	DelayedCloseTimeout = func() *duration.Duration {
+		return durationpb.New(delayedCloseTimeoutVar)
+	}()
+
+	MulticlusterHeadlessEnabled = env.RegisterBoolVar("ENABLE_MULTICLUSTER_HEADLESS", false,
 		"If true, the DNS name table for a headless service will resolve to same-network endpoints in any cluster.").Get()
 
-	ResolveHostnameGateways = env.RegisterBoolVar("RESOLVE_HOSTNAME_GATEWAYS", true,
-		"If true, hostnames in the LoadBalancer addresses of a Service will be resolved at the control plane for use in cross-network gateways.").Get()
-
-	CertSignerDomain = env.RegisterStringVar("CERT_SIGNER_DOMAIN", "", "The cert signer domain info").Get()
-
-	AutoReloadPluginCerts = env.RegisterBoolVar(
-		"AUTO_RELOAD_PLUGIN_CERTS",
-		false,
-		"If enabled, if user introduces new intermediate plug-in CA, user need not to restart istiod to pick up certs."+
-			"Istiod picks newly added intermediate plug-in CA certs and updates it. Plug-in new Root-CA not supported.").Get()
-
-	RewriteTCPProbes = env.RegisterBoolVar(
-		"REWRITE_TCP_PROBES",
-		true,
-		"If false, TCP probes will not be rewritten and therefor always succeed when a sidecar is used.",
-	).Get()
-
-	EnableQUICListeners = env.RegisterBoolVar("PILOT_ENABLE_QUIC_LISTENERS", false,
-		"If true, QUIC listeners will be generated wherever there are listeners terminating TLS on gateways "+
-			"if the gateway service exposes a UDP port with the same number (for example 443/TCP and 443/UDP)").Get()
-
-	VerifyCertAtClient = env.RegisterBoolVar("VERIFY_CERTIFICATE_AT_CLIENT", false,
-		"If enabled, certificates received by the proxy will be verified against the OS CA certificate bundle.").Get()
-
-	PrioritizedLeaderElection = env.RegisterBoolVar("PRIORITIZED_LEADER_ELECTION", true,
-		"If enabled, the default revision will steal leader locks from non-default revisions").Get()
-
-	EnableTLSOnSidecarIngress = env.RegisterBoolVar("ENABLE_TLS_ON_SIDECAR_INGRESS", false,
-		"If enabled, the TLS configuration on Sidecar.ingress will take effect").Get()
+	// UseTargetPortForGatewayRoutes determines which port to use for the routes. This flag is for safety only, and can be removed in future versions.
+	// Example setup: we have a Service on port 80, targetPort 8080
+	// Old behavior (false): we create listener 0.0.0.0_8080 and route http.80. This has potential for conflicts if there are other port 80s
+	// New behavior (true): we create listener 0.0.0.0_8080 and route http.8080. This has no conflicts; routes are 1:1 with listener.
+	UseTargetPortForGatewayRoutes = env.RegisterBoolVar("PILOT_USE_TARGET_PORT_FOR_GATEWAY_ROUTES", true,
+		"If true, routes will use the target port of the gateway service in the route name, not the service port.").Get()
 
 	InsecureKubeConfigOptions = func() sets.Set {
 		v := env.RegisterStringVar(
 			"PILOT_INSECURE_MULTICLUSTER_KUBECONFIG_OPTIONS",
-			"",
+			"gcp,azure,exec,openstack,clientkey,clientCertificate,tokenFile",
 			"Comma separated list of potentially insecure kubeconfig authentication options that are allowed for multicluster authentication."+
 				"Support values: all authProviders (`gcp`, `azure`, `exec`, `openstack`), "+
 				"`clientKey`, `clientCertificate`, `tokenFile`, and `exec`.").Get()
 		return sets.NewSet(strings.Split(v, ",")...)
 	}()
 )
-
-// EnableEndpointSliceController returns the value of the feature flag and whether it was actually specified.
-func EnableEndpointSliceController() (value bool, ok bool) {
-	return enableEndpointSliceController, endpointSliceControllerSpecified
-}
 
 // UnsafeFeaturesEnabled returns true if any unsafe features are enabled.
 func UnsafeFeaturesEnabled() bool {

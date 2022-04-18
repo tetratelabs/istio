@@ -425,7 +425,6 @@ func portForward(podName, namespace, flavor, urlFormat, localAddress string, rem
 		}
 
 		if err = fw.Start(); err != nil {
-			fw.Close()
 			// Try the next port
 			continue
 		}

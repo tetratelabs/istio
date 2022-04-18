@@ -22,11 +22,10 @@ import (
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 
 	"istio.io/api/label"
 	"istio.io/istio/pilot/pkg/keycertbundle"
-	"istio.io/istio/pkg/kube"
-	"istio.io/istio/pkg/test/util/retry"
 )
 
 var caBundle0 = []byte(`-----BEGIN CERTIFICATE-----
@@ -71,7 +70,7 @@ func TestMutatingWebhookPatch(t *testing.T) {
 			"config1",
 			"webhook1",
 			caBundle0,
-			errNotFound.Error(),
+			"\"config1\" not found",
 		},
 		{
 			"WebhookEntryNotFound",
@@ -160,7 +159,7 @@ func TestMutatingWebhookPatch(t *testing.T) {
 			"config1",
 			"webhook1",
 			caBundle0,
-			errNotFound.Error(),
+			errWrongRevision.Error(),
 		},
 		{
 			"WrongRevisionWebhookNotUpdated",
@@ -184,7 +183,7 @@ func TestMutatingWebhookPatch(t *testing.T) {
 			"config1",
 			"webhook1",
 			caBundle0,
-			errNotFound.Error(),
+			errWrongRevision.Error(),
 		},
 		{
 			"MultipleWebhooks",
@@ -217,31 +216,15 @@ func TestMutatingWebhookPatch(t *testing.T) {
 	}
 	for _, tc := range ts {
 		t.Run(tc.name, func(t *testing.T) {
-			client := kube.NewFakeClient()
-			for _, wh := range tc.configs.Items {
-				if _, err := client.AdmissionregistrationV1().
-					MutatingWebhookConfigurations().Create(context.Background(), wh.DeepCopy(), metav1.CreateOptions{}); err != nil {
-					t.Fatal(err)
-				}
+			client := fake.NewSimpleClientset(tc.configs.DeepCopyObject())
+			whPatcher := WebhookCertPatcher{
+				client:          client,
+				revision:        tc.revision,
+				webhookName:     tc.webhookName,
+				CABundleWatcher: watcher,
 			}
 
-			watcher := keycertbundle.NewWatcher()
-			watcher.SetAndNotify(nil, nil, tc.pemData)
-			whPatcher, err := NewWebhookCertPatcher(client, tc.revision, tc.webhookName, watcher)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			stop := make(chan struct{})
-			t.Cleanup(func() {
-				close(stop)
-			})
-			go whPatcher.informer.Run(stop)
-			client.RunAndWait(stop)
-			retry.UntilOrFail(t, whPatcher.informer.HasSynced)
-
-			err = whPatcher.patchMutatingWebhookConfig(
-				client.AdmissionregistrationV1().MutatingWebhookConfigurations(),
+			err := whPatcher.patchMutatingWebhookConfig(client.AdmissionregistrationV1().MutatingWebhookConfigurations(),
 				tc.configName)
 			if (err != nil) != (tc.err != "") {
 				t.Fatalf("Wrong error: got %v want %v", err, tc.err)

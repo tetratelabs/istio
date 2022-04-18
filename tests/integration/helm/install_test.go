@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +17,7 @@ package helm
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,13 +75,12 @@ func setupInstallation(overrideValuesStr string) func(t framework.TestContext) {
 		}
 		overrideValues := fmt.Sprintf(overrideValuesStr, s.Hub, s.Tag)
 		overrideValuesFile := filepath.Join(workDir, "values.yaml")
-		if err := os.WriteFile(overrideValuesFile, []byte(overrideValues), os.ModePerm); err != nil {
+		if err := ioutil.WriteFile(overrideValuesFile, []byte(overrideValues), os.ModePerm); err != nil {
 			t.Fatalf("failed to write iop cr file: %v", err)
 		}
 		InstallIstio(t, cs, h, "", overrideValuesFile, ManifestsChartPath, "", true)
 
 		VerifyInstallation(t, cs, true)
-		VerifyValidation(t)
 
 		sanitycheck.RunTrafficTest(t, t)
 		t.Cleanup(func() {

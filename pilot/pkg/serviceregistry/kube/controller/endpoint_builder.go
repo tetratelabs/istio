@@ -27,7 +27,7 @@ import (
 	"istio.io/istio/pkg/network"
 )
 
-// EndpointBuilder is a stateful IstioEndpoint builder with metadata used to build IstioEndpoint
+// A stateful IstioEndpoint builder with metadata used to build IstioEndpoint
 type EndpointBuilder struct {
 	controller controllerInterface
 

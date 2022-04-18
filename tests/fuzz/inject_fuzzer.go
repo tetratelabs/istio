@@ -17,6 +17,8 @@ package fuzz
 
 import (
 	"bytes"
+	"errors"
+	"strings"
 
 	fuzz "github.com/AdaLogics/go-fuzz-headers"
 
@@ -24,12 +26,59 @@ import (
 	"istio.io/istio/pkg/kube/inject"
 )
 
+var requiredJSONFields = []string{
+	"policy", "defaultTemplates",
+	"aliases", "neverInjectSelector",
+	"alwaysInjectSelector",
+	"injectedAnnotations",
+}
+
+func createStringMap(f *fuzz.ConsumeFuzzer) (map[string]string, error) {
+	m := make(map[string]string)
+	maxNoEntries := 50
+	qty, err := f.GetInt()
+	if err != nil {
+		return m, err
+	}
+	noOfEntries := qty % maxNoEntries
+	if noOfEntries == 0 {
+		return m, errors.New("a map of zero-length was created")
+	}
+	for i := 0; i < noOfEntries; i++ {
+		k, err := f.GetString()
+		if err != nil {
+			return m, err
+		}
+		v, err := f.GetString()
+		if err != nil {
+			return m, err
+		}
+		m[k] = v
+	}
+	return m, nil
+}
+
 func FuzzIntoResourceFile(data []byte) int {
 	f := fuzz.NewConsumer(data)
-	var sidecarTemplate map[string]string
-	err := f.FuzzMap(&sidecarTemplate)
+	configData, err := f.GetBytes()
+	if err != nil {
+		return -1
+	}
+	for _, field := range requiredJSONFields {
+		if !strings.Contains(string(configData), field) {
+			return -1
+		}
+	}
+	c, err := inject.UnmarshalConfig(configData)
 	if err != nil {
 		return 0
+	}
+	if len(c.Templates) == 0 {
+		m, err := createStringMap(f)
+		if err != nil {
+			return 0
+		}
+		c.Templates = m
 	}
 	valuesConfig, err := f.GetString()
 	if err != nil {
@@ -50,10 +99,6 @@ func FuzzIntoResourceFile(data []byte) int {
 	in := bytes.NewReader(inData)
 	var got bytes.Buffer
 	warn := func(s string) {}
-	revision, err := f.GetString()
-	if err != nil {
-		return 0
-	}
-	_ = inject.IntoResourceFile(nil, sidecarTemplate, valuesConfig, revision, mc, in, &got, warn)
+	_ = inject.IntoResourceFile(nil, c.Templates, valuesConfig, "", mc, in, &got, warn)
 	return 1
 }

@@ -27,20 +27,21 @@ import (
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	http_conn "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/conversion"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/gogo/protobuf/types"
-	"google.golang.org/protobuf/encoding/prototext"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/any"
+	"github.com/golang/protobuf/ptypes/duration"
+	pstruct "github.com/golang/protobuf/ptypes/struct"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
-	istionetworking "istio.io/istio/pilot/pkg/networking"
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/config"
@@ -52,15 +53,15 @@ import (
 
 const (
 	// BlackHoleCluster to catch traffic from routes with unresolved clusters. Traffic arriving here goes nowhere.
-	BlackHoleCluster = istionetworking.BlackHoleCluster
+	BlackHoleCluster = "BlackHoleCluster"
 	// BlackHole is the name of the virtual host and route name used to block all traffic
-	BlackHole = istionetworking.BlackHole
+	BlackHole = "block_all"
 	// PassthroughCluster to forward traffic to the original destination requested. This cluster is used when
 	// traffic does not match any listener in envoy.
-	PassthroughCluster = istionetworking.PassthroughCluster
+	PassthroughCluster = "PassthroughCluster"
 	// Passthrough is the name of the virtual host used to forward traffic to the
 	// PassthroughCluster
-	Passthrough = istionetworking.Passthrough
+	Passthrough = "allow_any"
 	// PassthroughFilterChain to catch traffic that doesn't match other filter chains.
 	PassthroughFilterChain = "PassthroughFilterChain"
 
@@ -87,24 +88,12 @@ const (
 	// level tls transport socket configuration
 	EnvoyTLSSocketName = wellknown.TransportSocketTls
 
-	// EnvoyQUICSocketName matched with hardcoded built-in Envoy transport name which determines endpoint
-	// level QUIC transport socket configuration
-	EnvoyQUICSocketName = wellknown.TransportSocketQuic
-
 	// StatName patterns
 	serviceStatPattern         = "%SERVICE%"
 	serviceFQDNStatPattern     = "%SERVICE_FQDN%"
 	servicePortStatPattern     = "%SERVICE_PORT%"
 	servicePortNameStatPattern = "%SERVICE_PORT_NAME%"
 	subsetNameStatPattern      = "%SUBSET_NAME%"
-
-	// Well-known header names
-	AltSvcHeader = "alt-svc"
-
-	// Well-known metadata exchange EnvoyFilter config name
-	// TODO: Remove these at 1.14.
-	MXName110 = "metadata-exchange-1.10"
-	MXName111 = "metadata-exchange-1.11"
 )
 
 // ALPNH2Only advertises that Proxy is going to use HTTP/2 when talking to the cluster.
@@ -131,9 +120,6 @@ var ALPNInMeshWithMxc = []string{"istio-peer-exchange", "istio"}
 
 // ALPNHttp advertises that Proxy is going to talking either http2 or http 1.1.
 var ALPNHttp = []string{"h2", "http/1.1"}
-
-// ALPNHttp3OverQUIC advertises that Proxy is going to talk HTTP/3 over QUIC
-var ALPNHttp3OverQUIC = []string{"h3"}
 
 // ALPNDownstream advertises that Proxy is going to talking either tcp(for metadata exchange), http2 or http 1.1.
 var ALPNDownstream = []string{"istio-peer-exchange", "h2", "http/1.1"}
@@ -165,7 +151,7 @@ func ConvertAddressToCidr(addr string) *core.CidrRange {
 
 	cidr := &core.CidrRange{
 		AddressPrefix: addr,
-		PrefixLen: &wrapperspb.UInt32Value{
+		PrefixLen: &wrappers.UInt32Value{
 			Value: getMaxCidrPrefix(addr),
 		},
 	}
@@ -181,9 +167,17 @@ func ConvertAddressToCidr(addr string) *core.CidrRange {
 
 // BuildAddress returns a SocketAddress with the given ip and port or uds.
 func BuildAddress(bind string, port uint32) *core.Address {
-	address := BuildNetworkAddress(bind, port, istionetworking.TransportProtocolTCP)
-	if address != nil {
-		return address
+	if port != 0 {
+		return &core.Address{
+			Address: &core.Address_SocketAddress{
+				SocketAddress: &core.SocketAddress{
+					Address: bind,
+					PortSpecifier: &core.SocketAddress_PortValue{
+						PortValue: port,
+					},
+				},
+			},
+		}
 	}
 
 	return &core.Address{
@@ -195,56 +189,53 @@ func BuildAddress(bind string, port uint32) *core.Address {
 	}
 }
 
-func BuildNetworkAddress(bind string, port uint32, transport istionetworking.TransportProtocol) *core.Address {
-	if port == 0 {
-		return nil
-	}
-	return &core.Address{
-		Address: &core.Address_SocketAddress{
-			SocketAddress: &core.SocketAddress{
-				Address:  bind,
-				Protocol: transport.ToEnvoySocketProtocol(),
-				PortSpecifier: &core.SocketAddress_PortValue{
-					PortValue: port,
-				},
-			},
-		},
-	}
-}
-
 // MessageToAnyWithError converts from proto message to proto Any
-func MessageToAnyWithError(msg proto.Message) (*anypb.Any, error) {
-	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(msg)
+func MessageToAnyWithError(msg proto.Message) (*any.Any, error) {
+	b := proto.NewBuffer(nil)
+	b.SetDeterministic(true)
+	err := b.Marshal(msg)
 	if err != nil {
 		return nil, err
 	}
-	return &anypb.Any{
+	return &any.Any{
 		// nolint: staticcheck
-		TypeUrl: "type.googleapis.com/" + string(msg.ProtoReflect().Descriptor().FullName()),
-		Value:   b,
+		TypeUrl: "type.googleapis.com/" + proto.MessageName(msg),
+		Value:   b.Bytes(),
 	}, nil
 }
 
 // MessageToAny converts from proto message to proto Any
-func MessageToAny(msg proto.Message) *anypb.Any {
+func MessageToAny(msg proto.Message) *any.Any {
 	out, err := MessageToAnyWithError(msg)
 	if err != nil {
-		log.Error(fmt.Sprintf("error marshaling Any %s: %v", prototext.Format(msg), err))
+		log.Error(fmt.Sprintf("error marshaling Any %s: %v", msg.String(), err))
 		return nil
 	}
 	return out
 }
 
+// MessageToStruct converts from proto message to proto Struct
+func MessageToStruct(msg proto.Message) *pstruct.Struct {
+	s, err := conversion.MessageToStruct(msg)
+	if err != nil {
+		log.Error(err.Error())
+		return &pstruct.Struct{}
+	}
+	return s
+}
+
 // GogoDurationToDuration converts from gogo proto duration to time.duration
-func GogoDurationToDuration(d *types.Duration) *durationpb.Duration {
+func GogoDurationToDuration(d *types.Duration) *duration.Duration {
 	if d == nil {
 		return nil
 	}
-
-	return &durationpb.Duration{
-		Seconds: d.Seconds,
-		Nanos:   d.Nanos,
+	dur, err := types.DurationFromProto(d)
+	if err != nil {
+		// TODO(mostrowski): add error handling instead.
+		log.Warnf("error converting duration %#v, using 0: %v", d, err)
+		return nil
 	}
+	return durationpb.New(dur)
 }
 
 // SortVirtualHosts sorts a slice of virtual hosts by name.
@@ -258,24 +249,6 @@ func SortVirtualHosts(hosts []*route.VirtualHost) {
 	sort.SliceStable(hosts, func(i, j int) bool {
 		return hosts[i].Name < hosts[j].Name
 	})
-}
-
-// IsIstioVersionGE110 checks whether the given Istio version is greater than or equals 1.10.
-func IsIstioVersionGE110(version *model.IstioVersion) bool {
-	return version == nil ||
-		version.Compare(&model.IstioVersion{Major: 1, Minor: 10, Patch: -1}) >= 0
-}
-
-// IsIstioVersionGE111 checks whether the given Istio version is greater than or equals 1.11.
-func IsIstioVersionGE111(version *model.IstioVersion) bool {
-	return version == nil ||
-		version.Compare(&model.IstioVersion{Major: 1, Minor: 11, Patch: -1}) >= 0
-}
-
-// IsIstioVersionGE112 checks whether the given Istio version is greater than or equals 1.12.
-func IsIstioVersionGE112(version *model.IstioVersion) bool {
-	return version == nil ||
-		version.Compare(&model.IstioVersion{Major: 1, Minor: 12, Patch: -1}) >= 0
 }
 
 func IsProtocolSniffingEnabledForPort(port *model.Port) bool {
@@ -372,25 +345,19 @@ func CloneClusterLoadAssignment(original *endpoint.ClusterLoadAssignment) *endpo
 func cloneLocalityLbEndpoints(endpoints []*endpoint.LocalityLbEndpoints) []*endpoint.LocalityLbEndpoints {
 	out := make([]*endpoint.LocalityLbEndpoints, 0, len(endpoints))
 	for _, ep := range endpoints {
-		clone := CloneLocalityLbEndpoint(ep)
+		clone := &endpoint.LocalityLbEndpoints{}
+		clone.Locality = ep.Locality
+		clone.LbEndpoints = ep.LbEndpoints
+		clone.Proximity = ep.Proximity
+		clone.Priority = ep.Priority
+		if ep.LoadBalancingWeight != nil {
+			clone.LoadBalancingWeight = &wrappers.UInt32Value{
+				Value: ep.GetLoadBalancingWeight().GetValue(),
+			}
+		}
 		out = append(out, clone)
 	}
 	return out
-}
-
-// return a shallow copy of LocalityLbEndpoints
-func CloneLocalityLbEndpoint(ep *endpoint.LocalityLbEndpoints) *endpoint.LocalityLbEndpoints {
-	clone := &endpoint.LocalityLbEndpoints{}
-	clone.Locality = ep.Locality
-	clone.LbEndpoints = ep.LbEndpoints
-	clone.Proximity = ep.Proximity
-	clone.Priority = ep.Priority
-	if ep.LoadBalancingWeight != nil {
-		clone.LoadBalancingWeight = &wrapperspb.UInt32Value{
-			Value: ep.GetLoadBalancingWeight().GetValue(),
-		}
-	}
-	return clone
 }
 
 // BuildConfigInfoMetadata builds core.Metadata struct containing the
@@ -404,18 +371,18 @@ func BuildConfigInfoMetadata(config config.Meta) *core.Metadata {
 func AddConfigInfoMetadata(metadata *core.Metadata, config config.Meta) *core.Metadata {
 	if metadata == nil {
 		metadata = &core.Metadata{
-			FilterMetadata: map[string]*structpb.Struct{},
+			FilterMetadata: map[string]*pstruct.Struct{},
 		}
 	}
 	s := "/apis/" + config.GroupVersionKind.Group + "/" + config.GroupVersionKind.Version + "/namespaces/" + config.Namespace + "/" +
 		strcase.CamelCaseToKebabCase(config.GroupVersionKind.Kind) + "/" + config.Name
 	if _, ok := metadata.FilterMetadata[IstioMetadataKey]; !ok {
-		metadata.FilterMetadata[IstioMetadataKey] = &structpb.Struct{
-			Fields: map[string]*structpb.Value{},
+		metadata.FilterMetadata[IstioMetadataKey] = &pstruct.Struct{
+			Fields: map[string]*pstruct.Value{},
 		}
 	}
-	metadata.FilterMetadata[IstioMetadataKey].Fields["config"] = &structpb.Value{
-		Kind: &structpb.Value_StringValue{
+	metadata.FilterMetadata[IstioMetadataKey].Fields["config"] = &pstruct.Value{
+		Kind: &pstruct.Value_StringValue{
 			StringValue: s,
 		},
 	}
@@ -428,8 +395,8 @@ func AddConfigInfoMetadata(metadata *core.Metadata, config config.Meta) *core.Me
 // needed). This is used for telemetry reporting.
 func AddSubsetToMetadata(md *core.Metadata, subset string) {
 	if istioMeta, ok := md.FilterMetadata[IstioMetadataKey]; ok {
-		istioMeta.Fields["subset"] = &structpb.Value{
-			Kind: &structpb.Value_StringValue{
+		istioMeta.Fields["subset"] = &pstruct.Value{
+			Kind: &pstruct.Value_StringValue{
 				StringValue: subset,
 			},
 		}
@@ -446,30 +413,66 @@ func IsHTTPFilterChain(filterChain *listener.FilterChain) bool {
 	return false
 }
 
-// MergeAnyWithAny merges a given any typed message into the given Any typed message by dynamically inferring the
-// type of Any
-func MergeAnyWithAny(dst *anypb.Any, src *anypb.Any) (*anypb.Any, error) {
+// MergeAnyWithStruct merges a given struct into the given Any typed message by dynamically inferring the
+// type of Any, converting the struct into the inferred type, merging the two messages, and then
+// marshaling the merged message back into Any.
+func MergeAnyWithStruct(a *any.Any, pbStruct *pstruct.Struct) (*any.Any, error) {
 	// Assuming that Pilot is compiled with this type [which should always be the case]
 	var err error
+	// nolint: staticcheck
+	var x ptypes.DynamicAny
 
-	// get an object of type used by this message
-	dstX, err := dst.UnmarshalNew()
-	if err != nil {
+	// First get an object of type used by this message
+	// nolint: staticcheck
+	if err = ptypes.UnmarshalAny(a, &x); err != nil {
 		return nil, err
 	}
 
-	// get an object of type used by this message
-	srcX, err := src.UnmarshalNew()
-	if err != nil {
+	// Create a typed copy. We will convert the user's struct to this type
+	temp := proto.Clone(x.Message)
+	temp.Reset()
+	if err = conversion.StructToMessage(pbStruct, temp); err != nil {
 		return nil, err
 	}
 
 	// Merge the two typed protos
-	proto.Merge(dstX, srcX)
-	var retVal *anypb.Any
+	proto.Merge(x.Message, temp)
+	var retVal *any.Any
+	// Convert the merged proto back to any
+	// nolint: staticcheck
+	if retVal, err = ptypes.MarshalAny(x.Message); err != nil {
+		return nil, err
+	}
 
+	return retVal, nil
+}
+
+// MergeAnyWithAny merges a given any typed message into the given Any typed message by dynamically inferring the
+// type of Any
+func MergeAnyWithAny(dst *any.Any, src *any.Any) (*any.Any, error) {
+	// Assuming that Pilot is compiled with this type [which should always be the case]
+	var err error
+	// nolint: staticcheck
+	var dstX, srcX ptypes.DynamicAny
+
+	// get an object of type used by this message
+	// nolint: staticcheck
+	if err = ptypes.UnmarshalAny(dst, &dstX); err != nil {
+		return nil, err
+	}
+
+	// get an object of type used by this message
+	// nolint: staticcheck
+	if err = ptypes.UnmarshalAny(src, &srcX); err != nil {
+		return nil, err
+	}
+
+	// Merge the two typed protos
+	proto.Merge(dstX.Message, srcX.Message)
+	var retVal *any.Any
 	// Convert the merged proto back to dst
-	if retVal, err = anypb.New(dstX); err != nil {
+	// nolint: staticcheck
+	if retVal, err = ptypes.MarshalAny(dstX.Message); err != nil {
 		return nil, err
 	}
 
@@ -479,19 +482,18 @@ func MergeAnyWithAny(dst *anypb.Any, src *anypb.Any) (*anypb.Any, error) {
 // BuildLbEndpointMetadata adds metadata values to a lb endpoint
 func BuildLbEndpointMetadata(networkID network.ID, tlsMode, workloadname, namespace string,
 	clusterID cluster.ID, labels labels.Instance) *core.Metadata {
-	if networkID == "" && (tlsMode == "" || tlsMode == model.DisabledTLSModeLabel) &&
-		(!features.EndpointTelemetryLabel || !features.EnableTelemetryLabel) {
+	if networkID == "" && (tlsMode == "" || tlsMode == model.DisabledTLSModeLabel) && !features.EndpointTelemetryLabel {
 		return nil
 	}
 
 	metadata := &core.Metadata{
-		FilterMetadata: map[string]*structpb.Struct{},
+		FilterMetadata: map[string]*pstruct.Struct{},
 	}
 
 	if tlsMode != "" && tlsMode != model.DisabledTLSModeLabel {
-		metadata.FilterMetadata[EnvoyTransportSocketMetadataKey] = &structpb.Struct{
-			Fields: map[string]*structpb.Value{
-				model.TLSModeLabelShortname: {Kind: &structpb.Value_StringValue{StringValue: tlsMode}},
+		metadata.FilterMetadata[EnvoyTransportSocketMetadataKey] = &pstruct.Struct{
+			Fields: map[string]*pstruct.Value{
+				model.TLSModeLabelShortname: {Kind: &pstruct.Value_StringValue{StringValue: tlsMode}},
 			},
 		}
 	}
@@ -516,53 +518,16 @@ func BuildLbEndpointMetadata(networkID network.ID, tlsMode, workloadname, namesp
 		}
 		sb.WriteString(";")
 		sb.WriteString(clusterID.String())
-		addIstioEndpointLabel(metadata, "workload", &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: sb.String()}})
+		addIstioEndpointLabel(metadata, "workload", &pstruct.Value{Kind: &pstruct.Value_StringValue{StringValue: sb.String()}})
 	}
 
 	return metadata
 }
 
-// MaybeApplyTLSModeLabel may or may not update the metadata for the Envoy transport socket matches for auto mTLS.
-func MaybeApplyTLSModeLabel(ep *endpoint.LbEndpoint, tlsMode string) (*endpoint.LbEndpoint, bool) {
-	if ep == nil || ep.Metadata == nil {
-		return nil, false
-	}
-	epTLSMode := ""
-	if ep.Metadata.FilterMetadata != nil {
-		if v, ok := ep.Metadata.FilterMetadata[EnvoyTransportSocketMetadataKey]; ok {
-			epTLSMode = v.Fields[model.TLSModeLabelShortname].GetStringValue()
-		}
-	}
-	// Normalize the tls label name before comparison. This ensure we won't falsely cloning
-	// the endpoint when they are "" and model.DisabledTLSModeLabel.
-	if epTLSMode == model.DisabledTLSModeLabel {
-		epTLSMode = ""
-	}
-	if tlsMode == model.DisabledTLSModeLabel {
-		tlsMode = ""
-	}
-	if epTLSMode == tlsMode {
-		return nil, false
-	}
-	// We make a copy instead of modifying on existing endpoint pointer directly to avoid data race.
-	// See https://github.com/istio/istio/issues/34227 for details.
-	newEndpoint := proto.Clone(ep).(*endpoint.LbEndpoint)
-	if tlsMode != "" && tlsMode != model.DisabledTLSModeLabel {
-		newEndpoint.Metadata.FilterMetadata[EnvoyTransportSocketMetadataKey] = &structpb.Struct{
-			Fields: map[string]*structpb.Value{
-				model.TLSModeLabelShortname: {Kind: &structpb.Value_StringValue{StringValue: tlsMode}},
-			},
-		}
-	} else {
-		delete(newEndpoint.Metadata.FilterMetadata, EnvoyTransportSocketMetadataKey)
-	}
-	return newEndpoint, true
-}
-
-func addIstioEndpointLabel(metadata *core.Metadata, key string, val *structpb.Value) {
+func addIstioEndpointLabel(metadata *core.Metadata, key string, val *pstruct.Value) {
 	if _, ok := metadata.FilterMetadata[IstioMetadataKey]; !ok {
-		metadata.FilterMetadata[IstioMetadataKey] = &structpb.Struct{
-			Fields: map[string]*structpb.Value{},
+		metadata.FilterMetadata[IstioMetadataKey] = &pstruct.Struct{
+			Fields: map[string]*pstruct.Value{},
 		}
 	}
 
@@ -577,7 +542,7 @@ func IsAllowAnyOutbound(node *model.Proxy) bool {
 }
 
 // BuildStatPrefix builds a stat prefix based on the stat pattern.
-func BuildStatPrefix(statPattern string, host string, subset string, port *model.Port, attributes *model.ServiceAttributes) string {
+func BuildStatPrefix(statPattern string, host string, subset string, port *model.Port, attributes model.ServiceAttributes) string {
 	prefix := strings.ReplaceAll(statPattern, serviceStatPattern, shortHostName(host, attributes))
 	prefix = strings.ReplaceAll(prefix, serviceFQDNStatPattern, host)
 	prefix = strings.ReplaceAll(prefix, subsetNameStatPattern, subset)
@@ -588,7 +553,7 @@ func BuildStatPrefix(statPattern string, host string, subset string, port *model
 
 // shortHostName constructs the name from kubernetes hosts based on attributes (name and namespace).
 // For other hosts like VMs, this method does not do any thing - just returns the passed in host as is.
-func shortHostName(host string, attributes *model.ServiceAttributes) string {
+func shortHostName(host string, attributes model.ServiceAttributes) string {
 	if attributes.ServiceRegistry == provider.Kubernetes {
 		return attributes.Name + "." + attributes.Namespace
 	}
@@ -699,45 +664,4 @@ func ByteCount(b int) string {
 	}
 	return fmt.Sprintf("%.1f%cB",
 		float64(b)/float64(div), "kMGTPE"[exp])
-}
-
-// IPv6 addresses are enclosed in square brackets followed by port number in Host header/URIs
-func IPv6Compliant(host string) string {
-	if strings.Contains(host, ":") {
-		return "[" + host + "]"
-	}
-	return host
-}
-
-// DomainName builds the domain name for a given host and port
-func DomainName(host string, port int) string {
-	return net.JoinHostPort(host, strconv.Itoa(port))
-}
-
-// TraceOperation builds the string format: "%s:%d/*" for a given host and port
-func TraceOperation(host string, port int) string {
-	// Format : "%s:%d/*"
-	return DomainName(host, port) + "/*"
-}
-
-// CheckProxyVerionForMX checks whether metadata exchange filters should be injected
-// based on proxy version and presence of the well known metadata exchange EnvoyFilter.
-// TODO: Remove this at 1.14 release, since we support skip version upgrade
-//       now and 1.11 proxy can talk to 1.13 control plane.
-func CheckProxyVerionForMX(push *model.PushContext, proxyVersion *model.IstioVersion) bool {
-	if IsIstioVersionGE112(proxyVersion) {
-		// Always inject for proxy >= 1.12 since mx EnvoyFilters are removed.
-		return true
-	}
-	if IsIstioVersionGE111(proxyVersion) {
-		// If Istio version is >= 1.11 and < 1.12, inject only if the well known 1.11 EnvoyFilter does not present.
-		return !push.HasEnvoyFilters(MXName111, push.Mesh.RootNamespace)
-	}
-	if IsIstioVersionGE110(proxyVersion) {
-		// If Istio version is >= 1.10 and < 1.11, inject only if the well known 1.10 EnvoyFilter does not present.
-		return !push.HasEnvoyFilters(MXName110, push.Mesh.RootNamespace)
-	}
-
-	// For proxy < 1.10, this is not a supported case, we inject anyway.
-	return true
 }

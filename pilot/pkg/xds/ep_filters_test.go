@@ -182,7 +182,6 @@ var networkFiltered = []networkFilterCase{
 func TestEndpointsByNetworkFilter(t *testing.T) {
 	env := environment()
 	env.Init()
-	env.InitNetworksManager(nil)
 	// The tests below are calling the endpoints filter from each one of the
 	// networks and examines the returned filtered endpoints
 
@@ -564,7 +563,6 @@ func TestEndpointsByNetworkFilter_WithConfig(t *testing.T) {
 						}
 					}
 					env.Init()
-					env.InitNetworksManager(nil)
 					runNetworkFilterTest(t, env, pa.Tests)
 				})
 			}
@@ -583,11 +581,9 @@ func TestEndpointsByNetworkFilter_SkipLBWithHostname(t *testing.T) {
 	serviceDiscovery := memregistry.NewServiceDiscovery(append([]*model.Service{{
 		Hostname: "istio-ingressgateway.istio-system.svc.cluster.local",
 		Attributes: model.ServiceAttributes{
-			ClusterExternalAddresses: model.AddressMap{
-				Addresses: map[cluster.ID][]string{
-					"cluster2a": {""},
-					"cluster2b": {""},
-				},
+			ClusterExternalAddresses: map[cluster.ID][]string{
+				"cluster2a": {""},
+				"cluster2b": {""},
 			},
 		},
 	}}, origServices...))
@@ -601,7 +597,6 @@ func TestEndpointsByNetworkFilter_SkipLBWithHostname(t *testing.T) {
 
 	env.ServiceDiscovery = serviceDiscovery
 	env.Init()
-	env.InitNetworksManager(nil)
 	// Run the tests and ensure that the new gateway is never used.
 	runNetworkFilterTest(t, env, networkFiltered)
 }
@@ -762,7 +757,7 @@ func environment() *model.Environment {
 //
 // All endpoints are part of service example.ns.svc.cluster.local on port 80 (http).
 func testShards() *EndpointShards {
-	shards := &EndpointShards{Shards: map[model.ShardKey][]*model.IstioEndpoint{
+	shards := &EndpointShards{Shards: map[string][]*model.IstioEndpoint{
 		// network1 has one endpoint in each cluster
 		"cluster1a": {
 			{Network: "network1", Address: "10.0.0.1"},

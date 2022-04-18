@@ -60,14 +60,14 @@ func (Plugin) OnInboundListener(in *plugin.InputParams, mutable *networking.Muta
 func buildFilter(in *plugin.InputParams, mutable *networking.MutableObjects) error {
 	ns := in.Node.Metadata.Namespace
 	applier := factory.NewPolicyApplier(in.Push, ns, labels.Collection{in.Node.Metadata.Labels})
-	forSidecar := in.Node.Type == model.SidecarProxy
+
 	for i := range mutable.FilterChains {
 		if mutable.FilterChains[i].ListenerProtocol == networking.ListenerProtocolHTTP {
 			// Adding Jwt filter and authn filter, if needed.
 			if filter := applier.JwtFilter(); filter != nil {
 				mutable.FilterChains[i].HTTP = append(mutable.FilterChains[i].HTTP, filter)
 			}
-			if filter := applier.AuthNFilter(forSidecar); filter != nil {
+			if filter := applier.AuthNFilter(); filter != nil {
 				mutable.FilterChains[i].HTTP = append(mutable.FilterChains[i].HTTP, filter)
 			}
 		}
@@ -98,8 +98,9 @@ func (p Plugin) InboundMTLSConfiguration(in *plugin.InputParams, passthrough boo
 			applier.InboundMTLSSettings(port, in.Node, trustDomains),
 		}
 	}
-	// Otherwise, this is for passthrough configuration. We need to create configuration for the passthrough,
-	// but also any ports that are not explicitly declared in the Service but are in the mTLS port level settings.
+	// Otherwise, this is for passthrough configuration. We need to create configuration for the
+	// passthrough, but also any ports that are not explicitly declared in the Service but are in the
+	// mTLS port level settings.
 	resp := []plugin.MTLSSettings{
 		// Full passthrough - no port match
 		applier.InboundMTLSSettings(0, in.Node, trustDomains),

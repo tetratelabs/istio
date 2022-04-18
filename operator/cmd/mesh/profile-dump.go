@@ -20,8 +20,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ghodss/yaml"
 	"github.com/spf13/cobra"
-	"sigs.k8s.io/yaml"
 
 	"istio.io/istio/operator/pkg/manifest"
 	"istio.io/istio/operator/pkg/tpath"
@@ -103,12 +103,7 @@ func yamlToPrettyJSON(yml string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var decoded interface{}
-	if uglyJSON[0] == '[' {
-		decoded = make([]interface{}, 0)
-	} else {
-		decoded = map[string]interface{}{}
-	}
+	var decoded map[string]interface{}
 	if err := json.Unmarshal(uglyJSON, &decoded); err != nil {
 		return "", err
 	}
@@ -126,8 +121,10 @@ func profileDump(args []string, rootArgs *rootArgs, pdArgs *profileDumpArgs, l c
 		return fmt.Errorf("cannot specify both profile name and filename flag")
 	}
 
-	if err := validateProfileOutputFormatFlag(pdArgs.outputFormat); err != nil {
-		return err
+	switch pdArgs.outputFormat {
+	case jsonOutput, yamlOutput, flagsOutput:
+	default:
+		return fmt.Errorf("unknown output format: %v", pdArgs.outputFormat)
 	}
 
 	setFlags := applyFlagAliases(make([]string, 0), pdArgs.manifestsPath, "")
@@ -158,44 +155,24 @@ func profileDump(args []string, rootArgs *rootArgs, pdArgs *profileDumpArgs, l c
 		}
 	}
 
-	var output string
-	if output, err = yamlToFormat(y, pdArgs.outputFormat); err != nil {
-		return err
-	}
-	l.Print(output)
-	return nil
-}
-
-// validateOutputFormatFlag validates if the output format is valid.
-func validateProfileOutputFormatFlag(outputFormat string) error {
-	switch outputFormat {
-	case jsonOutput, yamlOutput, flagsOutput:
-	default:
-		return fmt.Errorf("unknown output format: %s", outputFormat)
-	}
-	return nil
-}
-
-// yamlToFormat converts the generated yaml config to the expected format
-func yamlToFormat(yaml, outputFormat string) (string, error) {
-	var output string
-	switch outputFormat {
+	switch pdArgs.outputFormat {
 	case jsonOutput:
-		j, err := yamlToPrettyJSON(yaml)
+		j, err := yamlToPrettyJSON(y)
 		if err != nil {
-			return "", err
+			return err
 		}
-		output = fmt.Sprintf("%s\n", j)
+		l.Print(j + "\n")
 	case yamlOutput:
-		output = fmt.Sprintf("%s\n", yaml)
+		l.Print(y + "\n")
 	case flagsOutput:
-		f, err := yamlToFlags(yaml)
+		f, err := yamlToFlags(y)
 		if err != nil {
-			return "", err
+			return err
 		}
-		output = fmt.Sprintf("%s\n", strings.Join(f, "\n"))
+		l.Print(strings.Join(f, "\n") + "\n")
 	}
-	return output, nil
+
+	return nil
 }
 
 // Convert the generated YAML to --set flags
@@ -207,23 +184,17 @@ func yamlToFlags(yml string) ([]string, error) {
 	if err != nil {
 		return []string{}, err
 	}
-	var decoded interface{}
-	if uglyJSON[0] == '[' {
-		decoded = make([]interface{}, 0)
-	} else {
-		decoded = map[string]interface{}{}
-	}
+	var decoded map[string]interface{}
 	if err := json.Unmarshal(uglyJSON, &decoded); err != nil {
 		return []string{}, err
 	}
-	if d, ok := decoded.(map[string]interface{}); ok {
-		if v, ok := d["spec"]; ok {
-			// Fall back to showing the entire spec.
-			// (When --config-path is used there will be no spec to remove)
-			decoded = v
-		}
+	spec, ok := decoded["spec"]
+	if !ok {
+		// Fall back to showing the entire spec.
+		// (When --config-path is used there will be no spec to remove)
+		spec = decoded
 	}
-	setflags, err := walk("", "", decoded)
+	setflags, err := walk("", "", spec)
 	if err != nil {
 		return []string{}, err
 	}

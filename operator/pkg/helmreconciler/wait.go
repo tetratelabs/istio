@@ -21,19 +21,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	kctldeployment "k8s.io/kubectl/pkg/util/deployment"
 
 	"istio.io/istio/operator/pkg/name"
 	"istio.io/istio/operator/pkg/object"
 	"istio.io/istio/operator/pkg/util/progress"
-	"istio.io/istio/pkg/kube"
 )
 
 const (
@@ -53,13 +55,13 @@ type deployment struct {
 
 // WaitForResources polls to get the current status of all pods, PVCs, and Services
 // until all are ready or a timeout is reached
-func WaitForResources(objects object.K8sObjects, client kube.Client,
+func WaitForResources(objects object.K8sObjects, restConfig *rest.Config, cs kubernetes.Interface,
 	waitTimeout time.Duration, dryRun bool, l *progress.ManifestLog) error {
 	if dryRun || TestMode {
 		return nil
 	}
 
-	if err := waitForCRDs(objects, client); err != nil {
+	if err := waitForCRDs(objects, restConfig); err != nil {
 		return err
 	}
 
@@ -67,12 +69,12 @@ func WaitForResources(objects object.K8sObjects, client kube.Client,
 	var debugInfo map[string]string
 
 	// Check if we are ready immediately, to avoid the 2s delay below when we are already redy
-	if ready, _, _, err := waitForResources(objects, client, l); err == nil && ready {
+	if ready, _, _, err := waitForResources(objects, cs, l); err == nil && ready {
 		return nil
 	}
 
 	errPoll := wait.Poll(2*time.Second, waitTimeout, func() (bool, error) {
-		isReady, notReadyObjects, debugInfoObjects, err := waitForResources(objects, client, l)
+		isReady, notReadyObjects, debugInfoObjects, err := waitForResources(objects, cs, l)
 		notReady = notReadyObjects
 		debugInfo = debugInfoObjects
 		return isReady, err
@@ -89,7 +91,7 @@ func WaitForResources(objects object.K8sObjects, client kube.Client,
 	}
 	if errPoll != nil {
 		msg := fmt.Sprintf("resources not ready after %v: %v\n%s", waitTimeout, errPoll, strings.Join(messages, "\n"))
-		return fmt.Errorf(msg)
+		return errors.New(msg)
 	}
 	return nil
 }
@@ -129,6 +131,7 @@ func waitForResources(objects object.K8sObjects, cs kubernetes.Interface, l *pro
 			if err != nil {
 				return false, nil, nil, err
 			}
+
 			daemonsets = append(daemonsets, ds)
 		case name.StatefulSetStr:
 			sts, err := cs.AppsV1().StatefulSets(o.Namespace).Get(context.TODO(), o.Name, metav1.GetOptions{})
@@ -153,7 +156,7 @@ func waitForResources(objects object.K8sObjects, cs kubernetes.Interface, l *pro
 	return isReady, notReady, resourceDebugInfo, nil
 }
 
-func waitForCRDs(objects object.K8sObjects, client kube.Client) error {
+func waitForCRDs(objects object.K8sObjects, restConfig *rest.Config) error {
 	var crdNames []string
 	for _, o := range object.KindObjects(objects, name.CRDStr) {
 		crdNames = append(crdNames, o.Name)
@@ -161,11 +164,15 @@ func waitForCRDs(objects object.K8sObjects, client kube.Client) error {
 	if len(crdNames) == 0 {
 		return nil
 	}
+	cs, err := apiextensionsclient.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("k8s client error: %s", err)
+	}
 
 	errPoll := wait.Poll(cRDPollInterval, cRDPollTimeout, func() (bool, error) {
 	descriptor:
 		for _, crdName := range crdNames {
-			crd, errGet := client.Ext().ApiextensionsV1().CustomResourceDefinitions().Get(context.TODO(), crdName, metav1.GetOptions{})
+			crd, errGet := cs.ApiextensionsV1().CustomResourceDefinitions().Get(context.TODO(), crdName, metav1.GetOptions{})
 			if errGet != nil {
 				return false, errGet
 			}
@@ -290,38 +297,28 @@ func getCondition(conditions []corev1.PodCondition, condition corev1.PodConditio
 func daemonsetsReady(daemonsets []*appsv1.DaemonSet) (bool, []string) {
 	var notReady []string
 	for _, ds := range daemonsets {
-		// Check if the wanting generation is same as the observed generation
-		// Only when the observed generation is the same as the generation,
-		// other checks will make sense. If not the same, daemon set is not
-		// ready
-		if ds.Status.ObservedGeneration != ds.Generation {
-			scope.Infof("DaemonSet is not ready: %s/%s. Observed generation: %d expected generation: %d",
-				ds.Namespace, ds.Name, ds.Status.ObservedGeneration, ds.Generation)
+		// Make sure all the updated pods have been scheduled
+		if ds.Spec.UpdateStrategy.Type == appsv1.OnDeleteDaemonSetStrategyType &&
+			ds.Status.UpdatedNumberScheduled != ds.Status.DesiredNumberScheduled {
+			scope.Infof("DaemonSet is not ready: %s/%s. %d out of %d expected pods have been scheduled",
+				ds.Namespace, ds.Name, ds.Status.UpdatedNumberScheduled, ds.Status.DesiredNumberScheduled)
 			notReady = append(notReady, "DaemonSet/"+ds.Namespace+"/"+ds.Name)
-		} else {
-			// Make sure all the updated pods have been scheduled
-			if ds.Spec.UpdateStrategy.Type == appsv1.OnDeleteDaemonSetStrategyType &&
-				ds.Status.UpdatedNumberScheduled != ds.Status.DesiredNumberScheduled {
-				scope.Infof("DaemonSet is not ready: %s/%s. %d out of %d expected pods have been scheduled",
-					ds.Namespace, ds.Name, ds.Status.UpdatedNumberScheduled, ds.Status.DesiredNumberScheduled)
+		}
+		if ds.Spec.UpdateStrategy.Type == appsv1.RollingUpdateDaemonSetStrategyType {
+			if ds.Status.DesiredNumberScheduled <= 0 {
+				// If DesiredNumberScheduled less then or equal 0, there some cases:
+				// 1) daemenset is just created
+				// 2) daemonset desired no pod
+				// 3) somebody changed it manually
+				// All the case is not a ready signal
+				scope.Infof("DaemonSet is not ready: %s/%s. Initializing, no pods is running",
+					ds.Namespace, ds.Name)
 				notReady = append(notReady, "DaemonSet/"+ds.Namespace+"/"+ds.Name)
-			}
-			if ds.Spec.UpdateStrategy.Type == appsv1.RollingUpdateDaemonSetStrategyType {
-				if ds.Status.DesiredNumberScheduled <= 0 {
-					// If DesiredNumberScheduled less then or equal 0, there some cases:
-					// 1) daemenset is just created
-					// 2) daemonset desired no pod
-					// 3) somebody changed it manually
-					// All the case is not a ready signal
-					scope.Infof("DaemonSet is not ready: %s/%s. Initializing, no pods is running",
-						ds.Namespace, ds.Name)
-					notReady = append(notReady, "DaemonSet/"+ds.Namespace+"/"+ds.Name)
-				} else if ds.Status.NumberReady < ds.Status.DesiredNumberScheduled {
-					// Make sure every node has a ready pod
-					scope.Infof("DaemonSet is not ready: %s/%s. %d out of %d expected pods are ready",
-						ds.Namespace, ds.Name, ds.Status.NumberReady, ds.Status.UpdatedNumberScheduled)
-					notReady = append(notReady, "DaemonSet/"+ds.Namespace+"/"+ds.Name)
-				}
+			} else if ds.Status.NumberReady < ds.Status.DesiredNumberScheduled {
+				// Make sure every node has a ready pod
+				scope.Infof("DaemonSet is not ready: %s/%s. %d out of %d expected pods are ready",
+					ds.Namespace, ds.Name, ds.Status.NumberReady, ds.Status.UpdatedNumberScheduled)
+				notReady = append(notReady, "DaemonSet/"+ds.Namespace+"/"+ds.Name)
 			}
 		}
 	}

@@ -17,7 +17,6 @@ package client
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -340,26 +339,6 @@ func (r ParsedResponses) String() string {
 		out += fmt.Sprintf("Response[%d]:\n%s", i, resp.String())
 	}
 	return out
-}
-
-// ResponseBody returns the body of the response, in order
-func (r *ParsedResponse) ResponseBody() []string {
-	type kv struct {
-		k, v string
-	}
-	kvs := []kv{}
-	// RawResponse is in random order, so get the order back via sorting.
-	for k, v := range r.RawResponse {
-		kvs = append(kvs, kv{k, v})
-	}
-	sort.Slice(kvs, func(i, j int) bool {
-		return kvs[i].k < kvs[j].k
-	})
-	resp := []string{}
-	for _, v := range kvs {
-		resp = append(resp, v.v)
-	}
-	return resp
 }
 
 func ParseForwardedResponse(req *proto.ForwardEchoRequest, resp *proto.ForwardEchoResponse) ParsedResponses {

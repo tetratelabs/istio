@@ -21,9 +21,9 @@ import (
 	"time"
 
 	envoyAdmin "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
+	"github.com/golang/protobuf/jsonpb"
 
 	"istio.io/istio/pkg/test/util/retry"
-	"istio.io/istio/pkg/util/protomarshal"
 )
 
 const (
@@ -31,7 +31,7 @@ const (
 	defaultConfigTimeout = time.Second * 30
 
 	// DefaultDelay the default delay between successive retry attempts
-	defaultConfigDelay = time.Millisecond * 100
+	defaultConfigDelay = time.Second * 2
 )
 
 // ConfigFetchFunc retrieves the config dump from Envoy.
@@ -43,10 +43,10 @@ type ConfigFetchFunc func() (*envoyAdmin.ConfigDump, error)
 type ConfigAcceptFunc func(*envoyAdmin.ConfigDump) (bool, error)
 
 func WaitForConfig(fetch ConfigFetchFunc, accept ConfigAcceptFunc, options ...retry.Option) error {
-	options = append([]retry.Option{retry.BackoffDelay(defaultConfigDelay), retry.Timeout(defaultConfigTimeout)}, options...)
+	options = append([]retry.Option{retry.Delay(defaultConfigDelay), retry.Timeout(defaultConfigTimeout)}, options...)
 
 	var cfg *envoyAdmin.ConfigDump
-	_, err := retry.UntilComplete(func() (result interface{}, completed bool, err error) {
+	_, err := retry.Do(func() (result interface{}, completed bool, err error) {
 		cfg, err = fetch()
 		if err != nil {
 			if strings.Contains(err.Error(), "could not resolve Any message type") {
@@ -79,9 +79,11 @@ func WaitForConfig(fetch ConfigFetchFunc, accept ConfigAcceptFunc, options ...re
 	if err != nil {
 		configDumpStr := "nil"
 		if cfg != nil {
-			b, err := protomarshal.MarshalIndent(cfg, "  ")
-			if err == nil {
-				configDumpStr = string(b)
+			m := jsonpb.Marshaler{
+				Indent: "  ",
+			}
+			if out, err := m.MarshalToString(cfg); err == nil {
+				configDumpStr = out
 			}
 		}
 

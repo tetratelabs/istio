@@ -17,7 +17,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -44,7 +44,7 @@ The command also supports reading from a standalone config dump file with flag -
   istioctl x authz check httpbin-88ddbcfdd-nt5jb
 
   # Check AuthorizationPolicy applied to one pod under a deployment
-  istioctl x authz check deployment/productpage-v1
+  istioctl proxy-status deployment/productpage-v1
 
   # Check AuthorizationPolicy from Envoy config dump file:
   istioctl x authz check -f httpbin_config_dump.json`,
@@ -101,7 +101,7 @@ func getConfigDumpFromFile(filename string) (*configdump.Wrapper, error) {
 			log.Errorf("failed to close %s: %s", filename, err)
 		}
 	}()
-	data, err := io.ReadAll(file)
+	data, err := ioutil.ReadAll(file)
 	if err != nil {
 		return nil, err
 	}

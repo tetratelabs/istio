@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 //  Copyright Istio Authors
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,16 +16,12 @@
 package security
 
 import (
-	"fmt"
-	"strings"
 	"testing"
 
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/istio"
-	"istio.io/istio/pkg/test/framework/image"
 	"istio.io/istio/pkg/test/framework/resource"
 	"istio.io/istio/tests/integration/security/util"
-	"istio.io/pkg/log"
 )
 
 var (
@@ -49,12 +43,8 @@ func setupConfig(ctx resource.Context, cfg *istio.Config) {
 	if cfg == nil {
 		return
 	}
-	img, err := image.SettingsFromCommandLine()
-	if err != nil {
-		panic(err)
-	}
 
-	controlPlaneValues := `
+	cfg.ControlPlaneValues = `
 values:
   pilot: 
     env: 
@@ -63,18 +53,6 @@ meshConfig:
   accessLogEncoding: JSON
   accessLogFile: /dev/stdout
   defaultConfig:
-    image:
-      imageType: "%s"
     gatewayTopology:
       numTrustedProxies: 1`
-
-	imageType := "default"
-	if strings.HasSuffix(img.Tag, "-distroless") {
-		imageType = "distroless"
-	}
-
-	val := fmt.Sprintf(controlPlaneValues, imageType)
-	log.Infof("controlPlaneValues %v + %v ==> %v ", controlPlaneValues, imageType, val)
-
-	cfg.ControlPlaneValues = val
 }

@@ -17,9 +17,8 @@ package proto
 import (
 	"bytes"
 
-	"google.golang.org/protobuf/proto"
-
-	"istio.io/istio/pkg/util/protomarshal"
+	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/jsonpb"
 )
 
 // MessageSlice allows us to marshal slices of protobuf messages like clusters/listeners/routes/endpoints correctly
@@ -29,12 +28,11 @@ type MessageSlice []proto.Message
 func (pSlice MessageSlice) MarshalJSON() ([]byte, error) {
 	buffer := bytes.NewBufferString("[")
 	sliceLength := len(pSlice)
+	jsonm := &jsonpb.Marshaler{}
 	for index, msg := range pSlice {
-		b, err := protomarshal.Marshal(msg)
-		if err != nil {
+		if err := jsonm.Marshal(buffer, msg); err != nil {
 			return nil, err
 		}
-		buffer.Write(b)
 		if index < sliceLength-1 {
 			buffer.WriteString(",")
 		}

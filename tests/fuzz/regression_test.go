@@ -16,14 +16,12 @@ package fuzz
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
-	"regexp"
 	"testing"
 
 	"istio.io/istio/pilot/pkg/util/runtime"
-	"istio.io/istio/pilot/pkg/util/sets"
-	"istio.io/istio/pkg/test/env"
 )
 
 // baseCases contains a few trivial test cases to do a very brief sanity check of a test
@@ -39,7 +37,7 @@ var brokenCases = map[string]string{}
 
 func runRegressionTest(t *testing.T, name string, fuzz func(data []byte) int) {
 	dir := filepath.Join("testdata", name)
-	cases, err := os.ReadDir(dir)
+	cases, err := ioutil.ReadDir(dir)
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
@@ -47,7 +45,7 @@ func runRegressionTest(t *testing.T, name string, fuzz func(data []byte) int) {
 		defer func() {
 			if r := recover(); r != nil {
 				if _, broken := brokenCases[name]; broken {
-					t.Logf("expected broken case failed: %v", broken)
+					t.Log("expected broken case failed")
 				} else {
 					runtime.LogPanic(r)
 					t.Fatalf("panic encountered: %v", r)
@@ -68,7 +66,7 @@ func runRegressionTest(t *testing.T, name string, fuzz func(data []byte) int) {
 	}
 	for _, c := range cases {
 		t.Run(c.Name(), func(t *testing.T) {
-			by, err := os.ReadFile(filepath.Join(dir, c.Name()))
+			by, err := ioutil.ReadFile(filepath.Join(dir, c.Name()))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -77,110 +75,27 @@ func runRegressionTest(t *testing.T, name string, fuzz func(data []byte) int) {
 	}
 }
 
-func walkMatch(root string, pattern *regexp.Regexp) ([]string, error) {
-	var matches []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if filepath.Base(path) == "regression_test.go" {
-			return nil
-		}
-		if info.IsDir() {
-			return nil
-		}
-		bytes, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		matched := pattern.FindAllString(string(bytes), -1)
-		for _, m := range matched {
-			// Add the match, with trailing ( and previous `func ` stripped
-			matches = append(matches, m[5:len(m)-1])
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return matches, nil
-}
-
 func TestFuzzers(t *testing.T) {
-	testedFuzzers := sets.NewSet()
 	cases := []struct {
 		name   string
 		fuzzer func([]byte) int
 	}{
 		{"FuzzConfigValidation", FuzzConfigValidation},
 		{"FuzzParseInputs", FuzzParseInputs},
+		{"FuzzParseAndBuildSchema", FuzzParseAndBuildSchema},
 		{"FuzzParseMeshNetworks", FuzzParseMeshNetworks},
 		{"FuzzValidateMeshConfig", FuzzValidateMeshConfig},
 		{"FuzzInitContext", FuzzInitContext},
+		{"FuzzCompareDiff", FuzzCompareDiff},
 		{"FuzzXds", FuzzXds},
 		{"FuzzAnalyzer", FuzzAnalyzer},
 		{"FuzzCompareDiff", FuzzCompareDiff},
 		{"FuzzHelmReconciler", FuzzHelmReconciler},
 		{"FuzzIntoResourceFile", FuzzIntoResourceFile},
-		{"FuzzTranslateFromValueToSpec", FuzzTranslateFromValueToSpec},
-		{"FuzzConfigValidation2", FuzzConfigValidation2},
-		{"FuzzBNMUnmarshalJSON", FuzzBNMUnmarshalJSON},
-		{"FuzzValidateClusters", FuzzValidateClusters},
-		{"FuzzCheckIstioOperatorSpec", FuzzCheckIstioOperatorSpec},
-		{"FuzzV1Alpha1ValidateConfig", FuzzV1Alpha1ValidateConfig},
-		{"FuzzGetEnabledComponents", FuzzGetEnabledComponents},
-		{"FuzzUnmarshalAndValidateIOPS", FuzzUnmarshalAndValidateIOPS},
-		{"FuzzRenderManifests", FuzzRenderManifests},
-		{"FuzzOverlayIOP", FuzzOverlayIOP},
-		{"FuzzNewControlplane", FuzzNewControlplane},
-		{"FuzzResolveK8sConflict", FuzzResolveK8sConflict},
-		{"FuzzYAMLManifestPatch", FuzzYAMLManifestPatch},
-		{"FuzzGalleyDiag", FuzzGalleyDiag},
-		{"FuzzNewBootstrapServer", FuzzNewBootstrapServer},
-		{"FuzzGenCSR", FuzzGenCSR},
-		{"FuzzCreateCertE2EUsingClientCertAuthenticator", FuzzCreateCertE2EUsingClientCertAuthenticator},
-		{"FuzzConfigValidation3", FuzzConfigValidation3},
-		{"FuzzCidrRange", FuzzCidrRange},
-		{"FuzzHeaderMatcher", FuzzHeaderMatcher},
-		{"FuzzHostMatcherWithRegex", FuzzHostMatcherWithRegex},
-		{"FuzzHostMatcher", FuzzHostMatcher},
-		{"FuzzMetadataListMatcher", FuzzMetadataListMatcher},
-		{"FuzzGrpcGenGenerate", FuzzGrpcGenGenerate},
-		{"FuzzConvertIngressVirtualService", FuzzConvertIngressVirtualService},
-		{"FuzzConvertIngressVirtualService2", FuzzConvertIngressVirtualService2},
-		{"FuzzConvertIngressV1alpha3", FuzzConvertIngressV1alpha3},
-		{"FuzzConvertIngressV1alpha32", FuzzConvertIngressV1alpha32},
-		{"FuzzAggregateController", FuzzAggregateController},
-		{"FuzzKubeCRD", FuzzKubeCRD},
-		{"FuzzReconcileStatuses", FuzzReconcileStatuses},
-		{"FuzzWE", FuzzWE},
-		{"FuzzVerifyCertificate", FuzzVerifyCertificate},
-		{"FuzzExtractIDs", FuzzExtractIDs},
-		{"FuzzPemCertBytestoString", FuzzPemCertBytestoString},
-		{"FuzzParsePemEncodedCertificateChain", FuzzParsePemEncodedCertificateChain},
-		{"FuzzUpdateVerifiedKeyCertBundleFromFile", FuzzUpdateVerifiedKeyCertBundleFromFile},
-		{"FuzzJwtUtil", FuzzJwtUtil},
-		{"FuzzFindRootCertFromCertificateChainBytes", FuzzFindRootCertFromCertificateChainBytes},
-		{"FuzzCRDRoundtrip", FuzzCRDRoundtrip},
 	}
 	for _, tt := range cases {
-		if testedFuzzers.Contains(tt.name) {
-			t.Fatalf("dupliate fuzzer test %v", tt.name)
-		}
-		testedFuzzers.Insert(tt.name)
 		t.Run(tt.name, func(t *testing.T) {
 			runRegressionTest(t, tt.name, tt.fuzzer)
 		})
 	}
-	t.Run("completeness", func(t *testing.T) {
-		match := regexp.MustCompile(`func Fuzz.+\(`)
-		fuzzers, err := walkMatch(filepath.Join(env.IstioSrc, "tests/fuzz"), match)
-		if err != nil {
-			t.Fatal(err)
-		}
-		allFuzzers := sets.NewSet(fuzzers...)
-		if !allFuzzers.Equals(testedFuzzers) {
-			t.Fatalf("Not all fuzzers are tested! Missing %v", allFuzzers.Difference(testedFuzzers))
-		}
-	})
 }

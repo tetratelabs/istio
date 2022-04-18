@@ -62,6 +62,7 @@ var (
 	{{ .Collection.VariableName }} = collection.Builder {
 		Name: "{{ .Collection.Name }}",
 		VariableName: "{{ .Collection.VariableName }}",
+		Disabled: {{ .Collection.Disabled }},
 		Resource: resource.Builder {
 			Group: "{{ .Resource.Group }}",
 			Kind: "{{ .Resource.Kind }}",
@@ -104,16 +105,6 @@ var (
 	{{- end }}
 		Build()
 
-	// Builtin contains only native Kubernetes collections. This differs from Kube, which has
-  // Kubernetes controlled CRDs
-	Builtin = collection.NewSchemasBuilder().
-	{{- range .Entries }}
-		{{- if .Collection.Builtin }}
-		MustAdd({{ .Collection.VariableName }}).
-		{{- end }}
-	{{- end }}
-		Build()
-
 	// Pilot contains only collections used by Pilot.
 	Pilot = collection.NewSchemasBuilder().
 	{{- range .Entries }}
@@ -123,10 +114,10 @@ var (
 	{{- end }}
 		Build()
 
-	// PilotGatewayAPI contains only collections used by Pilot, including experimental Service Api.
-	PilotGatewayAPI = collection.NewSchemasBuilder().
+	// PilotServiceApi contains only collections used by Pilot, including experimental Service Api.
+	PilotServiceApi = collection.NewSchemasBuilder().
 	{{- range .Entries }}
-		{{- if or (.Collection.Pilot) (hasPrefix .Collection.Name "k8s/gateway_api") }}
+		{{- if or (.Collection.Pilot) (hasPrefix .Collection.Name "k8s/service_apis") }}
 		MustAdd({{ .Collection.VariableName }}).
 		{{- end}}
 	{{- end }}
@@ -153,9 +144,13 @@ type colEntry struct {
 func WriteGvk(packageName string, m *ast.Metadata) (string, error) {
 	entries := make([]colEntry, 0, len(m.Collections))
 	customNames := map[string]string{
-		"k8s/gateway_api/v1alpha2/gateways": "KubernetesGateway",
+		"k8s/service_apis/v1alpha1/gateways": "ServiceApisGateway",
 	}
 	for _, c := range m.Collections {
+		// Filter out pilot ones, as these are duplicated
+		if c.Pilot {
+			continue
+		}
 		r := m.FindResourceForGroupKind(c.Group, c.Kind)
 		if r == nil {
 			return "", fmt.Errorf("failed to find resource (%s/%s) for collection %s", c.Group, c.Kind, c.Name)

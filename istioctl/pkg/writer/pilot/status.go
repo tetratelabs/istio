@@ -27,7 +27,6 @@ import (
 
 	"istio.io/istio/istioctl/pkg/multixds"
 	"istio.io/istio/pilot/pkg/xds"
-	xdsresource "istio.io/istio/pilot/pkg/xds/v3"
 	"istio.io/pkg/log"
 )
 
@@ -89,7 +88,7 @@ func (s *StatusWriter) PrintSingle(statuses map[string][]byte, proxyName string)
 
 func (s *StatusWriter) setupStatusPrint(statuses map[string][]byte) (*tabwriter.Writer, []*writerStatus, error) {
 	w := new(tabwriter.Writer).Init(s.Writer, 0, 8, 5, ' ', 0)
-	_, _ = fmt.Fprintln(w, "NAME\tCLUSTER\tCDS\tLDS\tEDS\tRDS\tISTIOD\tVERSION")
+	_, _ = fmt.Fprintln(w, "NAME\tCDS\tLDS\tEDS\tRDS\tISTIOD\tVERSION")
 	fullStatus := make([]*writerStatus, 0, len(statuses))
 	for pilot, status := range statuses {
 		var ss []*writerStatus
@@ -103,9 +102,6 @@ func (s *StatusWriter) setupStatusPrint(statuses map[string][]byte) (*tabwriter.
 		fullStatus = append(fullStatus, ss...)
 	}
 	sort.Slice(fullStatus, func(i, j int) bool {
-		if fullStatus[i].ClusterID != fullStatus[j].ClusterID {
-			return fullStatus[i].ClusterID < fullStatus[j].ClusterID
-		}
 		return fullStatus[i].ProxyID < fullStatus[j].ProxyID
 	})
 	return w, fullStatus, nil
@@ -123,8 +119,8 @@ func statusPrintln(w io.Writer, status *writerStatus) error {
 		// but it is better than not providing any information.
 		version = status.ProxyVersion + "*"
 	}
-	_, _ = fmt.Fprintf(w, "%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\n",
-		status.ProxyID, status.ClusterID, clusterSynced, listenerSynced, endpointSynced, routeSynced, status.pilot, version)
+	_, _ = fmt.Fprintf(w, "%v\t%v\t%v\t%v\t%v\t%v\t%v\n",
+		status.ProxyID, clusterSynced, listenerSynced, endpointSynced, routeSynced, status.pilot, version)
 	return nil
 }
 
@@ -174,7 +170,9 @@ func (s *XdsStatusWriter) setupStatusPrint(drs map[string]*xdsapi.DiscoveryRespo
 				if err != nil {
 					return nil, nil, fmt.Errorf("could not unmarshal ClientConfig: %w", err)
 				}
-				cds, lds, eds, rds := getSyncStatus(&clientConfig)
+				// FIXME: https://github.com/istio/istio/issues/33980
+				// nolint: staticcheck
+				cds, lds, eds, rds := getSyncStatus(clientConfig.GetXdsConfig())
 				cp := multixds.CpInfo(dr)
 				fullStatus = append(fullStatus, &xdsWriterStatus{
 					proxyID:        clientConfig.GetNode().GetId(),
@@ -228,55 +226,22 @@ func xdsStatusPrintln(w io.Writer, status *xdsWriterStatus) error {
 	return err
 }
 
-func getSyncStatus(clientConfig *xdsstatus.ClientConfig) (cds, lds, eds, rds string) {
-	configs := handleAndGetXdsConfigs(clientConfig)
+func getSyncStatus(configs []*xdsstatus.PerXdsConfig) (cds, lds, eds, rds string) {
 	for _, config := range configs {
-		cfgType := config.GetTypeUrl()
-		switch cfgType {
-		case xdsresource.ListenerType:
-			lds = config.GetConfigStatus().String()
-		case xdsresource.ClusterType:
-			cds = config.GetConfigStatus().String()
-		case xdsresource.RouteType:
-			rds = config.GetConfigStatus().String()
-		case xdsresource.EndpointType:
-			eds = config.GetConfigStatus().String()
+		switch val := config.PerXdsConfig.(type) {
+		case *xdsstatus.PerXdsConfig_ListenerConfig:
+			lds = config.Status.String()
+		case *xdsstatus.PerXdsConfig_ClusterConfig:
+			cds = config.Status.String()
+		case *xdsstatus.PerXdsConfig_RouteConfig:
+			rds = config.Status.String()
+		case *xdsstatus.PerXdsConfig_EndpointConfig:
+			eds = config.Status.String()
+		case *xdsstatus.PerXdsConfig_ScopedRouteConfig:
+			// ignore; Istiod doesn't send these
 		default:
-			log.Infof("GenericXdsConfig unexpected type %s\n", xdsresource.GetShortType(cfgType))
+			log.Infof("PerXdsConfig unexpected type %T\n", val)
 		}
 	}
 	return
-}
-
-func handleAndGetXdsConfigs(clientConfig *xdsstatus.ClientConfig) []*xdsstatus.ClientConfig_GenericXdsConfig {
-	configs := make([]*xdsstatus.ClientConfig_GenericXdsConfig, 0)
-	if clientConfig.GetGenericXdsConfigs() != nil {
-		configs = clientConfig.GetGenericXdsConfigs()
-		return configs
-	}
-
-	// FIXME: currently removing the deprecated code below may result in functions not working
-	// if there is a mismatch of versions between istiod and istioctl
-	// nolint: staticcheck
-	for _, config := range clientConfig.GetXdsConfig() {
-		var typeURL string
-		switch config.PerXdsConfig.(type) {
-		case *xdsstatus.PerXdsConfig_ListenerConfig:
-			typeURL = xdsresource.ListenerType
-		case *xdsstatus.PerXdsConfig_ClusterConfig:
-			typeURL = xdsresource.ClusterType
-		case *xdsstatus.PerXdsConfig_RouteConfig:
-			typeURL = xdsresource.RouteType
-		case *xdsstatus.PerXdsConfig_EndpointConfig:
-			typeURL = xdsresource.EndpointType
-		}
-
-		if typeURL != "" {
-			configs = append(configs, &xdsstatus.ClientConfig_GenericXdsConfig{
-				TypeUrl:      typeURL,
-				ConfigStatus: config.Status,
-			})
-		}
-	}
-	return configs
 }

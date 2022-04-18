@@ -15,11 +15,11 @@
 package kube
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 
 	coreV1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	"istio.io/api/annotation"
 	"istio.io/istio/pilot/pkg/features"
@@ -38,10 +38,10 @@ const (
 	// responsible for it
 	IngressClassAnnotation = "kubernetes.io/ingress.class"
 
-	// NodeSelectorAnnotation is the value for this annotation is a set of key value pairs (node labels)
+	// TODO: move to API
+	// The value for this annotation is a set of key value pairs (node labels)
 	// that can be used to select a subset of nodes from the pool of k8s nodes
 	// It is used for multi-cluster scenario, and with nodePort type gateway service.
-	// TODO: move to API
 	NodeSelectorAnnotation = "traffic.istio.io/nodeSelector"
 )
 
@@ -54,19 +54,27 @@ func convertPort(port coreV1.ServicePort) *model.Port {
 }
 
 func ConvertService(svc coreV1.Service, domainSuffix string, clusterID cluster.ID) *model.Service {
-	addr := constants.UnspecifiedIP
+	addr, external := constants.UnspecifiedIP, ""
+	if svc.Spec.ClusterIP != "" && svc.Spec.ClusterIP != coreV1.ClusterIPNone {
+		addr = svc.Spec.ClusterIP
+	}
+
 	resolution := model.ClientSideLB
 	meshExternal := false
 
 	if svc.Spec.Type == coreV1.ServiceTypeExternalName && svc.Spec.ExternalName != "" {
+		external = svc.Spec.ExternalName
 		resolution = model.DNSLB
 		meshExternal = true
 	}
 
-	if svc.Spec.ClusterIP == coreV1.ClusterIPNone { // headless services should not be load balanced
+	if addr == constants.UnspecifiedIP && external == "" { // headless services should not be load balanced
 		resolution = model.Passthrough
-	} else if svc.Spec.ClusterIP != "" {
-		addr = svc.Spec.ClusterIP
+	}
+
+	var labelSelectors map[string]string
+	if svc.Spec.ClusterIP != coreV1.ClusterIPNone && svc.Spec.Type != coreV1.ServiceTypeExternalName {
+		labelSelectors = svc.Spec.Selector
 	}
 
 	ports := make([]*model.Port, 0, len(svc.Spec.Ports))
@@ -85,34 +93,29 @@ func ConvertService(svc coreV1.Service, domainSuffix string, clusterID cluster.I
 		}
 	}
 	if svc.Annotations[annotation.NetworkingExportTo.Name] != "" {
-		namespaces := strings.Split(svc.Annotations[annotation.NetworkingExportTo.Name], ",")
-		exportTo = make(map[visibility.Instance]bool, len(namespaces))
-		for _, ns := range namespaces {
-			exportTo[visibility.Instance(ns)] = true
+		exportTo = make(map[visibility.Instance]bool)
+		for _, e := range strings.Split(svc.Annotations[annotation.NetworkingExportTo.Name], ",") {
+			exportTo[visibility.Instance(e)] = true
 		}
 	}
-
+	sort.Strings(serviceaccounts)
 	istioService := &model.Service{
-		Hostname: ServiceHostname(svc.Name, svc.Namespace, domainSuffix),
-		ClusterVIPs: model.AddressMap{
-			Addresses: map[cluster.ID][]string{
-				clusterID: {addr},
-			},
-		},
+		Hostname:        ServiceHostname(svc.Name, svc.Namespace, domainSuffix),
 		Ports:           ports,
-		DefaultAddress:  addr,
+		Address:         addr,
 		ServiceAccounts: serviceaccounts,
 		MeshExternal:    meshExternal,
 		Resolution:      resolution,
 		CreationTime:    svc.CreationTimestamp.Time,
-		ResourceVersion: svc.ResourceVersion,
+		ClusterVIPs:     map[cluster.ID]string{clusterID: addr},
 		Attributes: model.ServiceAttributes{
 			ServiceRegistry: provider.Kubernetes,
 			Name:            svc.Name,
 			Namespace:       svc.Namespace,
 			Labels:          svc.Labels,
+			UID:             formatUID(svc.Namespace, svc.Name),
 			ExportTo:        exportTo,
-			LabelSelectors:  svc.Spec.Selector,
+			LabelSelectors:  labelSelectors,
 		},
 	}
 
@@ -145,18 +148,23 @@ func ConvertService(svc coreV1.Service, domainSuffix string, clusterID cluster.I
 				}
 			}
 			if len(lbAddrs) > 0 {
-				istioService.Attributes.ClusterExternalAddresses.SetAddressesFor(clusterID, lbAddrs)
+				istioService.Attributes.ClusterExternalAddresses = map[cluster.ID][]string{clusterID: lbAddrs}
 			}
 		}
 	}
 
-	istioService.Attributes.ClusterExternalAddresses.AddAddressesFor(clusterID, svc.Spec.ExternalIPs)
+	for _, extIP := range svc.Spec.ExternalIPs {
+		if istioService.Attributes.ClusterExternalAddresses == nil {
+			istioService.Attributes.ClusterExternalAddresses = map[cluster.ID][]string{}
+		}
+		istioService.Attributes.ClusterExternalAddresses[clusterID] = append(istioService.Attributes.ClusterExternalAddresses[clusterID], extIP)
+	}
 
 	return istioService
 }
 
 func ExternalNameServiceInstances(k8sSvc *coreV1.Service, svc *model.Service) []*model.ServiceInstance {
-	if k8sSvc == nil || k8sSvc.Spec.Type != coreV1.ServiceTypeExternalName || k8sSvc.Spec.ExternalName == "" {
+	if k8sSvc.Spec.Type != coreV1.ServiceTypeExternalName || k8sSvc.Spec.ExternalName == "" {
 		return nil
 	}
 	out := make([]*model.ServiceInstance, 0, len(svc.Ports))
@@ -183,22 +191,9 @@ func ExternalNameServiceInstances(k8sSvc *coreV1.Service, svc *model.Service) []
 	return out
 }
 
-// NamespacedNameForK8sObject is a helper that creates a NamespacedName for the given K8s Object.
-func NamespacedNameForK8sObject(obj metav1.Object) types.NamespacedName {
-	return types.NamespacedName{
-		Namespace: obj.GetNamespace(),
-		Name:      obj.GetName(),
-	}
-}
-
 // ServiceHostname produces FQDN for a k8s service
 func ServiceHostname(name, namespace, domainSuffix string) host.Name {
 	return host.Name(name + "." + namespace + "." + "svc" + "." + domainSuffix) // Format: "%s.%s.svc.%s"
-}
-
-// ServiceHostnameForKR calls ServiceHostname with the name and namespace of the given kubernetes resource.
-func ServiceHostnameForKR(obj metav1.Object, domainSuffix string) host.Name {
-	return ServiceHostname(obj.GetName(), obj.GetNamespace(), domainSuffix)
 }
 
 // kubeToIstioServiceAccount converts a K8s service account to an Istio service account
@@ -226,4 +221,18 @@ func KeyFunc(name, namespace string) string {
 		return name
 	}
 	return namespace + "/" + name
+}
+
+// SplitKey returns namespace and name
+func SplitKey(key string) (namespace string, name string, err error) {
+	parts := strings.Split(key, "/")
+	if len(parts) == 2 {
+		return parts[0], parts[1], nil
+	}
+
+	return "", "", fmt.Errorf("unexpected key format: %q", key)
+}
+
+func formatUID(namespace, name string) string {
+	return "istio://" + namespace + "/services/" + name // Format : "istio://%s/services/%s"
 }

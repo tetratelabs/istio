@@ -22,9 +22,9 @@ import (
 	"strings"
 
 	envoyAdmin "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
-	"google.golang.org/protobuf/proto"
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/proto"
 
-	"istio.io/istio/pkg/util/protomarshal"
 	"istio.io/pkg/log"
 )
 
@@ -128,5 +128,8 @@ func doHTTPPost(requestURL, contentType, body string) (*bytes.Buffer, error) {
 }
 
 func unmarshal(jsonString string, msg proto.Message) error {
-	return protomarshal.UnmarshalAllowUnknown([]byte(jsonString), msg)
+	u := jsonpb.Unmarshaler{
+		AllowUnknownFields: true,
+	}
+	return u.Unmarshal(strings.NewReader(jsonString), msg)
 }

@@ -25,11 +25,9 @@ import (
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoy_jwt "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/jwt_authn/v3"
 	http_conn "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
-	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/emptypb"
+	duration "github.com/golang/protobuf/ptypes/duration"
+	"github.com/golang/protobuf/ptypes/empty"
 
-	authn_alpha "istio.io/api/authentication/v1alpha1"
-	authn_filter "istio.io/api/envoy/config/filter/http/authn/v2alpha1"
 	"istio.io/api/security/v1beta1"
 	"istio.io/istio/pilot/pkg/extensionproviders"
 	"istio.io/istio/pilot/pkg/features"
@@ -41,12 +39,14 @@ import (
 	authn_utils "istio.io/istio/pilot/pkg/security/authn/utils"
 	authn_model "istio.io/istio/pilot/pkg/security/model"
 	"istio.io/istio/pkg/config"
+	authn_alpha "istio.io/istio/pkg/envoy/config/authentication/v1alpha1"
+	authn_filter "istio.io/istio/pkg/envoy/config/filter/http/authn/v2alpha1"
 	"istio.io/pkg/log"
 )
 
 var authnLog = log.RegisterScope("authn", "authn debugging", 0)
 
-// Implementation of authn.PolicyApplier with v1beta1 API.
+// Implemenation of authn.PolicyApplier with v1beta1 API.
 type v1beta1PolicyApplier struct {
 	jwtPolicies []*config.Config
 
@@ -121,7 +121,7 @@ func (a *v1beta1PolicyApplier) setAuthnFilterForRequestAuthn(config *authn_filte
 // AuthNFilter returns the Istio authn filter config:
 // - If RequestAuthentication is used, it overwrite the settings for request principal validation and extraction based on the new API.
 // - If RequestAuthentication is used, principal binding is always set to ORIGIN.
-func (a *v1beta1PolicyApplier) AuthNFilter(forSidecar bool) *http_conn.HttpFilter {
+func (a *v1beta1PolicyApplier) AuthNFilter() *http_conn.HttpFilter {
 	var filterConfigProto *authn_filter.FilterConfig
 
 	// Override the config with request authentication, if applicable.
@@ -130,8 +130,6 @@ func (a *v1beta1PolicyApplier) AuthNFilter(forSidecar bool) *http_conn.HttpFilte
 	if filterConfigProto == nil {
 		return nil
 	}
-	// disable clear route cache for sidecars because the JWT claim based routing is only supported on gateways.
-	filterConfigProto.DisableClearRouteCache = forSidecar
 
 	// Note: in previous Istio versions, the authn filter also handled PeerAuthentication, to extract principal.
 	// This has been modified to rely on the TCP filter
@@ -168,7 +166,7 @@ func NewPolicyApplier(rootNamespace string,
 	}
 
 	// Sort the jwt rules by the issuer alphabetically to make the later-on generated filter
-	// config deterministic.
+	// config deteministic.
 	sort.Slice(processedJwtRules, func(i, j int) bool {
 		return strings.Compare(
 			processedJwtRules[i].GetIssuer(), processedJwtRules[j].GetIssuer()) < 0
@@ -178,7 +176,7 @@ func NewPolicyApplier(rootNamespace string,
 		jwtPolicies:            jwtPolicies,
 		peerPolices:            peerPolicies,
 		processedJwtRules:      processedJwtRules,
-		consolidatedPeerPolicy: ComposePeerAuthentication(rootNamespace, peerPolicies),
+		consolidatedPeerPolicy: composePeerAuthentication(rootNamespace, peerPolicies),
 		push:                   push,
 	}
 }
@@ -247,9 +245,9 @@ func convertToEnvoyJwtConfig(jwtRules []*v1beta1.JWTRule, push *model.PushContex
 							HttpUpstreamType: &core.HttpUri_Cluster{
 								Cluster: cluster,
 							},
-							Timeout: &durationpb.Duration{Seconds: 5},
+							Timeout: &duration.Duration{Seconds: 5}, // TODO: Make this configurable.
 						},
-						CacheDuration: &durationpb.Duration{Seconds: 5 * 60},
+						CacheDuration: &duration.Duration{Seconds: 5 * 60}, // TODO: Make this configurable if needed.
 					},
 				}
 			} else {
@@ -273,7 +271,7 @@ func convertToEnvoyJwtConfig(jwtRules []*v1beta1.JWTRule, push *model.PushContex
 						},
 						{
 							RequiresType: &envoy_jwt.JwtRequirement_AllowMissing{
-								AllowMissing: &emptypb.Empty{},
+								AllowMissing: &empty.Empty{},
 							},
 						},
 					},
@@ -309,7 +307,7 @@ func convertToEnvoyJwtConfig(jwtRules []*v1beta1.JWTRule, push *model.PushContex
 	// If there are more than one provider, filter should OR of
 	// {P1, P2 .., AND of {OR{P1, allow_missing}, OR{P2, allow_missing} ...}}
 	// where the innerAnd enforce a token, if provided, must be valid, and the
-	// outer OR aids the case where providers share the same location (as
+	// outter OR aids the case where providers share the same location (as
 	// it will always fail with the innerAND).
 	outterOrList = append(outterOrList, &envoy_jwt.JwtRequirement{
 		RequiresType: &envoy_jwt.JwtRequirement_RequiresAll{
@@ -362,20 +360,21 @@ func getMutualTLSMode(mtls *v1beta1.PeerAuthentication_MutualTLS) model.MutualTL
 	return model.ConvertToMutualTLSMode(mtls.Mode)
 }
 
-// ComposePeerAuthentication returns the effective PeerAuthentication given the list of applicable
+// composePeerAuthentication returns the effective PeerAuthentication given the list of applicable
 // configs. This list should contains at most 1 mesh-level and 1 namespace-level configs.
 // Workload-level configs should not be in root namespace (this should be guaranteed by the caller,
 // though they will be safely ignored in this function). If the input config list is empty, returns
 // a default policy set to a PERMISSIVE.
-// If there is at least one applicable config, returns should not be nil, and is a combined policy
+// If there is at least one applicable config, returns should be not nil, and is a combined policy
 // based on following rules:
-// - It should have the setting from the most narrow scope (i.e workload-level is preferred over
+// - It should have the setting from the most narrow scope (i.e workload-level is  preferred over
 // namespace-level, which is preferred over mesh-level).
-// - When there are more than one policy in the same scope (i.e workload-level), the oldest one win.
-// - UNSET will be replaced with the setting from the parent. I.e UNSET port-level config will be
+// - When there are more than one policy in the same scope (i.e workload-level), the oldest one
+// win.
+// - UNSET will be replaced with the setting from the parrent. I.e UNSET port-level config will be
 // replaced with config from workload-level, UNSET in workload-level config will be replaced with
 // one in namespace-level and so on.
-func ComposePeerAuthentication(rootNamespace string, configs []*config.Config) *v1beta1.PeerAuthentication {
+func composePeerAuthentication(rootNamespace string, configs []*config.Config) *v1beta1.PeerAuthentication {
 	var meshCfg, namespaceCfg, workloadCfg *config.Config
 
 	// Initial outputPolicy is set to a PERMISSIVE.
@@ -401,7 +400,7 @@ func ComposePeerAuthentication(rootNamespace string, configs []*config.Config) *
 				}
 			}
 		} else if cfg.Namespace != rootNamespace {
-			// Workload-level policy, aka the one with selector and not in root namespace.
+			// Workload level policy, aka the one with selector and not in root namespace.
 			if workloadCfg == nil || cfg.CreationTimestamp.Before(workloadCfg.CreationTimestamp) {
 				authnLog.Debugf("Switch selected workload policy to %s.%s (%v)", cfg.Name, cfg.Namespace, cfg.CreationTimestamp)
 				workloadCfg = cfg
@@ -412,7 +411,7 @@ func ComposePeerAuthentication(rootNamespace string, configs []*config.Config) *
 	// Process in mesh, namespace, workload order to resolve inheritance (UNSET)
 
 	if meshCfg != nil && !isMtlsModeUnset(meshCfg.Spec.(*v1beta1.PeerAuthentication).Mtls) {
-		// If mesh policy is defined, update parent policy to mesh policy.
+		// If mesh policy is defined, update parentPolicy to mesh policy.
 		outputPolicy.Mtls = meshCfg.Spec.(*v1beta1.PeerAuthentication).Mtls
 	}
 

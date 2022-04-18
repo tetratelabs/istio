@@ -20,15 +20,14 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"math"
+	"io/ioutil"
 	"net"
-	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
+	"github.com/cenkalti/backoff"
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
@@ -37,35 +36,24 @@ import (
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/conversion"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/any"
+	pstruct "github.com/golang/protobuf/ptypes/struct"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/protobuf/proto"
-	any "google.golang.org/protobuf/types/known/anypb"
-	pstruct "google.golang.org/protobuf/types/known/structpb"
 
 	mcp "istio.io/api/mcp/v1alpha1"
 	"istio.io/api/mesh/v1alpha1"
-	mem "istio.io/istio/pilot/pkg/config/memory"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/serviceregistry/memory"
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
 	"istio.io/istio/pkg/config"
-	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/schema/collections"
 	"istio.io/istio/pkg/security"
-	"istio.io/istio/pkg/util/gogoprotomarshal"
-	"istio.io/istio/pkg/util/protomarshal"
 	"istio.io/pkg/log"
-)
-
-const (
-	defaultClientMaxReceiveMessageSize = math.MaxInt32
-	defaultInitialConnWindowSize       = 1024 * 1024 // default gRPC InitialWindowSize
-	defaultInitialWindowSize           = 1024 * 1024 // default gRPC ConnWindowSize
 )
 
 // Config for the ADS connection.
@@ -75,9 +63,6 @@ type Config struct {
 
 	// Workload defaults to 'test'
 	Workload string
-
-	// Revision for this control plane instance. We will only read configs that match this revision.
-	Revision string
 
 	// Meta includes additional metadata for the node
 	Meta *pstruct.Struct
@@ -129,15 +114,6 @@ type Config struct {
 	ResponseHandler ResponseHandler
 
 	GrpcOpts []grpc.DialOption
-}
-
-func DefaultGrpcDialOptions() []grpc.DialOption {
-	return []grpc.DialOption{
-		// TODO(SpecialYang) maybe need to make it configurable.
-		grpc.WithInitialWindowSize(int32(defaultInitialWindowSize)),
-		grpc.WithInitialConnWindowSize(int32(defaultInitialConnWindowSize)),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(defaultClientMaxReceiveMessageSize)),
-	}
 }
 
 // ADSC implements a basic client for ADS, for use in stress tests and tools
@@ -219,6 +195,7 @@ type ADSC struct {
 	sendNodeMeta bool
 
 	sync     map[string]time.Time
+	syncCh   chan string
 	Locality *core.Locality
 }
 
@@ -233,7 +210,7 @@ type jsonMarshalProtoWithName struct {
 }
 
 func (p jsonMarshalProtoWithName) MarshalJSON() ([]byte, error) {
-	strSer, serr := protomarshal.ToJSONWithIndent(p.Message, "  ")
+	strSer, serr := ConvertGolangProtoToJSONByGolangJSONPB(p.Message)
 	if serr != nil {
 		adscLog.Warnf("Error for marshaling [%s]: %v", p.Name, serr)
 		return []byte(""), serr
@@ -243,6 +220,17 @@ func (p jsonMarshalProtoWithName) MarshalJSON() ([]byte, error) {
 }
 
 var adscLog = log.RegisterScope("adsc", "adsc debugging", 0)
+
+// ConvertGolangProtoToJSONByGolangJSONPB help to implement the conversion from Proto message to string
+// Note: this conversion is just for golang protobuf by golang jsonpb
+func ConvertGolangProtoToJSONByGolangJSONPB(obj proto.Message) (string, error) {
+	jsonm := &jsonpb.Marshaler{Indent: "  "}
+	strResponse, err := jsonm.MarshalToString(obj)
+	if err != nil {
+		return "", err
+	}
+	return strResponse, nil
+}
 
 func NewWithBackoffPolicy(discoveryAddr string, opts *Config, backoffPolicy backoff.BackOff) (*ADSC, error) {
 	adsc, err := New(discoveryAddr, opts)
@@ -276,6 +264,7 @@ func New(discoveryAddr string, opts *Config) (*ADSC, error) {
 		Received:    map[string]*discovery.DiscoveryResponse{},
 		RecvWg:      sync.WaitGroup{},
 		cfg:         opts,
+		syncCh:      make(chan string, len(collections.Pilot.All())),
 		sync:        map[string]time.Time{},
 		errChan:     make(chan error, 10),
 	}
@@ -295,8 +284,8 @@ func New(discoveryAddr string, opts *Config) (*ADSC, error) {
 	adsc.Metadata = opts.Meta
 	adsc.Locality = opts.Locality
 
-	adsc.nodeID = fmt.Sprintf("%s~%s~%s.%s~%s.svc.%s", opts.NodeType, opts.IP,
-		opts.Workload, opts.Namespace, opts.Namespace, constants.DefaultKubernetesDomain)
+	adsc.nodeID = fmt.Sprintf("%s~%s~%s.%s~%s.svc.cluster.local", opts.NodeType, opts.IP,
+		opts.Workload, opts.Namespace, opts.Namespace)
 
 	if err := adsc.Dial(); err != nil {
 		return nil, err
@@ -309,12 +298,8 @@ func New(discoveryAddr string, opts *Config) (*ADSC, error) {
 func (a *ADSC) Dial() error {
 	opts := a.cfg
 
-	defaultGrpcDialOptions := DefaultGrpcDialOptions()
-	var grpcDialOptions []grpc.DialOption
-	grpcDialOptions = append(grpcDialOptions, defaultGrpcDialOptions...)
-	grpcDialOptions = append(grpcDialOptions, opts.GrpcOpts...)
-
 	var err error
+	grpcDialOptions := opts.GrpcOpts
 	// If we need MTLS - CertDir or Secrets provider is set.
 	if len(opts.CertDir) > 0 || opts.SecretManager != nil {
 		tlsCfg, err := a.tlsConfig()
@@ -325,9 +310,9 @@ func (a *ADSC) Dial() error {
 		grpcDialOptions = append(grpcDialOptions, grpc.WithTransportCredentials(creds))
 	}
 
-	if len(grpcDialOptions) == len(defaultGrpcDialOptions) {
+	if len(grpcDialOptions) == 0 {
 		// Only disable transport security if the user didn't supply custom dial options
-		grpcDialOptions = append(grpcDialOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		grpcDialOptions = append(grpcDialOptions, grpc.WithInsecure())
 	}
 
 	a.conn, err = grpc.Dial(a.url, grpcDialOptions...)
@@ -368,7 +353,7 @@ func (a *ADSC) tlsConfig() (*tls.Config, error) {
 	if a.cfg.RootCert != nil {
 		serverCABytes = a.cfg.RootCert
 	} else if a.cfg.XDSRootCAFile != "" {
-		serverCABytes, err = os.ReadFile(a.cfg.XDSRootCAFile)
+		serverCABytes, err = ioutil.ReadFile(a.cfg.XDSRootCAFile)
 	} else if a.cfg.SecretManager != nil {
 		// This is a bit crazy - we could just use the file
 		rootCA, err := a.cfg.SecretManager.GenerateSecret(security.RootCertReqResourceName)
@@ -378,7 +363,7 @@ func (a *ADSC) tlsConfig() (*tls.Config, error) {
 
 		serverCABytes = rootCA.RootCert
 	} else if a.cfg.CertDir != "" {
-		serverCABytes, err = os.ReadFile(a.cfg.CertDir + "/root-cert.pem")
+		serverCABytes, err = ioutil.ReadFile(a.cfg.CertDir + "/root-cert.pem")
 		if err != nil {
 			return nil, err
 		}
@@ -439,25 +424,17 @@ func (a *ADSC) Run() error {
 	return nil
 }
 
-// HasSynced returns true if MCP configs have synced
-func (a *ADSC) HasSynced() bool {
-	if a.cfg == nil || len(a.cfg.InitialDiscoveryRequests) == 0 {
-		return true
-	}
-
-	a.mutex.RLock()
-	defer a.mutex.RUnlock()
-
-	for _, req := range a.cfg.InitialDiscoveryRequests {
-		if strings.Count(req.TypeUrl, "/") != 3 {
-			continue
-		}
-
-		if _, ok := a.sync[req.TypeUrl]; !ok {
+// HasSyncedConfig returns true if MCP configs have synced
+func (a *ADSC) hasSynced() bool {
+	for _, s := range collections.Pilot.All() {
+		a.mutex.RLock()
+		t := a.sync[s.Resource().GroupVersionKind().String()]
+		a.mutex.RUnlock()
+		if t.IsZero() {
+			log.Warnf("Not synced: %v", s.Resource().GroupVersionKind().String())
 			return false
 		}
 	}
-
 	return true
 }
 
@@ -485,10 +462,7 @@ func (a *ADSC) handleRecv() {
 		if err != nil {
 			a.RecvWg.Done()
 			adscLog.Infof("Connection closed for node %v with err: %v", a.nodeID, err)
-			select {
-			case a.errChan <- err:
-			default:
-			}
+			a.errChan <- err
 			// if 'reconnect' enabled - schedule a new Run
 			if a.cfg.BackoffPolicy != nil {
 				time.AfterFunc(a.cfg.BackoffPolicy.NextBackOff(), a.reconnect)
@@ -515,17 +489,17 @@ func (a *ADSC) handleRecv() {
 			len(msg.Resources) > 0 {
 			rsc := msg.Resources[0]
 			m := &v1alpha1.MeshConfig{}
-			err = gogoproto.Unmarshal(rsc.Value, m)
+			err = proto.Unmarshal(rsc.Value, m)
 			if err != nil {
 				adscLog.Warn("Failed to unmarshal mesh config", err)
 			}
 			a.Mesh = m
 			if a.LocalCacheDir != "" {
-				strResponse, err := gogoprotomarshal.ToJSONWithIndent(m, "  ")
+				strResponse, err := ConvertGolangProtoToJSONByGolangJSONPB(m)
 				if err != nil {
 					continue
 				}
-				err = os.WriteFile(a.LocalCacheDir+"_mesh.json", []byte(strResponse), 0o644)
+				err = ioutil.WriteFile(a.LocalCacheDir+"_mesh.json", []byte(strResponse), 0o644)
 				if err != nil {
 					continue
 				}
@@ -534,10 +508,13 @@ func (a *ADSC) handleRecv() {
 		}
 
 		// Process the resources.
+		listeners := []*listener.Listener{}
+		clusters := []*cluster.Cluster{}
+		routes := []*route.RouteConfiguration{}
+		eds := []*endpoint.ClusterLoadAssignment{}
 		a.VersionInfo[msg.TypeUrl] = msg.VersionInfo
 		switch msg.TypeUrl {
 		case v3.ListenerType:
-			listeners := make([]*listener.Listener, 0, len(msg.Resources))
 			for _, rsc := range msg.Resources {
 				valBytes := rsc.Value
 				ll := &listener.Listener{}
@@ -546,7 +523,6 @@ func (a *ADSC) handleRecv() {
 			}
 			a.handleLDS(listeners)
 		case v3.ClusterType:
-			clusters := make([]*cluster.Cluster, 0, len(msg.Resources))
 			for _, rsc := range msg.Resources {
 				valBytes := rsc.Value
 				cl := &cluster.Cluster{}
@@ -555,7 +531,6 @@ func (a *ADSC) handleRecv() {
 			}
 			a.handleCDS(clusters)
 		case v3.EndpointType:
-			eds := make([]*endpoint.ClusterLoadAssignment, 0, len(msg.Resources))
 			for _, rsc := range msg.Resources {
 				valBytes := rsc.Value
 				el := &endpoint.ClusterLoadAssignment{}
@@ -564,7 +539,6 @@ func (a *ADSC) handleRecv() {
 			}
 			a.handleEDS(eds)
 		case v3.RouteType:
-			routes := make([]*route.RouteConfiguration, 0, len(msg.Resources))
 			for _, rsc := range msg.Resources {
 				valBytes := rsc.Value
 				rl := &route.RouteConfiguration{}
@@ -586,6 +560,7 @@ func (a *ADSC) handleRecv() {
 			gt := config.GroupVersionKind{Group: gvk[0], Version: gvk[1], Kind: gvk[2]}
 			if _, exist := a.sync[gt.String()]; !exist {
 				a.sync[gt.String()] = time.Now()
+				a.syncCh <- gt.String()
 			}
 		}
 		a.Received[msg.TypeUrl] = msg
@@ -599,7 +574,7 @@ func (a *ADSC) handleRecv() {
 	}
 }
 
-func (a *ADSC) mcpToPilot(m *mcp.Resource) (*config.Config, error) {
+func mcpToPilot(m *mcp.Resource) (*config.Config, error) {
 	if m == nil || m.Metadata == nil {
 		return &config.Config{}, nil
 	}
@@ -609,14 +584,6 @@ func (a *ADSC) mcpToPilot(m *mcp.Resource) (*config.Config, error) {
 			Labels:          m.Metadata.Labels,
 			Annotations:     m.Metadata.Annotations,
 		},
-	}
-
-	if !config.ObjectInRevision(c, a.cfg.Revision) { // In case upstream does not support rev in node meta.
-		return nil, nil
-	}
-
-	if c.Meta.Annotations == nil {
-		c.Meta.Annotations = make(map[string]string)
 	}
 	nsn := strings.Split(m.Metadata.Name, "/")
 	if len(nsn) != 2 {
@@ -659,14 +626,11 @@ func (a *ADSC) handleLDS(ll []*listener.Listener) {
 			// TODO: extract VIP and RDS or cluster
 			continue
 		}
-		fc := l.FilterChains[len(l.FilterChains)-1]
-		// Find the terminal filter
-		filter := fc.Filters[len(fc.Filters)-1]
+		filter := l.FilterChains[len(l.FilterChains)-1].Filters[0]
 
 		// The actual destination will be the next to the last if the last filter is a passthrough filter
-		if fc.GetName() == util.PassthroughFilterChain {
-			fc = l.FilterChains[len(l.FilterChains)-2]
-			filter = fc.Filters[len(fc.Filters)-1]
+		if l.FilterChains[len(l.FilterChains)-1].GetName() == util.PassthroughFilterChain {
+			filter = l.FilterChains[len(l.FilterChains)-2].Filters[0]
 		}
 
 		switch filter.Name {
@@ -692,7 +656,7 @@ func (a *ADSC) handleLDS(ll []*listener.Listener) {
 		case wellknown.MySQLProxy:
 			// ignore for now
 		default:
-			adscLog.Infof(protomarshal.ToJSONWithIndent(l, "  "))
+			adscLog.Infof(ConvertGolangProtoToJSONByGolangJSONPB(l))
 		}
 	}
 
@@ -735,7 +699,7 @@ func (a *ADSC) Save(base string) error {
 	if err != nil {
 		adscLog.Warnf("Error for marshaling TCPListeners: %v", err)
 	}
-	err = os.WriteFile(base+"_lds_tcp.json", byteJSONResponse, 0o644)
+	err = ioutil.WriteFile(base+"_lds_tcp.json", byteJSONResponse, 0o644)
 	if err != nil {
 		return err
 	}
@@ -755,7 +719,7 @@ func (a *ADSC) Save(base string) error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(base+"_lds_http.json", byteJSONResponse, 0o644)
+	err = ioutil.WriteFile(base+"_lds_http.json", byteJSONResponse, 0o644)
 	if err != nil {
 		return err
 	}
@@ -775,7 +739,7 @@ func (a *ADSC) Save(base string) error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(base+"_rds.json", byteJSONResponse, 0o644)
+	err = ioutil.WriteFile(base+"_rds.json", byteJSONResponse, 0o644)
 	if err != nil {
 		return err
 	}
@@ -795,7 +759,7 @@ func (a *ADSC) Save(base string) error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(base+"_ecds.json", byteJSONResponse, 0o644)
+	err = ioutil.WriteFile(base+"_ecds.json", byteJSONResponse, 0o644)
 	if err != nil {
 		return err
 	}
@@ -815,7 +779,7 @@ func (a *ADSC) Save(base string) error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(base+"_cds.json", byteJSONResponse, 0o644)
+	err = ioutil.WriteFile(base+"_cds.json", byteJSONResponse, 0o644)
 	if err != nil {
 		return err
 	}
@@ -835,7 +799,7 @@ func (a *ADSC) Save(base string) error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(base+"_eds.json", byteJSONResponse, 0o644)
+	err = ioutil.WriteFile(base+"_eds.json", byteJSONResponse, 0o644)
 	if err != nil {
 		return err
 	}
@@ -868,7 +832,7 @@ func (a *ADSC) handleCDS(ll []*cluster.Cluster) {
 	}
 	if adscLog.DebugEnabled() {
 		b, _ := json.MarshalIndent(ll, " ", " ")
-		adscLog.Debugf(string(b))
+		adscLog.Info(string(b))
 	}
 
 	a.mutex.Lock()
@@ -910,7 +874,7 @@ func (a *ADSC) Send(req *discovery.DiscoveryRequest) error {
 	}
 	req.ResponseNonce = time.Now().String()
 	if adscLog.DebugEnabled() {
-		strReq, _ := protomarshal.ToJSONWithIndent(req, "  ")
+		strReq, _ := ConvertGolangProtoToJSONByGolangJSONPB(req)
 		adscLog.Debugf("Sending Discovery Request to istiod: %s", strReq)
 	}
 	return a.stream.Send(req)
@@ -929,7 +893,7 @@ func (a *ADSC) handleEDS(eds []*endpoint.ClusterLoadAssignment) {
 	adscLog.Infof("eds: %d size=%d ep=%d", len(eds), edsSize, ep)
 	if adscLog.DebugEnabled() {
 		b, _ := json.MarshalIndent(eds, " ", " ")
-		adscLog.Debugf(string(b))
+		adscLog.Info(string(b))
 	}
 	if a.InitialLoad == 0 {
 		// first load - Envoy loads listeners after endpoints
@@ -977,7 +941,7 @@ func (a *ADSC) handleRDS(configurations []*route.RouteConfiguration) {
 
 	if adscLog.DebugEnabled() {
 		b, _ := json.MarshalIndent(configurations, " ", " ")
-		adscLog.Debugf(string(b))
+		adscLog.Info(string(b))
 	}
 
 	a.mutex.Lock()
@@ -1148,6 +1112,26 @@ func (a *ADSC) WatchConfig() {
 	}
 }
 
+// WaitConfigSync will wait for the memory controller to sync.
+func (a *ADSC) WaitConfigSync(max time.Duration) bool {
+	// TODO: when adding support for multiple config controllers (matching MCP), make sure the
+	// new stores support reporting sync events on the syncCh, to avoid the sleep loop from MCP.
+	if a.hasSynced() {
+		return true
+	}
+	maxCh := time.After(max)
+	for {
+		select {
+		case <-a.syncCh:
+			if a.hasSynced() {
+				return true
+			}
+		case <-maxCh:
+			return a.hasSynced()
+		}
+	}
+}
+
 func (a *ADSC) sendRsc(typeurl string, rsc []string) {
 	ex := a.Received[typeurl]
 	version := ""
@@ -1256,41 +1240,36 @@ func (a *ADSC) handleMCP(gvk []string, resources []*any.Any) {
 			adscLog.Warnf("Error unmarshalling received MCP config %v", err)
 			continue
 		}
-		newCfg, err := a.mcpToPilot(m)
+		val, err := mcpToPilot(m)
 		if err != nil {
 			adscLog.Warn("Invalid data ", err, " ", string(rsc.Value))
 			continue
 		}
-		if newCfg == nil {
-			continue
-		}
-		received[newCfg.Namespace+"/"+newCfg.Name] = newCfg
+		received[val.Namespace+"/"+val.Name] = val
 
-		newCfg.GroupVersionKind = groupVersionKind
-		oldCfg := a.Store.Get(newCfg.GroupVersionKind, newCfg.Name, newCfg.Namespace)
-
-		if oldCfg == nil {
-			if _, err = a.Store.Create(*newCfg); err != nil {
+		val.GroupVersionKind = groupVersionKind
+		cfg := a.Store.Get(val.GroupVersionKind, val.Name, val.Namespace)
+		if cfg == nil {
+			_, err = a.Store.Create(*val)
+			if err != nil {
 				adscLog.Warnf("Error adding a new resource to the store %v", err)
 				continue
 			}
-		} else if oldCfg.ResourceVersion != newCfg.ResourceVersion || newCfg.ResourceVersion == "" {
-			// update the store only when resource version differs or unset.
-			newCfg.Annotations[mem.ResourceVersion] = newCfg.ResourceVersion
-			newCfg.ResourceVersion = oldCfg.ResourceVersion
-			if _, err = a.Store.Update(*newCfg); err != nil {
+		} else {
+			_, err = a.Store.Update(*val)
+			if err != nil {
 				adscLog.Warnf("Error updating an existing resource in the store %v", err)
 				continue
 			}
 		}
 		if a.LocalCacheDir != "" {
-			strResponse, err := json.MarshalIndent(newCfg, "  ", "  ")
+			strResponse, err := json.MarshalIndent(val, "  ", "  ")
 			if err != nil {
 				adscLog.Warnf("Error marshaling received MCP config %v", err)
 				continue
 			}
-			err = os.WriteFile(a.LocalCacheDir+"_res."+
-				newCfg.GroupVersionKind.Kind+"."+newCfg.Namespace+"."+newCfg.Name+".json", strResponse, 0o644)
+			err = ioutil.WriteFile(a.LocalCacheDir+"_res."+
+				val.GroupVersionKind.Kind+"."+val.Namespace+"."+val.Name+".json", strResponse, 0o644)
 			if err != nil {
 				adscLog.Warnf("Error writing received MCP config to local file %v", err)
 			}
@@ -1300,16 +1279,9 @@ func (a *ADSC) handleMCP(gvk []string, resources []*any.Any) {
 	// remove deleted resources from cache
 	for _, config := range existingConfigs {
 		if _, ok := received[config.Namespace+"/"+config.Name]; !ok {
-			if err := a.Store.Delete(config.GroupVersionKind, config.Name, config.Namespace, nil); err != nil {
+			err := a.Store.Delete(config.GroupVersionKind, config.Name, config.Namespace, nil)
+			if err != nil {
 				adscLog.Warnf("Error deleting an outdated resource from the store %v", err)
-				continue
-			}
-			if a.LocalCacheDir != "" {
-				err = os.Remove(a.LocalCacheDir + "_res." +
-					config.GroupVersionKind.Kind + "." + config.Namespace + "." + config.Name + ".json")
-				if err != nil {
-					adscLog.Warnf("Error deleting received MCP config to local file %v", err)
-				}
 			}
 		}
 	}

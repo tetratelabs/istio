@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -104,7 +102,7 @@ func Run(testCases []TestCase, t framework.TestContext, apps *util.EchoDeploymen
 			retry.UntilSuccessOrFail(t, func() error {
 				t.Logf("[%s] [%v] Apply config %s", testName, time.Now(), c.ConfigFile)
 				// TODO(https://github.com/istio/istio/issues/20460) We shouldn't need a retry loop
-				return t.ConfigIstio().ApplyYAML(c.Namespace.Name(), policyYAML)
+				return t.Config().ApplyYAML(c.Namespace.Name(), policyYAML)
 			})
 			t.NewSubTest("wait for config").Run(func(t framework.TestContext) {
 				util.WaitForConfig(t, c.Namespace, policyYAML)

@@ -16,11 +16,10 @@ package cmd
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"os"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 	"github.com/spf13/viper"
@@ -45,9 +44,8 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:          "install-cni",
-	Short:        "Install and configure Istio CNI plugin on a node, detect and repair pod which is broken by race condition.",
-	SilenceUsage: true,
+	Use:   "install-cni",
+	Short: "Install and configure Istio CNI plugin on a node, detect and repair pod which is broken by race condition.",
 	RunE: func(cmd *cobra.Command, args []string) (err error) {
 		if err := log.Configure(logOptions); err != nil {
 			log.Errorf("Failed to configure log %v", err)
@@ -57,6 +55,7 @@ var rootCmd = &cobra.Command{
 		// Start controlz server
 		_, _ = ctrlz.Run(ctrlzOptions, nil)
 
+		// TODO(bianpengyuan) add log scope for install & repair.
 		var cfg *config.Config
 		if cfg, err = constructConfig(); err != nil {
 			return
@@ -82,17 +81,14 @@ var rootCmd = &cobra.Command{
 
 		if err = installer.Run(ctx); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				log.Infof("Installer exits with %v", err)
 				// Error was caused by interrupt/termination signal
 				err = nil
-			} else {
-				log.Errorf("Installer exits with %v", err)
 			}
 		}
 
 		if cleanErr := installer.Cleanup(); cleanErr != nil {
 			if err != nil {
-				err = fmt.Errorf("%s: %w", cleanErr.Error(), err)
+				err = errors.Wrap(err, cleanErr.Error())
 			} else {
 				err = cleanErr
 			}
@@ -109,7 +105,6 @@ func GetCommand() *cobra.Command {
 
 func init() {
 	viper.AutomaticEnv()
-	viper.AllowEmptyEnv(true)
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	logOptions.AttachCobraFlags(rootCmd)
 	ctrlzOptions.AttachCobraFlags(rootCmd)
@@ -125,7 +120,6 @@ func init() {
 	registerStringParameter(constants.CNIConfName, "", "Name of the CNI configuration file")
 	registerBooleanParameter(constants.ChainedCNIPlugin, true, "Whether to install CNI plugin as a chained or standalone")
 	registerStringParameter(constants.CNINetworkConfig, "", "CNI configuration template as a string")
-	registerBooleanParameter(constants.CNIEnableReinstall, true, "Whether to reinstall CNI configuration and binary files")
 	registerStringParameter(constants.LogLevel, "warn", "Fallback value for log level in CNI config file, if not specified in helm template")
 
 	// Not configurable in CNI helm charts
@@ -219,7 +213,6 @@ func constructConfig() (*config.Config, error) {
 
 		CNINetworkConfigFile: viper.GetString(constants.CNINetworkConfigFile),
 		CNINetworkConfig:     viper.GetString(constants.CNINetworkConfig),
-		CNIEnableReinstall:   viper.GetBool(constants.CNIEnableReinstall),
 
 		LogLevel:           viper.GetString(constants.LogLevel),
 		KubeconfigFilename: viper.GetString(constants.KubeconfigFilename),

@@ -15,11 +15,13 @@
 package istioagent
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"net"
 	"net/http"
@@ -32,16 +34,17 @@ import (
 
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	gogotypes "github.com/gogo/protobuf/types"
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/any"
 	"go.uber.org/atomic"
 	google_rpc "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
-	any "google.golang.org/protobuf/types/known/anypb"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pilot/cmd/pilot-agent/status/ready"
@@ -53,10 +56,8 @@ import (
 	"istio.io/istio/pkg/istio-agent/health"
 	"istio.io/istio/pkg/istio-agent/metrics"
 	istiokeepalive "istio.io/istio/pkg/keepalive"
-	"istio.io/istio/pkg/security"
 	"istio.io/istio/pkg/uds"
 	"istio.io/istio/pkg/util/gogo"
-	"istio.io/istio/pkg/util/protomarshal"
 	"istio.io/istio/pkg/wasm"
 	"istio.io/istio/security/pkg/nodeagent/caclient"
 	"istio.io/istio/security/pkg/pki/util"
@@ -118,7 +119,6 @@ type XdsProxy struct {
 	ecdsLastAckVersion    atomic.String
 	ecdsLastNonce         atomic.String
 	downstreamGrpcOptions []grpc.ServerOption
-	istiodSAN             string
 }
 
 var proxyLog = log.RegisterScope("xdsproxy", "XDS Proxy in Istio Agent", 0)
@@ -141,18 +141,15 @@ func initXdsProxy(ia *Agent) (*XdsProxy, error) {
 			LocalHostAddr: localHostAddr,
 		}
 	}
-
-	cache := wasm.NewLocalFileCache(constants.IstioDataDir, wasm.DefaultWasmModulePurgeInterval, wasm.DefaultWasmModuleExpiry, ia.cfg.WASMInsecureRegistries)
 	proxy := &XdsProxy{
 		istiodAddress:         ia.proxyConfig.DiscoveryAddress,
-		istiodSAN:             ia.cfg.IstiodSAN,
 		clusterID:             ia.secOpts.ClusterID,
 		handlers:              map[string]ResponseHandler{},
 		stopChan:              make(chan struct{}),
 		healthChecker:         health.NewWorkloadHealthChecker(ia.proxyConfig.ReadinessProbe, envoyProbe, ia.cfg.ProxyIPAddresses, ia.cfg.IsIPv6),
 		xdsHeaders:            ia.cfg.XDSHeaders,
 		xdsUdsPath:            ia.cfg.XdsUdsPath,
-		wasmCache:             cache,
+		wasmCache:             wasm.NewLocalFileCache(constants.IstioDataDir, wasm.DefaultWasmModulePurgeInterval, wasm.DefaultWasmModuleExpiry),
 		proxyAddresses:        ia.cfg.ProxyIPAddresses,
 		downstreamGrpcOptions: ia.cfg.DownstreamGrpcOptions,
 	}
@@ -160,8 +157,9 @@ func initXdsProxy(ia *Agent) (*XdsProxy, error) {
 	if ia.localDNSServer != nil {
 		proxy.handlers[v3.NameTableType] = func(resp *any.Any) error {
 			var nt dnsProto.NameTable
-			if err := resp.UnmarshalTo(&nt); err != nil {
-				log.Errorf("failed to unmarshal name table: %v", err)
+			// nolint: staticcheck
+			if err := ptypes.UnmarshalAny(resp, &nt); err != nil {
+				log.Errorf("failed to unmarshall name table: %v", err)
 				return err
 			}
 			ia.localDNSServer.UpdateLookupTable(&nt)
@@ -172,7 +170,7 @@ func initXdsProxy(ia *Agent) (*XdsProxy, error) {
 		proxy.handlers[v3.ProxyConfigType] = func(resp *any.Any) error {
 			var pc meshconfig.ProxyConfig
 			if err := gogotypes.UnmarshalAny(gogo.ConvertAny(resp), &pc); err != nil {
-				log.Errorf("failed to unmarshal proxy config: %v", err)
+				log.Errorf("failed to unmarshall proxy config: %v", err)
 				return err
 			}
 			caCerts := pc.GetCaCertificatesPem()
@@ -328,6 +326,46 @@ func (p *XdsProxy) handleStream(downstream adsStream) error {
 	p.RegisterStream(con)
 	defer p.UnregisterStream(con)
 
+	// Handle downstream xds
+	initialRequestsSent := false
+	go func() {
+		for {
+			// From Envoy
+			req, err := downstream.Recv()
+			if err != nil {
+				select {
+				case con.downstreamError <- err:
+				case <-con.stopChan:
+				}
+				return
+			}
+			// forward to istiod
+			con.sendRequest(req)
+			if !initialRequestsSent && req.TypeUrl == v3.ListenerType {
+				// fire off an initial NDS request
+				if _, f := p.handlers[v3.NameTableType]; f {
+					con.sendRequest(&discovery.DiscoveryRequest{
+						TypeUrl: v3.NameTableType,
+					})
+				}
+				// fire off an initial PCDS request
+				if _, f := p.handlers[v3.ProxyConfigType]; f {
+					con.sendRequest(&discovery.DiscoveryRequest{
+						TypeUrl: v3.ProxyConfigType,
+					})
+				}
+				// Fire of a configured initial request, if there is one
+				p.connectedMutex.RLock()
+				initialRequest := p.initialRequest
+				if initialRequest != nil {
+					con.sendRequest(initialRequest)
+				}
+				p.connectedMutex.RUnlock()
+				initialRequestsSent = true
+			}
+		}
+	}()
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	upstreamConn, err := grpc.DialContext(ctx, p.istiodAddress, p.istiodDialOptions...)
@@ -353,8 +391,6 @@ func (p *XdsProxy) HandleUpstream(ctx context.Context, con *ProxyConnection, xds
 	if err != nil {
 		// Envoy logs errors again, so no need to log beyond debug level
 		proxyLog.Debugf("failed to create upstream grpc client: %v", err)
-		// Increase metric when xds connection error, for example: forgot to restart ingressgateway or sidecar after changing root CA.
-		metrics.IstiodConnectionErrors.Increment()
 		return err
 	}
 	proxyLog.Infof("connected to upstream XDS server: %s", p.istiodAddress)
@@ -415,55 +451,10 @@ func (p *XdsProxy) HandleUpstream(ctx context.Context, con *ProxyConnection, xds
 }
 
 func (p *XdsProxy) handleUpstreamRequest(con *ProxyConnection) {
-	initialRequestsSent := atomic.NewBool(false)
-	go func() {
-		for {
-			// recv xds requests from envoy
-			req, err := con.downstream.Recv()
-			if err != nil {
-				select {
-				case con.downstreamError <- err:
-				case <-con.stopChan:
-				}
-				return
-			}
-
-			// forward to istiod
-			con.sendRequest(req)
-			if !initialRequestsSent.Load() && req.TypeUrl == v3.ListenerType {
-				// fire off an initial NDS request
-				if _, f := p.handlers[v3.NameTableType]; f {
-					con.sendRequest(&discovery.DiscoveryRequest{
-						TypeUrl: v3.NameTableType,
-					})
-				}
-				// fire off an initial PCDS request
-				if _, f := p.handlers[v3.ProxyConfigType]; f {
-					con.sendRequest(&discovery.DiscoveryRequest{
-						TypeUrl: v3.ProxyConfigType,
-					})
-				}
-				// set flag before sending the initial request to prevent race.
-				initialRequestsSent.Store(true)
-				// Fire of a configured initial request, if there is one
-				p.connectedMutex.RLock()
-				initialRequest := p.initialRequest
-				if initialRequest != nil {
-					con.sendRequest(initialRequest)
-				}
-				p.connectedMutex.RUnlock()
-			}
-		}
-	}()
-
 	defer con.upstream.CloseSend() // nolint
 	for {
 		select {
 		case req := <-con.requestsChan:
-			if req.TypeUrl == v3.HealthInfoType && !initialRequestsSent.Load() {
-				// only send healthcheck probe after LDS request has been sent
-				continue
-			}
 			proxyLog.Debugf("request for type url %s", req.TypeUrl)
 			metrics.XdsProxyRequests.Increment()
 			if req.TypeUrl == v3.ExtensionConfigurationType {
@@ -616,12 +607,12 @@ func (p *XdsProxy) initDownstreamServer() error {
 	return nil
 }
 
-// getKeyCertPaths returns the paths for key and cert.
-func (p *XdsProxy) getKeyCertPaths(opts *security.Options, proxyConfig *meshconfig.ProxyConfig) (string, string) {
+// getCertKeyPaths returns the paths for key and cert.
+func (p *XdsProxy) getCertKeyPaths(agent *Agent) (string, string) {
 	var key, cert string
-	if opts.ProvCert != "" {
-		key = path.Join(opts.ProvCert, constants.KeyFilename)
-		cert = path.Join(opts.ProvCert, constants.CertChainFilename)
+	if agent.secOpts.ProvCert != "" {
+		key = path.Join(agent.secOpts.ProvCert, constants.KeyFilename)
+		cert = path.Join(path.Join(agent.secOpts.ProvCert, constants.CertChainFilename))
 
 		// CSR may not have completed – use JWT to auth.
 		if _, err := os.Stat(key); os.IsNotExist(err) {
@@ -630,9 +621,9 @@ func (p *XdsProxy) getKeyCertPaths(opts *security.Options, proxyConfig *meshconf
 		if _, err := os.Stat(cert); os.IsNotExist(err) {
 			return "", ""
 		}
-	} else if opts.FileMountedCerts {
-		key = proxyConfig.ProxyMetadata[MetadataClientCertKey]
-		cert = proxyConfig.ProxyMetadata[MetadataClientCertChain]
+	} else if agent.secOpts.FileMountedCerts {
+		key = agent.proxyConfig.ProxyMetadata[MetadataClientCertKey]
+		cert = agent.proxyConfig.ProxyMetadata[MetadataClientCertChain]
 	}
 	return key, cert
 }
@@ -658,7 +649,9 @@ func (p *XdsProxy) buildUpstreamClientDialOpts(sa *Agent) ([]grpc.DialOption, er
 		keepaliveOption, initialWindowSizeOption, initialConnWindowSizeOption, msgSizeOption,
 	}
 
-	dialOptions = append(dialOptions, grpc.WithPerRPCCredentials(caclient.NewXDSTokenProvider(sa.secOpts)))
+	if !sa.secOpts.FileMountedCerts {
+		dialOptions = append(dialOptions, grpc.WithPerRPCCredentials(caclient.NewXDSTokenProvider(sa.secOpts)))
+	}
 	return dialOptions, nil
 }
 
@@ -668,7 +661,7 @@ func (p *XdsProxy) buildUpstreamClientDialOpts(sa *Agent) ([]grpc.DialOption, er
 // that the consumer code will use tokens to authenticate the upstream.
 func (p *XdsProxy) getTLSDialOption(agent *Agent) (grpc.DialOption, error) {
 	if agent.proxyConfig.ControlPlaneAuthPolicy == meshconfig.AuthenticationPolicy_NONE {
-		return grpc.WithTransportCredentials(insecure.NewCredentials()), nil
+		return grpc.WithInsecure(), nil
 	}
 	rootCert, err := p.getRootCertificate(agent)
 	if err != nil {
@@ -678,7 +671,7 @@ func (p *XdsProxy) getTLSDialOption(agent *Agent) (grpc.DialOption, error) {
 	config := tls.Config{
 		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 			var certificate tls.Certificate
-			key, cert := agent.GetKeyCertsForXDS()
+			key, cert := p.getCertKeyPaths(agent)
 			if key != "" && cert != "" {
 				// Load the certificate from disk
 				certificate, err = tls.LoadX509KeyPair(cert, key)
@@ -694,18 +687,11 @@ func (p *XdsProxy) getTLSDialOption(agent *Agent) (grpc.DialOption, error) {
 	// strip the port from the address
 	parts := strings.Split(agent.proxyConfig.DiscoveryAddress, ":")
 	config.ServerName = parts[0]
-
 	// For debugging on localhost (with port forward)
 	// This matches the logic for the CA; this code should eventually be shared
 	if strings.Contains(config.ServerName, "localhost") {
 		config.ServerName = "istiod.istio-system.svc"
 	}
-
-	if p.istiodSAN != "" {
-		config.ServerName = p.istiodSAN
-	}
-	// TODO: if istiodSAN starts with spiffe://, use custom validation.
-
 	config.MinVersion = tls.VersionTLS12
 	transportCreds := credentials.NewTLS(&config)
 	return grpc.WithTransportCredentials(transportCreds), nil
@@ -721,7 +707,7 @@ func (p *XdsProxy) getRootCertificate(agent *Agent) (*x509.CertPool, error) {
 	}
 
 	if xdsCACertPath != "" {
-		rootCert, err = os.ReadFile(xdsCACertPath)
+		rootCert, err = ioutil.ReadFile(xdsCACertPath)
 		if err != nil {
 			return nil, err
 		}
@@ -808,11 +794,13 @@ func (p *XdsProxy) makeTapHandler() func(w http.ResponseWriter, req *http.Reques
 			return
 		}
 
-		// Try to unmarshal Istiod's response using protojson (needed for Envoy protobufs)
+		// Try to unmarshal Istiod's response using jsonpb (needed for Envoy protobufs)
 		w.Header().Add("Content-Type", "application/json")
-		b, err := protomarshal.MarshalIndent(response, "  ")
+		jsonm := &jsonpb.Marshaler{Indent: "  "}
+		var buf bytes.Buffer
+		err = jsonm.Marshal(&buf, response)
 		if err == nil {
-			_, err = w.Write(b)
+			_, _ = w.Write(buf.Bytes())
 			if err != nil {
 				log.Infof("fail to write debug response: %v", err)
 			}
@@ -836,10 +824,10 @@ func (p *XdsProxy) makeTapHandler() func(w http.ResponseWriter, req *http.Reques
 	}
 }
 
-// initDebugInterface() listens on localhost:${PORT} for path /debug/...
+// initDebugInterface() listens on localhost:15004 for path /debug/...
 // forwards the paths to Istiod as xDS requests
 // waits for response from Istiod, sends it as JSON
-func (p *XdsProxy) initDebugInterface(port int) error {
+func (p *XdsProxy) initDebugInterface() error {
 	p.tapResponseChannel = make(chan *discovery.DiscoveryResponse)
 
 	httpMux := http.NewServeMux()
@@ -848,10 +836,8 @@ func (p *XdsProxy) initDebugInterface(port int) error {
 	httpMux.HandleFunc("/debug", handler) // For 1.10 Istiod which uses istio.io/debug
 
 	p.httpTapServer = &http.Server{
-		Addr:        fmt.Sprintf("localhost:%d", port),
-		Handler:     httpMux,
-		IdleTimeout: 90 * time.Second, // matches http.DefaultTransport keep-alive timeout
-		ReadTimeout: 30 * time.Second,
+		Addr:    "localhost:15004",
+		Handler: httpMux,
 	}
 
 	// create HTTP listener

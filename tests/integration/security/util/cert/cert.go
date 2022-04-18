@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 //  Copyright Istio Authors
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,44 +17,56 @@ package cert
 
 import (
 	"context"
-	"encoding/json"
-	"os"
+	"fmt"
+	"io/ioutil"
 	"path"
+	"strings"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"istio.io/istio/pkg/test"
-	"istio.io/istio/pkg/test/echo/common/scheme"
 	"istio.io/istio/pkg/test/env"
-	"istio.io/istio/pkg/test/framework/components/echo"
 	"istio.io/istio/pkg/test/framework/components/istio"
+	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/resource"
+	"istio.io/istio/pkg/test/shell"
 	"istio.io/istio/security/pkg/pki/ca"
+	"istio.io/istio/tests/integration/security/util/dir"
+	"istio.io/istio/tests/util"
 	"istio.io/pkg/log"
 )
 
-// DumpCertFromSidecar gets the certificates served by the destination.
-func DumpCertFromSidecar(t test.Failer, from, to echo.Instance, port string) []string {
-	resp := from.CallWithRetryOrFail(t, echo.CallOptions{
-		Target:   to,
-		PortName: port,
-		Scheme:   scheme.TLS,
-		Alpn:     []string{"istio"},
-	})
-	if resp.Len() != 1 {
-		t.Fatalf("dump cert failed, no responses")
+// DumpCertFromSidecar gets the certificate output from openssl s-client command.
+func DumpCertFromSidecar(ns namespace.Instance, fromSelector, fromContainer, connectTarget string) (string, error) {
+	retry := util.Retrier{
+		BaseDelay: 10 * time.Second,
+		Retries:   3,
+		MaxDelay:  30 * time.Second,
 	}
-	certs := []string{}
-	for _, rr := range resp[0].ResponseBody() {
-		var s string
-		if err := json.Unmarshal([]byte(rr), &s); err != nil {
-			t.Fatalf("failed to unmarshal: %v", err)
+
+	fromPod, err := dir.GetPodName(ns, fromSelector)
+	if err != nil {
+		return "", fmt.Errorf("err getting the pod from pod name: %v", err)
+	}
+
+	var out string
+	retryFn := func(_ context.Context, i int) error {
+		execCmd := fmt.Sprintf(
+			"kubectl exec %s -c %s -n %s -- openssl s_client -showcerts -alpn istio -connect %s",
+			fromPod, fromContainer, ns.Name(), connectTarget)
+		out, err = shell.Execute(false, execCmd)
+		if !strings.Contains(out, "-----BEGIN CERTIFICATE-----") {
+			return fmt.Errorf("the output doesn't contain certificate: %v", out)
 		}
-		certs = append(certs, s)
+		return nil
 	}
-	return certs
+
+	if _, err := retry.Retry(context.Background(), retryFn); err != nil {
+		return "", fmt.Errorf("get cert retry failed with err: %v", err)
+	}
+	return out, nil
 }
 
 // CreateCASecret creates a k8s secret "cacerts" to store the CA key and cert.
@@ -128,7 +138,7 @@ func ReadSampleCertFromFile(f string) ([]byte, error) {
 	if !path.IsAbs(filename) {
 		filename = path.Join(env.IstioSrc, "samples/certs", f)
 	}
-	b, err := os.ReadFile(filename)
+	b, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +194,7 @@ func CreateCustomEgressSecret(ctx resource.Context) error {
 }
 
 func ReadCustomCertFromFile(f string) ([]byte, error) {
-	b, err := os.ReadFile(path.Join(env.IstioSrc, "tests/testdata/certs/dns", f))
+	b, err := ioutil.ReadFile(path.Join(env.IstioSrc, "tests/testdata/certs/dns", f))
 	if err != nil {
 		return nil, err
 	}

@@ -18,7 +18,7 @@ package sdsc
 import (
 	"context"
 	"fmt"
-	"os"
+	"io/ioutil"
 	"time"
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -26,7 +26,6 @@ import (
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	sds "github.com/envoyproxy/go-control-plane/envoy/service/secret/v3"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
 	authn_model "istio.io/istio/pilot/pkg/security/model"
@@ -53,7 +52,7 @@ type ClientOptions struct {
 // constructSDSRequest returns the context for the outbound request to include necessary
 func constructSDSRequestContext() (context.Context, error) {
 	// Read from the designated location for Kubernetes JWT.
-	content, err := os.ReadFile(authn_model.K8sSATrustworthyJwtFileName)
+	content, err := ioutil.ReadFile(authn_model.K8sSATrustworthyJwtFileName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the token file %v", err)
 	}
@@ -65,7 +64,7 @@ func constructSDSRequestContext() (context.Context, error) {
 
 // NewClient returns a sds client for testing.
 func NewClient(opt ClientOptions) (*Client, error) {
-	conn, err := grpc.Dial(opt.ServerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(opt.ServerAddress, grpc.WithInsecure())
 	if err != nil {
 		return nil, err
 	}

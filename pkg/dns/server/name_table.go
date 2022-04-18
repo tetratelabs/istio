@@ -32,6 +32,10 @@ type Config struct {
 	// MulticlusterHeadlessEnabled if true, the DNS name table for a headless service will resolve to
 	// same-network endpoints in any cluster.
 	MulticlusterHeadlessEnabled bool
+
+	// AltServiceDomainSuffixes provides a list of alternate domain suffixes (e.g. 'clusterset.local') used
+	// for generating alternate hosts for each service. Applies only to Kubernetes services.
+	AltServiceDomainSuffixes []string
 }
 
 // BuildNameTable produces a table of hostnames and their associated IPs that can then
@@ -46,10 +50,11 @@ func BuildNameTable(cfg Config) *dnsProto.NameTable {
 	out := &dnsProto.NameTable{
 		Table: make(map[string]*dnsProto.NameTable_NameInfo),
 	}
+
 	for _, svc := range cfg.Push.Services(cfg.Node) {
-		svcAddress := svc.GetAddressForProxy(cfg.Node)
+		svcAddress := svc.GetServiceAddressForProxy(cfg.Node)
 		var addressList []string
-		hostName := svc.Hostname
+
 		if svcAddress != constants.UnspecifiedIP {
 			// Filter out things we cannot parse as IP. Generally this means CIDRs, as anything else
 			// should be caught in validation.
@@ -60,16 +65,19 @@ func BuildNameTable(cfg Config) *dnsProto.NameTable {
 		} else {
 			// The IP will be unspecified here if its headless service or if the auto
 			// IP allocation logic for service entry was unable to allocate an IP.
-			if svc.Resolution == model.Passthrough && len(svc.Ports) > 0 {
+
+			// For all k8s headless services, populate the dns table with the endpoint IPs as k8s does.
+			// And for each individual pod, populate the dns table with the endpoint IP with a manufactured host name.
+			if svc.Attributes.ServiceRegistry == provider.Kubernetes &&
+				svc.Resolution == model.Passthrough && len(svc.Ports) > 0 {
 				for _, instance := range cfg.Push.ServiceInstancesByPort(svc, svc.Ports[0].Port, nil) {
 					sameNetwork := cfg.Node.InNetwork(instance.Endpoint.Network)
 					sameCluster := cfg.Node.InCluster(instance.Endpoint.Locality.ClusterID)
-					// For all k8s headless services, populate the dns table with the endpoint IPs as k8s does.
-					// And for each individual pod, populate the dns table with the endpoint IP with a manufactured host name.
+					// Add individual addresses even for cross cluster.
 					if instance.Endpoint.SubDomain != "" && sameNetwork {
 						// Follow k8s pods dns naming convention of "<hostname>.<subdomain>.<pod namespace>.svc.<cluster domain>"
 						// i.e. "mysql-0.mysql.default.svc.cluster.local".
-						parts := strings.SplitN(hostName.String(), ".", 2)
+						parts := strings.SplitN(string(svc.Hostname), ".", 2)
 						if len(parts) != 2 {
 							continue
 						}
@@ -90,6 +98,7 @@ func BuildNameTable(cfg Config) *dnsProto.NameTable {
 							out.Table[host] = nameInfo
 						}
 					}
+
 					skipForMulticluster := !cfg.MulticlusterHeadlessEnabled && !sameCluster
 					if skipForMulticluster || !sameNetwork {
 						// We take only cluster-local endpoints. While this seems contradictory to
@@ -105,6 +114,17 @@ func BuildNameTable(cfg Config) *dnsProto.NameTable {
 					// TODO: should we skip the node's own IP like we do in listener?
 					addressList = append(addressList, instance.Endpoint.Address)
 				}
+			} else if svc.Attributes.ServiceRegistry == provider.External &&
+				svc.Resolution == model.Passthrough && len(svc.Ports) > 0 {
+				for _, instance := range cfg.Push.ServiceInstancesByPort(svc, svc.Ports[0].Port, nil) {
+					sameNetwork := cfg.Node.InNetwork(instance.Endpoint.Network)
+					sameCluster := cfg.Node.InCluster(instance.Endpoint.Locality.ClusterID)
+					if sameNetwork {
+						if sameCluster || cfg.MulticlusterHeadlessEnabled {
+							addressList = append(addressList, instance.Endpoint.Address)
+						}
+					}
+				}
 			}
 			if len(addressList) == 0 {
 				// could not reliably determine the addresses of endpoints of headless service
@@ -117,17 +137,19 @@ func BuildNameTable(cfg Config) *dnsProto.NameTable {
 			Ips:      addressList,
 			Registry: string(svc.Attributes.ServiceRegistry),
 		}
-		if svc.Attributes.ServiceRegistry == provider.Kubernetes &&
-			!strings.HasSuffix(hostName.String(), "."+constants.DefaultClusterSetLocalDomain) {
+		if svc.Attributes.ServiceRegistry == provider.Kubernetes {
 			// The agent will take care of resolving a, a.ns, a.ns.svc, etc.
 			// No need to provide a DNS entry for each variant.
-			//
-			// NOTE: This is not done for Kubernetes Multi-Cluster Services (MCS) hosts, in order
-			// to avoid conflicting with the entries for the regular (cluster.local) service.
 			nameInfo.Namespace = svc.Attributes.Namespace
 			nameInfo.Shortname = svc.Attributes.Name
+
+			// Generate hostnames for any alt domain suffixes for the service.
+			for _, domain := range cfg.AltServiceDomainSuffixes {
+				fqdn := svc.Attributes.Name + "." + svc.Attributes.Namespace + ".svc." + domain
+				nameInfo.AltHosts = append(nameInfo.AltHosts, fqdn)
+			}
 		}
-		out.Table[hostName.String()] = nameInfo
+		out.Table[string(svc.Hostname)] = nameInfo
 	}
 	return out
 }

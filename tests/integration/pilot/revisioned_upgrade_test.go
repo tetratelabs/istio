@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,7 +43,6 @@ const (
 func TestRevisionedUpgrade(t *testing.T) {
 	framework.NewTest(t).
 		RequiresSingleCluster().
-		RequiresLocalControlPlane().
 		// Requires installation of CPs from manifests, won't succeed
 		// if existing CPs have different root cert
 		Label(label.CustomSetup).
@@ -71,7 +68,7 @@ func testUpgradeFromVersion(t framework.TestContext, fromVersion string) {
 	configs := make(map[string]string)
 	t.ConditionalCleanup(func() {
 		for _, config := range configs {
-			_ = t.ConfigIstio().DeleteYAML("istio-system", config)
+			_ = t.Config().DeleteYAML("istio-system", config)
 		}
 	})
 

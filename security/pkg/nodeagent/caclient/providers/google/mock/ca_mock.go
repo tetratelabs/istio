@@ -27,7 +27,6 @@ import (
 
 // CAService is a simple mocked Google CA Service.
 type CAService struct {
-	*gcapb.UnimplementedMeshCertificateServiceServer
 	Certs []string
 	Err   error
 }

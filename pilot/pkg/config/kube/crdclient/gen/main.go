@@ -22,14 +22,13 @@ import (
 	"flag"
 	"fmt"
 	"go/format"
+	"io/ioutil"
 	"log"
-	"os"
 	"path"
 	"text/template"
 
 	"istio.io/istio/pkg/config/schema/collection"
 	"istio.io/istio/pkg/config/schema/collections"
-	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/test/env"
 )
 
@@ -64,7 +63,7 @@ func MakeConfigData(schema collection.Schema) ConfigData {
 		StatusAPIImport: apiImport[schema.Resource().StatusPackage()],
 		StatusKind:      schema.Resource().StatusKind(),
 	}
-	if schema.Resource().Group() == gvk.GatewayClass.Group {
+	if schema.Resource().Group() == "networking.x-k8s.io" {
 		out.Client = "sc"
 		out.TypeSuffix = "Spec"
 	}
@@ -76,30 +75,24 @@ var (
 	// Mapping from istio/api path import to api import path
 	apiImport = map[string]string{
 		"istio.io/api/networking/v1alpha3":      "networkingv1alpha3",
-		"istio.io/api/networking/v1beta1":       "networkingv1beta1",
 		"istio.io/api/security/v1beta1":         "securityv1beta1",
 		"istio.io/api/telemetry/v1alpha1":       "telemetryv1alpha1",
-		"sigs.k8s.io/gateway-api/apis/v1alpha2": "gatewayv1alpha2",
+		"sigs.k8s.io/gateway-api/apis/v1alpha1": "servicev1alpha1",
 		"istio.io/api/meta/v1alpha1":            "metav1alpha1",
-		"istio.io/api/extensions/v1alpha1":      "extensionsv1alpha1",
 	}
 	// Mapping from istio/api path import to client go import path
 	clientGoImport = map[string]string{
 		"istio.io/api/networking/v1alpha3":      "clientnetworkingv1alpha3",
-		"istio.io/api/networking/v1beta1":       "clientnetworkingv1beta1",
 		"istio.io/api/security/v1beta1":         "clientsecurityv1beta1",
 		"istio.io/api/telemetry/v1alpha1":       "clienttelemetryv1alpha1",
-		"sigs.k8s.io/gateway-api/apis/v1alpha2": "gatewayv1alpha2",
-		"istio.io/api/extensions/v1alpha1":      "clientextensionsv1alpha1",
+		"sigs.k8s.io/gateway-api/apis/v1alpha1": "servicev1alpha1",
 	}
 	// Translates an api import path to the top level path in client-go
 	clientGoAccessPath = map[string]string{
 		"istio.io/api/networking/v1alpha3":      "NetworkingV1alpha3",
-		"istio.io/api/networking/v1beta1":       "NetworkingV1beta1",
 		"istio.io/api/security/v1beta1":         "SecurityV1beta1",
 		"istio.io/api/telemetry/v1alpha1":       "TelemetryV1alpha1",
-		"sigs.k8s.io/gateway-api/apis/v1alpha2": "GatewayV1alpha2",
-		"istio.io/api/extensions/v1alpha1":      "ExtensionsV1alpha1",
+		"sigs.k8s.io/gateway-api/apis/v1alpha1": "NetworkingV1alpha1",
 	}
 	// Translates a plural type name to the type path in client-go
 	// TODO: can we automatically derive this? I don't think we can, its internal to the kubegen
@@ -109,7 +102,6 @@ var (
 		"gateways":               "Gateways",
 		"serviceentries":         "ServiceEntries",
 		"sidecars":               "Sidecars",
-		"proxyconfigs":           "ProxyConfigs",
 		"virtualservices":        "VirtualServices",
 		"workloadentries":        "WorkloadEntries",
 		"workloadgroups":         "WorkloadGroups",
@@ -120,9 +112,8 @@ var (
 		"httproutes":             "HTTPRoutes",
 		"tcproutes":              "TCPRoutes",
 		"tlsroutes":              "TLSRoutes",
-		"referencepolicies":      "ReferencePolicies",
+		"backendpolicies":        "BackendPolicies",
 		"telemetries":            "Telemetries",
-		"wasmplugins":            "WasmPlugins",
 	}
 )
 
@@ -135,7 +126,7 @@ func main() {
 
 	// Prepare to generate types for mock schema and all Istio schemas
 	typeList := []ConfigData{}
-	for _, s := range collections.PilotGatewayAPI.All() {
+	for _, s := range collections.PilotServiceApi.All() {
 		typeList = append(typeList, MakeConfigData(s))
 	}
 	var buffer bytes.Buffer
@@ -151,7 +142,7 @@ func main() {
 	// Output
 	if outputFile == nil || *outputFile == "" {
 		fmt.Println(string(out))
-	} else if err := os.WriteFile(*outputFile, out, 0o644); err != nil {
+	} else if err := ioutil.WriteFile(*outputFile, out, 0o644); err != nil {
 		panic(err)
 	}
 }

@@ -1,38 +1,39 @@
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: GatewayClass
 metadata:
   name: istio
 spec:
-  controllerName: istio.io/gateway-controller
+  controller: istio.io/gateway-controller
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: Gateway
 metadata:
   name: gateway
   namespace: istio-system
 spec:
-  addresses:
-  - value: istio-ingressgateway
-    type: Hostname
   gatewayClassName: istio
   listeners:
-  - name: default
-    port: 34000
+  - port: 34000
     protocol: TCP
-    allowedRoutes:
+    routes:
       namespaces:
         from: All
+      selector:
+        matchLabels:
+          selected: "yes"
+      kind: TCPRoute
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: TCPRoute
 metadata:
   name: tcp
   namespace: default
+  labels:
+    selected: "yes"
 spec:
-  parentRefs:
-  - name: gateway
-    namespace: istio-system
+  gateways:
+    allow: All
   rules:
-  - backendRefs:
-    - name: httpbin
+  - forwardTo:
+    - serviceName: httpbin
       port: 9090

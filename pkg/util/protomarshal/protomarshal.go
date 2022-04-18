@@ -12,77 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package protomarshal provides operations to marshal and unmarshal protobuf objects.
-// Unlike the rest of this repo, which uses the new google.golang.org/protobuf API, this package
-// explicitly uses the legacy jsonpb package. This is due to a number of compatibility concerns with the new API:
-// * https://github.com/golang/protobuf/issues/1374
-// * https://github.com/golang/protobuf/issues/1373
 package protomarshal
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"strings"
 
+	"github.com/ghodss/yaml"
 	"github.com/golang/protobuf/jsonpb"
-	legacyproto "github.com/golang/protobuf/proto"
-	"google.golang.org/protobuf/proto"
-	"sigs.k8s.io/yaml"
+	"github.com/golang/protobuf/proto"
+	protoV2 "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"istio.io/pkg/log"
 )
 
-var (
-	unmarshaler       = jsonpb.Unmarshaler{AllowUnknownFields: true}
-	strictUnmarshaler = jsonpb.Unmarshaler{}
-)
-
-func Unmarshal(b []byte, m proto.Message) error {
-	return strictUnmarshaler.Unmarshal(bytes.NewReader(b), legacyproto.MessageV1(m))
-}
-
-func UnmarshalAllowUnknown(b []byte, m proto.Message) error {
-	return unmarshaler.Unmarshal(bytes.NewReader(b), legacyproto.MessageV1(m))
-}
-
 // ToJSON marshals a proto to canonical JSON
 func ToJSON(msg proto.Message) (string, error) {
 	return ToJSONWithIndent(msg, "")
-}
-
-// Marshal marshals a proto to canonical JSON
-func Marshal(msg proto.Message) ([]byte, error) {
-	res, err := ToJSONWithIndent(msg, "")
-	if err != nil {
-		return nil, err
-	}
-	return []byte(res), err
-}
-
-// MarshalIndent marshals a proto to canonical JSON with indentation
-func MarshalIndent(msg proto.Message, indent string) ([]byte, error) {
-	res, err := ToJSONWithIndent(msg, indent)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(res), err
-}
-
-// MarshalProtoNames marshals a proto to canonical JSON original protobuf names
-func MarshalProtoNames(msg proto.Message) ([]byte, error) {
-	if msg == nil {
-		return nil, errors.New("unexpected nil message")
-	}
-
-	// Marshal from proto to json bytes
-	m := jsonpb.Marshaler{OrigName: true}
-	buf := &bytes.Buffer{}
-	err := m.Marshal(buf, legacyproto.MessageV1(msg))
-	if err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }
 
 // ToJSONWithIndent marshals a proto to canonical JSON with pretty printed string
@@ -93,7 +41,7 @@ func ToJSONWithIndent(msg proto.Message, indent string) (string, error) {
 
 	// Marshal from proto to json bytes
 	m := jsonpb.Marshaler{Indent: indent}
-	return m.MarshalToString(legacyproto.MessageV1(msg))
+	return m.MarshalToString(msg)
 }
 
 // ToYAML marshals a proto to canonical YAML
@@ -128,11 +76,11 @@ func ToJSONMap(msg proto.Message) (map[string]interface{}, error) {
 func ApplyJSON(js string, pb proto.Message) error {
 	reader := strings.NewReader(js)
 	m := jsonpb.Unmarshaler{}
-	if err := m.Unmarshal(reader, legacyproto.MessageV1(pb)); err != nil {
+	if err := m.Unmarshal(reader, pb); err != nil {
 		log.Debugf("Failed to decode proto: %q. Trying decode with AllowUnknownFields=true", err)
 		m.AllowUnknownFields = true
 		reader.Reset(js)
-		return m.Unmarshal(reader, legacyproto.MessageV1(pb))
+		return m.Unmarshal(reader, pb)
 	}
 	return nil
 }
@@ -141,7 +89,7 @@ func ApplyJSON(js string, pb proto.Message) error {
 func ApplyJSONStrict(js string, pb proto.Message) error {
 	reader := strings.NewReader(js)
 	m := jsonpb.Unmarshaler{}
-	return m.Unmarshal(reader, legacyproto.MessageV1(pb))
+	return m.Unmarshal(reader, pb)
 }
 
 // ApplyYAML unmarshals a YAML string into a proto message.
@@ -152,4 +100,24 @@ func ApplyYAML(yml string, pb proto.Message) error {
 		return err
 	}
 	return ApplyJSON(string(js), pb)
+}
+
+// TODO(https://github.com/golang/protobuf/issues/1155) switch to upstream implementation
+func ShallowCopy(src protoV2.Message) protoV2.Message {
+	if src == nil {
+		return nil
+	}
+	srcm := src.ProtoReflect()
+	if !srcm.IsValid() {
+		return srcm.Type().Zero().Interface()
+	}
+	dstm := srcm.New()
+	if dstm.Type() != srcm.Type() {
+		panic("mismatching message types")
+	}
+	srcm.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
+		dstm.Set(fd, v)
+		return true
+	})
+	return dstm.Interface()
 }

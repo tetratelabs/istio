@@ -16,6 +16,7 @@ package config
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -32,7 +33,7 @@ import (
 	"istio.io/pkg/log"
 )
 
-// ConstructProxyConfig returns proxyConfig
+// return proxyConfig and trustDomain
 func ConstructProxyConfig(meshConfigFile, serviceCluster, proxyConfigEnv string, concurrency int, role *model.Proxy) (*meshconfig.ProxyConfig, error) {
 	annotations, err := bootstrap.ReadPodAnnotations("")
 	if err != nil {
@@ -44,7 +45,7 @@ func ConstructProxyConfig(meshConfigFile, serviceCluster, proxyConfigEnv string,
 	}
 	var fileMeshContents string
 	if fileExists(meshConfigFile) {
-		contents, err := os.ReadFile(meshConfigFile)
+		contents, err := ioutil.ReadFile(meshConfigFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read mesh config file %v: %v", meshConfigFile, err)
 		}
@@ -64,11 +65,7 @@ func ConstructProxyConfig(meshConfigFile, serviceCluster, proxyConfigEnv string,
 		// proxy config.
 		proxyConfig.Concurrency = &types.Int32Value{Value: int32(concurrency)}
 	}
-	if x, ok := proxyConfig.GetClusterName().(*meshconfig.ProxyConfig_ServiceCluster); ok {
-		if x.ServiceCluster == "" {
-			proxyConfig.ClusterName = &meshconfig.ProxyConfig_ServiceCluster{ServiceCluster: serviceCluster}
-		}
-	}
+	proxyConfig.ServiceCluster = serviceCluster
 	// resolve statsd address
 	if proxyConfig.StatsdUdpAddress != "" {
 		addr, err := network.ResolveAddr(proxyConfig.StatsdUdpAddress)
@@ -79,7 +76,7 @@ func ConstructProxyConfig(meshConfigFile, serviceCluster, proxyConfigEnv string,
 			proxyConfig.StatsdUdpAddress = addr
 		}
 	}
-	if err := validation.ValidateMeshConfigProxyConfig(&proxyConfig); err != nil {
+	if err := validation.ValidateProxyConfig(&proxyConfig); err != nil {
 		return nil, err
 	}
 	return applyAnnotations(&proxyConfig, annotations), nil
@@ -145,7 +142,7 @@ func applyAnnotations(config *meshconfig.ProxyConfig, annos map[string]string) *
 	if v, f := annos[annotation.SidecarStatusPort.Name]; f {
 		p, err := strconv.Atoi(v)
 		if err != nil {
-			log.Errorf("Invalid annotation %v=%v: %v", annotation.SidecarStatusPort.Name, v, err)
+			log.Errorf("Invalid annotation %v=%v: %v", annotation.SidecarStatusPort, p, err)
 		}
 		config.StatusPort = int32(p)
 	}

@@ -15,7 +15,7 @@
 package mesh
 
 import (
-	"os"
+	"io/ioutil"
 	"path/filepath"
 	"regexp"
 	"testing"
@@ -38,10 +38,6 @@ func TestProfileDump(t *testing.T) {
 			desc:       "config_path",
 			configPath: "components",
 		},
-		{
-			desc:       "list_path",
-			configPath: "values.gateways.istio-egressgateway.secretVolumes",
-		},
 	}
 	installPackagePathRegex := regexp.MustCompile("  installPackagePath: .*")
 	for _, tt := range tests {
@@ -58,7 +54,7 @@ func TestProfileDump(t *testing.T) {
 
 			if refreshGoldenFiles() {
 				t.Logf("Refreshing golden file for %s", outPath)
-				if err := os.WriteFile(outPath, []byte(got), 0o644); err != nil {
+				if err := ioutil.WriteFile(outPath, []byte(got), 0o644); err != nil {
 					t.Error(err)
 				}
 			}
@@ -101,10 +97,6 @@ func TestProfileDumpFlags(t *testing.T) {
 			desc:       "config_path",
 			configPath: "components",
 		},
-		{
-			desc:       "list_path",
-			configPath: "values.gateways.istio-egressgateway.secretVolumes",
-		},
 	}
 	installPackagePathRegex := regexp.MustCompile("(?m)^installPackagePath=\".*\"\n")
 	for _, tt := range tests {
@@ -121,7 +113,7 @@ func TestProfileDumpFlags(t *testing.T) {
 
 			if refreshGoldenFiles() {
 				t.Logf("Refreshing golden file for %s", outPath)
-				if err := os.WriteFile(outPath, []byte(got), 0o644); err != nil {
+				if err := ioutil.WriteFile(outPath, []byte(got), 0o644); err != nil {
 					t.Error(err)
 				}
 			}

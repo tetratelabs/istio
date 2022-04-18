@@ -186,13 +186,7 @@ spec:
         - /bin/sh
         image: gcr.io/istio-testing/proxyv2:latest
         name: enable-core-dump
-        resources:
-          limits:
-            cpu: "2"
-            memory: 1Gi
-          requests:
-            cpu: 100m
-            memory: 128Mi
+        resources: {}
         securityContext:
           allowPrivilegeEscalation: true
           capabilities:

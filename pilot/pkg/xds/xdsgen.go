@@ -87,7 +87,7 @@ func (s *DiscoveryServer) findGenerator(typeURL string, con *Connection) model.X
 // based on the passed in generator. Based on the updates field, generators may
 // choose to send partial or even no response if there are no changes.
 func (s *DiscoveryServer) pushXds(con *Connection, push *model.PushContext,
-	w *model.WatchedResource, req *model.PushRequest) error {
+	currentVersion string, w *model.WatchedResource, req *model.PushRequest) error {
 	if w == nil {
 		return nil
 	}
@@ -111,14 +111,18 @@ func (s *DiscoveryServer) pushXds(con *Connection, push *model.PushContext,
 	resp := &discovery.DiscoveryResponse{
 		ControlPlane: ControlPlane(),
 		TypeUrl:      w.TypeUrl,
-		// TODO: send different version for incremental eds
-		VersionInfo: push.PushVersion,
-		Nonce:       nonce(push.LedgerVersion),
-		Resources:   model.ResourcesToAny(res),
+		VersionInfo:  currentVersion,
+		Nonce:        nonce(push.LedgerVersion),
+		Resources:    model.ResourcesToAny(res),
 	}
 
 	configSize := ResourceSize(res)
 	configSizeBytes.With(typeTag.Value(w.TypeUrl)).Record(float64(configSize))
+
+	if err := con.send(resp); err != nil {
+		recordSendError(w.TypeUrl, con.ConID, err)
+		return err
+	}
 
 	ptype := "PUSH"
 	info := ""
@@ -129,19 +133,11 @@ func (s *DiscoveryServer) pushXds(con *Connection, push *model.PushContext,
 		info = " " + logdata.AdditionalInfo
 	}
 
-	if err := con.send(resp); err != nil {
-		if recordSendError(w.TypeUrl, err) {
-			log.Warnf("%s: Send failure for node:%s resources:%d size:%s%s: %v",
-				v3.GetShortType(w.TypeUrl), con.proxy.ID, len(res), util.ByteCount(configSize), info, err)
-		}
-		return err
-	}
-
 	switch {
 	case logdata.Incremental:
 		if log.DebugEnabled() {
 			log.Debugf("%s: %s%s for node:%s resources:%d size:%s%s",
-				v3.GetShortType(w.TypeUrl), ptype, req.PushReason(), con.proxy.ID, len(res), util.ByteCount(configSize), info)
+				v3.GetShortType(w.TypeUrl), ptype, req.PushReason(), con.ConID, len(res), util.ByteCount(configSize), info)
 		}
 	default:
 		debug := ""

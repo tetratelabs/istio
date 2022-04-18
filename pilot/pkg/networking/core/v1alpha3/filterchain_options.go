@@ -17,7 +17,7 @@ package v1alpha3
 import (
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
-	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
+	"github.com/golang/protobuf/ptypes/wrappers"
 
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking"
@@ -36,10 +36,6 @@ type FilterChainMatchOptions struct {
 	Protocol networking.ListenerProtocol
 	// Whether this chain should terminate mTLS or not
 	MTLS bool
-	// Hostnames to match on
-	SNIHosts []string
-	// Has One-way TLS or mTLS configured by the user
-	IsCustomTLS bool
 }
 
 // Set of filter chain match options used for various combinations.

@@ -99,7 +99,7 @@ func (s *Server) initSidecarInjector(args *PilotArgs) (*inject.Webhook, error) {
 				return nil
 			}
 
-			go patcher.Run(stop)
+			patcher.Run(stop)
 			return nil
 		})
 	}

@@ -16,10 +16,7 @@ package xds
 
 import (
 	"errors"
-	"fmt"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
@@ -28,14 +25,73 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
-	credentials "istio.io/istio/pilot/pkg/credentials/kube"
 	"istio.io/istio/pilot/pkg/model"
+	kubesecrets "istio.io/istio/pilot/pkg/secrets/kube"
+	authnmodel "istio.io/istio/pilot/pkg/security/model"
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
 	"istio.io/istio/pilot/test/xdstest"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/spiffe"
 )
+
+func TestParseResourceName(t *testing.T) {
+	cases := []struct {
+		name             string
+		resource         string
+		defaultNamespace string
+		expected         SecretResource
+		err              bool
+	}{
+		{
+			name:             "simple",
+			resource:         "kubernetes://cert",
+			defaultNamespace: "default",
+			expected: SecretResource{
+				Type:         authnmodel.KubernetesSecretType,
+				Name:         "cert",
+				Namespace:    "default",
+				ResourceName: "kubernetes://cert",
+				Cluster:      "cluster",
+			},
+		},
+		{
+			name:             "with namespace",
+			resource:         "kubernetes://namespace/cert",
+			defaultNamespace: "default",
+			expected: SecretResource{
+				Type:         authnmodel.KubernetesSecretType,
+				Name:         "cert",
+				Namespace:    "namespace",
+				ResourceName: "kubernetes://namespace/cert",
+				Cluster:      "cluster",
+			},
+		},
+		{
+			name:             "plain",
+			resource:         "cert",
+			defaultNamespace: "default",
+			err:              true,
+		},
+		{
+			name:             "non kubernetes",
+			resource:         "vault://cert",
+			defaultNamespace: "default",
+			err:              true,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseResourceName(tt.resource, tt.defaultNamespace, "cluster")
+			if tt.err != (err != nil) {
+				t.Fatalf("expected err=%v but got err=%v", tt.err, err)
+			}
+			if got != tt.expected {
+				t.Fatalf("want %+v, got %+v", tt.expected, got)
+			}
+		})
+	}
+}
 
 func makeSecret(name string, data map[string]string) *corev1.Secret {
 	bdata := map[string][]byte{}
@@ -53,16 +109,16 @@ func makeSecret(name string, data map[string]string) *corev1.Secret {
 
 var (
 	genericCert = makeSecret("generic", map[string]string{
-		credentials.GenericScrtCert: "generic-cert", credentials.GenericScrtKey: "generic-key",
+		kubesecrets.GenericScrtCert: "generic-cert", kubesecrets.GenericScrtKey: "generic-key",
 	})
 	genericMtlsCert = makeSecret("generic-mtls", map[string]string{
-		credentials.GenericScrtCert: "generic-mtls-cert", credentials.GenericScrtKey: "generic-mtls-key", credentials.GenericScrtCaCert: "generic-mtls-ca",
+		kubesecrets.GenericScrtCert: "generic-mtls-cert", kubesecrets.GenericScrtKey: "generic-mtls-key", kubesecrets.GenericScrtCaCert: "generic-mtls-ca",
 	})
 	genericMtlsCertSplit = makeSecret("generic-mtls-split", map[string]string{
-		credentials.GenericScrtCert: "generic-mtls-split-cert", credentials.GenericScrtKey: "generic-mtls-split-key",
+		kubesecrets.GenericScrtCert: "generic-mtls-split-cert", kubesecrets.GenericScrtKey: "generic-mtls-split-key",
 	})
 	genericMtlsCertSplitCa = makeSecret("generic-mtls-split-cacert", map[string]string{
-		credentials.GenericScrtCaCert: "generic-mtls-split-ca",
+		kubesecrets.GenericScrtCaCert: "generic-mtls-split-ca",
 	})
 )
 
@@ -86,7 +142,7 @@ func TestGenerate(t *testing.T) {
 	}{
 		{
 			name:      "simple",
-			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router},
+			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router, ConfigNamespace: "istio-system"},
 			resources: []string{"kubernetes://generic"},
 			request:   &model.PushRequest{Full: true},
 			expect: map[string]Expected{
@@ -98,21 +154,28 @@ func TestGenerate(t *testing.T) {
 		},
 		{
 			name:      "sidecar",
-			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}},
+			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, ConfigNamespace: "istio-system"},
+			resources: []string{"kubernetes://generic"},
+			request:   &model.PushRequest{Full: true},
+			expect:    map[string]Expected{},
+		},
+		{
+			name:      "mismatched namespace",
+			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router},
 			resources: []string{"kubernetes://generic"},
 			request:   &model.PushRequest{Full: true},
 			expect:    map[string]Expected{},
 		},
 		{
 			name:      "unauthenticated",
-			proxy:     &model.Proxy{Type: model.Router},
+			proxy:     &model.Proxy{Type: model.Router, ConfigNamespace: "istio-system"},
 			resources: []string{"kubernetes://generic"},
 			request:   &model.PushRequest{Full: true},
 			expect:    map[string]Expected{},
 		},
 		{
 			name:      "multiple",
-			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router},
+			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router, ConfigNamespace: "istio-system"},
 			resources: allResources,
 			request:   &model.PushRequest{Full: true},
 			expect: map[string]Expected{
@@ -138,7 +201,7 @@ func TestGenerate(t *testing.T) {
 		},
 		{
 			name:      "full push with updates",
-			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router},
+			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router, ConfigNamespace: "istio-system"},
 			resources: []string{"kubernetes://generic", "kubernetes://generic-mtls", "kubernetes://generic-mtls-cacert"},
 			request: &model.PushRequest{Full: true, ConfigsUpdated: map[model.ConfigKey]struct{}{
 				{Name: "generic-mtls", Namespace: "istio-system", Kind: gvk.Secret}: {},
@@ -159,7 +222,7 @@ func TestGenerate(t *testing.T) {
 		},
 		{
 			name:      "incremental push with updates",
-			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router},
+			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router, ConfigNamespace: "istio-system"},
 			resources: allResources,
 			request: &model.PushRequest{Full: false, ConfigsUpdated: map[model.ConfigKey]struct{}{
 				{Name: "generic", Namespace: "istio-system", Kind: gvk.Secret}: {},
@@ -173,7 +236,7 @@ func TestGenerate(t *testing.T) {
 		},
 		{
 			name:      "incremental push with updates - mtls",
-			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router},
+			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router, ConfigNamespace: "istio-system"},
 			resources: allResources,
 			request: &model.PushRequest{Full: false, ConfigsUpdated: map[model.ConfigKey]struct{}{
 				{Name: "generic-mtls", Namespace: "istio-system", Kind: gvk.Secret}: {},
@@ -190,7 +253,7 @@ func TestGenerate(t *testing.T) {
 		},
 		{
 			name:      "incremental push with updates - mtls split",
-			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router},
+			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router, ConfigNamespace: "istio-system"},
 			resources: allResources,
 			request: &model.PushRequest{Full: false, ConfigsUpdated: map[model.ConfigKey]struct{}{
 				{Name: "generic-mtls-split", Namespace: "istio-system", Kind: gvk.Secret}: {},
@@ -207,7 +270,7 @@ func TestGenerate(t *testing.T) {
 		},
 		{
 			name:      "incremental push with updates - mtls split ca update",
-			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router},
+			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router, ConfigNamespace: "istio-system"},
 			resources: allResources,
 			request: &model.PushRequest{Full: false, ConfigsUpdated: map[model.ConfigKey]struct{}{
 				{Name: "generic-mtls-split-cacert", Namespace: "istio-system", Kind: gvk.Secret}: {},
@@ -225,7 +288,7 @@ func TestGenerate(t *testing.T) {
 		{
 			// If an unknown resource is request, we return all the ones we do know about
 			name:      "unknown",
-			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router},
+			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router, ConfigNamespace: "istio-system"},
 			resources: []string{"kubernetes://generic", "foo://invalid", "kubernetes://not-found"},
 			request:   &model.PushRequest{Full: true},
 			expect: map[string]Expected{
@@ -238,7 +301,7 @@ func TestGenerate(t *testing.T) {
 		{
 			// proxy without authorization
 			name:      "unauthorized",
-			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router},
+			proxy:     &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router, ConfigNamespace: "istio-system"},
 			resources: []string{"kubernetes://generic"},
 			request:   &model.PushRequest{Full: true},
 			// Should get a response, but it will be empty
@@ -250,10 +313,6 @@ func TestGenerate(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.proxy.Metadata == nil {
-				tt.proxy.Metadata = &model.NodeMetadata{}
-			}
-			tt.proxy.Metadata.ClusterID = "Kubernetes"
 			s := NewFakeDiscoveryServer(t, FakeOptions{
 				KubernetesObjects: []runtime.Object{genericCert, genericMtlsCert, genericMtlsCertSplit, genericMtlsCertSplitCa},
 			})
@@ -263,12 +322,12 @@ func TestGenerate(t *testing.T) {
 			if tt.accessReviewResponse != nil {
 				cc.Fake.PrependReactor("create", "subjectaccessreviews", tt.accessReviewResponse)
 			} else {
-				credentials.DisableAuthorizationForTest(cc)
+				kubesecrets.DisableAuthorizationForTest(cc)
 			}
 			cc.Fake.Unlock()
 
 			gen := s.Discovery.Generators[v3.SecretType]
-			tt.request.Start = time.Now()
+
 			secrets, _, _ := gen.Generate(s.SetupProxy(tt.proxy), s.PushContext(),
 				&model.WatchedResource{ResourceNames: tt.resources}, tt.request)
 			raw := xdstest.ExtractTLSSecrets(t, model.ResourcesToAny(secrets))
@@ -296,24 +355,14 @@ func TestCaching(t *testing.T) {
 		KubernetesObjects: []runtime.Object{genericCert},
 		KubeClientModifier: func(c kube.Client) {
 			cc := c.Kube().(*fake.Clientset)
-			credentials.DisableAuthorizationForTest(cc)
+			kubesecrets.DisableAuthorizationForTest(cc)
 		},
 	})
 	gen := s.Discovery.Generators[v3.SecretType]
 
-	fullPush := &model.PushRequest{Full: true, Start: time.Now()}
-	istiosystem := &model.Proxy{
-		Metadata:         &model.NodeMetadata{ClusterID: "Kubernetes"},
-		VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"},
-		Type:             model.Router,
-		ConfigNamespace:  "istio-system",
-	}
-	otherNamespace := &model.Proxy{
-		Metadata:         &model.NodeMetadata{ClusterID: "Kubernetes"},
-		VerifiedIdentity: &spiffe.Identity{Namespace: "other-namespace"},
-		Type:             model.Router,
-		ConfigNamespace:  "other-namespace",
-	}
+	fullPush := &model.PushRequest{Full: true}
+	istiosystem := &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "istio-system"}, Type: model.Router, ConfigNamespace: "istio-system"}
+	otherNamespace := &model.Proxy{VerifiedIdentity: &spiffe.Identity{Namespace: "other-namespace"}, Type: model.Router, ConfigNamespace: "other-namespace"}
 
 	secrets, _, _ := gen.Generate(s.SetupProxy(istiosystem), s.PushContext(),
 		&model.WatchedResource{ResourceNames: []string{"kubernetes://generic"}}, fullPush)
@@ -328,46 +377,5 @@ func TestCaching(t *testing.T) {
 	raw = xdstest.ExtractTLSSecrets(t, model.ResourcesToAny(secrets))
 	if len(raw) != 0 {
 		t.Fatalf("failed to get expected secrets for unauthorized proxy: %v", raw)
-	}
-}
-
-func TestAtMostNJoin(t *testing.T) {
-	tests := []struct {
-		data  []string
-		limit int
-		want  string
-	}{
-		{
-			[]string{"a", "b", "c"},
-			2,
-			"a, and 2 others",
-		},
-		{
-			[]string{"a", "b", "c"},
-			4,
-			"a, b, c",
-		},
-		{
-			[]string{"a", "b", "c"},
-			1,
-			"a, b, c",
-		},
-		{
-			[]string{"a", "b", "c"},
-			0,
-			"a, b, c",
-		},
-		{
-			[]string{},
-			3,
-			"",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(fmt.Sprintf("%s-%d", strings.Join(tt.data, "-"), tt.limit), func(t *testing.T) {
-			if got := atMostNJoin(tt.data, tt.limit); got != tt.want {
-				t.Errorf("got %v, want %v", got, tt.want)
-			}
-		})
 	}
 }

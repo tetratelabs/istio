@@ -18,10 +18,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
+	"io/ioutil"
 	"strconv"
 	"strings"
 
+	"github.com/ghodss/yaml"
 	"github.com/hashicorp/go-multierror"
 	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
@@ -32,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
-	"sigs.k8s.io/yaml"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/api/networking/v1alpha3"
@@ -249,7 +249,7 @@ func externalSvcMeshifyCmd() *cobra.Command {
 		Use:     "external-service <svcname> <ip> [name1:]port1 [[name2:]port2] ...",
 		Aliases: []string{"es"},
 		Short:   "Add external service (e.g. services running on a VM) to Istio service mesh",
-		Long: `istioctl experimental add-to-mesh external-service create a ServiceEntry and
+		Long: `istioctl experimental add-to-mesh external-service create a ServiceEntry and 
 a Service without selector for the specified external service in Istio service mesh.
 The typical usage scenario is Mesh Expansion on VMs.
 
@@ -273,12 +273,12 @@ See also 'istioctl experimental remove-from-mesh external-service' which does th
 			ns := handlers.HandleNamespace(namespace, defaultNamespace)
 			_, err = client.CoreV1().Services(ns).Get(context.TODO(), args[0], metav1.GetOptions{})
 			if err != nil {
-				return addServiceOnVMToMesh(seClient, client, ns, args, resourceLabels, annotations, svcAcctAnn, writer)
+				return addServiceOnVMToMesh(seClient, client, ns, args, labels, annotations, svcAcctAnn, writer)
 			}
 			return fmt.Errorf("service %q already exists, skip", args[0])
 		},
 	}
-	cmd.PersistentFlags().StringSliceVarP(&resourceLabels, "labels", "l",
+	cmd.PersistentFlags().StringSliceVarP(&labels, "labels", "l",
 		nil, "List of labels to apply if creating a service/endpoint; e.g. -l env=prod,vers=2")
 	cmd.PersistentFlags().StringSliceVarP(&annotations, "annotations", "a",
 		nil, "List of string annotations to apply if creating a service/endpoint; e.g. -a foo=bar,x=y")
@@ -303,7 +303,7 @@ func setupParameters(sidecarTemplate *inject.Templates, valuesConfig *string, re
 		}
 	}
 	if injectConfigFile != "" {
-		injectionConfig, err := os.ReadFile(injectConfigFile) // nolint: vetshadow
+		injectionConfig, err := ioutil.ReadFile(injectConfigFile) // nolint: vetshadow
 		if err != nil {
 			return nil, err
 		}
@@ -316,7 +316,7 @@ func setupParameters(sidecarTemplate *inject.Templates, valuesConfig *string, re
 		return nil, err
 	}
 	if valuesFile != "" {
-		valuesConfigBytes, err := os.ReadFile(valuesFile) // nolint: vetshadow
+		valuesConfigBytes, err := ioutil.ReadFile(valuesFile) // nolint: vetshadow
 		if err != nil {
 			return nil, err
 		}
@@ -344,7 +344,8 @@ func injectSideCarIntoDeployment(client kubernetes.Interface, dep *appsv1.Deploy
 			dep.Name, dep.Namespace, svcName, svcNamespace, err))
 		return errs
 	}
-	if _, err = client.AppsV1().Deployments(svcNamespace).Update(context.TODO(), res, metav1.UpdateOptions{}); err != nil {
+	if _, err =
+		client.AppsV1().Deployments(svcNamespace).Update(context.TODO(), res, metav1.UpdateOptions{}); err != nil {
 		errs = multierror.Append(errs, fmt.Errorf("failed to update deployment %s.%s for service %s.%s due to %v",
 			dep.Name, dep.Namespace, svcName, svcNamespace, err))
 		return errs
@@ -605,10 +606,10 @@ func createK8sService(client kubernetes.Interface, ns string, svc *corev1.Servic
 		return fmt.Errorf("failed to create vm service")
 	}
 	if _, err := client.CoreV1().Services(ns).Create(context.TODO(), svc, metav1.CreateOptions{}); err != nil {
-		return fmt.Errorf("failed to create kubernetes service %v", err)
+		return fmt.Errorf("failed to create kuberenetes service %v", err)
 	}
 	if _, err := client.CoreV1().Services(ns).UpdateStatus(context.TODO(), svc, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("failed to create kubernetes service %v", err)
+		return fmt.Errorf("failed to create kuberenetes service %v", err)
 	}
 	sName := strings.Join([]string{svc.Name, svc.Namespace}, ".")
 	_, _ = fmt.Fprintf(writer, "Kubernetes Service %q has been created in the Istio service mesh"+

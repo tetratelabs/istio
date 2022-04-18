@@ -19,10 +19,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1batch "k8s.io/api/batch/v1"
-	apimachinery_schema "k8s.io/apimachinery/pkg/runtime/schema"
 
-	"istio.io/istio/pkg/config"
-	"istio.io/istio/pkg/config/schema/collections"
+	"istio.io/istio/pkg/config/schema"
 )
 
 func verifyDeploymentStatus(deployment *appsv1.Deployment) error {
@@ -64,14 +62,11 @@ func verifyJobPostInstall(job *v1batch.Job) error {
 	return nil
 }
 
-func findResourceInSpec(gvk apimachinery_schema.GroupVersionKind) string {
-	s, f := collections.All.FindByGroupVersionKind(config.GroupVersionKind{
-		Group:   gvk.Group,
-		Version: gvk.Version,
-		Kind:    gvk.Kind,
-	})
-	if !f {
-		return ""
+func findResourceInSpec(kind string) string {
+	for _, c := range schema.MustGet().KubeCollections().All() {
+		if c.Resource().Kind() == kind {
+			return c.Resource().Plural()
+		}
 	}
-	return s.Resource().Plural()
+	return ""
 }

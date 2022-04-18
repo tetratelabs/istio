@@ -15,72 +15,67 @@
 package gateway
 
 import (
-	"fmt"
 	"sort"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8s "sigs.k8s.io/gateway-api/apis/v1alpha2"
+	k8s "sigs.k8s.io/gateway-api/apis/v1alpha1"
 
 	"istio.io/istio/pilot/pkg/model/kstatus"
 	"istio.io/istio/pkg/config"
-	"istio.io/istio/pkg/config/schema/gvk"
 )
 
-func createRouteStatus(gateways []routeParentReference, obj config.Config, current []k8s.RouteParentStatus, routeErr *ConfigError) []k8s.RouteParentStatus {
-	gws := make([]k8s.RouteParentStatus, 0, len(gateways))
-	// Fill in all the gateways that are already present but not owned by us. This is non-trivial as there may be multiple
+func createGatewayReference(gw gatewayReference) k8s.RouteStatusGatewayReference {
+	return k8s.RouteStatusGatewayReference{
+		Name:      gw.Name,
+		Namespace: gw.Namespace,
+	}
+}
+
+func createRouteStatus(gateways []gatewayReference, obj config.Config, current []k8s.RouteGatewayStatus, routeErr *ConfigError) []k8s.RouteGatewayStatus {
+	setGateways := map[k8s.RouteStatusGatewayReference]struct{}{}
+	for _, gw := range gateways {
+		setGateways[createGatewayReference(gw)] = struct{}{}
+	}
+	gws := make([]k8s.RouteGatewayStatus, 0, len(gateways))
+	// Fill in all of the gateways that are already present but not owned by us. This is non-trivial as there may be multiple
 	// gateway controllers that are exposing their status on the same route. We need to attempt to manage ours properly (including
 	// removing gateway references when they are removed), without mangling other Controller's status.
 	for _, r := range current {
-		if r.ControllerName != ControllerName {
+		if r.GatewayRef.Controller == nil {
+			// Controller not set. This may be our own resource due to using old CRDs that prune the Controller field,
+			// or it could be some other Controller not handling the spec well
+			_, f := setGateways[r.GatewayRef]
+			if !f {
+				// We are not going to set this gateway ref, so we should keep it, it may be owned by some other Controller
+				// If this was our resource, but the old CRDs that did not have Controller field are present, this will leak; there
+				// isn't much we can do here, users should update their CRDs.
+				gws = append(gws, r)
+			}
+			// Otherwise we are going to overwrite it with our own status later in the code. This could technically overwrite another Controller,
+			// but there isn't much we can do here. If we appended a status, we would end up infinitely writing our own
+			// status
+		} else if *r.GatewayRef.Controller != ControllerName {
 			// We don't own this status, so keep it around
 			gws = append(gws, r)
 		}
 	}
-	// Collect all of our unique parent references. There may be multiple when we have a route without section name,
-	// but reference a parent with multiple sections.
-	seen := map[k8s.ParentRef]routeParentReference{}
-	failedCount := map[k8s.ParentRef]int{}
+	// Now we fill in all of the ones we do own
 	for _, gw := range gateways {
-		// We will append it if it is our first occurrence, or the existing one has an error. This means
-		// if *any* section has no errors, we will declare Admitted
-		if gw.DeniedReason != nil {
-			failedCount[gw.OriginalReference]++
-		}
-		if exist, f := seen[gw.OriginalReference]; !f || (exist.DeniedReason != nil && gw.DeniedReason == nil) {
-			seen[gw.OriginalReference] = gw
-		}
-	}
-	// Now we fill in all the ones we do own
-	// TODO look into also reporting ResolvedRefs; we should be gracefully dropping invalid backends instead
-	// of rejecting the whole thing.
-	for k, gw := range seen {
+		ref := createGatewayReference(gw)
+		ref.Controller = StrPointer(ControllerName)
 		var condition metav1.Condition
 		if routeErr != nil {
 			condition = metav1.Condition{
-				Type:               string(k8s.ConditionRouteAccepted),
+				Type:               string(k8s.ConditionRouteAdmitted),
 				Status:             kstatus.StatusFalse,
 				ObservedGeneration: obj.Generation,
 				LastTransitionTime: metav1.Now(),
 				Reason:             routeErr.Reason,
 				Message:            routeErr.Message,
 			}
-		} else if gw.DeniedReason != nil {
-			err := gw.DeniedReason.Error()
-			if failedCount[k] > 1 {
-				err = fmt.Sprintf("failed to bind to %d parents, last error: %v", failedCount[k], gw.DeniedReason.Error())
-			}
-			condition = metav1.Condition{
-				Type:               string(k8s.ConditionRouteAccepted),
-				Status:             kstatus.StatusFalse,
-				ObservedGeneration: obj.Generation,
-				LastTransitionTime: metav1.Now(),
-				Reason:             InvalidParentRef,
-				Message:            err,
-			}
 		} else {
 			condition = metav1.Condition{
-				Type:               string(k8s.ConditionRouteAccepted),
+				Type:               string(k8s.ConditionRouteAdmitted),
 				Status:             kstatus.StatusTrue,
 				ObservedGeneration: obj.Generation,
 				LastTransitionTime: metav1.Now(),
@@ -88,17 +83,11 @@ func createRouteStatus(gateways []routeParentReference, obj config.Config, curre
 				Message:            "Route was valid",
 			}
 		}
-		gws = append(gws, k8s.RouteParentStatus{
-			ParentRef:      gw.OriginalReference,
-			ControllerName: ControllerName,
-			Conditions:     []metav1.Condition{condition},
+		gws = append(gws, k8s.RouteGatewayStatus{
+			GatewayRef: ref,
+			Conditions: []metav1.Condition{condition},
 		})
 	}
-	// Ensure output is deterministic.
-	// TODO: will we fight over other controllers doing similar (but not identical) ordering?
-	sort.SliceStable(gws, func(i, j int) bool {
-		return parentRefString(gws[i].ParentRef) > parentRefString(gws[j].ParentRef)
-	})
 	return gws
 }
 
@@ -107,8 +96,6 @@ type ConfigErrorReason = string
 const (
 	// InvalidDestination indicates an issue with the destination
 	InvalidDestination ConfigErrorReason = "InvalidDestination"
-	// InvalidParentRef indicates we could not refer to the parent we request
-	InvalidParentRef ConfigErrorReason = "InvalidParentReference"
 	// InvalidFilter indicates an issue with the filters
 	InvalidFilter ConfigErrorReason = "InvalidFilter"
 	// InvalidTLS indicates an issue with TLS settings
@@ -134,8 +121,6 @@ type condition struct {
 	// error defines an error state; the reason and message will be replaced with that of the error and
 	// the status inverted
 	error *ConfigError
-	// setOnce, if enabled, will only set the condition if it is not yet present or set to this reason
-	setOnce string
 }
 
 // setConditions sets the existingConditions with the new conditions
@@ -148,12 +133,6 @@ func setConditions(generation int64, existingConditions []metav1.Condition, cond
 	sort.Strings(condKeys)
 	for _, k := range condKeys {
 		cond := conditions[k]
-		setter := kstatus.UpdateConditionIfChanged
-		if cond.setOnce != "" {
-			setter = func(conditions []metav1.Condition, condition metav1.Condition) []metav1.Condition {
-				return kstatus.CreateCondition(conditions, condition, cond.setOnce)
-			}
-		}
 		// A condition can be "negative polarity" (ex: ListenerInvalid) or "positive polarity" (ex:
 		// ListenerValid), so in order to determine the status we should set each `condition` defines its
 		// default positive status. When there is an error, we will invert that. Example: If we have
@@ -162,7 +141,7 @@ func setConditions(generation int64, existingConditions []metav1.Condition, cond
 		// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
 		// for more information
 		if cond.error != nil {
-			existingConditions = setter(existingConditions, metav1.Condition{
+			existingConditions = kstatus.ConditionallyUpdateCondition(existingConditions, metav1.Condition{
 				Type:               k,
 				Status:             kstatus.InvertStatus(cond.status),
 				ObservedGeneration: generation,
@@ -175,7 +154,7 @@ func setConditions(generation int64, existingConditions []metav1.Condition, cond
 			if status == "" {
 				status = kstatus.StatusTrue
 			}
-			existingConditions = setter(existingConditions, metav1.Condition{
+			existingConditions = kstatus.ConditionallyUpdateCondition(existingConditions, metav1.Condition{
 				Type:               k,
 				Status:             status,
 				ObservedGeneration: generation,
@@ -196,64 +175,27 @@ func reportGatewayCondition(obj config.Config, conditions map[string]*condition)
 	})
 }
 
-func reportListenerAttachedRoutes(index int, obj config.Config, i int32) {
-	obj.Status.(*kstatus.WrappedStatus).Mutate(func(s config.Status) config.Status {
-		gs := s.(*k8s.GatewayStatus)
-		for index >= len(gs.Listeners) {
-			gs.Listeners = append(gs.Listeners, k8s.ListenerStatus{})
-		}
-		status := gs.Listeners[index]
-		status.AttachedRoutes = i
-		gs.Listeners[index] = status
-		return gs
-	})
-}
-
 func reportListenerCondition(index int, l k8s.Listener, obj config.Config, conditions map[string]*condition) {
 	obj.Status.(*kstatus.WrappedStatus).Mutate(func(s config.Status) config.Status {
 		gs := s.(*k8s.GatewayStatus)
-		for index >= len(gs.Listeners) {
+		if index >= len(gs.Listeners) {
 			gs.Listeners = append(gs.Listeners, k8s.ListenerStatus{})
 		}
 		cond := gs.Listeners[index].Conditions
 		gs.Listeners[index] = k8s.ListenerStatus{
-			Name:           l.Name,
-			AttachedRoutes: 0, // this will be reported later
-			SupportedKinds: generateSupportedKinds(l),
-			Conditions:     setConditions(obj.Generation, cond, conditions),
+			Port:       l.Port,
+			Protocol:   l.Protocol,
+			Hostname:   l.Hostname,
+			Conditions: setConditions(obj.Generation, cond, conditions),
 		}
 		return gs
 	})
 }
 
-func generateSupportedKinds(l k8s.Listener) []k8s.RouteGroupKind {
-	supported := []k8s.RouteGroupKind{}
-	switch l.Protocol {
-	case k8s.HTTPProtocolType, k8s.HTTPSProtocolType:
-		// Only terminate allowed, so its always HTTP
-		supported = []k8s.RouteGroupKind{{Group: (*k8s.Group)(StrPointer(gvk.HTTPRoute.Group)), Kind: k8s.Kind(gvk.HTTPRoute.Kind)}}
-	case k8s.TCPProtocolType:
-		supported = []k8s.RouteGroupKind{{Group: (*k8s.Group)(StrPointer(gvk.TCPRoute.Group)), Kind: k8s.Kind(gvk.TCPRoute.Kind)}}
-	case k8s.TLSProtocolType:
-		if l.TLS != nil && l.TLS.Mode != nil && *l.TLS.Mode == k8s.TLSModePassthrough {
-			supported = []k8s.RouteGroupKind{{Group: (*k8s.Group)(StrPointer(gvk.TLSRoute.Group)), Kind: k8s.Kind(gvk.TLSRoute.Kind)}}
-		} else {
-			supported = []k8s.RouteGroupKind{{Group: (*k8s.Group)(StrPointer(gvk.TCPRoute.Group)), Kind: k8s.Kind(gvk.TCPRoute.Kind)}}
-		}
-		// UDP route note support
-	}
-	if l.AllowedRoutes != nil && len(l.AllowedRoutes.Kinds) > 0 {
-		// We need to filter down to only ones we actually support
-		intersection := []k8s.RouteGroupKind{}
-		for _, s := range supported {
-			for _, kind := range l.AllowedRoutes.Kinds {
-				if s == kind {
-					intersection = append(intersection, s)
-					break
-				}
-			}
-		}
-		return intersection
-	}
-	return supported
+func reportBackendPolicyCondition(obj config.Config, conditions map[string]*condition) {
+	obj.Status.(*kstatus.WrappedStatus).Mutate(func(s config.Status) config.Status {
+		bs := s.(*k8s.BackendPolicyStatus)
+		bs.Conditions = setConditions(obj.Generation, bs.Conditions, conditions)
+		return bs
+	})
 }

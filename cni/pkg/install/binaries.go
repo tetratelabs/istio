@@ -15,6 +15,7 @@
 package install
 
 import (
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -30,7 +31,7 @@ func copyBinaries(srcDir string, targetDirs []string, updateBinaries bool, skipB
 			continue
 		}
 
-		files, err := os.ReadDir(srcDir)
+		files, err := ioutil.ReadDir(srcDir)
 		if err != nil {
 			return err
 		}

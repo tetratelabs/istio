@@ -41,7 +41,7 @@ import (
 )
 
 func makeClient(t *testing.T, schemas collection.Schemas) (model.ConfigStoreCache, kube.ExtendedClient) {
-	features.EnableGatewayAPI = true
+	features.EnableServiceApis = true
 	fake := kube.NewFakeClient()
 	for _, s := range schemas.All() {
 		createCRD(t, fake, s.Resource())
@@ -154,11 +154,11 @@ func TestClientDelayedCRDs(t *testing.T) {
 
 // CheckIstioConfigTypes validates that an empty store can do CRUD operators on all given types
 func TestClient(t *testing.T) {
-	store, _ := makeClient(t, collections.PilotGatewayAPI)
+	store, _ := makeClient(t, collections.PilotServiceApi)
 	configName := "name"
 	configNamespace := "namespace"
 	timeout := retry.Timeout(time.Millisecond * 200)
-	for _, c := range collections.PilotGatewayAPI.All() {
+	for _, c := range collections.PilotServiceApi.All() {
 		name := c.Resource().Kind()
 		t.Run(name, func(t *testing.T) {
 			r := c.Resource()
@@ -171,6 +171,11 @@ func TestClient(t *testing.T) {
 			}
 
 			pb, err := r.NewInstance()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			stat, err := r.Status()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -213,22 +218,11 @@ func TestClient(t *testing.T) {
 			}
 			configMeta.Annotations = annotations
 			if _, err := store.Update(config.Config{
-				Meta: configMeta,
-				Spec: pb,
+				Meta:   configMeta,
+				Spec:   pb,
+				Status: stat,
 			}); err != nil {
 				t.Errorf("Unexpected Error in Update -> %v", err)
-			}
-			if r.StatusKind() != "" {
-				stat, err := r.Status()
-				if err != nil {
-					t.Fatal(err)
-				}
-				if _, err := store.UpdateStatus(config.Config{
-					Meta:   configMeta,
-					Status: stat,
-				}); err != nil {
-					t.Errorf("Unexpected Error in Update -> %v", err)
-				}
 			}
 			var cfg *config.Config
 			// validate it is updated

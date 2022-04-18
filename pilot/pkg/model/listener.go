@@ -24,14 +24,14 @@ const (
 	// VirtualOutboundCatchAllTCPFilterChainName is the name of the catch all tcp filter chain
 	VirtualOutboundCatchAllTCPFilterChainName = "virtualOutbound-catchall-tcp"
 
-	// VirtualOutboundBlackholeFilterChainName is the name of the filter chain to blackhole undesired traffic
+	// VirtualOutboundCatchAllTCPFilterChainName is the name of the filter chain to blackhole undesired traffic
 	VirtualOutboundBlackholeFilterChainName = "virtualOutbound-blackhole"
-	// VirtualInboundBlackholeFilterChainName is the name of the filter chain to blackhole undesired traffic
+	// VirtualInboundCatchAllTCPFilterChainName is the name of the filter chain to blackhole undesired traffic
 	VirtualInboundBlackholeFilterChainName = "virtualInbound-blackhole"
 
 	// VirtualInboundListenerName is the name for traffic capture listener
 	VirtualInboundListenerName = "virtualInbound"
 
-	// VirtualInboundCatchAllHTTPFilterChainName is the name of the catch all http filter chain
+	// virtualInboundCatchAllHTTPFilterChainName is the name of the catch all http filter chain
 	VirtualInboundCatchAllHTTPFilterChainName = "virtualInbound-catchall-http"
 )

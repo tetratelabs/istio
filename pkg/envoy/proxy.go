@@ -16,6 +16,8 @@ package envoy
 
 import (
 	"fmt"
+	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -24,7 +26,6 @@ import (
 
 	"github.com/gogo/protobuf/types"
 
-	"istio.io/istio/pilot/pkg/util/network"
 	"istio.io/pkg/env"
 	"istio.io/pkg/log"
 )
@@ -109,12 +110,12 @@ func (e *envoy) Drain() error {
 }
 
 func (e *envoy) UpdateConfig(config []byte) error {
-	return os.WriteFile(e.ConfigPath, config, 0o666)
+	return ioutil.WriteFile(e.ConfigPath, config, 0o666)
 }
 
 func (e *envoy) args(fname string, epoch int, bootstrapConfig string) []string {
 	proxyLocalAddressType := "v4"
-	if network.IsIPv6Proxy(e.NodeIPs) {
+	if isIPv6Proxy(e.NodeIPs) {
 		proxyLocalAddressType = "v6"
 	}
 	startupArgs := []string{
@@ -124,6 +125,7 @@ func (e *envoy) args(fname string, epoch int, bootstrapConfig string) []string {
 		"--drain-strategy", "immediate", // Clients are notified as soon as the drain process starts.
 		"--parent-shutdown-time-s", fmt.Sprint(int(convertDuration(e.ParentShutdownDuration) / time.Second)),
 		"--local-address-ip-version", proxyLocalAddressType,
+		"--bootstrap-version", "3",
 		// Reduce default flush interval from 10s to 1s. The access log buffer size is 64k and each log is ~256 bytes
 		// This means access logs will be written once we have ~250 requests, or ever 1s, which ever comes first.
 		// Reducing this to 1s optimizes for UX while retaining performance.
@@ -147,7 +149,7 @@ func (e *envoy) args(fname string, epoch int, bootstrapConfig string) []string {
 	startupArgs = append(startupArgs, e.extraArgs...)
 
 	if bootstrapConfig != "" {
-		bytes, err := os.ReadFile(bootstrapConfig)
+		bytes, err := ioutil.ReadFile(bootstrapConfig)
 		if err != nil {
 			log.Warnf("Failed to read bootstrap override %s, %v", bootstrapConfig, err)
 		} else {
@@ -219,4 +221,21 @@ func convertDuration(d *types.Duration) time.Duration {
 		log.Warnf("error converting duration %#v, using 0: %v", d, err)
 	}
 	return dur
+}
+
+// isIPv6Proxy check the addresses slice and returns true for a valid IPv6 address
+// for all other cases it returns false
+func isIPv6Proxy(ipAddrs []string) bool {
+	for i := 0; i < len(ipAddrs); i++ {
+		addr := net.ParseIP(ipAddrs[i])
+		if addr == nil {
+			// Should not happen, invalid IP in proxy's IPAddresses slice should have been caught earlier,
+			// skip it to prevent a panic.
+			continue
+		}
+		if addr.To4() != nil {
+			return false
+		}
+	}
+	return true
 }

@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"sort"
 	"strings"
@@ -105,8 +105,7 @@ func (c *httpProtocol) makeRequest(ctx context.Context, req *request) (string, e
 		if key == hostHeader {
 			host = value
 		} else {
-			// Avoid using .Add() to allow users to pass non-canonical forms
-			httpReq.Header[key] = append(httpReq.Header[key], value)
+			httpReq.Header.Add(key, value)
 		}
 	})
 
@@ -131,7 +130,7 @@ func (c *httpProtocol) makeRequest(ctx context.Context, req *request) (string, e
 		}
 	}
 
-	data, err := io.ReadAll(httpResp.Body)
+	data, err := ioutil.ReadAll(httpResp.Body)
 	defer func() {
 		if err = httpResp.Body.Close(); err != nil {
 			outBuffer.WriteString(fmt.Sprintf("[%d error] %s\n", req.RequestID, err))

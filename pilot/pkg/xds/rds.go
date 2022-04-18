@@ -15,7 +15,10 @@
 package xds
 
 import (
+	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+
 	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/schema/gvk"
 )
@@ -34,7 +37,6 @@ var skippedRdsConfigs = map[config.GroupVersionKind]struct{}{
 	gvk.RequestAuthentication: {},
 	gvk.PeerAuthentication:    {},
 	gvk.Secret:                {},
-	gvk.WasmPlugin:            {},
 }
 
 func rdsNeedsPush(req *model.PushRequest) bool {
@@ -62,6 +64,13 @@ func (c RdsGenerator) Generate(proxy *model.Proxy, push *model.PushContext, w *m
 	if !rdsNeedsPush(req) {
 		return nil, model.DefaultXdsLogDetails, nil
 	}
-	resources, logDetails := c.Server.ConfigGenerator.BuildHTTPRoutes(proxy, req, w.ResourceNames)
-	return resources, logDetails, nil
+	rawRoutes := c.Server.ConfigGenerator.BuildHTTPRoutes(proxy, push, w.ResourceNames)
+	resources := model.Resources{}
+	for _, c := range rawRoutes {
+		resources = append(resources, &discovery.Resource{
+			Name:     c.Name,
+			Resource: util.MessageToAny(c),
+		})
+	}
+	return resources, model.DefaultXdsLogDetails, nil
 }

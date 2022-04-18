@@ -17,6 +17,7 @@ package framework
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -65,6 +66,8 @@ type TestContext interface {
 	Error(args ...interface{})
 	Errorf(format string, args ...interface{})
 	Failed() bool
+	Log(args ...interface{})
+	Logf(format string, args ...interface{})
 	Name() string
 	Skip(args ...interface{})
 	SkipNow()
@@ -201,17 +204,14 @@ func (c *testContext) Environment() resource.Environment {
 }
 
 func (c *testContext) Clusters() cluster.Clusters {
-	if c == nil || c.Environment() == nil {
-		return nil
-	}
-	return c.Environment().Clusters()
+	return c.AllClusters().MeshClusters()
 }
 
 func (c *testContext) AllClusters() cluster.Clusters {
 	if c == nil || c.Environment() == nil {
 		return nil
 	}
-	return c.Environment().AllClusters()
+	return c.Environment().Clusters()
 }
 
 func (c *testContext) CreateDirectory(name string) (string, error) {
@@ -235,7 +235,7 @@ func (c *testContext) CreateDirectoryOrFail(name string) string {
 }
 
 func (c *testContext) CreateTmpDirectory(prefix string) (string, error) {
-	dir, err := os.MkdirTemp(c.workDir, prefix)
+	dir, err := ioutil.TempDir(c.workDir, prefix)
 	if err != nil {
 		scopes.Framework.Errorf("Error creating temp dir: runID='%v', prefix='%s', workDir='%v', err='%v'",
 			c.suite.settings.RunID, prefix, c.workDir, err)
@@ -250,12 +250,8 @@ func (c *testContext) SkipDumping() {
 	c.scope.skipDumping()
 }
 
-func (c *testContext) ConfigKube(clusters ...cluster.Cluster) resource.ConfigManager {
+func (c *testContext) Config(clusters ...cluster.Cluster) resource.ConfigManager {
 	return newConfigManager(c, clusters)
-}
-
-func (c *testContext) ConfigIstio() resource.ConfigManager {
-	return newConfigManager(c, c.Clusters().Configs())
 }
 
 func (c *testContext) CreateTmpDirectoryOrFail(prefix string) string {

@@ -16,7 +16,7 @@ package httprequest
 
 import (
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 )
 
@@ -30,7 +30,7 @@ func Get(url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to fetch URL %s : %s", url, resp.Status)
 	}
-	ret, err := io.ReadAll(resp.Body)
+	ret, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}

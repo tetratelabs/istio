@@ -17,9 +17,8 @@ import (
 	"fmt"
 	"time"
 
-	clientset "k8s.io/client-go/kubernetes"
+	certificatesv1beta1 "k8s.io/client-go/kubernetes/typed/certificates/v1beta1"
 
-	meshconfig "istio.io/api/mesh/v1alpha1"
 	raerror "istio.io/istio/security/pkg/pki/error"
 	"istio.io/istio/security/pkg/pki/util"
 	caserver "istio.io/istio/security/pkg/server/ca"
@@ -28,10 +27,6 @@ import (
 // RegistrationAuthority : Registration Authority interface.
 type RegistrationAuthority interface {
 	caserver.CertificateAuthority
-	// SetCACertificatesFromMeshConfig sets the CACertificates using the ones from mesh config
-	SetCACertificatesFromMeshConfig([]*meshconfig.MeshConfig_CertificateData)
-	// GetRootCertFromMeshConfig returns the root cert for the specific signer in mesh config
-	GetRootCertFromMeshConfig(signerName string) ([]byte, error)
 }
 
 // CaExternalType : Type of External CA integration
@@ -52,11 +47,9 @@ type IstioRAOptions struct {
 	// VerifyAppendCA : Whether to use caCertFile containing CA root cert to verify and append to signed cert-chain
 	VerifyAppendCA bool
 	// K8sClient : K8s API client
-	K8sClient clientset.Interface
+	K8sClient certificatesv1beta1.CertificatesV1beta1Interface
 	// TrustDomain
 	TrustDomain string
-	// CertSignerDomain info
-	CertSignerDomain string
 }
 
 const (

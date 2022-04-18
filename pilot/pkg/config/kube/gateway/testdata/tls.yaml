@@ -1,82 +1,96 @@
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: GatewayClass
 metadata:
   name: istio
 spec:
-  controllerName: istio.io/gateway-controller
+  controller: istio.io/gateway-controller
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: Gateway
 metadata:
   name: gateway
   namespace: istio-system
 spec:
-  addresses:
-  - value: istio-ingressgateway
-    type: Hostname
   gatewayClassName: istio
   listeners:
-  - name: passthrough
-    port: 34000
+  # Passthrough
+  - port: 34000
     protocol: TLS
-    allowedRoutes:
+    routes:
       namespaces:
         from: All
+      selector:
+        matchLabels:
+          selected: "yes"
+      kind: TLSRoute
     tls:
       mode: Passthrough
-  - name: terminate
-    hostname: "domain.example"
+      certificateRef:
+        name: my-cert-tls
+        group: core
+        kind: Secret
+  # Termination
+  - hostname: "domain.example"
     port: 34000
     protocol: HTTPS
-    allowedRoutes:
+    routes:
       namespaces:
         from: All
+      selector:
+        matchLabels:
+          selected: "yes"
+      kind: HTTPRoute
     tls:
       mode: Terminate
-      certificateRefs:
-      - name: my-cert-http
+      certificateRef:
+        name: my-cert-http
+        group: core
+        kind: Secret
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: TLSRoute
 metadata:
   name: tls
   namespace: default
+  labels:
+    selected: "yes"
 spec:
-  parentRefs:
-  - name: gateway
-    namespace: istio-system
+  gateways:
+    allow: All
   rules:
-  - backendRefs:
-    - name: httpbin
+  - forwardTo:
+    - serviceName: httpbin
       port: 443
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: TLSRoute
 metadata:
   name: tls-match
   namespace: default
+  labels:
+    selected: "yes"
 spec:
-  parentRefs:
-  - name: gateway
-    namespace: istio-system
-  hostnames:
-  - "foo.com"
+  gateways:
+    allow: All
   rules:
-  - backendRefs:
-    - name: httpbin-foo
+  - matches:
+    - snis: ["foo.com"]
+    forwardTo:
+    - serviceName: httpbin
       port: 443
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: HTTPRoute
 metadata:
   name: http
   namespace: default
+  labels:
+    selected: "yes"
 spec:
-  parentRefs:
-  - name: gateway
-    namespace: istio-system
+  gateways:
+    allow: All
   hostnames: ["domain.example"]
   rules:
-  - backendRefs:
-    - name: httpbin
+  - forwardTo:
+    - serviceName: httpbin
       port: 80

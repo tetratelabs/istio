@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,7 +16,7 @@
 package filebasedtlsorigination
 
 import (
-	"os"
+	"io/ioutil"
 	"path"
 	"testing"
 	"time"
@@ -35,7 +33,7 @@ import (
 )
 
 func mustReadFile(t framework.TestContext, f string) string {
-	b, err := os.ReadFile(path.Join(env.IstioSrc, "tests/testdata/certs/dns", f))
+	b, err := ioutil.ReadFile(path.Join(env.IstioSrc, "tests/testdata/certs/dns", f))
 	if err != nil {
 		t.Fatalf("failed to read %v: %v", f, err)
 	}
@@ -55,7 +53,7 @@ func TestDestinationRuleTls(t *testing.T) {
 			})
 
 			// Setup our destination rule, enforcing TLS to "server". These certs will be created/mounted below.
-			t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), `
+			t.Config().ApplyYAMLOrFail(t, ns.Name(), `
 apiVersion: networking.istio.io/v1alpha3
 kind: DestinationRule
 metadata:

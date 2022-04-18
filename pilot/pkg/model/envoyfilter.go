@@ -11,14 +11,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 package model
 
 import (
 	"regexp"
 	"strings"
 
-	"google.golang.org/protobuf/proto"
+	"github.com/gogo/protobuf/proto"
 
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/util/sets"
@@ -65,7 +64,6 @@ var wellKnownVersions = map[string]string{
 	`^1\.10.*`: "1.10",
 	`^1\.11.*`: "1.11",
 	`^1\.12.*`: "1.12",
-	`^1\.13.*`: "1.13",
 	// Hopefully we have a better API by 1.13. If not, add it here
 }
 
@@ -82,7 +80,9 @@ func convertToEnvoyFilterWrapper(local *config.Config) *EnvoyFilterWrapper {
 		if cp.Patch == nil {
 			// Should be caught by validation, but sometimes its disabled and we don't want to crash
 			// as a result.
-			log.Debugf("envoyfilter %v/%v discarded due to missing patch", local.Namespace, local.Name)
+			if log.DebugEnabled() {
+				log.Debugf("envoyfilter %v/%v discarded due to missing patch", local.Namespace, local.Name)
+			}
 			continue
 		}
 		cpw := &EnvoyFilterConfigPatchWrapper{
@@ -123,8 +123,8 @@ func convertToEnvoyFilterWrapper(local *config.Config) *EnvoyFilterWrapper {
 		if cpw.Operation == networking.EnvoyFilter_Patch_INSERT_AFTER ||
 			cpw.Operation == networking.EnvoyFilter_Patch_INSERT_BEFORE ||
 			cpw.Operation == networking.EnvoyFilter_Patch_INSERT_FIRST {
-			// insert_before, after or first is applicable for network filter,
-			// http filter and http route, convert the rest to add
+			// insert_before, after or first is applicable only for network filter and http filter
+			// convert the rest to add
 			if cpw.ApplyTo != networking.EnvoyFilter_HTTP_FILTER &&
 				cpw.ApplyTo != networking.EnvoyFilter_NETWORK_FILTER &&
 				cpw.ApplyTo != networking.EnvoyFilter_HTTP_ROUTE {
@@ -165,7 +165,7 @@ func proxyMatch(proxy *Proxy, cp *EnvoyFilterConfigPatchWrapper) bool {
 	return true
 }
 
-// Returns the keys of all the wrapped envoyfilters.
+// Returns all the wrapped envoyfilters keys in increasing order .
 func (efw *EnvoyFilterWrapper) Keys() []string {
 	if efw == nil {
 		return nil

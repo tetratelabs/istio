@@ -28,16 +28,14 @@ import (
 	extauthztcp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/ext_authz/v3"
 	envoy_type_matcher_v3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	envoytypev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
-	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/gogo/protobuf/types"
+	"github.com/golang/protobuf/ptypes/duration"
 	"github.com/hashicorp/go-multierror"
-	"google.golang.org/protobuf/types/known/durationpb"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pilot/pkg/extensionproviders"
 	"istio.io/istio/pilot/pkg/networking/plugin"
 	authzmodel "istio.io/istio/pilot/pkg/security/authz/model"
-	"istio.io/istio/pkg/config/validation"
 	"istio.io/istio/pkg/util/gogo"
 )
 
@@ -86,13 +84,9 @@ func processExtensionProvider(in *plugin.InputParams) map[string]*builtExtAuthz 
 		// TODO(yangminzhu): Refactor and cache the ext_authz config.
 		switch p := config.Provider.(type) {
 		case *meshconfig.MeshConfig_ExtensionProvider_EnvoyExtAuthzHttp:
-			if err = validation.ValidateExtensionProviderEnvoyExtAuthzHTTP(p.EnvoyExtAuthzHttp); err == nil {
-				parsed, err = buildExtAuthzHTTP(in, p.EnvoyExtAuthzHttp)
-			}
+			parsed, err = buildExtAuthzHTTP(in, p.EnvoyExtAuthzHttp)
 		case *meshconfig.MeshConfig_ExtensionProvider_EnvoyExtAuthzGrpc:
-			if err = validation.ValidateExtensionProviderEnvoyExtAuthzGRPC(p.EnvoyExtAuthzGrpc); err == nil {
-				parsed, err = buildExtAuthzGRPC(in, p.EnvoyExtAuthzGrpc)
-			}
+			parsed, err = buildExtAuthzGRPC(in, p.EnvoyExtAuthzGrpc)
 		default:
 			continue
 		}
@@ -282,7 +276,7 @@ func generateHTTPConfig(hostname, cluster string, status *envoytypev3.HttpStatus
 		Services: &extauthzhttp.ExtAuthz_HttpService{
 			HttpService: service,
 		},
-		FilterEnabledMetadata: generateFilterMatcher(wellknown.HTTPRoleBasedAccessControl),
+		FilterEnabledMetadata: generateFilterMatcher(authzmodel.RBACHTTPFilterName),
 		WithRequestBody:       withBodyRequest(config.IncludeRequestBodyInCheck),
 	}
 	return &builtExtAuthz{http: http}
@@ -309,7 +303,7 @@ func generateGRPCConfig(cluster string, config *meshconfig.MeshConfig_ExtensionP
 		Services: &extauthzhttp.ExtAuthz_GrpcService{
 			GrpcService: grpc,
 		},
-		FilterEnabledMetadata: generateFilterMatcher(wellknown.HTTPRoleBasedAccessControl),
+		FilterEnabledMetadata: generateFilterMatcher(authzmodel.RBACHTTPFilterName),
 		TransportApiVersion:   envoy_config_core_v3.ApiVersion_V3,
 		WithRequestBody:       withBodyRequest(config.IncludeRequestBodyInCheck),
 	}
@@ -318,7 +312,7 @@ func generateGRPCConfig(cluster string, config *meshconfig.MeshConfig_ExtensionP
 		FailureModeAllow:      config.FailOpen,
 		TransportApiVersion:   envoy_config_core_v3.ApiVersion_V3,
 		GrpcService:           grpc,
-		FilterEnabledMetadata: generateFilterMatcher(wellknown.RoleBasedAccessControl),
+		FilterEnabledMetadata: generateFilterMatcher(authzmodel.RBACTCPFilterName),
 	}
 	return &builtExtAuthz{http: http, tcp: tcp}
 }
@@ -329,20 +323,24 @@ func generateHeaders(headers []string) *envoy_type_matcher_v3.ListStringMatcher 
 	}
 	var patterns []*envoy_type_matcher_v3.StringMatcher
 	for _, header := range headers {
-		pattern := &envoy_type_matcher_v3.StringMatcher{
-			IgnoreCase: true,
-		}
+		var pattern *envoy_type_matcher_v3.StringMatcher
 		if strings.HasPrefix(header, "*") {
-			pattern.MatchPattern = &envoy_type_matcher_v3.StringMatcher_Suffix{
-				Suffix: strings.TrimPrefix(header, "*"),
+			pattern = &envoy_type_matcher_v3.StringMatcher{
+				MatchPattern: &envoy_type_matcher_v3.StringMatcher_Suffix{
+					Suffix: strings.TrimPrefix(header, "*"),
+				},
 			}
 		} else if strings.HasSuffix(header, "*") {
-			pattern.MatchPattern = &envoy_type_matcher_v3.StringMatcher_Prefix{
-				Prefix: strings.TrimSuffix(header, "*"),
+			pattern = &envoy_type_matcher_v3.StringMatcher{
+				MatchPattern: &envoy_type_matcher_v3.StringMatcher_Prefix{
+					Prefix: strings.TrimSuffix(header, "*"),
+				},
 			}
 		} else {
-			pattern.MatchPattern = &envoy_type_matcher_v3.StringMatcher_Exact{
-				Exact: header,
+			pattern = &envoy_type_matcher_v3.StringMatcher{
+				MatchPattern: &envoy_type_matcher_v3.StringMatcher_Exact{
+					Exact: header,
+				},
 			}
 		}
 		patterns = append(patterns, pattern)
@@ -372,10 +370,10 @@ func generateFilterMatcher(name string) *envoy_type_matcher_v3.MetadataMatcher {
 	}
 }
 
-func timeoutOrDefault(t *types.Duration) *durationpb.Duration {
+func timeoutOrDefault(t *types.Duration) *duration.Duration {
 	if t == nil {
 		// Default timeout is 600s.
-		return &durationpb.Duration{Seconds: 600}
+		return &duration.Duration{Seconds: 600}
 	}
 	return gogo.DurationToProtoDuration(t)
 }

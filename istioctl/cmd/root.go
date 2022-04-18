@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"errors"
+	goflag "flag"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
 
 	"istio.io/istio/istioctl/pkg/install"
 	"istio.io/istio/istioctl/pkg/multicluster"
@@ -53,12 +55,6 @@ const (
 
 	// ExperimentalMsg indicate active development and not for production use warning.
 	ExperimentalMsg = `THIS COMMAND IS UNDER ACTIVE DEVELOPMENT AND NOT READY FOR PRODUCTION USE.`
-)
-
-const (
-	FlagNamespace      = "namespace"
-	FlagIstioNamespace = "istioNamespace"
-	FlagCharts         = "charts"
 )
 
 var (
@@ -90,13 +86,13 @@ func defaultLogOptions() *log.Options {
 	// These scopes are, at the default "INFO" level, too chatty for command line use
 	o.SetOutputLevel("validation", log.ErrorLevel)
 	o.SetOutputLevel("processing", log.ErrorLevel)
+	o.SetOutputLevel("source", log.ErrorLevel)
 	o.SetOutputLevel("analysis", log.WarnLevel)
 	o.SetOutputLevel("installer", log.WarnLevel)
 	o.SetOutputLevel("translator", log.WarnLevel)
 	o.SetOutputLevel("adsc", log.WarnLevel)
 	o.SetOutputLevel("default", log.WarnLevel)
 	o.SetOutputLevel("klog", log.WarnLevel)
-	o.SetOutputLevel("kube", log.ErrorLevel)
 
 	return o
 }
@@ -155,14 +151,14 @@ debug and diagnose their Istio mesh.
 	rootCmd.PersistentFlags().StringVar(&configContext, "context", "",
 		"The name of the kubeconfig context to use")
 
-	rootCmd.PersistentFlags().StringVarP(&istioNamespace, FlagIstioNamespace, "i", viper.GetString(FlagIstioNamespace),
+	rootCmd.PersistentFlags().StringVarP(&istioNamespace, "istioNamespace", "i", viper.GetString("istioNamespace"),
 		"Istio system namespace")
 
-	rootCmd.PersistentFlags().StringVarP(&namespace, FlagNamespace, "n", v1.NamespaceAll,
+	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", v1.NamespaceAll,
 		"Config namespace")
 
-	_ = rootCmd.RegisterFlagCompletionFunc(FlagIstioNamespace, validNamespaceArgs)
-	_ = rootCmd.RegisterFlagCompletionFunc(FlagNamespace, validNamespaceArgs)
+	_ = rootCmd.RegisterFlagCompletionFunc("istioNamespace", validNamespaceArgs)
+	_ = rootCmd.RegisterFlagCompletionFunc("namespace", validNamespaceArgs)
 
 	// Attach the Istio logging options to the command.
 	loggingOptions.AttachCobraFlags(rootCmd)
@@ -177,7 +173,7 @@ debug and diagnose their Istio mesh.
 	cmd.AddFlags(rootCmd)
 
 	kubeInjectCmd := injectCommand()
-	hideInheritedFlags(kubeInjectCmd, FlagNamespace)
+	hideInheritedFlags(kubeInjectCmd, "namespace")
 	rootCmd.AddCommand(kubeInjectCmd)
 
 	experimentalCmd := &cobra.Command{
@@ -224,7 +220,7 @@ debug and diagnose their Istio mesh.
 	experimentalCmd.AddCommand(AuthZ())
 	rootCmd.AddCommand(seeExperimentalCmd("authz"))
 	experimentalCmd.AddCommand(uninjectCommand())
-	experimentalCmd.AddCommand(metricsCmd())
+	experimentalCmd.AddCommand(metricsCmd)
 	experimentalCmd.AddCommand(describe())
 	experimentalCmd.AddCommand(addToMeshCmd())
 	experimentalCmd.AddCommand(removeFromMeshCmd())
@@ -235,51 +231,44 @@ debug and diagnose their Istio mesh.
 	experimentalCmd.AddCommand(revisionCommand())
 	experimentalCmd.AddCommand(debugCommand())
 	experimentalCmd.AddCommand(preCheck())
-	experimentalCmd.AddCommand(statsConfigCmd())
 
 	analyzeCmd := Analyze()
-	hideInheritedFlags(analyzeCmd, FlagIstioNamespace)
+	hideInheritedFlags(analyzeCmd, "istioNamespace")
 	rootCmd.AddCommand(analyzeCmd)
 
 	dashboardCmd := dashboard()
-	hideInheritedFlags(dashboardCmd, FlagNamespace, FlagIstioNamespace)
+	hideInheritedFlags(dashboardCmd, "namespace", "istioNamespace")
 	rootCmd.AddCommand(dashboardCmd)
 
 	manifestCmd := mesh.ManifestCmd(loggingOptions)
-	hideInheritedFlags(manifestCmd, FlagNamespace, FlagIstioNamespace, FlagCharts)
+	hideInheritedFlags(manifestCmd, "namespace", "istioNamespace", "charts")
 	rootCmd.AddCommand(manifestCmd)
 
 	operatorCmd := mesh.OperatorCmd()
-	hideInheritedFlags(operatorCmd, FlagNamespace, FlagIstioNamespace, FlagCharts)
+	hideInheritedFlags(operatorCmd, "namespace", "istioNamespace", "charts")
 	rootCmd.AddCommand(operatorCmd)
 
 	installCmd := mesh.InstallCmd(loggingOptions)
-	hideInheritedFlags(installCmd, FlagNamespace, FlagIstioNamespace, FlagCharts)
+	hideInheritedFlags(installCmd, "namespace", "istioNamespace", "charts")
 	rootCmd.AddCommand(installCmd)
 
 	profileCmd := mesh.ProfileCmd(loggingOptions)
-	hideInheritedFlags(profileCmd, FlagNamespace, FlagIstioNamespace, FlagCharts)
+	hideInheritedFlags(profileCmd, "namespace", "istioNamespace", "charts")
 	rootCmd.AddCommand(profileCmd)
 
-	upgradeCmd := mesh.UpgradeCmd(loggingOptions)
-	hideInheritedFlags(upgradeCmd, FlagNamespace, FlagIstioNamespace, FlagCharts)
+	upgradeCmd := mesh.UpgradeCmd()
+	hideInheritedFlags(upgradeCmd, "namespace", "istioNamespace", "charts")
 	rootCmd.AddCommand(upgradeCmd)
 
 	bugReportCmd := bugreport.Cmd(loggingOptions)
-	hideInheritedFlags(bugReportCmd, FlagNamespace, FlagIstioNamespace)
+	hideInheritedFlags(bugReportCmd, "namespace", "istioNamespace")
 	rootCmd.AddCommand(bugReportCmd)
 
 	tagCmd := tagCommand()
-	hideInheritedFlags(tagCommand(), FlagNamespace, FlagIstioNamespace, FlagCharts)
+	hideInheritedFlags(tagCommand(), "namespace", "istioNamespace", "charts")
 	rootCmd.AddCommand(tagCmd)
 
-	remoteSecretCmd := multicluster.NewCreateRemoteSecretCommand()
-	remoteClustersCmd := clustersCommand()
-	// leave the multicluster commands in x for backwards compat
-	rootCmd.AddCommand(remoteSecretCmd)
-	rootCmd.AddCommand(remoteClustersCmd)
-	experimentalCmd.AddCommand(remoteSecretCmd)
-	experimentalCmd.AddCommand(remoteClustersCmd)
+	experimentalCmd.AddCommand(multicluster.NewCreateRemoteSecretCommand())
 
 	rootCmd.AddCommand(collateral.CobraCommand(rootCmd, &doc.GenManHeader{
 		Title:   "Istio Control",
@@ -332,8 +321,30 @@ func configureLogging(_ *cobra.Command, _ []string) error {
 	if err := log.Configure(loggingOptions); err != nil {
 		return err
 	}
+	// --vklog is non zero then KlogScope should be increased.
+	// klog is a special case.
+	if klogVerbose() {
+		log.KlogScope.SetOutputLevel(log.DebugLevel)
+	}
 	defaultNamespace = getDefaultNamespace(kubeconfig)
 	return nil
+}
+
+// isKlogVerbose returns true if klog verbosity is non-zero.
+// TODO move to istio.io/pkg/log
+func klogVerbose() bool {
+	gf := KlogVerboseFlag()
+	return gf.Value.String() != "0"
+}
+
+// KlogVerboseFlag returns verbose flag from the klog library.
+// After parsing it contains the parsed verbosity value.
+// TODO move to istio.io/pkg/log
+func KlogVerboseFlag() *goflag.Flag {
+	fs := &goflag.FlagSet{}
+	klog.InitFlags(fs)
+	// --v= flag of klog.
+	return fs.Lookup("v")
 }
 
 func getDefaultNamespace(kubeconfig string) string {

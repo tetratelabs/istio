@@ -8,7 +8,7 @@ kubeStateMetrics:
 nodeExporter:
   enabled: false
 server:
-  podLabels:
+  podAnnotations:
     sidecar.istio.io/inject: "false"
   persistentVolume:
     enabled: false

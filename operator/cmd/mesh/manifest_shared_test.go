@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
+	"io/ioutil"
 	"path/filepath"
 	"strings"
 
@@ -28,7 +28,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	"istio.io/istio/operator/pkg/apis/istio/v1alpha1"
@@ -40,7 +39,6 @@ import (
 	"istio.io/istio/operator/pkg/object"
 	"istio.io/istio/operator/pkg/util"
 	"istio.io/istio/operator/pkg/util/clog"
-	"istio.io/istio/pkg/kube"
 	"istio.io/pkg/log"
 )
 
@@ -67,6 +65,7 @@ const (
 var (
 	// By default, tests only run with manifest generate, since it doesn't require any external fake test environment.
 	testedManifestCmds = []cmdType{cmdGenerate}
+
 	// Only used if kubebuilder is installed.
 	testenv               *envtest.Environment
 	testClient            client.Client
@@ -120,19 +119,9 @@ func recreateTestEnv() error {
 		return err
 	}
 
-	testReconcileOperator = istiocontrolplane.NewReconcileIstioOperator(testClient, nil, s)
+	testReconcileOperator = istiocontrolplane.NewReconcileIstioOperator(testClient, testRestConfig, s)
+
 	return nil
-}
-
-// recreateSimpleTestEnv mocks fake kube api server which relies on a simple object tracker
-func recreateSimpleTestEnv() {
-	log.Infof("Creating simple test environment\n")
-	helmreconciler.TestMode = true
-	s := scheme.Scheme
-	s.AddKnownTypes(v1alpha1.SchemeGroupVersion, &v1alpha1.IstioOperator{})
-
-	testClient = fake.NewClientBuilder().WithScheme(s).Build()
-	testReconcileOperator = istiocontrolplane.NewReconcileIstioOperator(testClient, kube.NewFakeClient(), s)
 }
 
 // runManifestCommands runs all testedManifestCmds commands with the given input IOP file, flags and chartSource.
@@ -168,7 +157,7 @@ func runManifestCommands(inFile, flags string, chartSource chartSourceType) (map
 		case cmdApply:
 			objs, err = fakeApplyManifest(inFile, flags, chartSource)
 		case cmdController:
-			objs, err = fakeControllerReconcile(inFile, chartSource, nil)
+			objs, err = fakeControllerReconcile(inFile, chartSource)
 		default:
 		}
 		if err != nil {
@@ -192,7 +181,7 @@ func fakeApplyManifest(inFile, flags string, chartSource chartSourceType) (*Obje
 
 // fakeApplyExtraResources applies any extra resources for the given test name.
 func fakeApplyExtraResources(inFile string) error {
-	reconciler, err := helmreconciler.NewHelmReconciler(testClient, nil, nil, nil)
+	reconciler, err := helmreconciler.NewHelmReconciler(testClient, testRestConfig, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -205,20 +194,19 @@ func fakeApplyExtraResources(inFile string) error {
 	return nil
 }
 
-func fakeControllerReconcile(inFile string, chartSource chartSourceType, opts *helmreconciler.Options) (*ObjectSet, error) {
-	c := kube.NewFakeClient()
+func fakeControllerReconcile(inFile string, chartSource chartSourceType) (*ObjectSet, error) {
 	l := clog.NewDefaultLogger()
 	_, iop, err := manifest.GenerateConfig(
 		[]string{inFileAbsolutePath(inFile)},
 		[]string{"installPackagePath=" + string(chartSource)},
-		false, c, l)
+		false, testRestConfig, l)
 	if err != nil {
 		return nil, err
 	}
 
 	iop.Spec.InstallPackagePath = string(chartSource)
 
-	reconciler, err := helmreconciler.NewHelmReconciler(testClient, c, iop, opts)
+	reconciler, err := helmreconciler.NewHelmReconciler(testClient, testRestConfig, iop, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -335,18 +323,8 @@ func getAllIstioObjects() object.K8sObjects {
 
 // readFile reads a file and returns the contents.
 func readFile(path string) (string, error) {
-	b, err := os.ReadFile(path)
+	b, err := ioutil.ReadFile(path)
 	return string(b), err
-}
-
-// writeFile writes a file and returns an error if operation is unsuccessful.
-func writeFile(path string, data []byte) error {
-	return os.WriteFile(path, data, 0o644)
-}
-
-// removeFile removes given file from provided path.
-func removeFile(path string) error {
-	return os.Remove(path)
 }
 
 // inFileAbsolutePath returns the absolute path for an input file like "gateways".

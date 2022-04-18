@@ -15,21 +15,13 @@
 package networking
 
 import (
-	"fmt"
-
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
-	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	http_conn "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
-	"google.golang.org/protobuf/encoding/prototext"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/durationpb"
 
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pkg/config/protocol"
-	"istio.io/pkg/log"
 )
 
 // ListenerProtocol is the protocol associated with the listener.
@@ -46,24 +38,27 @@ const (
 	ListenerProtocolAuto
 )
 
-const (
-	// BlackHoleCluster to catch traffic from routes with unresolved clusters. Traffic arriving here goes nowhere.
-	BlackHoleCluster = "BlackHoleCluster"
-	// BlackHole is the name of the virtual host and route name used to block all traffic
-	BlackHole = "block_all"
-	// PassthroughCluster to forward traffic to the original destination requested. This cluster is used when
-	// traffic does not match any listener in envoy.
-	PassthroughCluster = "PassthroughCluster"
-	// Passthrough is the name of the virtual host used to forward traffic to the
-	// PassthroughCluster
-	Passthrough = "allow_any"
-)
-
 // ModelProtocolToListenerProtocol converts from a config.Protocol to its corresponding plugin.ListenerProtocol
 func ModelProtocolToListenerProtocol(p protocol.Instance,
 	trafficDirection core.TrafficDirection) ListenerProtocol {
+	// If protocol sniffing is not enabled, the default value is TCP
+	if p == protocol.Unsupported {
+		switch trafficDirection {
+		case core.TrafficDirection_INBOUND:
+			if !features.EnableProtocolSniffingForInbound {
+				p = protocol.TCP
+			}
+		case core.TrafficDirection_OUTBOUND:
+			if !features.EnableProtocolSniffingForOutbound {
+				p = protocol.TCP
+			}
+		default:
+			// Should not reach here.
+		}
+	}
+
 	switch p {
-	case protocol.HTTP, protocol.HTTP2, protocol.HTTP_PROXY, protocol.GRPC, protocol.GRPCWeb:
+	case protocol.HTTP, protocol.HTTP2, protocol.GRPC, protocol.GRPCWeb:
 		return ListenerProtocolHTTP
 	case protocol.TCP, protocol.HTTPS, protocol.TLS,
 		protocol.Mongo, protocol.Redis, protocol.MySQL, protocol.Thrift:
@@ -71,50 +66,11 @@ func ModelProtocolToListenerProtocol(p protocol.Instance,
 	case protocol.UDP:
 		return ListenerProtocolUnknown
 	case protocol.Unsupported:
-		// If protocol sniffing is not enabled, the default value is TCP
-		switch trafficDirection {
-		case core.TrafficDirection_INBOUND:
-			if !features.EnableProtocolSniffingForInbound {
-				return ListenerProtocolTCP
-			}
-		case core.TrafficDirection_OUTBOUND:
-			if !features.EnableProtocolSniffingForOutbound {
-				return ListenerProtocolTCP
-			}
-		default:
-			// Should not reach here.
-		}
 		return ListenerProtocolAuto
 	default:
 		// Should not reach here.
 		return ListenerProtocolAuto
 	}
-}
-
-type TransportProtocol uint8
-
-const (
-	// TransportProtocolTCP is a TCP listener
-	TransportProtocolTCP = iota
-	// TransportProtocolQUIC is a QUIC listener
-	TransportProtocolQUIC
-)
-
-func (tp TransportProtocol) String() string {
-	switch tp {
-	case TransportProtocolTCP:
-		return "tcp"
-	case TransportProtocolQUIC:
-		return "quic"
-	}
-	return "unknown"
-}
-
-func (tp TransportProtocol) ToEnvoySocketProtocol() core.SocketAddress_Protocol {
-	if tp == TransportProtocolQUIC {
-		return core.SocketAddress_UDP
-	}
-	return core.SocketAddress_TCP
 }
 
 // FilterChain describes a set of filters (HTTP or TCP) with a shared TLS context.
@@ -129,9 +85,6 @@ type FilterChain struct {
 	// ListenerProtocol indicates whether this filter chain is for HTTP or TCP
 	// Note that HTTP filter chains can also have network filters
 	ListenerProtocol ListenerProtocol
-	// TransportProtocol indicates the type of transport used - TCP, UDP, QUIC
-	// This would be TCP by default
-	TransportProtocol TransportProtocol
 	// IstioMutualGateway is set only when this filter chain is part of a Gateway, and
 	// the Server corresponding to this filter chain is doing TLS termination with ISTIO_MUTUAL as the TLS mode.
 	// This allows the authN plugin to add the istio_authn filter to gateways in addition to sidecars.
@@ -193,111 +146,4 @@ func (t TunnelType) ToString() string {
 
 func (t TunnelAbility) SupportH2Tunnel() bool {
 	return (int(t) & int(H2Tunnel)) != 0
-}
-
-// ListenerClass defines the class of the listener
-type ListenerClass int
-
-const (
-	ListenerClassUndefined ListenerClass = iota
-	ListenerClassSidecarInbound
-	ListenerClassSidecarOutbound
-	ListenerClassGateway
-)
-
-func BuildCatchAllVirtualHost(allowAnyoutbound bool, sidecarDestination string) *route.VirtualHost {
-	if allowAnyoutbound {
-		egressCluster := PassthroughCluster
-		notimeout := durationpb.New(0)
-
-		if sidecarDestination != "" {
-			// user has provided an explicit destination for all the unknown traffic.
-			// build a cluster out of this destination
-			egressCluster = sidecarDestination
-		}
-
-		routeAction := &route.RouteAction{
-			ClusterSpecifier: &route.RouteAction_Cluster{Cluster: egressCluster},
-			// Disable timeout instead of assuming some defaults.
-			Timeout: notimeout,
-			// Use deprecated value for now as the replacement MaxStreamDuration has some regressions.
-			// nolint: staticcheck
-			MaxGrpcTimeout: notimeout,
-		}
-
-		return &route.VirtualHost{
-			Name:    Passthrough,
-			Domains: []string{"*"},
-			Routes: []*route.Route{
-				{
-					Name: Passthrough,
-					Match: &route.RouteMatch{
-						PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
-					},
-					Action: &route.Route_Route{
-						Route: routeAction,
-					},
-				},
-			},
-			IncludeRequestAttemptCount: true,
-		}
-	}
-
-	return &route.VirtualHost{
-		Name:    BlackHole,
-		Domains: []string{"*"},
-		Routes: []*route.Route{
-			{
-				Name: BlackHole,
-				Match: &route.RouteMatch{
-					PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
-				},
-				Action: &route.Route_DirectResponse{
-					DirectResponse: &route.DirectResponseAction{
-						Status: 502,
-					},
-				},
-			},
-		},
-		IncludeRequestAttemptCount: true,
-	}
-}
-
-type TelemetryMode int
-
-const (
-	TelemetryModeServer TelemetryMode = iota
-	TelemetryModeClient
-)
-
-func TelemetryModeForClass(class ListenerClass) TelemetryMode {
-	switch class {
-	case ListenerClassSidecarInbound:
-		return TelemetryModeServer
-	default:
-		return TelemetryModeClient
-	}
-}
-
-// MessageToAnyWithError converts from proto message to proto Any
-func MessageToAnyWithError(msg proto.Message) (*anypb.Any, error) {
-	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(msg)
-	if err != nil {
-		return nil, err
-	}
-	return &anypb.Any{
-		// nolint: staticcheck
-		TypeUrl: "type.googleapis.com/" + string(proto.MessageName(msg)),
-		Value:   b,
-	}, nil
-}
-
-// MessageToAny converts from proto message to proto Any
-func MessageToAny(msg proto.Message) *anypb.Any {
-	out, err := MessageToAnyWithError(msg)
-	if err != nil {
-		log.Error(fmt.Sprintf("error marshaling Any %s: %v", prototext.Format(msg), err))
-		return nil
-	}
-	return out
 }

@@ -15,12 +15,12 @@
 package memory
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
-	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/config/protocol"
@@ -54,11 +54,8 @@ func (c *ServiceController) HasSynced() bool { return true }
 
 // ServiceDiscovery is a mock discovery interface
 type ServiceDiscovery struct {
-	services map[host.Name]*model.Service
-
+	services        map[host.Name]*model.Service
 	networkGateways []model.NetworkGateway
-	model.NetworkGatewaysHandler
-
 	// EndpointShards table. Key is the fqdn of the service, ':', port
 	instancesByPortNum  map[string][]*model.ServiceInstance
 	instancesByPortName map[string][]*model.ServiceInstance
@@ -68,6 +65,7 @@ type ServiceDiscovery struct {
 	ip2instance                   map[string][]*model.ServiceInstance
 	WantGetProxyServiceInstances  []*model.ServiceInstance
 	ServicesError                 error
+	GetServiceError               error
 	InstancesError                error
 	GetProxyServiceInstancesError error
 	Controller                    model.Controller
@@ -101,10 +99,6 @@ func NewServiceDiscovery(services []*model.Service) *ServiceDiscovery {
 	}
 }
 
-func (sd *ServiceDiscovery) shardKey() model.ShardKey {
-	return model.NewShardKey(cluster.ID(sd.ClusterID), provider.Mock)
-}
-
 func (sd *ServiceDiscovery) AddWorkload(ip string, labels labels.Instance) {
 	sd.ip2workloadLabels[ip] = &labels
 }
@@ -113,8 +107,8 @@ func (sd *ServiceDiscovery) AddWorkload(ip string, labels labels.Instance) {
 // specified vip and port.
 func (sd *ServiceDiscovery) AddHTTPService(name, vip string, port int) {
 	sd.AddService(host.Name(name), &model.Service{
-		Hostname:       host.Name(name),
-		DefaultAddress: vip,
+		Hostname: host.Name(name),
+		Address:  vip,
 		Ports: model.PortList{
 			{
 				Name:     "http-main",
@@ -139,7 +133,7 @@ func (sd *ServiceDiscovery) RemoveService(name host.Name) {
 	sd.mutex.Lock()
 	delete(sd.services, name)
 	sd.mutex.Unlock()
-	sd.EDSUpdater.SvcUpdate(sd.shardKey(), string(name), "", model.EventDelete)
+	sd.EDSUpdater.SvcUpdate(sd.ClusterID, string(name), "", model.EventDelete)
 }
 
 // AddInstance adds an in-memory instance.
@@ -234,7 +228,8 @@ func (sd *ServiceDiscovery) SetEndpoints(service string, namespace string, endpo
 
 	}
 	sd.mutex.Unlock()
-	sd.EDSUpdater.EDSUpdate(sd.shardKey(), service, namespace, endpoints)
+
+	sd.EDSUpdater.EDSUpdate(sd.ClusterID, service, namespace, endpoints)
 }
 
 // Services implements discovery interface
@@ -254,10 +249,17 @@ func (sd *ServiceDiscovery) Services() ([]*model.Service, error) {
 
 // GetService implements discovery interface
 // Each call to GetService() should return a new *model.Service
-func (sd *ServiceDiscovery) GetService(hostname host.Name) *model.Service {
+func (sd *ServiceDiscovery) GetService(hostname host.Name) (*model.Service, error) {
 	sd.mutex.Lock()
 	defer sd.mutex.Unlock()
-	return sd.services[hostname]
+	if sd.GetServiceError != nil {
+		return nil, sd.GetServiceError
+	}
+	val := sd.services[hostname]
+	if val == nil {
+		return nil, errors.New("missing service")
+	}
+	return val, sd.GetServiceError
 }
 
 // InstancesByPort filters the service instances by labels. This assumes single port, as is
@@ -325,13 +327,8 @@ func (sd *ServiceDiscovery) GetIstioServiceAccounts(svc *model.Service, _ []int)
 
 func (sd *ServiceDiscovery) AddGateways(gws ...model.NetworkGateway) {
 	sd.networkGateways = append(sd.networkGateways, gws...)
-	sd.NotifyGatewayHandlers()
 }
 
 func (sd *ServiceDiscovery) NetworkGateways() []model.NetworkGateway {
 	return sd.networkGateways
-}
-
-func (sd *ServiceDiscovery) MCSServices() []model.MCSServiceInfo {
-	return nil
 }

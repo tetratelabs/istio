@@ -15,17 +15,13 @@
 package platform
 
 import (
-	"errors"
-	"io/fs"
-	"os"
+	"io/ioutil"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-
-	"istio.io/pkg/log"
 )
 
 const (
@@ -40,14 +36,11 @@ func IsAWS() bool {
 	if !systemInfoSuggestsAWS() {
 		// fail-fast for local cases
 		// WARN: this may lead to some cases of false negatives.
-		log.Debug("system info suggests this is not an AWS environment")
 		return false
 	}
 
 	if client := getEC2MetadataClient(); client != nil {
-		available := client.Available()
-		log.Debugf("EC2Metadata client available: %v", available)
-		return available
+		return client.Available()
 	}
 	return false
 }
@@ -125,24 +118,16 @@ func getEC2MetadataClient() *ec2metadata.EC2Metadata {
 // Note: avoided importing the satellite package directly to reduce number of
 // dependencies, etc., required.
 func systemInfoSuggestsAWS() bool {
-	hypervisorUUIDBytes, uerr := os.ReadFile("/sys/hypervisor/uuid")
+	hypervisorUUIDBytes, _ := ioutil.ReadFile("/sys/hypervisor/uuid")
 	hypervisorUUID := strings.ToLower(string(hypervisorUUIDBytes))
 
-	productUUIDBytes, perr := os.ReadFile("/sys/class/dmi/id/product_uuid")
+	productUUIDBytes, _ := ioutil.ReadFile("/sys/class/dmi/id/product_uuid")
 	productUUID := strings.ToLower(string(productUUIDBytes))
 
 	hasEC2Prefix := strings.HasPrefix(hypervisorUUID, "ec2") || strings.HasPrefix(productUUID, "ec2")
 
-	version, verr := os.ReadFile("/sys/class/dmi/id/product_version")
+	version, _ := ioutil.ReadFile("/sys/class/dmi/id/product_version")
 	hasAmazonProductVersion := strings.Contains(string(version), "amazon")
 
-	// If the error is a permission error, treat it as AWS as the files exist but user does not have
-	// permissions - we can try with EC2 metadata client instead of totally failing with false positive.
-	hasPermissionError := isPermissionError(uerr) || isPermissionError(perr) || isPermissionError(verr)
-
-	return hasPermissionError || hasEC2Prefix || hasAmazonProductVersion
-}
-
-func isPermissionError(err error) bool {
-	return !errors.Is(err, fs.ErrNotExist) && errors.Is(err, fs.ErrPermission)
+	return hasEC2Prefix || hasAmazonProductVersion
 }

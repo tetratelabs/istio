@@ -25,19 +25,16 @@ import (
 
 // MockDiscovery is a DiscoveryServer that allows users full control over responses.
 type MockDiscovery struct {
-	Listener       *bufconn.Listener
-	responses      chan *discovery.DiscoveryResponse
-	deltaResponses chan *discovery.DeltaDiscoveryResponse
-	close          chan struct{}
+	Listener  *bufconn.Listener
+	responses chan *discovery.DiscoveryResponse
+	close     chan struct{}
 }
 
 func NewMockServer(t test.Failer) *MockDiscovery {
 	s := &MockDiscovery{
-		close:          make(chan struct{}),
-		responses:      make(chan *discovery.DiscoveryResponse),
-		deltaResponses: make(chan *discovery.DeltaDiscoveryResponse),
+		close:     make(chan struct{}),
+		responses: make(chan *discovery.DiscoveryResponse),
 	}
-
 	buffer := 1024 * 1024
 	listener := bufconn.Listen(buffer)
 	grpcServer := grpc.NewServer()
@@ -72,29 +69,12 @@ func (f *MockDiscovery) StreamAggregatedResources(server discovery.AggregatedDis
 }
 
 func (f *MockDiscovery) DeltaAggregatedResources(server discovery.AggregatedDiscoveryService_DeltaAggregatedResourcesServer) error {
-	numberOfSends := 0
-	for {
-		select {
-		case <-f.close:
-			return nil
-		case resp := <-f.deltaResponses:
-			numberOfSends++
-			log.Infof("sending delta response from mock: %v", numberOfSends)
-			if err := server.Send(resp); err != nil {
-				return err
-			}
-		}
-	}
+	panic("implement me")
 }
 
 // SendResponse sends a response to a (random) client. This can block if sends are blocked.
 func (f *MockDiscovery) SendResponse(dr *discovery.DiscoveryResponse) {
 	f.responses <- dr
-}
-
-// SendDeltaResponse sends a response to a (random) client. This can block if sends are blocked.
-func (f *MockDiscovery) SendDeltaResponse(dr *discovery.DeltaDiscoveryResponse) {
-	f.deltaResponses <- dr
 }
 
 var _ discovery.AggregatedDiscoveryServiceServer = &MockDiscovery{}

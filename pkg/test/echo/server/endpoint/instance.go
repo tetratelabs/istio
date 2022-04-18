@@ -40,7 +40,6 @@ type Config struct {
 	Port          *common.Port
 	ListenerIP    string
 	IstioVersion  string
-	DisableALPN   bool
 }
 
 // Instance of an endpoint that serves the Echo application on a single port/protocol.

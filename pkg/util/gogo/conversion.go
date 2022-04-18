@@ -19,9 +19,9 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
-	any "google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/durationpb"
-	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
+	"github.com/golang/protobuf/ptypes/any"
+	"github.com/golang/protobuf/ptypes/duration"
+	"github.com/golang/protobuf/ptypes/wrappers"
 
 	iproto "istio.io/istio/pkg/proto"
 	"istio.io/pkg/log"
@@ -35,6 +35,7 @@ func MessageToAnyWithError(msg proto.Message) (*any.Any, error) {
 		return nil, err
 	}
 	return &any.Any{
+		// nolint: staticcheck
 		TypeUrl: "type.googleapis.com/" + proto.MessageName(msg),
 		Value:   b.Bytes(),
 	}, nil
@@ -67,11 +68,11 @@ func BoolToProtoBool(gogo *types.BoolValue) *wrappers.BoolValue {
 	return iproto.BoolFalse
 }
 
-func DurationToProtoDuration(gogo *types.Duration) *durationpb.Duration {
+func DurationToProtoDuration(gogo *types.Duration) *duration.Duration {
 	if gogo == nil {
 		return nil
 	}
-	return &durationpb.Duration{
+	return &duration.Duration{
 		Seconds: gogo.Seconds,
 		Nanos:   gogo.Nanos,
 	}

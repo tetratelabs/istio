@@ -15,7 +15,6 @@
 package csrctrl
 
 import (
-	"context"
 	"os"
 	"strings"
 	"time"
@@ -46,13 +45,7 @@ var (
 	_              = corev1.AddToScheme(scheme)
 )
 
-type SignerRootCert struct {
-	Signer   string
-	Rootcert string
-}
-
-func RunCSRController(signerNames string, appendRootCert bool, config *rest.Config, c <-chan struct{},
-	certChan chan *SignerRootCert) {
+func RunCSRController(signerNames string, config *rest.Config) {
 	// Config Istio log
 	if err := log.Configure(loggingOptions); err != nil {
 		log.Infof("Unable to configure Istio log error: %v", err)
@@ -77,38 +70,22 @@ func RunCSRController(signerNames string, appendRootCert bool, config *rest.Conf
 			os.Exit(-1)
 		}
 		signersMap[signerName] = signer
-		rootCert, rErr := os.ReadFile(signer.GetRootCerts())
-		if rErr != nil {
-			log.Infof("Unable to read root cert for signer [%s], error: %v", signerName, sErr)
-			os.Exit(-1)
-		}
-		rootCertsForSigner := &SignerRootCert{
-			Signer:   signerName,
-			Rootcert: string(rootCert),
-		}
-		certChan <- rootCertsForSigner
 	}
 
 	if err := (&CertificateSigningRequestSigningReconciler{
-		Client:         mgr.GetClient(),
-		SignerRoot:     signerRoot,
-		CtrlCertTTL:    certificateDuration,
-		Scheme:         mgr.GetScheme(),
-		SignerNames:    arrSingers,
-		Signers:        signersMap,
-		appendRootCert: appendRootCert,
+		Client:      mgr.GetClient(),
+		SignerRoot:  signerRoot,
+		CtrlCertTTL: certificateDuration,
+		Scheme:      mgr.GetScheme(),
+		SignerNames: arrSingers,
+		Signers:     signersMap,
 	}).SetupWithManager(mgr); err != nil {
 		log.Infof("Unable to create Controller fro controller CSRSigningReconciler, error: %v", err)
 		os.Exit(-1)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		<-c
-		cancel()
-	}()
 	// +kubebuilder:scaffold:builder
 	log.Info("starting manager")
-	if err := mgr.Start(ctx); err != nil {
+	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Infof("Problem running manager, error: %v", err)
 		os.Exit(-1)
 	}

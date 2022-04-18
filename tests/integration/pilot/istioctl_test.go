@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,6 +28,7 @@ import (
 	"time"
 
 	admin "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/onsi/gomega"
 
 	"istio.io/istio/pkg/test"
@@ -41,7 +41,6 @@ import (
 	"istio.io/istio/pkg/test/util/file"
 	"istio.io/istio/pkg/test/util/retry"
 	"istio.io/istio/pkg/url"
-	"istio.io/istio/pkg/util/protomarshal"
 	"istio.io/istio/tests/integration/pilot/common"
 )
 
@@ -67,13 +66,12 @@ Next Step: Add related labels to the deployment to align with Istio's requiremen
 func TestWait(t *testing.T) {
 	framework.NewTest(t).Features("usability.observability.wait").
 		RequiresSingleCluster().
-		RequiresLocalControlPlane().
 		Run(func(t framework.TestContext) {
 			ns := namespace.NewOrFail(t, t, namespace.Config{
 				Prefix: "default",
 				Inject: true,
 			})
-			t.ConfigIstio().ApplyYAMLOrFail(t, ns.Name(), `
+			t.Config().ApplyYAMLOrFail(t, ns.Name(), `
 apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
 metadata:
@@ -147,7 +145,7 @@ func TestDescribe(t *testing.T) {
 		RequiresSingleCluster().
 		Run(func(t framework.TestContext) {
 			deployment := file.AsStringOrFail(t, "testdata/a.yaml")
-			t.ConfigIstio().ApplyYAMLOrFail(t, apps.Namespace.Name(), deployment)
+			t.Config().ApplyYAMLOrFail(t, apps.Namespace.Name(), deployment)
 
 			istioCtl := istioctl.NewOrFail(t, t, istioctl.Config{})
 
@@ -208,7 +206,6 @@ func getPodID(i echo.Instance) (string, error) {
 func TestAddToAndRemoveFromMesh(t *testing.T) {
 	framework.NewTest(t).Features("usability.helpers.add-to-mesh", "usability.helpers.remove-from-mesh").
 		RequiresSingleCluster().
-		RequiresLocalControlPlane().
 		RunParallel(func(t framework.TestContext) {
 			ns := namespace.NewOrFail(t, t, namespace.Config{
 				Prefix: "istioctl-add-to-mesh",
@@ -323,7 +320,7 @@ func TestProxyConfig(t *testing.T) {
 			jsonOutput = jsonUnmarshallOrFail(t, strings.Join(args, " "), output)
 			g.Expect(jsonOutput).To(gomega.HaveKey("dynamicActiveSecrets"))
 			dump := &admin.SecretsConfigDump{}
-			if err := protomarshal.Unmarshal([]byte(output), dump); err != nil {
+			if err := jsonpb.UnmarshalString(output, dump); err != nil {
 				t.Fatal(err)
 			}
 			if len(dump.DynamicWarmingSecrets) > 0 {
@@ -352,7 +349,6 @@ func jsonUnmarshallOrFail(t test.Failer, context, s string) interface{} {
 func TestProxyStatus(t *testing.T) {
 	framework.NewTest(t).Features("usability.observability.proxy-status").
 		RequiresSingleCluster().
-		RequiresLocalControlPlane(). // https://github.com/istio/istio/issues/37051
 		Run(func(t framework.TestContext) {
 			istioCtl := istioctl.NewOrFail(t, t, istioctl.Config{})
 
@@ -384,10 +380,7 @@ func TestProxyStatus(t *testing.T) {
 				args = []string{
 					"proxy-status", fmt.Sprintf("%s.%s", podID, apps.Namespace.Name()),
 				}
-				output, _, err := istioCtl.Invoke(args)
-				if err != nil {
-					return err
-				}
+				output, _ = istioCtl.InvokeOrFail(t, args)
 				return expectSubstrings(output, "Clusters Match", "Listeners Match", "Routes Match")
 			})
 
@@ -398,15 +391,12 @@ func TestProxyStatus(t *testing.T) {
 				cs := t.Clusters().Default()
 				dump, err := cs.EnvoyDo(context.TODO(), podID, apps.Namespace.Name(), "GET", "config_dump")
 				g.Expect(err).ShouldNot(gomega.HaveOccurred())
-				err = os.WriteFile(filename, dump, os.ModePerm)
+				err = ioutil.WriteFile(filename, dump, os.ModePerm)
 				g.Expect(err).ShouldNot(gomega.HaveOccurred())
 				args = []string{
 					"proxy-status", fmt.Sprintf("%s.%s", podID, apps.Namespace.Name()), "--file", filename,
 				}
-				output, _, err = istioCtl.Invoke(args)
-				if err != nil {
-					return err
-				}
+				output, _ = istioCtl.InvokeOrFail(t, args)
 				return expectSubstrings(output, "Clusters Match", "Listeners Match", "Routes Match")
 			})
 		})
@@ -447,10 +437,7 @@ func TestXdsProxyStatus(t *testing.T) {
 				args = []string{
 					"proxy-status", fmt.Sprintf("%s.%s", podID, apps.Namespace.Name()),
 				}
-				output, _, err = istioCtl.Invoke(args)
-				if err != nil {
-					return err
-				}
+				output, _ = istioCtl.InvokeOrFail(t, args)
 				return expectSubstrings(output, "Clusters Match", "Listeners Match", "Routes Match")
 			})
 
@@ -461,15 +448,12 @@ func TestXdsProxyStatus(t *testing.T) {
 				cs := t.Clusters().Default()
 				dump, err := cs.EnvoyDo(context.TODO(), podID, apps.Namespace.Name(), "GET", "config_dump")
 				g.Expect(err).ShouldNot(gomega.HaveOccurred())
-				err = os.WriteFile(filename, dump, os.ModePerm)
+				err = ioutil.WriteFile(filename, dump, os.ModePerm)
 				g.Expect(err).ShouldNot(gomega.HaveOccurred())
 				args = []string{
 					"proxy-status", fmt.Sprintf("%s.%s", podID, apps.Namespace.Name()), "--file", filename,
 				}
-				output, _, err = istioCtl.Invoke(args)
-				if err != nil {
-					return err
-				}
+				output, _ = istioCtl.InvokeOrFail(t, args)
 				return expectSubstrings(output, "Clusters Match", "Listeners Match", "Routes Match")
 			})
 		})
@@ -481,8 +465,8 @@ func TestAuthZCheck(t *testing.T) {
 		Run(func(t framework.TestContext) {
 			appPolicy := file.AsStringOrFail(t, "testdata/authz-a.yaml")
 			gwPolicy := file.AsStringOrFail(t, "testdata/authz-b.yaml")
-			t.ConfigIstio().ApplyYAMLOrFail(t, apps.Namespace.Name(), appPolicy)
-			t.ConfigIstio().ApplyYAMLOrFail(t, i.Settings().SystemNamespace, gwPolicy)
+			t.Config().ApplyYAMLOrFail(t, apps.Namespace.Name(), appPolicy)
+			t.Config().ApplyYAMLOrFail(t, i.Settings().SystemNamespace, gwPolicy)
 
 			gwPod, err := i.IngressFor(t.Clusters().Default()).PodID(0)
 			if err != nil {
@@ -523,10 +507,7 @@ func TestAuthZCheck(t *testing.T) {
 				t.NewSubTest(c.name).Run(func(t framework.TestContext) {
 					// Verify the output matches the expected text, which is the policies loaded above.
 					retry.UntilSuccessOrFail(t, func() error {
-						output, _, err := istioCtl.Invoke(args)
-						if err != nil {
-							return err
-						}
+						output, _ := istioCtl.InvokeOrFail(t, args)
 						for _, want := range c.wants {
 							if !want.MatchString(output) {
 								return fmt.Errorf("%v did not match %v", output, want)
@@ -549,27 +530,6 @@ func TestKubeInject(t *testing.T) {
 			output, _ = istioCtl.InvokeOrFail(t, args)
 			if !strings.Contains(output, "istio-proxy") {
 				t.Fatal("istio-proxy has not been injected")
-			}
-		})
-}
-
-func TestRemoteClusters(t *testing.T) {
-	framework.NewTest(t).Features("usability.observability.remote-clusters").
-		RequiresMinClusters(2).
-		Run(func(t framework.TestContext) {
-			for _, cluster := range t.Clusters().Primaries() {
-				cluster := cluster
-				t.NewSubTest(cluster.StableName()).Run(func(t framework.TestContext) {
-					istioCtl := istioctl.NewOrFail(t, t, istioctl.Config{Cluster: cluster})
-					var output string
-					args := []string{"remote-clusters"}
-					output, _ = istioCtl.InvokeOrFail(t, args)
-					for _, otherName := range t.Clusters().Exclude(cluster).Names() {
-						if !strings.Contains(output, otherName) {
-							t.Fatalf("remote-clusters output did not contain %s; got:\n%s", otherName, output)
-						}
-					}
-				})
 			}
 		})
 }

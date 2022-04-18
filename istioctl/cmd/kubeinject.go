@@ -23,12 +23,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/ghodss/yaml"
 	"github.com/hashicorp/go-multierror"
 	"github.com/spf13/cobra"
 	admission "k8s.io/api/admission/v1"
@@ -42,15 +44,10 @@ import (
 	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/kubectl/pkg/polymorphichelpers"
 	"k8s.io/kubectl/pkg/util/podutils"
-	"sigs.k8s.io/yaml"
 
 	"istio.io/api/label"
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/istioctl/pkg/clioptions"
-	"istio.io/istio/istioctl/pkg/tag"
-	iopv1alpha1 "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
-	"istio.io/istio/operator/pkg/manifest"
-	"istio.io/istio/operator/pkg/validate"
 	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/inject"
@@ -65,9 +62,8 @@ const (
 )
 
 type ExternalInjector struct {
-	client          kube.ExtendedClient
-	clientConfig    *admissionregistration.WebhookClientConfig
-	injectorAddress string
+	client       kube.ExtendedClient
+	clientConfig *admissionregistration.WebhookClientConfig
 }
 
 func (e ExternalInjector) Inject(pod *corev1.Pod) ([]byte, error) {
@@ -98,37 +94,33 @@ func (e ExternalInjector) Inject(pod *corev1.Pod) ([]byte, error) {
 		}
 		namespace, selector, err := polymorphichelpers.SelectorsForObject(svc)
 		if err != nil {
-			if e.injectorAddress == "" {
-				return nil, fmt.Errorf("cannot attach to %T: %v", svc, err)
-			}
-			address = fmt.Sprintf("https://%s:%d%s", e.injectorAddress, *cc.Service.Port, *cc.Service.Path)
-		} else {
-			pod, err := GetFirstPod(e.client.CoreV1(), namespace, selector.String())
-			if err != nil {
-				return nil, err
-			}
-			webhookPort := cc.Service.Port
-			podPort := 15017
-			for _, v := range svc.Spec.Ports {
-				if v.Port == *webhookPort {
-					podPort = v.TargetPort.IntValue()
-					break
-				}
-			}
-			f, err := e.client.NewPortForwarder(pod.Name, pod.Namespace, "", 0, podPort)
-			if err != nil {
-				return nil, err
-			}
-			if err := f.Start(); err != nil {
-				return nil, err
-			}
-			address = fmt.Sprintf("https://%s%s", f.Address(), *cc.Service.Path)
-			defer func() {
-				f.Close()
-				f.WaitForStop()
-			}()
+			return nil, fmt.Errorf("cannot attach to %T: %v", svc, err)
 		}
+		pod, err := GetFirstPod(e.client.CoreV1(), namespace, selector.String())
+		if err != nil {
+			return nil, err
+		}
+		webhookPort := cc.Service.Port
+		podPort := 15017
+		for _, v := range svc.Spec.Ports {
+			if v.Port == *webhookPort {
+				podPort = v.TargetPort.IntValue()
+				break
+			}
+		}
+		f, err := e.client.NewPortForwarder(pod.Name, pod.Namespace, "", 0, podPort)
+		if err != nil {
+			return nil, err
+		}
+		if err := f.Start(); err != nil {
+			return nil, err
+		}
+		address = fmt.Sprintf("https://%s%s", f.Address(), *cc.Service.Path)
 		tlsClientConfig.ServerName = fmt.Sprintf("%s.%s.%s", cc.Service.Name, cc.Service.Namespace, "svc")
+		defer func() {
+			f.Close()
+			f.WaitForStop()
+		}()
 	}
 	client := http.Client{
 		Timeout: time.Second * 5,
@@ -171,7 +163,7 @@ func (e ExternalInjector) Inject(pod *corev1.Pod) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +203,7 @@ func GetFirstPod(client v1.CoreV1Interface, namespace string, selector string) (
 	if err != nil {
 		return nil, err
 	}
-	pods := make([]*corev1.Pod, 0, len(podList.Items))
+	pods := []*corev1.Pod{}
 	for i := range podList.Items {
 		pod := podList.Items[i]
 		pods = append(pods, &pod)
@@ -333,8 +325,8 @@ func getInjectConfigFromConfigMap(kubeconfig, revision string) (inject.Templates
 	return injectConfig.Templates, nil
 }
 
-func setUpExternalInjector(kubeconfig, revision, injectorAddress string) (*ExternalInjector, error) {
-	e := &ExternalInjector{}
+func setUpExternalInjector(kubeconfig, revision string) (*ExternalInjector, error) {
+	e := &ExternalInjector{nil, nil}
 	client, err := kube.NewExtendedClient(kube.BuildClientCmd(kubeconfig, configContext), "")
 	if err != nil {
 		return e, err
@@ -351,7 +343,7 @@ func setUpExternalInjector(kubeconfig, revision, injectorAddress string) (*Exter
 	if whcList != nil && len(whcList.Items) != 0 {
 		for _, wh := range whcList.Items[0].Webhooks {
 			if strings.HasSuffix(wh.Name, defaultWebhookName) {
-				return &ExternalInjector{client, &wh.ClientConfig, injectorAddress}, nil
+				return &ExternalInjector{client, &wh.ClientConfig}, nil
 			}
 		}
 	}
@@ -363,19 +355,18 @@ func validateFlags() error {
 	if inFilename == "" {
 		err = multierror.Append(err, errors.New("filename not specified (see --filename or -f)"))
 	}
-	if meshConfigFile == "" && meshConfigMapName == "" && iopFilename == "" {
-		err = multierror.Append(err,
-			errors.New("--meshConfigFile or --meshConfigMapName or --operatorFileName must be set"))
+	if meshConfigFile == "" && meshConfigMapName == "" {
+		err = multierror.Append(err, errors.New("--meshConfigFile or --meshConfigMapName must be set"))
 	}
 	return err
 }
 
 func setupKubeInjectParameters(sidecarTemplate *inject.Templates, valuesConfig *string,
-	revision, injectorAddress string) (*ExternalInjector, *meshconfig.MeshConfig, error) {
+	revision string) (*ExternalInjector, *meshconfig.MeshConfig, error) {
 	var err error
-	injector := &ExternalInjector{}
+	injector := &ExternalInjector{nil, nil}
 	if injectConfigFile != "" {
-		injectionConfig, err := os.ReadFile(injectConfigFile) // nolint: vetshadow
+		injectionConfig, err := ioutil.ReadFile(injectConfigFile) // nolint: vetshadow
 		if err != nil {
 			return nil, nil, err
 		}
@@ -385,7 +376,7 @@ func setupKubeInjectParameters(sidecarTemplate *inject.Templates, valuesConfig *
 		}
 		*sidecarTemplate = injectConfig
 	} else {
-		injector, err = setUpExternalInjector(kubeconfig, revision, injectorAddress)
+		injector, err = setUpExternalInjector(kubeconfig, revision)
 		if err != nil || injector.clientConfig == nil {
 			log.Warnf("failed to get injection config from mutatingWebhookConfigurations %q, will fall back to "+
 				"get injection from the injection configmap %q : %v", whcName, defaultInjectWebhookConfigName, err)
@@ -395,80 +386,26 @@ func setupKubeInjectParameters(sidecarTemplate *inject.Templates, valuesConfig *
 		}
 		return injector, nil, nil
 	}
-
-	// Get configs from IOP files firstly, and if not exists, get configs from files and configmaps.
-	values, meshConfig, err := getIOPConfigs()
-	if err != nil {
-		return nil, nil, err
-	}
-	if meshConfig == nil {
-		if meshConfigFile != "" {
-			if meshConfig, err = mesh.ReadMeshConfig(meshConfigFile); err != nil {
-				return nil, nil, err
-			}
-		} else {
-			if meshConfig, err = getMeshConfigFromConfigMap(kubeconfig, "kube-inject", revision); err != nil {
-				return nil, nil, err
-			}
+	var meshConfig *meshconfig.MeshConfig
+	if meshConfigFile != "" {
+		if meshConfig, err = mesh.ReadMeshConfig(meshConfigFile); err != nil {
+			return nil, nil, err
 		}
-	}
-
-	if values != "" {
-		*valuesConfig = values
-	}
-	if valuesConfig == nil || *valuesConfig == "" {
-		if valuesFile != "" {
-			valuesConfigBytes, err := os.ReadFile(valuesFile) // nolint: vetshadow
-			if err != nil {
-				return nil, nil, err
-			}
-			*valuesConfig = string(valuesConfigBytes)
-		} else if *valuesConfig, err = getValuesFromConfigMap(kubeconfig, revision); err != nil {
+	} else {
+		if meshConfig, err = getMeshConfigFromConfigMap(kubeconfig, "kube-inject", revision); err != nil {
 			return nil, nil, err
 		}
 	}
-	return injector, meshConfig, err
-}
-
-// getIOPConfigs gets the configs in IOPs.
-func getIOPConfigs() (string, *meshconfig.MeshConfig, error) {
-	var meshConfig *meshconfig.MeshConfig
-	var valuesConfig string
-	if iopFilename != "" {
-		var iop *iopv1alpha1.IstioOperator
-		y, err := manifest.ReadLayeredYAMLs([]string{iopFilename})
+	if valuesFile != "" {
+		valuesConfigBytes, err := ioutil.ReadFile(valuesFile) // nolint: vetshadow
 		if err != nil {
-			return "", nil, err
+			return nil, nil, err
 		}
-		iop, err = validate.UnmarshalIOP(y)
-		if err != nil {
-			return "", nil, err
-		}
-		if err := validate.ValidIOP(iop); err != nil {
-			return "", nil, fmt.Errorf("validation errors: \n%s", err)
-		}
-		if err != nil {
-			return "", nil, err
-		}
-		if iop.Spec.Values != nil {
-			values, err := json.Marshal(iop.Spec.Values)
-			if err != nil {
-				return "", nil, err
-			}
-			valuesConfig = string(values)
-		}
-		if iop.Spec.MeshConfig != nil {
-			meshConfigYaml, err := yaml.Marshal(iop.Spec.MeshConfig)
-			if err != nil {
-				return "", nil, err
-			}
-			meshConfig, err = mesh.ApplyMeshConfigDefaults(string(meshConfigYaml))
-			if err != nil {
-				return "", nil, err
-			}
-		}
+		*valuesConfig = string(valuesConfigBytes)
+	} else if *valuesConfig, err = getValuesFromConfigMap(kubeconfig, revision); err != nil {
+		return nil, nil, err
 	}
-	return valuesConfig, meshConfig, nil
+	return injector, meshConfig, err
 }
 
 var (
@@ -480,12 +417,10 @@ var (
 	injectConfigFile    string
 	injectConfigMapName string
 	whcName             string
-	iopFilename         string
 )
 
 const (
 	defaultMeshConfigMapName       = "istio"
-	defaultMeshConfigMapKey        = "mesh"
 	defaultInjectConfigMapName     = "istio-sidecar-injector"
 	defaultInjectWebhookConfigName = "istio-sidecar-injector"
 	defaultWebhookName             = "sidecar-injector.istio.io"
@@ -493,7 +428,6 @@ const (
 
 func injectCommand() *cobra.Command {
 	var opts clioptions.ControlPlaneOptions
-	var centralOpts clioptions.CentralControlPlaneOptions
 
 	injectCmd := &cobra.Command{
 		Use:   "kube-inject",
@@ -578,15 +512,10 @@ It's best to do kube-inject when the resource is initially created.
 			var meshConfig *meshconfig.MeshConfig
 			rev := opts.Revision
 			// if the revision is "default", render templates with an empty revision
-			if rev == tag.DefaultRevisionName {
+			if rev == defaultRevisionName {
 				rev = ""
 			}
-			injectorAddress := centralOpts.Xds
-			index := strings.IndexByte(injectorAddress, ':')
-			if index != -1 {
-				injectorAddress = injectorAddress[:index]
-			}
-			injector, meshConfig, err := setupKubeInjectParameters(&sidecarTemplate, &valuesConfig, rev, injectorAddress)
+			injector, meshConfig, err := setupKubeInjectParameters(&sidecarTemplate, &valuesConfig, rev)
 			if err != nil {
 				return err
 			}
@@ -617,15 +546,12 @@ It's best to do kube-inject when the resource is initially created.
 	injectCmd.PersistentFlags().StringVar(&injectConfigFile, "injectConfigFile", "",
 		"Injection configuration filename. Cannot be used with --injectConfigMapName")
 	injectCmd.PersistentFlags().StringVar(&valuesFile, "valuesFile", "",
-		"Injection values configuration filename.")
+		"injection values configuration filename.")
 
 	injectCmd.PersistentFlags().StringVarP(&inFilename, "filename", "f",
 		"", "Input Kubernetes resource filename")
 	injectCmd.PersistentFlags().StringVarP(&outFilename, "output", "o",
 		"", "Modified output Kubernetes resource filename")
-	injectCmd.PersistentFlags().StringVar(&iopFilename, "operatorFileName", "",
-		"Path to file containing IstioOperator custom resources. If configs from files like "+
-			"meshConfigFile, valuesFile are provided, they will be overridden by iop config values.")
 
 	injectCmd.PersistentFlags().StringVar(&meshConfigMapName, "meshConfigMapName", defaultMeshConfigMapName,
 		fmt.Sprintf("ConfigMap name for Istio mesh configuration, key should be %q", configMapKey))
@@ -635,6 +561,5 @@ It's best to do kube-inject when the resource is initially created.
 	injectCmd.PersistentFlags().StringVar(&whcName, "webhookConfig", defaultInjectWebhookConfigName,
 		"MutatingWebhookConfiguration name for Istio")
 	opts.AttachControlPlaneFlags(injectCmd)
-	centralOpts.AttachControlPlaneFlags(injectCmd)
 	return injectCmd
 }

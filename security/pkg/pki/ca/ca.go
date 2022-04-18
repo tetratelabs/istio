@@ -19,7 +19,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"os"
+	"io/ioutil"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,6 +31,7 @@ import (
 	"istio.io/istio/security/pkg/pki/util"
 	certutil "istio.io/istio/security/pkg/util"
 	"istio.io/pkg/log"
+	"istio.io/pkg/probe"
 )
 
 const (
@@ -69,9 +70,6 @@ type CertOpts struct {
 	// ForCA indicates whether the signed certificate if for CA.
 	// If true, the signed certificate is a CA certificate, otherwise, it is a workload certificate.
 	ForCA bool
-
-	// Cert Signer info
-	CertSigner string
 }
 
 const (
@@ -91,6 +89,9 @@ type IstioCAOptions struct {
 	CARSAKeySize   int
 
 	KeyCertBundle *util.KeyCertBundle
+
+	LivenessProbeOptions *probe.Options
+	ProbeCheckInterval   time.Duration
 
 	// Config for creating self-signed root cert rotator.
 	RotatorConfig *SelfSignedCARootCertRotatorConfig
@@ -242,7 +243,7 @@ func NewPluggedCertIstioCAOptions(certChainFile, signingCertFile, signingKeyFile
 	// Validate that the passed in signing cert can be used as CA.
 	// The check can't be done inside `KeyCertBundle`, since bundle could also be used to
 	// validate workload certificates (i.e., where the leaf certificate is not a CA).
-	b, err := os.ReadFile(signingCertFile)
+	b, err := ioutil.ReadFile(signingCertFile)
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +270,8 @@ type IstioCA struct {
 
 	keyCertBundle *util.KeyCertBundle
 
+	livenessProbe *probe.Probe
+
 	// rootCertRotator periodically rotates self-signed root cert for CA. It is nil
 	// if CA is not self-signed CA.
 	rootCertRotator *SelfSignedCARootCertRotator
@@ -279,6 +282,7 @@ func NewIstioCA(opts *IstioCAOptions) (*IstioCA, error) {
 	ca := &IstioCA{
 		maxCertTTL:    opts.MaxCertTTL,
 		keyCertBundle: opts.KeyCertBundle,
+		livenessProbe: probe.NewProbe(),
 		caRSAKeySize:  opts.CARSAKeySize,
 	}
 
@@ -313,12 +317,8 @@ func (ca *IstioCA) Sign(csrPEM []byte, certOpts CertOpts) (
 
 // SignWithCertChain is similar to Sign but returns the leaf cert and the entire cert chain.
 func (ca *IstioCA) SignWithCertChain(csrPEM []byte, certOpts CertOpts) (
-	[]string, error) {
-	cert, err := ca.signWithCertChain(csrPEM, certOpts.SubjectIDs, certOpts.TTL, true, certOpts.ForCA)
-	if err != nil {
-		return nil, err
-	}
-	return []string{string(cert)}, nil
+	[]byte, error) {
+	return ca.signWithCertChain(csrPEM, certOpts.SubjectIDs, certOpts.TTL, true, certOpts.ForCA)
 }
 
 // GetCAKeyCertBundle returns the KeyCertBundle for the CA.
@@ -417,7 +417,6 @@ func (ca *IstioCA) signWithCertChain(csrPEM []byte, subjectIDs []string, request
 	if err != nil {
 		return nil, err
 	}
-
 	chainPem := ca.GetCAKeyCertBundle().GetCertChainPem()
 	if len(chainPem) > 0 {
 		cert = append(cert, chainPem...)
