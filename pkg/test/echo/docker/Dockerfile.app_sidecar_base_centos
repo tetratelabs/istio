@@ -1,0 +1,20 @@
+ARG VM_IMAGE_VERSION=8
+FROM centos:${VM_IMAGE_VERSION}
+ARG VM_IMAGE_VERSION=8
+
+# Workaround Centos 8 death
+RUN if [ "${VM_IMAGE_VERSION}" = "8" ]; then sed -i -e "s|mirrorlist=|#mirrorlist=|g" -e "s|#baseurl=http://mirror.centos.org|baseurl=https://vault.centos.org|g" /etc/yum.repos.d/CentOS-Linux-* ; fi
+
+# hadolint ignore=DL3005,DL3008,DL3033
+RUN yum install -y \
+    iptables \
+    iproute \
+    sudo \
+    ca-certificates \
+    && update-ca-trust \
+    && yum clean all \
+    && rm -rf /var/cache/yum
+
+# Add a user that will run the application. This allows running as this user and capture iptables
+RUN useradd -m --uid 1338 application && \
+    echo "application ALL=NOPASSWD: ALL" >> /etc/sudoers
