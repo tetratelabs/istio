@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +17,7 @@ package common
 
 import (
 	"fmt"
+	"time"
 
 	"istio.io/istio/pkg/test"
 	echoclient "istio.io/istio/pkg/test/echo/client"
@@ -27,7 +26,6 @@ import (
 	"istio.io/istio/pkg/test/framework/components/echo/echotest"
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/components/istio/ingress"
-	"istio.io/istio/pkg/test/framework/label"
 	"istio.io/istio/pkg/test/framework/resource"
 	"istio.io/istio/pkg/test/util/retry"
 	"istio.io/istio/pkg/test/util/tmpl"
@@ -37,8 +35,8 @@ import (
 // callsPerCluster is used to ensure cross-cluster load balancing has a chance to work
 const callsPerCluster = 5
 
-// Require 3 successive successes. Delay can be configured with istio.test.echo.callDelay
-var retryOptions = []retry.Option{retry.Converge(3)}
+// Slow down retries to allow for delayed_close_timeout. Also require 3 successive successes.
+var retryOptions = []retry.Option{retry.Delay(1000 * time.Millisecond), retry.Converge(3)}
 
 type TrafficCall struct {
 	name string
@@ -61,8 +59,8 @@ type TrafficTestCase struct {
 	// setupOpts allows modifying options based on sources/destinations
 	setupOpts func(src echo.Caller, dest echo.Instances, opts *echo.CallOptions)
 	// validate is used to build validators dynamically when using RunForApps based on the active/src dest pair
-	validate     func(src echo.Caller, dst echo.Instances, opts *echo.CallOptions) echo.Validator
-	validateForN func(src echo.Caller, dst echo.Services, opts *echo.CallOptions) echo.Validator
+	validate     func(src echo.Caller, dst echo.Instances) echo.Validator
+	validateForN func(src echo.Caller, dst echo.Services) echo.Validator
 
 	// setting cases to skipped is better than not adding them - gives visibility to what needs to be fixed
 	skip bool
@@ -127,8 +125,7 @@ func (c TrafficTestCase) RunForApps(t framework.TestContext, apps echo.Instances
 					}
 				}
 				cfg := yml.MustApplyNamespace(t, tmpl.MustEvaluate(c.config, tmplData), namespace)
-				// we only apply to config clusters
-				return t.ConfigIstio().ApplyYAML("", cfg)
+				return t.Config().ApplyYAML("", cfg)
 			}).
 			WithDefaultFilters().
 			From(c.sourceFilters...).
@@ -141,7 +138,7 @@ func (c TrafficTestCase) RunForApps(t framework.TestContext, apps echo.Instances
 				t.SkipNow()
 			}
 			if c.minIstioVersion != "" {
-				skipMV := !t.Settings().Revisions.AtLeast(resource.IstioVersion(c.minIstioVersion))
+				skipMV := resource.IstioVersion(c.minIstioVersion).Compare(t.Settings().Revisions.Minimum()) > 0
 				if skipMV {
 					t.SkipNow()
 				}
@@ -150,10 +147,10 @@ func (c TrafficTestCase) RunForApps(t framework.TestContext, apps echo.Instances
 				opts := options
 				opts.Target = dsts[0][0]
 				if c.validate != nil {
-					opts.Validator = c.validate(src, dsts[0], &opts)
+					opts.Validator = c.validate(src, dsts[0])
 				}
 				if c.validateForN != nil {
-					opts.Validator = c.validateForN(src, dsts, &opts)
+					opts.Validator = c.validateForN(src, dsts)
 				}
 				if opts.Count == 0 {
 					opts.Count = callsPerCluster * len(dsts) * len(dsts[0])
@@ -201,15 +198,14 @@ func (c TrafficTestCase) Run(t framework.TestContext, namespace string) {
 			t.SkipNow()
 		}
 		if c.minIstioVersion != "" {
-			skipMV := !t.Settings().Revisions.AtLeast(resource.IstioVersion(c.minIstioVersion))
+			skipMV := resource.IstioVersion(c.minIstioVersion).Compare(t.Settings().Revisions.Minimum()) > 0
 			if skipMV {
 				t.SkipNow()
 			}
 		}
 		if len(c.config) > 0 {
 			cfg := yml.MustApplyNamespace(t, c.config, namespace)
-			// we only apply to config clusters
-			t.ConfigIstio().ApplyYAMLOrFail(t, "", cfg)
+			t.Config().ApplyYAMLOrFail(t, "", cfg)
 		}
 
 		if c.call != nil && len(c.children) > 0 {
@@ -236,11 +232,8 @@ func (c TrafficTestCase) Run(t framework.TestContext, namespace string) {
 
 func RunAllTrafficTests(t framework.TestContext, i istio.Instance, apps *EchoDeployments) {
 	cases := map[string][]TrafficTestCase{}
-	if !t.Settings().Selector.Excludes(label.NewSet(label.IPv4)) { // https://github.com/istio/istio/issues/35835
-		cases["jwt-claim-route"] = jwtClaimRoute(apps)
-	}
 	cases["virtualservice"] = virtualServiceCases(t.Settings().SkipVM)
-	cases["sniffing"] = protocolSniffingCases(apps)
+	cases["sniffing"] = protocolSniffingCases()
 	cases["selfcall"] = selfCallsCases()
 	cases["serverfirst"] = serverFirstTestCases(apps)
 	cases["gateway"] = gatewayCases()
@@ -249,12 +242,6 @@ func RunAllTrafficTests(t framework.TestContext, i istio.Instance, apps *EchoDep
 	cases["tls-origination"] = tlsOriginationCases(apps)
 	cases["instanceip"] = instanceIPTests(apps)
 	cases["services"] = serviceCases(apps)
-	if h, err := hostCases(apps); err != nil {
-		t.Fatal("failed to setup host cases: %v", err)
-	} else {
-		cases["host"] = h
-	}
-	cases["envoyfilter"] = envoyFilterCases(apps)
 	if len(t.Clusters().ByNetwork()) == 1 {
 		// Consistent hashing does not work for multinetwork. The first request will consistently go to a
 		// gateway, but that gateway will tcp_proxy it to a random pod.

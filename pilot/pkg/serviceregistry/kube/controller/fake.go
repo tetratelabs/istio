@@ -17,9 +17,10 @@ package controller
 import (
 	"time"
 
+	"k8s.io/client-go/tools/cache"
+
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pilot/pkg/model"
-	"istio.io/istio/pilot/pkg/serviceregistry/aggregate"
 	"istio.io/istio/pilot/pkg/serviceregistry/kube/controller/filter"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/config/mesh"
@@ -77,7 +78,7 @@ func NewFakeXDS() *FakeXdsUpdater {
 	}
 }
 
-func (fx *FakeXdsUpdater) EDSUpdate(_ model.ShardKey, hostname string, _ string, entry []*model.IstioEndpoint) {
+func (fx *FakeXdsUpdater) EDSUpdate(_, hostname string, _ string, entry []*model.IstioEndpoint) {
 	if len(entry) > 0 {
 		select {
 		case fx.Events <- FakeXdsEvent{Type: "eds", ID: hostname, Endpoints: entry}:
@@ -86,7 +87,7 @@ func (fx *FakeXdsUpdater) EDSUpdate(_ model.ShardKey, hostname string, _ string,
 	}
 }
 
-func (fx *FakeXdsUpdater) EDSCacheUpdate(_ model.ShardKey, hostname, _ string, entry []*model.IstioEndpoint) {
+func (fx *FakeXdsUpdater) EDSCacheUpdate(_, hostname, _ string, entry []*model.IstioEndpoint) {
 	if len(entry) > 0 {
 		select {
 		case fx.Events <- FakeXdsEvent{Type: "eds cache", ID: hostname, Endpoints: entry}:
@@ -99,25 +100,14 @@ func (fx *FakeXdsUpdater) EDSCacheUpdate(_ model.ShardKey, hostname, _ string, e
 // This interface is WIP - labels, annotations and other changes to service may be
 // updated to force a EDS and CDS recomputation and incremental push, as it doesn't affect
 // LDS/RDS.
-func (fx *FakeXdsUpdater) SvcUpdate(_ model.ShardKey, hostname string, _ string, _ model.Event) {
+func (fx *FakeXdsUpdater) SvcUpdate(_, hostname string, _ string, _ model.Event) {
 	select {
 	case fx.Events <- FakeXdsEvent{Type: "service", ID: hostname}:
 	default:
 	}
 }
 
-func (fx *FakeXdsUpdater) RemoveShard(shardKey model.ShardKey) {
-	select {
-	case fx.Events <- FakeXdsEvent{Type: "removeShard", ID: string(shardKey)}:
-	default:
-	}
-}
-
 func (fx *FakeXdsUpdater) Wait(et string) *FakeXdsEvent {
-	return fx.WaitForDuration(et, 5*time.Second)
-}
-
-func (fx *FakeXdsUpdater) WaitForDuration(et string, d time.Duration) *FakeXdsEvent {
 	for {
 		select {
 		case e := <-fx.Events:
@@ -125,7 +115,7 @@ func (fx *FakeXdsUpdater) WaitForDuration(et string, d time.Duration) *FakeXdsEv
 				return &e
 			}
 			continue
-		case <-time.After(d):
+		case <-time.After(5 * time.Second):
 			return nil
 		}
 	}
@@ -154,7 +144,11 @@ type FakeControllerOptions struct {
 	DomainSuffix              string
 	XDSUpdater                model.XDSUpdater
 	DiscoveryNamespacesFilter filter.DiscoveryNamespacesFilter
-	Stop                      chan struct{}
+	EnableMCSServiceDiscovery bool
+
+	// when calling from NewFakeDiscoveryServer, we wait for the aggregate cache to sync. Waiting here can cause deadlock.
+	SkipCacheSyncWait bool
+	Stop              chan struct{}
 }
 
 type FakeController struct {
@@ -178,8 +172,6 @@ func NewFakeControllerWithOptions(opts FakeControllerOptions) (*FakeController, 
 		opts.MeshWatcher = mesh.NewFixedWatcher(&meshconfig.MeshConfig{})
 	}
 
-	meshServiceController := aggregate.NewController(aggregate.Options{MeshHolder: opts.MeshWatcher})
-
 	options := Options{
 		DomainSuffix:              domainSuffix,
 		XDSUpdater:                xdsUpdater,
@@ -190,11 +182,9 @@ func NewFakeControllerWithOptions(opts FakeControllerOptions) (*FakeController, 
 		ClusterID:                 opts.ClusterID,
 		SyncInterval:              time.Microsecond,
 		DiscoveryNamespacesFilter: opts.DiscoveryNamespacesFilter,
-		MeshServiceController:     meshServiceController,
+		EnableMCSServiceDiscovery: opts.EnableMCSServiceDiscovery,
 	}
 	c := NewController(opts.Client, options)
-	meshServiceController.AddRegistry(c)
-
 	if opts.ServiceHandler != nil {
 		c.AppendServiceHandler(opts.ServiceHandler)
 	}
@@ -202,7 +192,14 @@ func NewFakeControllerWithOptions(opts FakeControllerOptions) (*FakeController, 
 	if c.stop == nil {
 		c.stop = make(chan struct{})
 	}
+	// Run in initiation to prevent calling each test
+	// TODO: fix it, so we can remove `stop` channel
+	go c.Run(c.stop)
 	opts.Client.RunAndWait(c.stop)
+	if !opts.SkipCacheSyncWait {
+		// Wait for the caches to sync, otherwise we may hit race conditions where events are dropped
+		cache.WaitForCacheSync(c.stop, c.HasSynced)
+	}
 	var fx *FakeXdsUpdater
 	if x, ok := xdsUpdater.(*FakeXdsUpdater); ok {
 		fx = x

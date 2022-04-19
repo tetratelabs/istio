@@ -27,21 +27,27 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
+	certclient "k8s.io/client-go/kubernetes/typed/certificates/v1beta1"
+	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 
+	"istio.io/istio/pkg/listwatch"
 	"istio.io/istio/security/pkg/pki/ca"
 	"istio.io/istio/security/pkg/pki/util"
 	certutil "istio.io/istio/security/pkg/util"
 	"istio.io/pkg/log"
 )
 
+/* #nosec: disable gas linter */
 const (
-	// IstioDNSSecretType is the Istio DNS secret annotation type
+	// The Istio DNS secret annotation type
 	IstioDNSSecretType = "istio.io/dns-key-and-cert"
 
 	// For debugging, set the resync period to be a shorter period.
 	secretResyncPeriod = 10 * time.Second
+	// secretResyncPeriod = time.Minute
 
 	recommendedMinGracePeriodRatio = 0.2
 	recommendedMaxGracePeriodRatio = 0.8
@@ -67,15 +73,13 @@ type WebhookController struct {
 	secretNames []string
 	// The DNS names of the services for which Chiron manage certs
 	dnsNames []string
-	// The namespaces of the Secrets for which Chiron manage certs
-	secretNamespace string
+	// The namespaces of the services for which Chiron manage certs
+	serviceNamespaces []string
 
 	// Current CA certificate
-	CACert    []byte
-	clientset clientset.Interface
-
-	// certificate issuer
-	certIssuer string
+	CACert     []byte
+	core       corev1.CoreV1Interface
+	certClient certclient.CertificatesV1beta1Interface
 	// Controller and store for secret objects.
 	scrtController cache.Controller
 	scrtStore      cache.Store
@@ -83,17 +87,15 @@ type WebhookController struct {
 	k8sCaCertFile  string
 	minGracePeriod time.Duration
 	certMutex      sync.RWMutex
-	// Ratio of the grace period for the certificate rotation.
+	// Length of the grace period for the certificate rotation.
 	gracePeriodRatio float32
 	certUtil         certutil.CertUtil
 }
 
 // NewWebhookController returns a pointer to a newly constructed WebhookController instance.
 func NewWebhookController(gracePeriodRatio float32, minGracePeriod time.Duration,
-	client clientset.Interface,
-	k8sCaCertFile string,
-	secretNames, dnsNames []string,
-	secretNamespace string, certIssuer string) (*WebhookController, error) {
+	core corev1.CoreV1Interface, certClient certclient.CertificatesV1beta1Interface, k8sCaCertFile string,
+	secretNames, dnsNames, serviceNamespaces []string) (*WebhookController, error) {
 	if gracePeriodRatio < 0 || gracePeriodRatio > 1 {
 		return nil, fmt.Errorf("grace period ratio %f should be within [0, 1]", gracePeriodRatio)
 	}
@@ -102,8 +104,11 @@ func NewWebhookController(gracePeriodRatio float32, minGracePeriod time.Duration
 			gracePeriodRatio, recommendedMinGracePeriodRatio, recommendedMaxGracePeriodRatio)
 	}
 
-	if len(secretNames) != len(dnsNames) {
-		return nil, fmt.Errorf("the size of secret names must be the same as the size of dns names")
+	if len(secretNames) != len(serviceNamespaces) {
+		return nil, fmt.Errorf("the size of secret names must be the same as the size of service namespaces")
+	}
+	if len(dnsNames) != len(serviceNamespaces) {
+		return nil, fmt.Errorf("the size of service names must be the same as the size of service namespaces")
 	}
 	// Check secret names are unique
 	set := make(map[string]bool) // New empty set
@@ -115,15 +120,15 @@ func NewWebhookController(gracePeriodRatio float32, minGracePeriod time.Duration
 	}
 
 	c := &WebhookController{
-		gracePeriodRatio: gracePeriodRatio,
-		minGracePeriod:   minGracePeriod,
-		k8sCaCertFile:    k8sCaCertFile,
-		clientset:        client,
-		secretNames:      secretNames,
-		dnsNames:         dnsNames,
-		secretNamespace:  secretNamespace,
-		certUtil:         certutil.NewCertUtil(int(gracePeriodRatio * 100)),
-		certIssuer:       certIssuer,
+		gracePeriodRatio:  gracePeriodRatio,
+		minGracePeriod:    minGracePeriod,
+		k8sCaCertFile:     k8sCaCertFile,
+		core:              core,
+		certClient:        certClient,
+		secretNames:       secretNames,
+		dnsNames:          dnsNames,
+		serviceNamespaces: serviceNamespaces,
+		certUtil:          certutil.NewCertUtil(int(gracePeriodRatio * 100)),
 	}
 
 	// read CA cert at the beginning of launching the controller.
@@ -131,16 +136,28 @@ func NewWebhookController(gracePeriodRatio float32, minGracePeriod time.Duration
 	if err != nil {
 		return nil, err
 	}
-	if len(secretNames) == 0 {
-		log.Warn("the input secrets are empty, no services to manage certificates for")
+	if len(dnsNames) == 0 {
+		log.Warn("the input services are empty, no services to manage certificates for")
 	} else {
-		istioSecretSelector := fields.SelectorFromSet(map[string]string{"type": IstioDNSSecretType})
-		scrtLW := cache.NewListWatchFromClient(client.CoreV1().RESTClient(), "secrets", secretNamespace, istioSecretSelector)
-		// The certificate rotation is handled by scrtUpdated().
-		c.scrtStore, c.scrtController = cache.NewInformer(scrtLW, &v1.Secret{}, secretResyncPeriod, cache.ResourceEventHandlerFuncs{
-			DeleteFunc: c.scrtDeleted,
-			UpdateFunc: c.scrtUpdated,
+		istioSecretSelector := fields.SelectorFromSet(map[string]string{"type": IstioDNSSecretType}).String()
+		scrtLW := listwatch.MultiNamespaceListerWatcher(serviceNamespaces, func(namespace string) cache.ListerWatcher {
+			return &cache.ListWatch{
+				ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+					options.FieldSelector = istioSecretSelector
+					return core.Secrets(namespace).List(context.TODO(), options)
+				},
+				WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+					options.FieldSelector = istioSecretSelector
+					return core.Secrets(namespace).Watch(context.TODO(), options)
+				},
+			}
 		})
+		// The certificate rotation is handled by scrtUpdated().
+		c.scrtStore, c.scrtController =
+			cache.NewInformer(scrtLW, &v1.Secret{}, secretResyncPeriod, cache.ResourceEventHandlerFuncs{
+				DeleteFunc: c.scrtDeleted,
+				UpdateFunc: c.scrtUpdated,
+			})
 	}
 
 	return c, nil
@@ -150,9 +167,9 @@ func NewWebhookController(gracePeriodRatio float32, minGracePeriod time.Duration
 func (wc *WebhookController) Run(stopCh <-chan struct{}) {
 	// Create secrets containing certificates
 	for i, secretName := range wc.secretNames {
-		err := wc.upsertSecret(secretName, wc.dnsNames[i], wc.secretNamespace)
+		err := wc.upsertSecret(secretName, wc.dnsNames[i], wc.serviceNamespaces[i])
 		if err != nil {
-			log.Errorf("error when upserting secret (%v) in ns (%v): %v", secretName, wc.secretNamespace, err)
+			log.Errorf("error when upserting secret (%v) in ns (%v): %v", secretName, wc.serviceNamespaces[i], err)
 		}
 	}
 
@@ -179,7 +196,7 @@ func (wc *WebhookController) upsertSecret(secretName, dnsName, secretNamespace s
 		Type: IstioDNSSecretType,
 	}
 
-	existingSecret, err := wc.clientset.CoreV1().Secrets(secretNamespace).Get(context.TODO(), secretName, metav1.GetOptions{})
+	existingSecret, err := wc.core.Secrets(secretNamespace).Get(context.TODO(), secretName, metav1.GetOptions{})
 	if err == nil && existingSecret != nil {
 		log.Debugf("upsertSecret(): the secret (%v) in namespace (%v) exists, return",
 			secretName, secretNamespace)
@@ -187,9 +204,8 @@ func (wc *WebhookController) upsertSecret(secretName, dnsName, secretNamespace s
 		return nil
 	}
 
-	requestedLifetime := time.Duration(0)
 	// Now we know the secret does not exist yet. So we create a new one.
-	chain, key, caCert, err := GenKeyCertK8sCA(wc.clientset, dnsName, secretName, secretNamespace, wc.k8sCaCertFile, wc.certIssuer, true, requestedLifetime)
+	chain, key, caCert, err := GenKeyCertK8sCA(wc.certClient.CertificateSigningRequests(), dnsName, secretName, secretNamespace, wc.k8sCaCertFile, "")
 	if err != nil {
 		log.Errorf("failed to generate key and certificate for secret %v in namespace %v (error %v)",
 			secretName, secretNamespace, err)
@@ -203,7 +219,7 @@ func (wc *WebhookController) upsertSecret(secretName, dnsName, secretNamespace s
 
 	// We retry several times when create secret to mitigate transient network failures.
 	for i := 0; i < secretCreationRetry; i++ {
-		_, err = wc.clientset.CoreV1().Secrets(secretNamespace).Create(context.TODO(), secret, metav1.CreateOptions{})
+		_, err = wc.core.Secrets(secretNamespace).Create(context.TODO(), secret, metav1.CreateOptions{})
 		if err == nil || errors.IsAlreadyExists(err) {
 			if errors.IsAlreadyExists(err) {
 				log.Infof("Istio secret \"%s\" in namespace \"%s\" already exists", secretName, secretNamespace)
@@ -310,8 +326,7 @@ func (wc *WebhookController) refreshSecret(scrt *v1.Secret) error {
 		return fmt.Errorf("failed to find the service name for the secret (%v) to refresh", scrtName)
 	}
 
-	requestedLifetime := time.Duration(0)
-	chain, key, caCert, err := GenKeyCertK8sCA(wc.clientset, dnsName, scrtName, namespace, wc.k8sCaCertFile, wc.certIssuer, true, requestedLifetime)
+	chain, key, caCert, err := GenKeyCertK8sCA(wc.certClient.CertificateSigningRequests(), dnsName, scrtName, namespace, wc.k8sCaCertFile, "")
 	if err != nil {
 		return err
 	}
@@ -320,14 +335,14 @@ func (wc *WebhookController) refreshSecret(scrt *v1.Secret) error {
 	scrt.Data[ca.PrivateKeyFile] = key
 	scrt.Data[ca.RootCertFile] = caCert
 
-	_, err = wc.clientset.CoreV1().Secrets(namespace).Update(context.TODO(), scrt, metav1.UpdateOptions{})
+	_, err = wc.core.Secrets(namespace).Update(context.TODO(), scrt, metav1.UpdateOptions{})
 	return err
 }
 
 // Return whether the input secret name is a Webhook secret
 func (wc *WebhookController) isWebhookSecret(name, namespace string) bool {
-	for _, n := range wc.secretNames {
-		if name == n && namespace == wc.secretNamespace {
+	for i, n := range wc.secretNames {
+		if name == n && namespace == wc.serviceNamespaces[i] {
 			return true
 		}
 	}

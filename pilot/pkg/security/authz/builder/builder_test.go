@@ -15,13 +15,13 @@
 package builder
 
 import (
-	"os"
+	"io/ioutil"
 	"testing"
 
 	tcppb "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	httppb "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
-	"google.golang.org/protobuf/proto"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pilot/pkg/config/kube/crd"
@@ -129,7 +129,6 @@ func TestGenerator_GenerateHTTP(t *testing.T) {
 		name       string
 		tdBundle   trustdomain.Bundle
 		meshConfig *meshconfig.MeshConfig
-		version    *model.IstioVersion
 		input      string
 		want       []string
 	}{
@@ -142,12 +141,6 @@ func TestGenerator_GenerateHTTP(t *testing.T) {
 			name:  "allow-full-rule",
 			input: "allow-full-rule-in.yaml",
 			want:  []string{"allow-full-rule-out.yaml"},
-		},
-		{
-			name:    "allow-host-before-111",
-			version: &model.IstioVersion{Major: 1, Minor: 10, Patch: 3},
-			input:   "allow-host-before-111-in.yaml",
-			want:    []string{"allow-host-before-111-out.yaml"},
 		},
 		{
 			name:  "allow-nil-rule",
@@ -262,7 +255,7 @@ func TestGenerator_GenerateHTTP(t *testing.T) {
 				IsCustomBuilder: tc.meshConfig != nil,
 				Logger:          &AuthzLogger{},
 			}
-			in := inputParams(t, baseDir+tc.input, tc.meshConfig, tc.version)
+			in := inputParams(t, baseDir+tc.input, tc.meshConfig)
 			defer option.Logger.Report(in)
 			g := New(tc.tdBundle, in, option)
 			if g == nil {
@@ -328,7 +321,7 @@ func TestGenerator_GenerateTCP(t *testing.T) {
 				IsCustomBuilder: tc.meshConfig != nil,
 				Logger:          &AuthzLogger{},
 			}
-			in := inputParams(t, baseDir+tc.input, tc.meshConfig, nil)
+			in := inputParams(t, baseDir+tc.input, tc.meshConfig)
 			defer option.Logger.Report(in)
 			g := New(tc.tdBundle, in, option)
 			if g == nil {
@@ -359,7 +352,7 @@ func verify(t *testing.T, gots []proto.Message, baseDir string, wants []string, 
 			t.Fatalf("failed to convert to YAML: %v", err)
 		}
 
-		util.RefreshGoldenFile(t, []byte(gotYaml), wantFile)
+		util.RefreshGoldenFile([]byte(gotYaml), wantFile, t)
 		if err := util.Compare([]byte(gotYaml), []byte(wantYaml)); err != nil {
 			t.Error(err)
 		}
@@ -368,7 +361,7 @@ func verify(t *testing.T, gots []proto.Message, baseDir string, wants []string, 
 
 func yamlPolicy(t *testing.T, filename string) *model.AuthorizationPolicies {
 	t.Helper()
-	data, err := os.ReadFile(filename)
+	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		t.Fatalf("failed to read input yaml file: %v", err)
 	}
@@ -386,7 +379,7 @@ func yamlPolicy(t *testing.T, filename string) *model.AuthorizationPolicies {
 
 func yamlConfig(t *testing.T, filename string, forTCP bool) proto.Message {
 	t.Helper()
-	data, err := os.ReadFile(filename)
+	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
 	}
@@ -437,7 +430,7 @@ func newAuthzPolicies(t *testing.T, policies []*config.Config) *model.Authorizat
 	return authzPolicies
 }
 
-func inputParams(t *testing.T, input string, mc *meshconfig.MeshConfig, version *model.IstioVersion) *plugin.InputParams {
+func inputParams(t *testing.T, input string, mc *meshconfig.MeshConfig) *plugin.InputParams {
 	t.Helper()
 	ret := &plugin.InputParams{
 		Node: &model.Proxy{
@@ -446,7 +439,6 @@ func inputParams(t *testing.T, input string, mc *meshconfig.MeshConfig, version 
 			Metadata: &model.NodeMetadata{
 				Labels: httpbin,
 			},
-			IstioVersion: version,
 		},
 		Push: &model.PushContext{
 			AuthzPolicies: yamlPolicy(t, basePath+input),

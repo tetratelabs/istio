@@ -22,7 +22,6 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	pkgAPI "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
-	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/util/gogoprotomarshal"
 )
 
@@ -53,6 +52,7 @@ spec:
 
 func TestValidateIOPCAConfig(t *testing.T) {
 	var err error
+	k8sClient := fake.NewSimpleClientset()
 
 	tests := []struct {
 		major        string
@@ -87,7 +87,6 @@ func TestValidateIOPCAConfig(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		k8sClient := kube.NewFakeClient()
 		k8sClient.Discovery().(*fakediscovery.FakeDiscovery).FakedServerVersion = &version.Info{
 			Major: tt.major,
 			Minor: tt.minor,

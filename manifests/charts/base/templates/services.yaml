@@ -1,6 +1,6 @@
 {{- if .Values.global.remotePilotAddress }}
-  {{- if .Values.pilot.enabled }}
-# when local istiod is enabled, we can't use istiod service name to reach the remote control plane
+  {{- if not .Values.global.externalIstiod }}
+# when istiod is enabled in remote cluster, we can't use istiod service name
 apiVersion: v1
 kind: Service
 metadata:
@@ -13,7 +13,7 @@ spec:
     protocol: TCP
   clusterIP: None
   {{- else }}
-# when local istiod isn't enabled, we can use istiod service name to reach the remote control plane
+# when istiod isn't enabled in remote cluster, we can use istiod service name
 apiVersion: v1
 kind: Service
 metadata:

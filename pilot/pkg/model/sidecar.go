@@ -21,6 +21,7 @@ import (
 
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
+	"istio.io/istio/pilot/pkg/util/sets"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/host"
@@ -288,45 +289,39 @@ func ConvertToSidecarScope(ps *PushContext, sidecarConfig *config.Config, config
 	// Now collect all the imported services across all egress listeners in
 	// this sidecar crd. This is needed to generate CDS output
 	out.services = make([]*Service, 0)
+	servicesAdded := make(map[host.Name]*Service)
 	dummyNode := Proxy{
 		ConfigNamespace: configNamespace,
 	}
 
-	type serviceIndex struct {
-		svc   *Service
-		index int // index record the position of the svc in slice
-	}
-	servicesAdded := make(map[host.Name]serviceIndex)
 	addService := func(s *Service) {
 		if s == nil {
 			return
 		}
 		if foundSvc, found := servicesAdded[s.Hostname]; !found {
+			servicesAdded[s.Hostname] = s
 			out.AddConfigDependencies(ConfigKey{
 				Kind:      gvk.ServiceEntry,
 				Name:      string(s.Hostname),
 				Namespace: s.Attributes.Namespace,
 			})
 			out.services = append(out.services, s)
-			servicesAdded[s.Hostname] = serviceIndex{s, len(out.services) - 1}
-		} else if foundSvc.svc.Attributes.Namespace == s.Attributes.Namespace && s.Ports != nil && len(s.Ports) > 0 {
+		} else if foundSvc.Attributes.Namespace == s.Attributes.Namespace && s.Ports != nil && len(s.Ports) > 0 {
 			// merge the ports to service when each listener generates partial service
 			// we only merge if the found service is in the same namespace as the one we're trying to add
-			copied := foundSvc.svc.DeepCopy()
+			os := servicesAdded[s.Hostname]
 			for _, p := range s.Ports {
 				found := false
-				for _, osp := range copied.Ports {
+				for _, osp := range os.Ports {
 					if p.Port == osp.Port {
 						found = true
 						break
 					}
 				}
 				if !found {
-					copied.Ports = append(copied.Ports, p)
+					os.Ports = append(os.Ports, p)
 				}
 			}
-			// replace service in slice
-			out.services[foundSvc.index] = copied
 		}
 	}
 
@@ -462,11 +457,31 @@ func convertIstioListenerToWrapper(ps *PushContext, configNamespace string,
 	}
 
 	vses := ps.VirtualServicesForGateway(&dummyNode, constants.IstioMeshGateway)
-	out.virtualServices = SelectVirtualServices(vses, out.listenerHosts)
+	out.virtualServices = out.selectVirtualServices(vses, out.listenerHosts)
 	svces := ps.Services(&dummyNode)
 	out.services = out.selectServices(svces, configNamespace, out.listenerHosts)
 
 	return out
+}
+
+// Services returns the list of services imported across all egress listeners by this
+// Sidecar config
+func (sc *SidecarScope) Services() []*Service {
+	if sc == nil {
+		return nil
+	}
+
+	return sc.services
+}
+
+// DestinationRule returns the destination rule applicable for a given hostname
+// used by CDS code
+func (sc *SidecarScope) DestinationRule(hostname host.Name) *config.Config {
+	if sc == nil {
+		return nil
+	}
+
+	return sc.destinationRules[hostname]
 }
 
 // GetEgressListenerForRDS returns the egress listener corresponding to
@@ -563,6 +578,72 @@ func (sc *SidecarScope) AddConfigDependencies(dependencies ...ConfigKey) {
 	}
 }
 
+// Given a list of virtual services visible to this namespace,
+// selectVirtualServices returns the list of virtual services that are
+// applicable to this egress listener, based on the hosts field specified
+// in the API. This code is called only once during the construction of the
+// listener wrapper. The parent object (sidecarScope) and its listeners are
+// constructed only once and reused for every sidecar that selects this
+// sidecarScope object. Selection is based on labels at the moment.
+func (ilw *IstioEgressListenerWrapper) selectVirtualServices(virtualServices []config.Config, hosts map[string][]host.Name) []config.Config {
+	importedVirtualServices := make([]config.Config, 0)
+	vsset := sets.NewSet()
+	for _, c := range virtualServices {
+		configNamespace := c.Namespace
+		vsName := c.Name + "/" + c.Namespace
+		rule := c.Spec.(*networking.VirtualService)
+
+		// Selection algorithm:
+		// virtualservices have a list of hosts in the API spec
+		// Sidecars have a list of hosts in the api spec (namespace/host format)
+		// if any host in the virtualService.hosts matches the sidecar's egress'
+		// entry <virtualServiceNamespace>/virtualServiceHost, select the virtual service
+		// and break out of the loop.
+		// OR if any host in the virtualService.hosts matches the sidecar's egress'
+		// entry */virtualServiceHost, select the virtual service and break out of the loop.
+
+		// Check if there is an explicit import of form ns/* or ns/host
+		if importedHosts, nsFound := hosts[configNamespace]; nsFound {
+			for _, importedHost := range importedHosts {
+				// Check if the hostnames match per usual hostname matching rules
+				if _, ok := vsset[vsName]; ok {
+					break
+				}
+				for _, h := range rule.Hosts {
+					// VirtualServices can have many hosts, so we need to avoid appending
+					// duplicated virtualservices to slice importedVirtualServices
+					if importedHost.Matches(host.Name(h)) {
+						importedVirtualServices = append(importedVirtualServices, c)
+						vsset[vsName] = struct{}{}
+						break
+					}
+				}
+			}
+		}
+
+		// Check if there is an import of form */host or */*
+		if importedHosts, wnsFound := hosts[wildcardNamespace]; wnsFound {
+			for _, importedHost := range importedHosts {
+				// Check if the hostnames match per usual hostname matching rules
+				if _, ok := vsset[vsName]; ok {
+					break
+				}
+				for _, h := range rule.Hosts {
+					// VirtualServices can have many hosts, so we need to avoid appending
+					// duplicated virtualservices to slice importedVirtualServices
+					if importedHost.Matches(host.Name(h)) {
+						importedVirtualServices = append(importedVirtualServices, c)
+						vsset[vsName] = struct{}{}
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return importedVirtualServices
+}
+
 // Return filtered services through the hosts field in the egress portion of the Sidecar config.
 // Note that the returned service could be trimmed.
 func (ilw *IstioEgressListenerWrapper) selectServices(services []*Service, configNamespace string, hosts map[string][]host.Name) []*Service {
@@ -596,9 +677,9 @@ func (ilw *IstioEgressListenerWrapper) selectServices(services []*Service, confi
 
 	filteredServices := make([]*Service, 0)
 	// Filter down to just instances in scope for the service
-	for _, svc := range importedServices {
-		if validServices[svc.Hostname] == svc.Attributes.Namespace {
-			filteredServices = append(filteredServices, svc)
+	for _, i := range importedServices {
+		if validServices[i.Hostname] == i.Attributes.Namespace {
+			filteredServices = append(filteredServices, i)
 		}
 	}
 	return filteredServices

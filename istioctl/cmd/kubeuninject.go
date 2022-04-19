@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ghodss/yaml"
 	"github.com/hashicorp/go-multierror"
 	"github.com/spf13/cobra"
 	batch "k8s.io/api/batch/v1"
@@ -32,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	yamlDecoder "k8s.io/apimachinery/pkg/util/yaml"
-	"sigs.k8s.io/yaml"
 
 	istioStatus "istio.io/istio/pilot/cmd/pilot-agent/status"
 	"istio.io/istio/pkg/kube/inject"
@@ -134,21 +134,21 @@ func restoreAppProbes(containers []corev1.Container, probers map[string]*inject.
 				switch probeType {
 				case "readyz":
 					container.ReadinessProbe = &corev1.Probe{
-						ProbeHandler: corev1.ProbeHandler{
+						Handler: corev1.Handler{
 							HTTPGet: prober.HTTPGet,
 						},
 						TimeoutSeconds: prober.TimeoutSeconds,
 					}
 				case "livez":
 					container.LivenessProbe = &corev1.Probe{
-						ProbeHandler: corev1.ProbeHandler{
+						Handler: corev1.Handler{
 							HTTPGet: prober.HTTPGet,
 						},
 						TimeoutSeconds: prober.TimeoutSeconds,
 					}
 				case "startupz":
 					container.StartupProbe = &corev1.Probe{
-						ProbeHandler: corev1.ProbeHandler{
+						Handler: corev1.Handler{
 							HTTPGet: prober.HTTPGet,
 						},
 						TimeoutSeconds: prober.TimeoutSeconds,

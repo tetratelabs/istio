@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
+	"io/ioutil"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -67,8 +65,7 @@ var dashboards = []struct {
 			// In default install, we have no proxy
 			"istio-proxy",
 			// https://github.com/istio/istio/issues/22674 this causes flaky tests
-			//"galley_validation_passed",
-			"galley_validation_failed",
+			"galley_validation_passed",
 			// cAdvisor does not expose this metrics, and we don't have kubelet in kind
 			"container_fs_usage_bytes",
 			// flakes: https://github.com/istio/istio/issues/29871
@@ -137,14 +134,14 @@ func TestDashboard(t *testing.T) {
 		Run(func(ctx framework.TestContext) {
 			p := common.GetPromInstance()
 
-			ctx.ConfigIstio().ApplyYAMLOrFail(ctx, common.GetAppNamespace().Name(), fmt.Sprintf(gatewayConfig, common.GetAppNamespace().Name()))
+			ctx.Config().ApplyYAMLOrFail(ctx, common.GetAppNamespace().Name(), fmt.Sprintf(gatewayConfig, common.GetAppNamespace().Name()))
 
 			// Apply just the grafana dashboards
-			cfg, err := os.ReadFile(filepath.Join(env.IstioSrc, "samples/addons/grafana.yaml"))
+			cfg, err := ioutil.ReadFile(filepath.Join(env.IstioSrc, "samples/addons/grafana.yaml"))
 			if err != nil {
 				ctx.Fatal(err)
 			}
-			ctx.ConfigKube().ApplyYAMLOrFail(ctx, "istio-system", yml.SplitYamlByKind(string(cfg))["ConfigMap"])
+			ctx.Config().ApplyYAMLOrFail(ctx, "istio-system", yml.SplitYamlByKind(string(cfg))["ConfigMap"])
 
 			// We will send a bunch of requests until the test exits. This ensures we are continuously
 			// getting new metrics ingested. If we just send a bunch at once, Prometheus may scrape them

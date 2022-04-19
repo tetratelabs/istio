@@ -69,7 +69,6 @@ spec:
     spec:
       containers:
       - image: auto
-        imagePullPolicy: IfNotPresent
         name: istio-proxy
         securityContext:
           readOnlyRootFilesystem: false

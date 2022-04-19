@@ -19,9 +19,9 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/ghodss/yaml"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/proto"
-	"sigs.k8s.io/yaml"
 
 	"istio.io/pkg/log"
 )
@@ -100,8 +100,8 @@ func ApplyYAML(yml string, pb proto.Message) error {
 	return ApplyJSON(string(js), pb)
 }
 
-// ApplyYAMLStrict unmarshals a YAML string into a proto message.
-// Unknown fields are not allowed.
+// ApplyYAML unmarshals a YAML string into a proto message.
+// Unknown fields are notallowed.
 func ApplyYAMLStrict(yml string, pb proto.Message) error {
 	js, err := yaml.YAMLToJSON([]byte(yml))
 	if err != nil {

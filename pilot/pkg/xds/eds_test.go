@@ -17,11 +17,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -171,7 +170,7 @@ func TestEds(t *testing.T) {
 			t.Error("No clusters in ADS response")
 		}
 		strResponse, _ := json.MarshalIndent(clusters, " ", " ")
-		_ = os.WriteFile(env.IstioOut+"/cdsv2_sidecar.json", strResponse, 0o644)
+		_ = ioutil.WriteFile(env.IstioOut+"/cdsv2_sidecar.json", strResponse, 0o644)
 	})
 }
 
@@ -268,7 +267,7 @@ func mustReadFile(t *testing.T, fpaths ...string) string {
 		if !strings.HasPrefix(fpath, ".") {
 			fpath = filepath.Join(env.IstioSrc, fpath)
 		}
-		bytes, err := os.ReadFile(fpath)
+		bytes, err := ioutil.ReadFile(fpath)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -284,12 +283,12 @@ func mustReadfolder(t *testing.T, folder string) string {
 	if !strings.HasPrefix(fpathRoot, ".") {
 		fpathRoot = filepath.Join(env.IstioSrc, folder)
 	}
-	f, err := os.ReadDir(fpathRoot)
+	f, err := ioutil.ReadDir(fpathRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, fpath := range f {
-		bytes, err := os.ReadFile(filepath.Join(fpathRoot, fpath.Name()))
+		bytes, err := ioutil.ReadFile(filepath.Join(fpathRoot, fpath.Name()))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -341,30 +340,26 @@ func TestEDSOverlapping(t *testing.T) {
 // Validates the behavior when Service resolution type is updated after initial EDS push.
 // See https://github.com/istio/istio/issues/18355 for more details.
 func TestEDSServiceResolutionUpdate(t *testing.T) {
-	for _, resolution := range []model.Resolution{model.DNSLB, model.DNSRoundRobinLB} {
-		t.Run(fmt.Sprintf("resolution_%s", resolution), func(t *testing.T) {
-			s := xds.NewFakeDiscoveryServer(t, xds.FakeOptions{})
-			addEdsCluster(s, "edsdns.svc.cluster.local", "http", "10.0.0.53", 8080)
-			addEdsCluster(s, "other.local", "http", "1.1.1.1", 8080)
+	s := xds.NewFakeDiscoveryServer(t, xds.FakeOptions{})
+	addEdsCluster(s, "edsdns.svc.cluster.local", "http", "10.0.0.53", 8080)
+	addEdsCluster(s, "other.local", "http", "1.1.1.1", 8080)
 
-			adscConn := s.Connect(nil, nil, watchAll)
+	adscConn := s.Connect(nil, nil, watchAll)
 
-			// Validate that endpoints are pushed correctly.
-			testEndpoints("10.0.0.53", "outbound|8080||edsdns.svc.cluster.local", adscConn, t)
+	// Validate that endpoints are pushed correctly.
+	testEndpoints("10.0.0.53", "outbound|8080||edsdns.svc.cluster.local", adscConn, t)
 
-			// Now update the service resolution to DNSLB/DNSRRLB with a DNS endpoint.
-			updateServiceResolution(s, resolution)
+	// Now update the service resolution to DNSLB with a DNS endpoint.
+	updateServiceResolution(s)
 
-			if _, err := adscConn.Wait(5*time.Second, v3.EndpointType); err != nil {
-				t.Fatal(err)
-			}
+	if _, err := adscConn.Wait(5*time.Second, v3.EndpointType); err != nil {
+		t.Fatal(err)
+	}
 
-			// Validate that endpoints are skipped.
-			lbe := adscConn.GetEndpoints()["outbound|8080||edsdns.svc.cluster.local"]
-			if lbe != nil && len(lbe.Endpoints) > 0 {
-				t.Fatalf("endpoints not expected for  %s,  but got %v", "edsdns.svc.cluster.local", adscConn.EndpointsJSON())
-			}
-		})
+	// Validate that endpoints are skipped.
+	lbe := adscConn.GetEndpoints()["outbound|8080||edsdns.svc.cluster.local"]
+	if lbe != nil && len(lbe.Endpoints) > 0 {
+		t.Fatalf("endpoints not expected for  %s,  but got %v", "edsdns.svc.cluster.local", adscConn.EndpointsJSON())
 	}
 }
 
@@ -450,25 +445,25 @@ func TestUpdateServiceAccount(t *testing.T) {
 
 	testCases := []struct {
 		name      string
-		shardKey  model.ShardKey
+		clusterID string
 		endpoints []*model.IstioEndpoint
 		expect    bool
 	}{
 		{
 			name:      "added new endpoint",
-			shardKey:  "c1",
+			clusterID: "c1",
 			endpoints: append(cluster1Endppoints, &model.IstioEndpoint{Address: "10.172.0.3", ServiceAccount: "sa1"}),
 			expect:    false,
 		},
 		{
 			name:      "added new sa",
-			shardKey:  "c1",
+			clusterID: "c1",
 			endpoints: append(cluster1Endppoints, &model.IstioEndpoint{Address: "10.172.0.3", ServiceAccount: "sa2"}),
 			expect:    true,
 		},
 		{
-			name:     "updated endpoints address",
-			shardKey: "c1",
+			name:      "updated endpoints address",
+			clusterID: "c1",
 			endpoints: []*model.IstioEndpoint{
 				{Address: "10.172.0.5", ServiceAccount: "sa1"},
 				{Address: "10.172.0.2", ServiceAccount: "sa-vm1"},
@@ -476,16 +471,16 @@ func TestUpdateServiceAccount(t *testing.T) {
 			expect: false,
 		},
 		{
-			name:     "deleted one endpoint with unique sa",
-			shardKey: "c1",
+			name:      "deleted one endpoint with unique sa",
+			clusterID: "c1",
 			endpoints: []*model.IstioEndpoint{
 				{Address: "10.172.0.1", ServiceAccount: "sa1"},
 			},
 			expect: true,
 		},
 		{
-			name:     "deleted one endpoint with duplicate sa",
-			shardKey: "c1",
+			name:      "deleted one endpoint with duplicate sa",
+			clusterID: "c1",
 			endpoints: []*model.IstioEndpoint{
 				{Address: "10.172.0.2", ServiceAccount: "sa-vm1"},
 			},
@@ -493,7 +488,7 @@ func TestUpdateServiceAccount(t *testing.T) {
 		},
 		{
 			name:      "deleted endpoints",
-			shardKey:  "c1",
+			clusterID: "c1",
 			endpoints: nil,
 			expect:    true,
 		},
@@ -503,7 +498,7 @@ func TestUpdateServiceAccount(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := new(xds.DiscoveryServer)
 			originalEndpointsShard := &xds.EndpointShards{
-				Shards: map[model.ShardKey][]*model.IstioEndpoint{
+				Shards: map[string][]*model.IstioEndpoint{
 					"c1": cluster1Endppoints,
 					"c2": {{Address: "10.244.0.1", ServiceAccount: "sa1"}, {Address: "10.244.0.2", ServiceAccount: "sa-vm2"}},
 				},
@@ -513,35 +508,12 @@ func TestUpdateServiceAccount(t *testing.T) {
 					"sa-vm2": {},
 				},
 			}
-			originalEndpointsShard.Shards[tc.shardKey] = tc.endpoints
+			originalEndpointsShard.Shards[tc.clusterID] = tc.endpoints
 			ret := s.UpdateServiceAccount(originalEndpointsShard, "test-svc")
 			if ret != tc.expect {
 				t.Errorf("expect UpdateServiceAccount %v, but got %v", tc.expect, ret)
 			}
 		})
-	}
-}
-
-func TestZeroEndpointShardSA(t *testing.T) {
-	cluster1Endppoints := []*model.IstioEndpoint{
-		{Address: "10.172.0.1", ServiceAccount: "sa1"},
-	}
-	s := new(xds.DiscoveryServer)
-	originalEndpointsShard := &xds.EndpointShards{
-		Shards: map[model.ShardKey][]*model.IstioEndpoint{
-			"c1": cluster1Endppoints,
-		},
-		ServiceAccounts: map[string]struct{}{
-			"sa1": {},
-		},
-	}
-	s.EndpointShardsByService = make(map[string]map[string]*xds.EndpointShards)
-	s.EndpointShardsByService["test"] = make(map[string]*xds.EndpointShards)
-	s.EndpointShardsByService["test"]["test"] = originalEndpointsShard
-	s.Cache = model.DisabledCache{}
-	s.EDSCacheUpdate("c1", "test", "test", []*model.IstioEndpoint{})
-	if len(s.EndpointShardsByService["test"]["test"].ServiceAccounts) != 0 {
-		t.Errorf("endpoint shard service accounts got %v want 0", len(s.EndpointShardsByService["test"]["test"].ServiceAccounts))
 	}
 }
 
@@ -1060,7 +1032,7 @@ func addEdsCluster(s *xds.FakeDiscoveryServer, hostName string, portName string,
 	fullPush(s)
 }
 
-func updateServiceResolution(s *xds.FakeDiscoveryServer, resolution model.Resolution) {
+func updateServiceResolution(s *xds.FakeDiscoveryServer) {
 	s.Discovery.MemRegistry.AddService("edsdns.svc.cluster.local", &model.Service{
 		Hostname: "edsdns.svc.cluster.local",
 		Ports: model.PortList{
@@ -1070,7 +1042,7 @@ func updateServiceResolution(s *xds.FakeDiscoveryServer, resolution model.Resolu
 				Protocol: protocol.HTTP,
 			},
 		},
-		Resolution: resolution,
+		Resolution: model.DNSLB,
 	})
 
 	s.Discovery.MemRegistry.AddInstance("edsdns.svc.cluster.local", &model.ServiceInstance{
@@ -1134,7 +1106,7 @@ func testEdsz(t *testing.T, s *xds.FakeDiscoveryServer, proxyID string) {
 	debug := http.HandlerFunc(s.Discovery.Edsz)
 	debug.ServeHTTP(rr, req)
 
-	data, err := io.ReadAll(rr.Body)
+	data, err := ioutil.ReadAll(rr.Body)
 	if err != nil {
 		t.Fatalf("Failed to read /edsz")
 	}

@@ -21,8 +21,9 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/davecgh/go-spew/spew"
+
 	meshconfig "istio.io/api/mesh/v1alpha1"
-	"istio.io/istio/pkg/util/gogoprotomarshal"
 	"istio.io/pkg/filewatcher"
 	"istio.io/pkg/log"
 )
@@ -46,19 +47,13 @@ type Watcher interface {
 
 // MultiWatcher is a struct wrapping the internal injector to let users know that both
 type MultiWatcher struct {
-	internalWatcher
-	internalNetworkWatcher
+	InternalWatcher
+	InternalNetworkWatcher
 }
 
-func NewMultiWatcher(config *meshconfig.MeshConfig) *MultiWatcher {
-	return &MultiWatcher{
-		internalWatcher: internalWatcher{MeshConfig: config},
-	}
-}
+var _ Watcher = &InternalWatcher{}
 
-var _ Watcher = &internalWatcher{}
-
-type internalWatcher struct {
+type InternalWatcher struct {
 	mutex    sync.Mutex
 	handlers []func()
 	// Current merged mesh config
@@ -71,7 +66,7 @@ type internalWatcher struct {
 // NewFixedWatcher creates a new Watcher that always returns the given mesh config. It will never
 // fire any events, since the config never changes.
 func NewFixedWatcher(mesh *meshconfig.MeshConfig) Watcher {
-	return &internalWatcher{
+	return &InternalWatcher{
 		MeshConfig: mesh,
 	}
 }
@@ -89,7 +84,7 @@ func NewFileWatcher(fileWatcher filewatcher.FileWatcher, filename string, multiW
 		return nil, err
 	}
 
-	w := &internalWatcher{
+	w := &InternalWatcher{
 		MeshConfig:    meshConfig,
 		revMeshConfig: meshConfigYaml,
 	}
@@ -117,12 +112,12 @@ func NewFileWatcher(fileWatcher filewatcher.FileWatcher, filename string, multiW
 }
 
 // Mesh returns the latest mesh config.
-func (w *internalWatcher) Mesh() *meshconfig.MeshConfig {
+func (w *InternalWatcher) Mesh() *meshconfig.MeshConfig {
 	return (*meshconfig.MeshConfig)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&w.MeshConfig))))
 }
 
 // AddMeshHandler registers a callback handler for changes to the mesh config.
-func (w *internalWatcher) AddMeshHandler(h func()) {
+func (w *InternalWatcher) AddMeshHandler(h func()) {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 	w.handlers = append(w.handlers, h)
@@ -130,7 +125,7 @@ func (w *internalWatcher) AddMeshHandler(h func()) {
 
 // HandleMeshConfigData keeps track of the standard mesh config. These are merged with the user
 // mesh config, but takes precedence.
-func (w *internalWatcher) HandleMeshConfigData(yaml string) {
+func (w *InternalWatcher) HandleMeshConfigData(yaml string) {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 	w.revMeshConfig = yaml
@@ -140,7 +135,7 @@ func (w *internalWatcher) HandleMeshConfigData(yaml string) {
 
 // HandleUserMeshConfig keeps track of user mesh config overrides. These are merged with the standard
 // mesh config, which takes precedence.
-func (w *internalWatcher) HandleUserMeshConfig(yaml string) {
+func (w *InternalWatcher) HandleUserMeshConfig(yaml string) {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 	w.userMeshConfig = yaml
@@ -149,7 +144,7 @@ func (w *internalWatcher) HandleUserMeshConfig(yaml string) {
 }
 
 // merged returns the merged user and revision config.
-func (w *internalWatcher) merged() *meshconfig.MeshConfig {
+func (w *InternalWatcher) merged() *meshconfig.MeshConfig {
 	mc := DefaultMeshConfig()
 	if w.userMeshConfig != "" {
 		mc1, err := ApplyMeshConfig(w.userMeshConfig, mc)
@@ -157,7 +152,7 @@ func (w *internalWatcher) merged() *meshconfig.MeshConfig {
 			log.Errorf("user config invalid, ignoring it %v %s", err, w.userMeshConfig)
 		} else {
 			mc = *mc1
-			log.Infof("Applied user config: %s", PrettyFormatOfMeshConfig(&mc))
+			log.Infoa("Applied user config: ", spew.Sdump(mc))
 		}
 	}
 	if w.revMeshConfig != "" {
@@ -166,7 +161,7 @@ func (w *internalWatcher) merged() *meshconfig.MeshConfig {
 			log.Errorf("revision config invalid, ignoring it %v %s", err, w.userMeshConfig)
 		} else {
 			mc = *mc1
-			log.Infof("Applied revision mesh config: %s", PrettyFormatOfMeshConfig(&mc))
+			log.Infoa("Applied revision mesh config: ", spew.Sdump(mc))
 		}
 	}
 	return &mc
@@ -174,18 +169,18 @@ func (w *internalWatcher) merged() *meshconfig.MeshConfig {
 
 // HandleMeshConfig calls all handlers for a given mesh configuration update. This must be called
 // with a lock on w.Mutex, or updates may be applied out of order.
-func (w *internalWatcher) HandleMeshConfig(meshConfig *meshconfig.MeshConfig) {
+func (w *InternalWatcher) HandleMeshConfig(meshConfig *meshconfig.MeshConfig) {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 	w.handleMeshConfigInternal(meshConfig)
 }
 
 // handleMeshConfigInternal behaves the same as HandleMeshConfig but must be called under a lock
-func (w *internalWatcher) handleMeshConfigInternal(meshConfig *meshconfig.MeshConfig) {
+func (w *InternalWatcher) handleMeshConfigInternal(meshConfig *meshconfig.MeshConfig) {
 	var handlers []func()
 
 	if !reflect.DeepEqual(meshConfig, w.MeshConfig) {
-		log.Infof("mesh configuration updated to: %s", PrettyFormatOfMeshConfig(meshConfig))
+		log.Infof("mesh configuration updated to: %s", spew.Sdump(meshConfig))
 		if !reflect.DeepEqual(meshConfig.ConfigSources, w.MeshConfig.ConfigSources) {
 			log.Info("mesh configuration sources have changed")
 			// TODO Need to recreate or reload initConfigController()
@@ -222,9 +217,4 @@ func addFileWatcher(fileWatcher filewatcher.FileWatcher, file string, callback f
 			}
 		}
 	}()
-}
-
-func PrettyFormatOfMeshConfig(meshConfig *meshconfig.MeshConfig) string {
-	meshConfigDump, _ := gogoprotomarshal.ToJSONWithIndent(meshConfig, "    ")
-	return meshConfigDump
 }

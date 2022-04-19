@@ -15,7 +15,6 @@
 package client
 
 import (
-	"fmt"
 	"net"
 	"os"
 	"strings"
@@ -41,7 +40,8 @@ type LocalDNSServer struct {
 	// nameTable holds the original NameTable, for debugging
 	nameTable atomic.Value
 
-	dnsProxies []*dnsProxy
+	udpDNSProxy *dnsProxy
+	tcpDNSProxy *dnsProxy
 
 	resolvConfServers []string
 	searchNamespaces  []string
@@ -51,8 +51,7 @@ type LocalDNSServer struct {
 	// Optimizations to save space and time
 	proxyDomain      string
 	proxyDomainParts []string
-
-	respondBeforeSync bool
+	addr             string
 }
 
 // LookupTable is borrowed from https://github.com/coredns/coredns/blob/master/plugin/hosts/hostsfile.go
@@ -82,8 +81,12 @@ const (
 )
 
 func NewLocalDNSServer(proxyNamespace, proxyDomain string, addr string) (*LocalDNSServer, error) {
+	if addr == "" {
+		addr = "localhost:15053"
+	}
 	h := &LocalDNSServer{
 		proxyNamespace: proxyNamespace,
+		addr:           addr,
 	}
 
 	registerStats()
@@ -102,17 +105,11 @@ func NewLocalDNSServer(proxyNamespace, proxyDomain string, addr string) (*LocalD
 	resolvConf := "/etc/resolv.conf"
 	// If running as root and the alternate resolv.conf file exists, use it instead.
 	// This is used when running in Docker or VMs, without iptables DNS interception.
-	if strings.HasSuffix(addr, ":53") {
-		if os.Getuid() == 0 {
-			h.respondBeforeSync = true
-			// TODO: we can also copy /etc/resolv.conf to /var/lib/istio/resolv.conf and
-			// replace it with 'nameserver 127.0.0.1'
-			if _, err := os.Stat("/var/lib/istio/resolv.conf"); !os.IsNotExist(err) {
-				resolvConf = "/var/lib/istio/resolv.conf"
-			}
-		} else {
-			log.Error("DNS address :53 and not running as root, use default")
-			addr = "localhost:15053"
+	if strings.HasSuffix(addr, ":53") && os.Getuid() == 0 {
+		// TODO: we can also copy /etc/resolv.conf to /var/lib/istio/resolv.conf and
+		// replace it with 'nameserver 127.0.0.1'
+		if _, err := os.Stat("/var/lib/istio/resolv.conf"); !os.IsNotExist(err) {
+			resolvConf = "/var/lib/istio/resolv.conf"
 		}
 	}
 
@@ -139,45 +136,20 @@ func NewLocalDNSServer(proxyNamespace, proxyDomain string, addr string) (*LocalD
 
 	log.WithLabels("search", h.searchNamespaces, "servers", h.resolvConfServers).Debugf("initialized DNS")
 
-	if addr == "" {
-		addr = "localhost:15053"
+	if h.udpDNSProxy, err = newDNSProxy("udp", h); err != nil {
+		return nil, err
 	}
-	v4, v6 := separateIPtypes(dnsConfig.Servers)
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, fmt.Errorf("dns address must be a valid host:port")
-	}
-	addresses := []string{addr}
-	if host == "localhost" && len(v4)+len(v6) > 0 {
-		addresses = []string{}
-		// When binding to "localhost", go will pick v4 OR v6. In dual stack, we may need v4 AND v6.
-		// If we are in this situation, explicitly listen to v4, v6, or both.
-		if len(v4) > 0 {
-			addresses = append(addresses, net.JoinHostPort("127.0.0.1", port))
-		}
-		if len(v6) > 0 {
-			addresses = append(addresses, net.JoinHostPort("::1", port))
-		}
-	}
-	for _, ipAddr := range addresses {
-		for _, proto := range []string{"udp", "tcp"} {
-			proxy, err := newDNSProxy(proto, ipAddr, h)
-			if err != nil {
-				return nil, err
-			}
-			h.dnsProxies = append(h.dnsProxies, proxy)
-
-		}
+	if h.tcpDNSProxy, err = newDNSProxy("tcp", h); err != nil {
+		return nil, err
 	}
 
 	return h, nil
 }
 
-// StartDNS starts DNS-over-UDP and DNS-over-TCP servers.
+// StartDNS starts the DNS-over-UDP downstreamUDPServer.
 func (h *LocalDNSServer) StartDNS() {
-	for _, p := range h.dnsProxies {
-		go p.start()
-	}
+	go h.udpDNSProxy.start()
+	go h.tcpDNSProxy.start()
 }
 
 func (h *LocalDNSServer) UpdateLookupTable(nt *dnsProto.NameTable) {
@@ -196,10 +168,7 @@ func (h *LocalDNSServer) UpdateLookupTable(nt *dnsProto.NameTable) {
 		if ni.Registry == string(provider.Kubernetes) {
 			altHosts = generateAltHosts(hostname, ni, h.proxyNamespace, h.proxyDomain, h.proxyDomainParts)
 		} else {
-			if !strings.HasSuffix(hostname, ".") {
-				hostname += "."
-			}
-			altHosts = map[string]struct{}{hostname: {}}
+			altHosts = map[string]struct{}{hostname + ".": {}}
 		}
 		ipv4, ipv6 := separateIPtypes(ni.Ips)
 		if len(ipv6) == 0 && len(ipv4) == 0 {
@@ -247,7 +216,7 @@ func (h *LocalDNSServer) ServeDNS(proxy *dnsProxy, w dns.ResponseWriter, req *dn
 	lp := h.lookupTable.Load()
 	hostname := strings.ToLower(req.Question[0].Name)
 	if lp == nil {
-		if h.respondBeforeSync {
+		if strings.HasSuffix(h.addr, ":53") {
 			response = h.upstream(proxy, req, hostname)
 			response.Truncate(size(proxy.protocol, req))
 			_ = w.WriteMsg(response)
@@ -369,9 +338,8 @@ func roundRobinShuffle(records []dns.RR) {
 }
 
 func (h *LocalDNSServer) Close() {
-	for _, p := range h.dnsProxies {
-		p.close()
-	}
+	h.udpDNSProxy.close()
+	h.tcpDNSProxy.close()
 }
 
 // TODO: Figure out how to send parallel queries to all nameservers
@@ -431,7 +399,6 @@ func generateAltHosts(hostname string, nameinfo *dnsProto.NameTable_NameInfo, pr
 	out[nameinfo.Shortname+"."+nameinfo.Namespace+"."+proxyDomainParts[0]+"."] = struct{}{}
 
 	// Add any additional alt hostnames.
-	// nolint: staticcheck
 	for _, altHost := range nameinfo.AltHosts {
 		out[altHost+"."] = struct{}{}
 	}

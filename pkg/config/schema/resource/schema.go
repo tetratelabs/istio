@@ -68,8 +68,8 @@ type Schema interface {
 	// Status returns the associated status of the schema
 	Status() (config.Status, error)
 
-	// StatusKind returns the Kind of the status field. If unset, the field does not support status.
 	StatusKind() string
+
 	StatusPackage() string
 
 	// MustNewInstance calls NewInstance and panics if an error occurs.
@@ -281,9 +281,6 @@ func (s *schemaImpl) Status() (config.Status, error) {
 }
 
 func (s *schemaImpl) StatusKind() string {
-	if s.statusType == nil {
-		return ""
-	}
 	return s.statusType.Name()
 }
 

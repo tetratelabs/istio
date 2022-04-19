@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
+	"unsafe"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pkg/util/gogoprotomarshal"
@@ -31,17 +33,17 @@ type NetworksHolder interface {
 	Networks() *meshconfig.MeshNetworks
 }
 
-// NetworksWatcher watches changes to the mesh networks config.
+// NetworkWatcher watches changes to the mesh networks config.
 type NetworksWatcher interface {
 	NetworksHolder
 
 	AddNetworksHandler(func())
 }
 
-var _ NetworksWatcher = &internalNetworkWatcher{}
+var _ NetworksWatcher = &InternalNetworkWatcher{}
 
-type internalNetworkWatcher struct {
-	mutex    sync.RWMutex
+type InternalNetworkWatcher struct {
+	mutex    sync.Mutex
 	handlers []func()
 	networks *meshconfig.MeshNetworks
 }
@@ -49,7 +51,7 @@ type internalNetworkWatcher struct {
 // NewFixedNetworksWatcher creates a new NetworksWatcher that always returns the given config.
 // It will never fire any events, since the config never changes.
 func NewFixedNetworksWatcher(networks *meshconfig.MeshNetworks) NetworksWatcher {
-	return &internalNetworkWatcher{
+	return &InternalNetworkWatcher{
 		networks: networks,
 	}
 }
@@ -61,10 +63,11 @@ func NewNetworksWatcher(fileWatcher filewatcher.FileWatcher, filename string) (N
 		return nil, fmt.Errorf("failed to read mesh networks configuration from %q: %v", filename, err)
 	}
 
+	ResolveHostsInNetworksConfig(meshNetworks)
 	networksdump, _ := gogoprotomarshal.ToJSONWithIndent(meshNetworks, "   ")
 	log.Infof("mesh networks configuration: %s", networksdump)
 
-	w := &internalNetworkWatcher{
+	w := &InternalNetworkWatcher{
 		networks: meshNetworks,
 	}
 
@@ -82,26 +85,22 @@ func NewNetworksWatcher(fileWatcher filewatcher.FileWatcher, filename string) (N
 }
 
 // Networks returns the latest network configuration for the mesh.
-func (w *internalNetworkWatcher) Networks() *meshconfig.MeshNetworks {
-	if w == nil {
-		return nil
-	}
-	w.mutex.RLock()
-	defer w.mutex.RUnlock()
-	return w.networks
+func (w *InternalNetworkWatcher) Networks() *meshconfig.MeshNetworks {
+	return (*meshconfig.MeshNetworks)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&w.networks))))
 }
 
 // SetNetworks will use the given value for mesh networks and notify all handlers of the change
-func (w *internalNetworkWatcher) SetNetworks(meshNetworks *meshconfig.MeshNetworks) {
+func (w *InternalNetworkWatcher) SetNetworks(meshNetworks *meshconfig.MeshNetworks) {
 	var handlers []func()
 
 	w.mutex.Lock()
 	if !reflect.DeepEqual(meshNetworks, w.networks) {
+		ResolveHostsInNetworksConfig(meshNetworks)
 		networksdump, _ := gogoprotomarshal.ToJSONWithIndent(meshNetworks, "    ")
 		log.Infof("mesh networks configuration updated to: %s", networksdump)
 
 		// Store the new config.
-		w.networks = meshNetworks
+		atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&w.networks)), unsafe.Pointer(meshNetworks))
 		handlers = append([]func(){}, w.handlers...)
 	}
 	w.mutex.Unlock()
@@ -112,8 +111,8 @@ func (w *internalNetworkWatcher) SetNetworks(meshNetworks *meshconfig.MeshNetwor
 	}
 }
 
-// AddNetworksHandler registers a callback handler for changes to the mesh network config.
-func (w *internalNetworkWatcher) AddNetworksHandler(h func()) {
+// AddMeshHandler registers a callback handler for changes to the mesh network config.
+func (w *InternalNetworkWatcher) AddNetworksHandler(h func()) {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 

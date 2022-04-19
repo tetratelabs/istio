@@ -60,13 +60,7 @@ const (
 	IstioIngressNamespace = "istio-system"
 
 	// DefaultKubernetesDomain the default service domain suffix for Kubernetes, if not overridden in config.
-	// TODO(nmittler): Rename this to DefaultClusterLocalDomain.
-	// TODO(nmittler): Search/replace explicit usages of the string with this constant.
 	DefaultKubernetesDomain = "cluster.local"
-
-	// DefaultClusterSetLocalDomain is the default domain suffix for Kubernetes Multi-Cluster Services (MCS)
-	// used for load balancing requests against endpoints across the ClusterSet (i.e. mesh).
-	DefaultClusterSetLocalDomain = "clusterset.local"
 
 	// IstioLabel indicates that a workload is part of a named Istio system component.
 	IstioLabel = "istio"
@@ -99,8 +93,8 @@ const (
 	// DefaultServiceAccountName is the default service account to use for remote cluster access.
 	DefaultServiceAccountName = "istio-reader-service-account"
 
-	// DefaultConfigServiceAccountName is the default service account to use for external Istiod config cluster access.
-	DefaultConfigServiceAccountName = "istiod"
+	// DefaultConfigServiceAccountName is the default service account to use for external Istiod cluster access.
+	DefaultConfigServiceAccountName = "istiod-service-account"
 
 	// KubeSystemNamespace is the system namespace where we place kubernetes system components.
 	KubeSystemNamespace string = "kube-system"
@@ -119,21 +113,13 @@ const (
 
 	TestVMVersionLabel = "istio.io/test-vm-version"
 
-	// Label to skip config comparison.
-	AlwaysPushLabel = "internal.istio.io/always-push"
-
-	// InternalParentName declares the original resource of an internally-generate config. This is used by the gateway-api.
-	InternalParentName = "internal.istio.io/parent"
-
-	// TrustworthyJWTPath is the default 3P token to authenticate with third party services
+	// TrustworthyJWTPath is the defaut 3P token to authenticate with third party services
 	TrustworthyJWTPath = "./var/run/secrets/tokens/istio-token"
 
 	// CertProviderIstiod uses istiod self signed DNS certificates for the control plane
 	CertProviderIstiod = "istiod"
 	// CertProviderKubernetes uses the Kubernetes CSR API to generate a DNS certificate for the control plane
 	CertProviderKubernetes = "kubernetes"
-	// CertProviderKubernetesSignerPrefix uses the Kubernetes CSR API and the specified signer to generate a DNS certificate for the control plane
-	CertProviderKubernetesSignerPrefix = "k8s.io/"
 	// CertProviderCustom uses the custom root certificate mounted in a well known location for the control plane
 	CertProviderCustom = "custom"
 	// CertProviderNone does not create any certificates for the control plane. It is assumed that some external

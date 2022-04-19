@@ -26,7 +26,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	cniv1 "github.com/containernetworking/cni/pkg/types/100"
+	"github.com/containernetworking/cni/pkg/types/current"
 	"github.com/containernetworking/cni/pkg/version"
 
 	"istio.io/api/annotation"
@@ -72,7 +72,7 @@ type Config struct {
 	// If you need to modify the result before returning it, you will need
 	// to actually convert it to a concrete versioned struct.
 	RawPrevResult *map[string]interface{} `json:"prevResult"`
-	PrevResult    *cniv1.Result           `json:"-"`
+	PrevResult    *current.Result         `json:"-"`
 
 	// Add plugin-specific flags here
 	LogLevel      string     `json:"log_level"`
@@ -109,7 +109,7 @@ func parseConfig(stdin []byte) (*Config, error) {
 			return nil, fmt.Errorf("could not parse prevResult: %v", err)
 		}
 		conf.RawPrevResult = nil
-		conf.PrevResult, err = cniv1.NewResultFromResult(res)
+		conf.PrevResult, err = current.NewResultFromResult(res)
 		if err != nil {
 			return nil, fmt.Errorf("could not convert result to current version: %v", err)
 		}
@@ -288,10 +288,10 @@ func CmdAdd(args *skel.CmdArgs) (err error) {
 		log.Debugf("Not a kubernetes pod")
 	}
 
-	var result *cniv1.Result
+	var result *current.Result
 	if conf.PrevResult == nil {
-		result = &cniv1.Result{
-			CNIVersion: cniv1.ImplementedSpecVersion,
+		result = &current.Result{
+			CNIVersion: current.ImplementedSpecVersion,
 		}
 	} else {
 		// Pass through the result for the next plugin

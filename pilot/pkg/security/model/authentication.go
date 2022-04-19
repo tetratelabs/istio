@@ -23,9 +23,7 @@ import (
 
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/model"
-	"istio.io/istio/pilot/pkg/model/credentials"
 	"istio.io/istio/pilot/pkg/networking/util"
-	"istio.io/istio/pkg/security"
 	"istio.io/istio/pkg/spiffe"
 )
 
@@ -60,6 +58,10 @@ const (
 	// as the name defined in
 	// https://github.com/istio/proxy/blob/master/src/envoy/http/authn/http_filter_factory.cc#L30
 	AuthnFilterName = "istio_authn"
+
+	// KubernetesSecretType is the name of a SDS secret stored in Kubernetes
+	KubernetesSecretType    = "kubernetes"
+	KubernetesSecretTypeURI = KubernetesSecretType + "://"
 )
 
 var SDSAdsConfig = &core.ConfigSource{
@@ -82,7 +84,7 @@ func ConstructSdsSecretConfigForCredential(name string) *tls.SdsSecretConfig {
 	}
 
 	return &tls.SdsSecretConfig{
-		Name:      credentials.ToResourceName(name),
+		Name:      KubernetesSecretTypeURI + name,
 		SdsConfig: SDSAdsConfig,
 	}
 }
@@ -184,7 +186,7 @@ func ApplyToCommonTLSContext(tlsContext *tls.CommonTlsContext, proxy *model.Prox
 	// These are certs being mounted from within the pod. Rather than reading directly in Envoy,
 	// which does not support rotation, we will serve them over SDS by reading the files.
 	// We should check if these certs have values, if yes we should use them or otherwise fall back to defaults.
-	res := security.SdsCertificateConfig{
+	res := model.SdsCertificateConfig{
 		CertificatePath:   proxy.Metadata.TLSServerCertChain,
 		PrivateKeyPath:    proxy.Metadata.TLSServerKey,
 		CaCertificatePath: proxy.Metadata.TLSServerRootCert,

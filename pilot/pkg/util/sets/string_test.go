@@ -37,7 +37,7 @@ func TestNewSet(t *testing.T) {
 func TestUnion(t *testing.T) {
 	elements := []string{"a", "b", "c", "d"}
 	elements2 := []string{"a", "b", "e"}
-	want := NewSet("a", "b", "c", "d", "e")
+	want := NewSet("a", "b")
 	for _, sets := range [][]Set{
 		{NewSet(elements...), NewSet(elements2...)},
 		{NewSet(elements2...), NewSet(elements...)},

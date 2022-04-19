@@ -1,89 +1,82 @@
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: GatewayClass
 metadata:
   name: istio
 spec:
-  controllerName: istio.io/gateway-controller
+  controller: istio.io/gateway-controller
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: Gateway
 metadata:
   name: gateway
   namespace: istio-system
 spec:
-  addresses:
-  - value: istio-ingressgateway
-    type: Hostname
   gatewayClassName: istio
   listeners:
-  - name: http
-    hostname: "*.domain.example"
+  - hostname: "*.domain.example"
     port: 80
     protocol: HTTP
-    allowedRoutes:
+    routes:
       namespaces:
         from: All
-  - name: tcp
-    port: 34000
+      kind: HTTPRoute
+  - port: 34000
     protocol: TCP
-    allowedRoutes:
+    routes:
       namespaces:
         from: All
+      kind: TCPRoute
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: HTTPRoute
 metadata:
   name: http
   namespace: default
 spec:
-  parentRefs:
-  - name: gateway
-    namespace: istio-system
+  gateways:
+    allow: All
   hostnames: ["first.domain.example"]
   rules:
   - matches:
     - path:
-        type: PathPrefix
+        type: Prefix
         value: /get
-    backendRefs:
-      - name: httpbin
+    forwardTo:
+      - serviceName: httpbin
         port: 80
         weight: 2
-      - name: httpbin-other
+      - serviceName: httpbin-other
         port: 8080
         weight: 3
-      - name: httpbin-zero
-        port: 8080
-        weight: 0
   - matches:
     - path:
-        type: PathPrefix
+        type: Prefix
         value: /weighted-100
-    backendRefs:
+    forwardTo:
     - filters:
       - requestHeaderModifier:
           add:
-          - name: foo
-            value: bar
+            foo: bar
         type: RequestHeaderModifier
       port: 8000
-      name: foo-svc
+      serviceName: foo-svc
       weight: 100
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: TCPRoute
 metadata:
   name: tcp
   namespace: default
+  labels:
+    selected: "yes"
 spec:
-  parentRefs:
-  - name: gateway
-    namespace: istio-system
+  gateways:
+    allow: All
   rules:
-  - backendRefs:
-    - name: httpbin
+  - forwardTo:
+    - serviceName: httpbin
       port: 9090
       weight: 1
-    - name: httpbin-alt
+    - serviceName: httpbin-alt
       port: 9090
       weight: 2

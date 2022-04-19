@@ -28,8 +28,8 @@ var (
 	}
 
 	service1 = &Service{
-		Hostname:       "one.service.com",
-		DefaultAddress: "192.168.3.1", // VIP
+		Hostname: "one.service.com",
+		Address:  "192.168.3.1", // VIP
 		Ports: PortList{
 			&Port{Name: "http", Port: 81, Protocol: protocol.HTTP},
 			&Port{Name: "http-alt", Port: 8081, Protocol: protocol.HTTP},
@@ -138,35 +138,20 @@ func TestServiceValidate(t *testing.T) {
 		valid   bool
 	}{
 		{
-			name: "empty hostname",
-			service: &Service{
-				Hostname:       "",
-				DefaultAddress: address,
-				Ports:          ports,
-			},
+			name:    "empty hostname",
+			service: &Service{Hostname: "", Address: address, Ports: ports},
 		},
 		{
-			name: "invalid hostname",
-			service: &Service{
-				Hostname:       "hostname.^.com",
-				DefaultAddress: address,
-				Ports:          ports,
-			},
+			name:    "invalid hostname",
+			service: &Service{Hostname: "hostname.^.com", Address: address, Ports: ports},
 		},
 		{
-			name: "empty ports",
-			service: &Service{
-				Hostname:       "hostname",
-				DefaultAddress: address,
-			},
+			name:    "empty ports",
+			service: &Service{Hostname: "hostname", Address: address},
 		},
 		{
-			name: "bad ports",
-			service: &Service{
-				Hostname:       "hostname",
-				DefaultAddress: address,
-				Ports:          badPorts,
-			},
+			name:    "bad ports",
+			service: &Service{Hostname: "hostname", Address: address, Ports: badPorts},
 		},
 	}
 	for _, c := range cases {

@@ -17,7 +17,7 @@ package request
 import (
 	"bytes"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"strings"
 )
@@ -30,7 +30,12 @@ type Command struct {
 
 // Do executes an http request using the specified arguments
 func (c *Command) Do(method, path, body string) error {
-	bodyBuffer := bytes.NewBufferString(body)
+	var bodyBuffer *bytes.Buffer
+	if body != "" {
+		bodyBuffer = bytes.NewBufferString(body)
+	} else {
+		bodyBuffer = bytes.NewBufferString("")
+	}
 	path = strings.TrimPrefix(path, "/")
 	url := fmt.Sprintf("http://%v/%v", c.Address, path)
 	req, err := http.NewRequest(method, url, bodyBuffer)
@@ -42,7 +47,7 @@ func (c *Command) Do(method, path, body string) error {
 		return err
 	}
 	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}

@@ -58,12 +58,12 @@ func (p *PushQueue) Enqueue(con *Connection, pushRequest *model.PushRequest) {
 
 	// If its already in progress, merge the info and return
 	if request, f := p.processing[con]; f {
-		p.processing[con] = request.CopyMerge(pushRequest)
+		p.processing[con] = request.Merge(pushRequest)
 		return
 	}
 
 	if request, f := p.pending[con]; f {
-		p.pending[con] = request.CopyMerge(pushRequest)
+		p.pending[con] = request.Merge(pushRequest)
 		return
 	}
 

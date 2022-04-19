@@ -16,7 +16,7 @@ package jwt
 
 import (
 	"encoding/json"
-	"os"
+	"io/ioutil"
 	"reflect"
 	"testing"
 
@@ -28,7 +28,7 @@ import (
 func getKey(jwksFile string, t *testing.T) interface{} {
 	t.Helper()
 
-	data, err := os.ReadFile(jwksFile)
+	data, err := ioutil.ReadFile(jwksFile)
 	if err != nil {
 		t.Fatalf("failed to read jwks: %s", err)
 	}

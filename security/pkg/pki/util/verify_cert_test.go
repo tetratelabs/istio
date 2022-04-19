@@ -16,15 +16,15 @@ package util
 
 import (
 	"crypto/x509"
+	"io/ioutil"
 	"log"
-	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
 func loadPEMFile(path string) string {
-	b, err := os.ReadFile(path)
+	b, err := ioutil.ReadFile(path)
 	if err != nil {
 		log.Fatalf("failed to load the pem file = %v, err = %v", path, err)
 	}

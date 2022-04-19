@@ -15,18 +15,16 @@
 package bootstrap
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,10 +51,9 @@ type caOptions struct {
 	ExternalCAType   ra.CaExternalType
 	ExternalCASigner string
 	// domain to use in SPIFFE identity URLs
-	TrustDomain      string
-	Namespace        string
-	Authenticators   []security.Authenticator
-	CertSignerDomain string
+	TrustDomain    string
+	Namespace      string
+	Authenticators []security.Authenticator
 }
 
 // Based on istio_ca main - removing creation of Secrets with private keys in all namespaces and install complexity.
@@ -120,7 +117,7 @@ var (
 			"and the back off time is below root cert check interval.")
 
 	k8sInCluster = env.RegisterStringVar("KUBERNETES_SERVICE_HOST", "",
-		"Kubernetes service host, set automatically when running in-cluster")
+		"Kuberenetes service host, set automatically when running in-cluster")
 
 	// This value can also be extracted from the mounted token
 	trustedIssuer = env.RegisterStringVar("TOKEN_ISSUER", "",
@@ -157,7 +154,7 @@ func (s *Server) RunCA(grpc *grpc.Server, ca caserver.CertificateAuthority, opts
 	iss := trustedIssuer.Get()
 	aud := audience.Get()
 
-	token, err := os.ReadFile(getJwtPath())
+	token, err := ioutil.ReadFile(getJwtPath())
 	if err == nil {
 		tok, err := detectAuthEnv(string(token))
 		if err != nil {
@@ -259,133 +256,11 @@ func (s *Server) loadRemoteCACerts(caOpts *caOptions, dir string) error {
 	}
 	for key, data := range secret.Data {
 		filename := path.Join(dir, key)
-		if err := os.WriteFile(filename, data, 0o600); err != nil {
+		if err := ioutil.WriteFile(filename, data, 0o600); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// isValidCACertsFile As we are watching entire directory, but interested
-// in only 'ca-key.pem', 'ca-cert.pem', 'root-cert.pem' and 'cert-chain.pem'.
-// Events on other files are ignored.
-func isValidCACertsFile(path string) bool {
-	_, file := filepath.Split(path)
-
-	for _, name := range []string{ca.CACertFile, ca.CAPrivateKeyFile, ca.RootCertFile, ca.CertChainFile} {
-		if file == name {
-			return true
-		}
-	}
-
-	return false
-}
-
-// handleEvent handles the events on cacerts related files.
-// If create/write(modified) event occurs, then it verifies that
-// newly introduced cacerts are intermediate CA which is generated
-// from cuurent root-cert.pem. Then it updates and keycertbundle
-// and generates new dns certs.
-// TODO(rveerama1): Add support for new ROOT-CA rotation also.
-func handleEvent(s *Server) {
-	log.Info("Update Istiod cacerts")
-
-	currentCABundle := s.CA.GetCAKeyCertBundle().GetRootCertPem()
-	newCABundle, err := os.ReadFile(path.Join(LocalCertDir.Get(), ca.RootCertFile))
-	if err != nil {
-		log.Error("failed reading root-cert.pem: ", err)
-		return
-	}
-
-	// Only updating intermediate CA is supported now
-	if !bytes.Equal(currentCABundle, newCABundle) {
-		log.Info("Updating new ROOT-CA not supported")
-		return
-	}
-
-	err = s.CA.GetCAKeyCertBundle().UpdateVerifiedKeyCertBundleFromFile(
-		path.Join(LocalCertDir.Get(), ca.CACertFile),
-		path.Join(LocalCertDir.Get(), ca.CAPrivateKeyFile),
-		path.Join(LocalCertDir.Get(), ca.CertChainFile),
-		path.Join(LocalCertDir.Get(), ca.RootCertFile))
-	if err != nil {
-		log.Error("Failed to update new Plug-in CA certs: ", err)
-		return
-	}
-
-	err = s.updatePluggedinRootCertAndGenKeyCert()
-	if err != nil {
-		log.Error("Failed generating plugged-in istiod key cert: ", err)
-		return
-	}
-
-	log.Info("Istiod has detected the newly added intermediate CA and updated its key and certs accordingly")
-}
-
-// handleCACertsFileWatch handles the events on cacerts files
-func (s *Server) handleCACertsFileWatch() {
-	var timerC <-chan time.Time
-	for {
-		select {
-		case <-timerC:
-			timerC = nil
-			handleEvent(s)
-
-		case event, ok := <-s.cacertsWatcher.Events:
-			if !ok {
-				log.Debug("plugin cacerts watch stopped")
-				return
-			}
-
-			if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
-				valid := isValidCACertsFile(event.Name)
-				if valid && timerC == nil {
-					timerC = time.After(100 * time.Millisecond)
-				}
-			}
-
-		case err := <-s.cacertsWatcher.Errors:
-			if err != nil {
-				log.Error("Failed to catch events on cacerts file: ", err)
-				return
-			}
-
-		case <-s.internalStop:
-			return
-		}
-	}
-}
-
-func (s *Server) addCACertsFileWatcher(dir string) error {
-	err := s.cacertsWatcher.Add(dir)
-	if err != nil {
-		log.Info("AUTO_RELOAD_PLUGIN_CERTS will not work, failed to add file watcher: ", err)
-		return err
-	}
-
-	log.Info("Added cacerts files watcher at ", dir)
-
-	return nil
-}
-
-// initCACertsWatcher initializes the cacerts (/etc/cacerts) directory.
-// In particular it monitors 'ca-key.pem', 'ca-cert.pem', 'root-cert.pem'
-// and 'cert-chain.pem'.
-func (s *Server) initCACertsWatcher() {
-	var err error
-
-	s.cacertsWatcher, err = fsnotify.NewWatcher()
-	if err != nil {
-		log.Info("Failed to add CAcerts watcher: ", err)
-		return
-	}
-
-	err = s.addCACertsFileWatcher(LocalCertDir.Get())
-	if err != nil {
-		return
-	}
-
-	go s.handleCACertsFileWatch()
 }
 
 // createIstioCA initializes the Istio CA signing functionality.
@@ -446,16 +321,11 @@ func (s *Server) createIstioCA(client corev1.CoreV1Interface, opts *caOptions) (
 		if err != nil {
 			return nil, fmt.Errorf("failed to create an istiod CA: %v", err)
 		}
-
-		if features.AutoReloadPluginCerts {
-			s.initCACertsWatcher()
-		}
 	}
 	istioCA, err := ca.NewIstioCA(caOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create an istiod CA: %v", err)
 	}
-
 	// TODO: provide an endpoint returning all the roots. SDS can only pull a single root in current impl.
 	// ca.go saves or uses the secret, but also writes to the configmap "istio-security", under caTLSRootCert
 	// rootCertRotatorChan channel accepts signals to stop root cert rotator for
@@ -467,43 +337,23 @@ func (s *Server) createIstioCA(client corev1.CoreV1Interface, opts *caOptions) (
 
 // createIstioRA initializes the Istio RA signing functionality.
 // the caOptions defines the external provider
-// ca cert can come from three sources, order matters:
-// 1. Define ca cert via kubernetes secret and mount the secret through `external-ca-cert` volume
-// 2. Use kubernetes ca cert `/var/run/secrets/kubernetes.io/serviceaccount/ca.crt` if signer is
-//    kubernetes built-in `kubernetes.io/legacy-unknown" signer
-// 3. Extract from the cert-chain signed by other CSR signer.
 func (s *Server) createIstioRA(client kubelib.Client,
 	opts *caOptions) (ra.RegistrationAuthority, error) {
 	caCertFile := path.Join(ra.DefaultExtCACertDir, constants.CACertNamespaceConfigMapDataName)
-	certSignerDomain := opts.CertSignerDomain
-	_, err := os.Stat(caCertFile)
-	if err != nil && certSignerDomain == "" {
+	if _, err := os.Stat(caCertFile); err != nil {
 		caCertFile = defaultCACertPath
-	} else {
-		caCertFile = ""
 	}
 	raOpts := &ra.IstioRAOptions{
-		ExternalCAType:   opts.ExternalCAType,
-		DefaultCertTTL:   workloadCertTTL.Get(),
-		MaxCertTTL:       maxWorkloadCertTTL.Get(),
-		CaSigner:         opts.ExternalCASigner,
-		CaCertFile:       caCertFile,
-		VerifyAppendCA:   true,
-		K8sClient:        client,
-		TrustDomain:      opts.TrustDomain,
-		CertSignerDomain: opts.CertSignerDomain,
+		ExternalCAType: opts.ExternalCAType,
+		DefaultCertTTL: workloadCertTTL.Get(),
+		MaxCertTTL:     maxWorkloadCertTTL.Get(),
+		CaSigner:       opts.ExternalCASigner,
+		CaCertFile:     caCertFile,
+		VerifyAppendCA: true,
+		K8sClient:      client.CertificatesV1beta1(),
+		TrustDomain:    opts.TrustDomain,
 	}
-	raServer, err := ra.NewIstioRA(raOpts)
-	if err != nil {
-		return nil, err
-	}
-	raServer.SetCACertificatesFromMeshConfig(s.environment.Mesh().CaCertificates)
-	s.environment.AddMeshHandler(func() {
-		meshConfig := s.environment.Mesh()
-		caCertificates := meshConfig.CaCertificates
-		s.RA.SetCACertificatesFromMeshConfig(caCertificates)
-	})
-	return raServer, err
+	return ra.NewIstioRA(raOpts)
 }
 
 // getJwtPath returns jwt path.

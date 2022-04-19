@@ -18,7 +18,7 @@ import (
 	"reflect"
 	"testing"
 
-	"sigs.k8s.io/yaml"
+	"github.com/ghodss/yaml"
 
 	"istio.io/istio/operator/pkg/tpath"
 	"istio.io/istio/operator/pkg/util"

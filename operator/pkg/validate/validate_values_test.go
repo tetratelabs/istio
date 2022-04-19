@@ -16,11 +16,11 @@ package validate
 
 import (
 	"fmt"
-	"os"
+	"io/ioutil"
 	"path/filepath"
 	"testing"
 
-	"sigs.k8s.io/yaml"
+	"github.com/ghodss/yaml"
 
 	"istio.io/istio/operator/pkg/helm"
 	"istio.io/istio/operator/pkg/object"
@@ -213,7 +213,7 @@ func TestValidateValuesFromValuesYAMLs(t *testing.T) {
 		allFiles = append(allFiles, files...)
 	}
 	for _, f := range allFiles {
-		b, err := os.ReadFile(f)
+		b, err := ioutil.ReadFile(f)
 		if err != nil {
 			t.Fatal(err.Error())
 		}

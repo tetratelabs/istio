@@ -53,7 +53,7 @@ type HostAddress struct {
 //
 // See convertServices() for the reverse conversion, used by Istio to handle ServiceEntry configs.
 // See kube.ConvertService for the conversion from K8S to internal Service.
-func ServiceToServiceEntry(svc *model.Service, proxy *model.Proxy) *config.Config {
+func ServiceToServiceEntry(svc *model.Service) *config.Config {
 	gvk := gvk.ServiceEntry
 	se := &networking.ServiceEntry{
 		// Host is fully qualified: name, namespace, domainSuffix
@@ -63,7 +63,7 @@ func ServiceToServiceEntry(svc *model.Service, proxy *model.Proxy) *config.Confi
 		// ServiceEntry can represent multiple - but we are not using that. SE may be merged.
 		// Will be 0.0.0.0 if not specified as ClusterIP or ClusterIP==None. In such case resolution is Passthrough.
 		//
-		Addresses: []string{svc.GetAddressForProxy(proxy)},
+		Addresses: []string{svc.Address},
 
 		// Location:             0,
 
@@ -101,8 +101,6 @@ func ServiceToServiceEntry(svc *model.Service, proxy *model.Proxy) *config.Confi
 		resolution = networking.ServiceEntry_NONE // 0
 	case model.DNSLB: // 1
 		resolution = networking.ServiceEntry_DNS // 2
-	case model.DNSRoundRobinLB: // 3
-		resolution = networking.ServiceEntry_DNS_ROUND_ROBIN // 3
 	case model.ClientSideLB: // 0
 		resolution = networking.ServiceEntry_STATIC // 1
 	}
@@ -125,7 +123,6 @@ func ServiceToServiceEntry(svc *model.Service, proxy *model.Proxy) *config.Confi
 			Name:              "synthetic-" + svc.Attributes.Name,
 			Namespace:         svc.Attributes.Namespace,
 			CreationTimestamp: svc.CreationTime,
-			ResourceVersion:   svc.ResourceVersion,
 		},
 		Spec: se,
 	}
@@ -154,8 +151,6 @@ func convertServices(cfg config.Config) []*model.Service {
 		resolution = model.Passthrough
 	case networking.ServiceEntry_DNS:
 		resolution = model.DNSLB
-	case networking.ServiceEntry_DNS_ROUND_ROBIN:
-		resolution = model.DNSRoundRobinLB
 	case networking.ServiceEntry_STATIC:
 		resolution = model.ClientSideLB
 	}
@@ -209,12 +204,12 @@ func buildServices(hostAddresses []*HostAddress, namespace string, ports model.P
 	out := make([]*model.Service, 0, len(hostAddresses))
 	for _, ha := range hostAddresses {
 		out = append(out, &model.Service{
-			CreationTime:   ctime,
-			MeshExternal:   location == networking.ServiceEntry_MESH_EXTERNAL,
-			Hostname:       host.Name(ha.host),
-			DefaultAddress: ha.address,
-			Ports:          ports,
-			Resolution:     resolution,
+			CreationTime: ctime,
+			MeshExternal: location == networking.ServiceEntry_MESH_EXTERNAL,
+			Hostname:     host.Name(ha.host),
+			Address:      ha.address,
+			Ports:        ports,
+			Resolution:   resolution,
 			Attributes: model.ServiceAttributes{
 				ServiceRegistry: provider.External,
 				Name:            ha.host,
@@ -233,12 +228,14 @@ func (s *ServiceEntryStore) convertEndpoint(service *model.Service, servicePort 
 	wle *networking.WorkloadEntry, configKey *configKey, clusterID cluster.ID) *model.ServiceInstance {
 	var instancePort uint32
 	addr := wle.GetAddress()
-	// priority level: unixAddress > we.ports > se.port.targetPort > se.port.number
 	if strings.HasPrefix(addr, model.UnixAddressPrefix) {
 		instancePort = 0
 		addr = strings.TrimPrefix(addr, model.UnixAddressPrefix)
-	} else if port, ok := wle.Ports[servicePort.Name]; ok && port > 0 {
-		instancePort = port
+	} else if len(wle.Ports) > 0 { // endpoint port map takes precedence
+		instancePort = wle.Ports[servicePort.Name]
+		if instancePort == 0 {
+			instancePort = servicePort.Number
+		}
 	} else if servicePort.TargetPort > 0 {
 		instancePort = servicePort.TargetPort
 	} else {
@@ -290,19 +287,16 @@ func (s *ServiceEntryStore) convertWorkloadEntryToServiceInstances(wle *networki
 	return out
 }
 
-func (s *ServiceEntryStore) convertServiceEntryToInstances(cfg config.Config, services []*model.Service) []*model.ServiceInstance {
+func (s *ServiceEntryStore) convertServiceEntryToInstances(cfg config.Config, services []*model.Service, clusterID cluster.ID) []*model.ServiceInstance {
 	out := make([]*model.ServiceInstance, 0)
 	serviceEntry := cfg.Spec.(*networking.ServiceEntry)
-	if serviceEntry == nil {
-		return nil
-	}
 	if services == nil {
 		services = convertServices(cfg)
 	}
 	for _, service := range services {
 		for _, serviceEntryPort := range serviceEntry.Ports {
 			if len(serviceEntry.Endpoints) == 0 && serviceEntry.WorkloadSelector == nil &&
-				(serviceEntry.Resolution == networking.ServiceEntry_DNS || serviceEntry.Resolution == networking.ServiceEntry_DNS_ROUND_ROBIN) {
+				serviceEntry.Resolution == networking.ServiceEntry_DNS {
 				// Note: only convert the hostname to service instance if WorkloadSelector is not set
 				// when service entry has discovery type DNS and no endpoints
 				// we create endpoints from service's host
@@ -325,7 +319,7 @@ func (s *ServiceEntryStore) convertServiceEntryToInstances(cfg config.Config, se
 				})
 			} else {
 				for _, endpoint := range serviceEntry.Endpoints {
-					out = append(out, s.convertEndpoint(service, serviceEntryPort, endpoint, &configKey{}, s.clusterID))
+					out = append(out, s.convertEndpoint(service, serviceEntryPort, endpoint, &configKey{}, clusterID))
 				}
 			}
 		}
@@ -386,14 +380,13 @@ func (s *ServiceEntryStore) convertWorkloadEntryToWorkloadInstance(cfg config.Co
 		labels[k] = v
 	}
 	addr := we.GetAddress()
-	dnsServiceEntryOnly := false
 	if strings.HasPrefix(addr, model.UnixAddressPrefix) {
 		// k8s can't use uds for service objects
-		dnsServiceEntryOnly = true
+		return nil
 	}
 	if net.ParseIP(addr) == nil {
 		// k8s can't use workloads with hostnames in the address field.
-		dnsServiceEntryOnly = true
+		return nil
 	}
 	tlsMode := getTLSModeFromWorkloadEntry(we)
 	sa := ""
@@ -420,10 +413,8 @@ func (s *ServiceEntryStore) convertWorkloadEntryToWorkloadInstance(cfg config.Co
 			TLSMode:        tlsMode,
 			ServiceAccount: sa,
 		},
-		PortMap:             we.Ports,
-		Namespace:           cfg.Namespace,
-		Name:                cfg.Name,
-		Kind:                model.WorkloadEntryKind,
-		DNSServiceEntryOnly: dnsServiceEntryOnly,
+		PortMap:   we.Ports,
+		Namespace: cfg.Namespace,
+		Name:      cfg.Name,
 	}
 }

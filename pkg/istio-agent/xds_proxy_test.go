@@ -18,8 +18,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
-	"os"
 	"path"
 	"path/filepath"
 	"testing"
@@ -31,7 +31,6 @@ import (
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	google_rpc "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
@@ -135,6 +134,7 @@ func TestXdsProxyHealthCheck(t *testing.T) {
 	setDialOptions(proxy, f.BufListener)
 	conn := setupDownstreamConnection(t, proxy)
 	downstream := stream(t, conn)
+	sendDownstreamWithNode(t, downstream, node)
 
 	// Setup test helpers
 	waitDisconnect := func() {
@@ -168,29 +168,8 @@ func TestXdsProxyHealthCheck(t *testing.T) {
 		}, retry.Timeout(time.Second*2))
 	}
 
-	// send cds before healthcheck, to make wle registered
-	coreNode := &core.Node{
-		Id:       "sidecar~1.1.1.1~debug~cluster.local",
-		Metadata: node.ToStruct(),
-	}
-	err := downstream.Send(&discovery.DiscoveryRequest{TypeUrl: v3.ClusterType, Node: coreNode})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = downstream.Recv()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// healthcheck before lds will be not sent
-	proxy.PersistRequest(healthy)
+	// On initial connect, status is unset.
 	expectCondition("")
-
-	// simulate envoy send xds requests
-	sendDownstreamWithNode(t, downstream, node)
-
-	// after lds sent, the caching healthcheck will be resent
-	expectCondition(status.StatusTrue)
 
 	// Flip status back and forth, ensure we update
 	proxy.PersistRequest(healthy)
@@ -292,7 +271,7 @@ func setDialOptions(p *XdsProxy, l *bufconn.Listener) {
 	// Override istiodDialOptions so that the test can connect with plain text and with buffcon listener.
 	p.istiodDialOptions = []grpc.DialOption{
 		grpc.WithBlock(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithInsecure(),
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return l.Dial()
 		}),
@@ -409,7 +388,7 @@ func TestXdsProxyReconnects(t *testing.T) {
 			t.Fatal(err)
 		}
 		proxy.istiodAddress = listener.Addr().String()
-		proxy.istiodDialOptions = []grpc.DialOption{grpc.WithBlock(), grpc.WithTransportCredentials(insecure.NewCredentials())}
+		proxy.istiodDialOptions = []grpc.DialOption{grpc.WithBlock(), grpc.WithInsecure()}
 
 		// Setup gRPC server
 		grpcServer := grpc.NewServer()
@@ -473,7 +452,7 @@ func TestECDSWasmConversion(t *testing.T) {
 	proxy.wasmCache = &fakeAckCache{}
 
 	// Initialize discovery server with an ECDS resource.
-	ef, err := os.ReadFile(path.Join(env.IstioSrc, "pilot/pkg/xds/testdata/ecds.yaml"))
+	ef, err := ioutil.ReadFile(path.Join(env.IstioSrc, "pilot/pkg/xds/testdata/ecds.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -514,6 +493,7 @@ func TestECDSWasmConversion(t *testing.T) {
 		Config: &wasmv3.PluginConfig{
 			Vm: &wasmv3.PluginConfig_VmConfig{
 				VmConfig: &wasmv3.VmConfig{
+
 					Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Local{
 						Local: &core.DataSource{
 							Specifier: &core.DataSource_Filename{
@@ -617,7 +597,7 @@ func sendDownstreamWithNode(t *testing.T, downstream discovery.AggregatedDiscove
 func setupDownstreamConnectionUDS(t test.Failer, path string) *grpc.ClientConn {
 	var opts []grpc.DialOption
 
-	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+	opts = append(opts, grpc.WithInsecure(), grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(ctx, "unix", path)
 	}))

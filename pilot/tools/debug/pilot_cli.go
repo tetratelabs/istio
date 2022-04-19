@@ -53,6 +53,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"os"
@@ -64,7 +65,6 @@ import (
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	v1 "k8s.io/api/core/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -186,7 +186,7 @@ func (p PodInfo) appendResources(req *discovery.DiscoveryRequest, resources []st
 }
 
 func (p PodInfo) getXdsResponse(pilotURL string, req *discovery.DiscoveryRequest) (*discovery.DiscoveryResponse, error) {
-	conn, err := grpc.Dial(pilotURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(pilotURL, grpc.WithInsecure())
 	if err != nil {
 		panic(err.Error())
 	}
@@ -311,7 +311,7 @@ func main() {
 	strResponse, _ := gogoprotomarshal.ToJSONWithIndent(resp, " ")
 	if outputFile == nil || *outputFile == "" {
 		fmt.Printf("%v\n", strResponse)
-	} else if err := os.WriteFile(*outputFile, []byte(strResponse), 0o644); err != nil {
+	} else if err := ioutil.WriteFile(*outputFile, []byte(strResponse), 0o644); err != nil {
 		log.Errorf("Cannot write output to file %q", *outputFile)
 	}
 }

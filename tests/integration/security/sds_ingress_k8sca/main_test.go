@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 //  Copyright Istio Authors
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,7 +35,6 @@ func TestMain(m *testing.M) {
 	framework.
 		NewSuite(m).
 		RequireSingleCluster().
-		RequireMultiPrimary().
 		// https://github.com/istio/istio/issues/22161. 1.22 drops support for legacy-unknown signer
 		RequireMaxVersion(21).
 		Setup(istio.Setup(&inst, setupConfig)).
@@ -66,9 +63,7 @@ func TestMtlsGatewaysK8sca(t *testing.T) {
 		NewTest(t).
 		Features("security.ingress.mtls.gateway").
 		Run(func(t framework.TestContext) {
-			t.NewSubTest("tcp").Run(func(t framework.TestContext) {
-				util.RunTestMultiMtlsGateways(t, inst, apps)
-			})
+			util.RunTestMultiMtlsGateways(t, inst, apps)
 		})
 }
 
@@ -77,8 +72,6 @@ func TestTlsGatewaysK8sca(t *testing.T) {
 		NewTest(t).
 		Features("security.ingress.tls.gateway.K8sca").
 		Run(func(t framework.TestContext) {
-			t.NewSubTest("tcp").Run(func(t framework.TestContext) {
-				util.RunTestMultiTLSGateways(t, inst, apps)
-			})
+			util.RunTestMultiTLSGateways(t, inst, apps)
 		})
 }

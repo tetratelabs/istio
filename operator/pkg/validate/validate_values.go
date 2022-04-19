@@ -15,7 +15,7 @@
 package validate
 
 import (
-	"sigs.k8s.io/yaml"
+	"github.com/ghodss/yaml"
 
 	"istio.io/istio/operator/pkg/apis/istio/v1alpha1"
 	"istio.io/istio/operator/pkg/util"

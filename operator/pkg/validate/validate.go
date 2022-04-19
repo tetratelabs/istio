@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"sigs.k8s.io/yaml"
+	"github.com/ghodss/yaml"
 
 	"istio.io/api/operator/v1alpha1"
 	operator_v1alpha1 "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
@@ -96,9 +96,6 @@ func Validate(validations map[string]ValidatorFunc, structPtr interface{}, path 
 	for i := 0; i < structElems.NumField(); i++ {
 		fieldName := structElems.Type().Field(i).Name
 		fieldValue := structElems.Field(i)
-		if !fieldValue.CanInterface() {
-			continue
-		}
 		kind := structElems.Type().Field(i).Type.Kind()
 		if a, ok := structElems.Type().Field(i).Tag.Lookup("json"); ok && a == "-" {
 			continue

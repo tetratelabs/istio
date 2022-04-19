@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,9 +23,9 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	"istio.io/istio/galley/pkg/config/analysis/diag"
+	"istio.io/istio/galley/pkg/config/analysis/msg"
 	"istio.io/istio/istioctl/cmd"
-	"istio.io/istio/pkg/config/analysis/diag"
-	"istio.io/istio/pkg/config/analysis/msg"
 	"istio.io/istio/pkg/test"
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/istioctl"
@@ -164,13 +162,6 @@ func TestInvalidFileError(t *testing.T) {
 			g.Expect(strings.Join(output, "\n")).To(ContainSubstring(fmt.Sprintf("errors parsing content \"%s\"", invalidFile)))
 
 			g.Expect(err).To(MatchError(cmd.FileParseError{}))
-
-			// Parse error as the yaml file itself is not valid yaml, but ignore.
-			output, err = istioctlSafe(t, istioCtl, ns.Name(), false, invalidFile, "--ignore-unknown=true")
-			g.Expect(strings.Join(output, "\n")).To(ContainSubstring("Error(s) adding files"))
-			g.Expect(strings.Join(output, "\n")).To(ContainSubstring(fmt.Sprintf("errors parsing content \"%s\"", invalidFile)))
-
-			g.Expect(err).To(BeNil())
 		})
 }
 

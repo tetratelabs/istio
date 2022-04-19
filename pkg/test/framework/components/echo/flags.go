@@ -22,9 +22,8 @@ import (
 )
 
 var (
-	callTimeout      = 20 * time.Second
-	callDelay        = 10 * time.Millisecond
-	readinessTimeout = 10 * time.Minute
+	callTimeout = 20 * time.Second
+	callDelay   = 100 * time.Millisecond
 )
 
 // init registers the command-line flags that we can exposed for "go test".
@@ -33,16 +32,9 @@ func init() {
 		"Specifies the default total timeout used when retrying calls to the Echo service")
 	flag.DurationVar(&callDelay, "istio.test.echo.callDelay", callDelay,
 		"Specifies the default delay between successive retry attempts when calling the Echo service")
-	flag.DurationVar(&readinessTimeout, "istio.test.echo.readinessTimeout", readinessTimeout,
-		"Specifies the default timeout for echo readiness check")
 }
 
 // DefaultCallRetryOptions returns the default call retry options as specified in command-line flags.
 func DefaultCallRetryOptions() []retry.Option {
-	return []retry.Option{retry.Timeout(callTimeout), retry.BackoffDelay(callDelay)}
-}
-
-// DefaultReadinessTimeout returns the default echo readiness check timeout.
-func DefaultReadinessTimeout() time.Duration {
-	return readinessTimeout
+	return []retry.Option{retry.Timeout(callTimeout), retry.Delay(callDelay)}
 }

@@ -64,8 +64,8 @@ func (i Instance) SubsetOf(that Instance) bool {
 		return false
 	}
 
-	for k, v1 := range i {
-		if v2, ok := that[k]; !ok || v1 != v2 {
+	for k, v := range i {
+		if that[k] != v {
 			return false
 		}
 	}

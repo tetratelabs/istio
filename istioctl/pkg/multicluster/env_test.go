@@ -16,7 +16,7 @@ package multicluster
 
 import (
 	"bytes"
-	"os"
+	"io/ioutil"
 	"reflect"
 	"testing"
 	"time"
@@ -51,7 +51,7 @@ users:
 func createFakeKubeconfigFileOrDie(t *testing.T) (string, *api.Config) {
 	t.Helper()
 
-	f, err := os.CreateTemp("", "fakeKubeconfigForEnvironment")
+	f, err := ioutil.TempFile("", "fakeKubeconfigForEnvironment")
 	if err != nil {
 		t.Fatalf("could not create fake kubeconfig file: %v", err)
 	}

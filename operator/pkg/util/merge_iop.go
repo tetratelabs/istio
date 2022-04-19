@@ -18,10 +18,10 @@ import (
 	"fmt"
 	"strings"
 
+	yaml2 "github.com/ghodss/yaml"
 	protobuf "github.com/gogo/protobuf/types"
 	v11 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
-	yaml2 "sigs.k8s.io/yaml"
 
 	v1alpha13 "istio.io/api/mesh/v1alpha1"
 	"istio.io/api/networking/v1alpha3"
@@ -161,10 +161,6 @@ type (
 		Name     string                              `json:"string"`
 		Provider meshConfigExtensionProviderInstance `json:"provider"`
 	}
-	clusterName struct {
-		ServiceCluster     *v1alpha13.ProxyConfig_ServiceCluster      `json:"serviceCluster,omitempty"`
-		TracingServiceName *v1alpha13.ProxyConfig_TracingServiceName_ `json:"tracingServiceName,omitempty"`
-	}
 )
 
 type meshConfigExtensionProviderInstance struct {
@@ -184,7 +180,6 @@ type proxyConfig struct {
 	TerminationDrainDuration       *protobuf.Duration                      `json:"terminationDrainDuration" patchStrategy:"replace"`
 	Concurrency                    *protobuf.Int32Value                    `json:"concurrency" patchStrategy:"replace"`
 	ConfigSources                  []*v1alpha13.ConfigSource               `json:"configSources" patchStrategy:"replace"`
-	ClusterName                    *clusterName                            `json:"clusterName" patchStrategy:"replace"`
 	TrustDomainAliases             []string                                `json:"trustDomainAliases" patchStrategy:"replace"`
 	DefaultServiceExportTo         []string                                `json:"defaultServiceExportTo" patchStrategy:"replace"`
 	DefaultVirtualServiceExportTo  []string                                `json:"defaultVirtualServiceExportTo" patchStrategy:"replace"`

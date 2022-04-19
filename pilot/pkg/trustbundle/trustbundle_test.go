@@ -17,9 +17,9 @@ package trustbundle
 import (
 	"crypto/x509"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path"
 	"sort"
 	"testing"
@@ -31,7 +31,7 @@ import (
 )
 
 func readCertFromFile(filename string) string {
-	csrBytes, err := os.ReadFile(filename)
+	csrBytes, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return ""
 	}
@@ -156,7 +156,7 @@ func TestVerifyTrustAnchor(t *testing.T) {
 }
 
 func TestUpdateTrustAnchor(t *testing.T) {
-	cbCounter := 0
+	var cbCounter int = 0
 	tb := NewTrustBundle(nil)
 	tb.UpdateCb(func() { cbCounter++ })
 

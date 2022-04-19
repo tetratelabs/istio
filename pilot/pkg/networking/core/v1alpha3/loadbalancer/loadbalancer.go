@@ -21,10 +21,9 @@ import (
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
-	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
+	"github.com/golang/protobuf/ptypes/wrappers"
 
 	"istio.io/api/networking/v1alpha3"
-	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
 )
 
@@ -58,14 +57,12 @@ func GetLocalityLbSetting(
 }
 
 func ApplyLocalityLBSetting(
-	loadAssignment *endpoint.ClusterLoadAssignment,
-	wrappedLocalityLbEndpoints []*WrappedLocalityLbEndpoints,
 	locality *core.Locality,
-	proxyLabels map[string]string,
+	loadAssignment *endpoint.ClusterLoadAssignment,
 	localityLB *v1alpha3.LocalityLoadBalancerSetting,
 	enableFailover bool,
 ) {
-	if localityLB == nil || loadAssignment == nil {
+	if locality == nil || loadAssignment == nil {
 		return
 	}
 
@@ -75,11 +72,7 @@ func ApplyLocalityLBSetting(
 		// Failover needs outlier detection, otherwise Envoy will never drop down to a lower priority.
 		// Do not apply default failover when locality LB is disabled.
 	} else if enableFailover && (localityLB.Enabled == nil || localityLB.Enabled.Value) {
-		if len(localityLB.FailoverPriority) > 0 {
-			applyPriorityFailover(loadAssignment, wrappedLocalityLbEndpoints, proxyLabels, localityLB.FailoverPriority)
-			return
-		}
-		applyLocalityFailover(locality, loadAssignment, localityLB.Failover)
+		applyLocalityFailover(locality, loadAssignment, localityLB.GetFailover())
 	}
 }
 
@@ -191,98 +184,4 @@ func applyLocalityFailover(
 			}
 		}
 	}
-}
-
-// WrappedLocalityLbEndpoints contain an envoy LocalityLbEndpoints
-// and the original IstioEndpoints used to generate it.
-// It is used to do failover priority label match with proxy labels.
-type WrappedLocalityLbEndpoints struct {
-	IstioEndpoints      []*model.IstioEndpoint
-	LocalityLbEndpoints *endpoint.LocalityLbEndpoints
-}
-
-// set loadbalancing priority by failover priority label
-func applyPriorityFailover(
-	loadAssignment *endpoint.ClusterLoadAssignment,
-	wrappedLocalityLbEndpoints []*WrappedLocalityLbEndpoints,
-	proxyLabels map[string]string,
-	failoverPriorities []string) {
-	if len(proxyLabels) == 0 || len(wrappedLocalityLbEndpoints) == 0 {
-		return
-	}
-	priorityMap := make(map[int][]int, len(failoverPriorities))
-	localityLbEndpoints := []*endpoint.LocalityLbEndpoints{}
-	for _, wrappedLbEndpoint := range wrappedLocalityLbEndpoints {
-		localityLbEndpointsPerLocality := applyPriorityFailoverPerLocality(proxyLabels, wrappedLbEndpoint, failoverPriorities)
-		localityLbEndpoints = append(localityLbEndpoints, localityLbEndpointsPerLocality...)
-	}
-	for i, ep := range localityLbEndpoints {
-		priorityMap[int(ep.Priority)] = append(priorityMap[int(ep.Priority)], i)
-	}
-	// since Priorities should range from 0 (highest) to N (lowest) without skipping.
-	// adjust the priorities in order
-	// 1. sort all priorities in increasing order.
-	priorities := []int{}
-	for priority := range priorityMap {
-		priorities = append(priorities, priority)
-	}
-	sort.Ints(priorities)
-	// 2. adjust LocalityLbEndpoints priority
-	// if the index and value of priorities array is not equal.
-	for i, priority := range priorities {
-		if i != priority {
-			// the LocalityLbEndpoints index in ClusterLoadAssignment.Endpoints
-			for _, index := range priorityMap[priority] {
-				localityLbEndpoints[index].Priority = uint32(i)
-			}
-		}
-	}
-	loadAssignment.Endpoints = localityLbEndpoints
-}
-
-// set loadbalancing priority by failover priority label.
-// split one LocalityLbEndpoints to multiple LocalityLbEndpoints based on failover priorities.
-func applyPriorityFailoverPerLocality(
-	proxyLabels map[string]string,
-	ep *WrappedLocalityLbEndpoints,
-	failoverPriorities []string) []*endpoint.LocalityLbEndpoints {
-	lowestPriority := len(failoverPriorities)
-	// key is priority, value is the index of LocalityLbEndpoints.LbEndpoints
-	priorityMap := map[int][]int{}
-	for i, istioEndpoint := range ep.IstioEndpoints {
-		var priority int
-		// failoverPriority labels match
-		for j, label := range failoverPriorities {
-			if proxyLabels[label] != istioEndpoint.Labels[label] {
-				priority = lowestPriority - j
-				break
-			}
-		}
-		priorityMap[priority] = append(priorityMap[priority], i)
-	}
-
-	// sort all priorities in increasing order.
-	priorities := []int{}
-	for priority := range priorityMap {
-		priorities = append(priorities, priority)
-	}
-	sort.Ints(priorities)
-
-	out := make([]*endpoint.LocalityLbEndpoints, len(priorityMap))
-	for i, priority := range priorities {
-		out[i] = util.CloneLocalityLbEndpoint(ep.LocalityLbEndpoints)
-		out[i].LbEndpoints = nil
-		out[i].Priority = uint32(priority)
-		var weight uint32
-		for _, index := range priorityMap[priority] {
-			out[i].LbEndpoints = append(out[i].LbEndpoints, ep.LocalityLbEndpoints.LbEndpoints[index])
-			weight += ep.LocalityLbEndpoints.LbEndpoints[index].GetLoadBalancingWeight().GetValue()
-		}
-		// reset weight
-		out[i].LoadBalancingWeight = &wrappers.UInt32Value{
-			Value: weight,
-		}
-	}
-
-	return out
 }

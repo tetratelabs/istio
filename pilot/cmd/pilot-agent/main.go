@@ -39,7 +39,6 @@ import (
 	"istio.io/istio/security/pkg/stsservice/tokenmanager"
 	cleaniptables "istio.io/istio/tools/istio-clean-iptables/pkg/cmd"
 	iptables "istio.io/istio/tools/istio-iptables/pkg/cmd"
-	iptableslog "istio.io/istio/tools/istio-iptables/pkg/log"
 	"istio.io/pkg/collateral"
 	"istio.io/pkg/log"
 	"istio.io/pkg/version"
@@ -147,8 +146,6 @@ var (
 				}
 			}
 
-			go iptableslog.ReadNFLOGSocket(ctx)
-
 			// On SIGINT or SIGTERM, cancel the context, triggering a graceful shutdown
 			go cmd.WaitSignalFunc(cancel)
 
@@ -221,7 +218,7 @@ func initStatusServer(ctx context.Context, proxy *model.Proxy, proxyConfig *mesh
 
 func initStsServer(proxy *model.Proxy, tokenManager security.TokenManager) (*stsserver.Server, error) {
 	localHostAddr := localHostIPv4
-	if network.IsIPv6Proxy(proxy.IPAddresses) {
+	if options.IsIPv6Proxy(proxy.IPAddresses) {
 		localHostAddr = localHostIPv6
 	}
 	stsServer, err := stsserver.NewServer(stsserver.Config{
@@ -255,6 +252,7 @@ func initProxy(args []string) (*model.Proxy, error) {
 	if len(args) > 0 {
 		proxy.Type = model.NodeType(args[0])
 		if !model.IsApplicationNodeType(proxy.Type) {
+			log.Errorf("Invalid proxy Type: %#v", proxy.Type)
 			return nil, fmt.Errorf("Invalid proxy Type: " + string(proxy.Type))
 		}
 	}
@@ -302,7 +300,6 @@ func initProxy(args []string) (*model.Proxy, error) {
 // Use env variables - from injection, k8s and local namespace config map.
 // No CLI parameters.
 func main() {
-	log.EnableKlogWithCobra()
 	if err := rootCmd.Execute(); err != nil {
 		log.Error(err)
 		os.Exit(-1)

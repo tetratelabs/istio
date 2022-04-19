@@ -15,14 +15,12 @@
 package adsc
 
 import (
-	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
-	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
@@ -30,12 +28,11 @@ import (
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	xdsapi "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/gogo/protobuf/types"
+	"github.com/golang/protobuf/ptypes/any"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/testing/protocmp"
-	any "google.golang.org/protobuf/types/known/anypb"
 
-	"istio.io/api/label"
 	mcp "istio.io/api/mcp/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/config/memory"
@@ -56,130 +53,59 @@ func (t *testAdscRunServer) DeltaAggregatedResources(xdsapi.AggregatedDiscoveryS
 }
 
 func TestADSC_Run(t *testing.T) {
-	type testCase struct {
+	tests := []struct {
 		desc                 string
 		inAdsc               *ADSC
 		streamHandler        func(server xdsapi.AggregatedDiscoveryService_StreamAggregatedResourcesServer) error
 		expectedADSResources *ADSC
-		validator            func(testCase) error
-	}
-	var tests []testCase
-
-	type testDesc struct {
-		desc             string
-		reqTypeUrls      []string
-		expectedTypeUrls []string // nil means equals to requested
-		validator        func(testCase) error
-	}
-
-	descs := []testDesc{
+	}{
 		{
-			desc:        "stream-no-resources",
-			reqTypeUrls: []string{},
-		},
-		{
-			desc:        "stream-2-unnamed-resources",
-			reqTypeUrls: []string{"foo", "bar"},
-		},
-		// todo tests for listeners, clusters, eds, and routes, not sure how to do this.
-	}
-
-	initTypeUrls := func() []string {
-		var ret []string
-		for _, req := range ConfigInitialRequests() {
-			ret = append(ret, req.TypeUrl)
-		}
-		return ret
-	}()
-	incompleteTypeUrls := func() []string {
-		var ret []string
-		for idx, item := range initTypeUrls {
-			if strings.Count(item, "/") == 3 {
-				ret = append(ret, initTypeUrls[:idx]...)
-				ret = append(ret, initTypeUrls[idx+1:]...)
-				break
-			}
-		}
-		if ret == nil {
-			ret = initTypeUrls
-		}
-		return ret
-	}()
-	descs = append(descs, testDesc{
-		desc:        "mcp-should-hasSynced",
-		reqTypeUrls: initTypeUrls,
-		validator: func(tc testCase) error {
-			if !tc.inAdsc.HasSynced() {
-				return fmt.Errorf("adsc not synced")
-			}
-			return nil
-		},
-	})
-	if len(incompleteTypeUrls) != len(initTypeUrls) {
-		descs = append(descs, testDesc{
-			desc:             "mcp-should-not-hasSynced",
-			reqTypeUrls:      initTypeUrls,
-			expectedTypeUrls: incompleteTypeUrls,
-			validator: func(tc testCase) error {
-				if tc.inAdsc.HasSynced() {
-					return fmt.Errorf("adsc synced but should not")
-				}
-				return nil
-			},
-		})
-	}
-
-	for _, item := range descs {
-		desc := item // avoid refer to on-stack-var
-		expected := map[string]*xdsapi.DiscoveryResponse{}
-		if desc.expectedTypeUrls == nil {
-			desc.expectedTypeUrls = desc.reqTypeUrls
-		}
-		var initReqs []*xdsapi.DiscoveryRequest
-		for _, typeURL := range desc.reqTypeUrls {
-			initReqs = append(initReqs, &xdsapi.DiscoveryRequest{TypeUrl: typeURL})
-		}
-		for _, typeURL := range desc.expectedTypeUrls {
-			expected[typeURL] = &xdsapi.DiscoveryResponse{TypeUrl: typeURL}
-		}
-
-		if desc.validator == nil {
-			desc.validator = func(tc testCase) error {
-				if !cmp.Equal(tc.inAdsc.Received, tc.expectedADSResources.Received, protocmp.Transform()) {
-					return fmt.Errorf("%s: expected recv %v got %v", tc.desc, tc.expectedADSResources.Received, tc.inAdsc.Received)
-				}
-				return nil
-			}
-		}
-
-		tc := testCase{
-			desc: desc.desc,
+			desc: "stream-no-resources",
 			inAdsc: &ADSC{
 				Received:   make(map[string]*xdsapi.DiscoveryResponse),
 				Updates:    make(chan string),
 				XDSUpdates: make(chan *xdsapi.DiscoveryResponse),
 				RecvWg:     sync.WaitGroup{},
-				cfg: &Config{
-					InitialDiscoveryRequests: initReqs,
-				},
-				VersionInfo: map[string]string{},
-				sync:        map[string]time.Time{},
+				cfg:        &Config{},
 			},
-			streamHandler: func(stream xdsapi.AggregatedDiscoveryService_StreamAggregatedResourcesServer) error {
-				for _, typeURL := range desc.expectedTypeUrls {
-					_ = stream.Send(&xdsapi.DiscoveryResponse{
-						TypeUrl: typeURL,
-					})
-				}
+			streamHandler: func(server xdsapi.AggregatedDiscoveryService_StreamAggregatedResourcesServer) error {
 				return nil
 			},
 			expectedADSResources: &ADSC{
-				Received: expected,
+				Received: map[string]*xdsapi.DiscoveryResponse{},
 			},
-			validator: desc.validator,
-		}
-
-		tests = append(tests, tc)
+		},
+		{
+			desc: "stream-2-unnamed-resources",
+			inAdsc: &ADSC{
+				Received:    make(map[string]*xdsapi.DiscoveryResponse),
+				Updates:     make(chan string),
+				XDSUpdates:  make(chan *xdsapi.DiscoveryResponse),
+				RecvWg:      sync.WaitGroup{},
+				cfg:         &Config{},
+				VersionInfo: map[string]string{},
+			},
+			streamHandler: func(stream xdsapi.AggregatedDiscoveryService_StreamAggregatedResourcesServer) error {
+				_ = stream.Send(&xdsapi.DiscoveryResponse{
+					TypeUrl: "foo",
+				})
+				_ = stream.Send(&xdsapi.DiscoveryResponse{
+					TypeUrl: "bar",
+				})
+				return nil
+			},
+			expectedADSResources: &ADSC{
+				Received: map[string]*xdsapi.DiscoveryResponse{
+					"foo": {
+						TypeUrl: "foo",
+					},
+					"bar": {
+						TypeUrl: "bar",
+					},
+				},
+			},
+		},
+		// todo tests for listeners, clusters, eds, and routes, not sure how to do this.
 	}
 
 	for _, tt := range tests {
@@ -214,9 +140,8 @@ func TestADSC_Run(t *testing.T) {
 				return
 			}
 			tt.inAdsc.RecvWg.Wait()
-
-			if err := tt.validator(tt); err != nil {
-				t.Error(err)
+			if !cmp.Equal(tt.inAdsc.Received, tt.expectedADSResources.Received, protocmp.Transform()) {
+				t.Errorf("%s: expected recv %v got %v", tt.desc, tt.expectedADSResources.Received, tt.inAdsc.Received)
 			}
 		})
 	}
@@ -398,7 +323,7 @@ func saveTeardown(base string, t *testing.T) {
 }
 
 func readFile(dir string, t *testing.T) string {
-	dat, err := os.ReadFile(dir)
+	dat, err := ioutil.ReadFile(dir)
 	if err != nil {
 		t.Fatalf("file %s issue: %v", dat, err)
 	}
@@ -406,19 +331,9 @@ func readFile(dir string, t *testing.T) string {
 }
 
 func TestADSC_handleMCP(t *testing.T) {
-	rev := "test-rev"
 	adsc := &ADSC{
 		VersionInfo: map[string]string{},
 		Store:       model.MakeIstioStore(memory.Make(collections.Pilot)),
-		cfg:         &Config{Revision: rev},
-	}
-
-	patchLabel := func(lbls map[string]string, name, value string) map[string]string {
-		if lbls == nil {
-			lbls = map[string]string{}
-		}
-		lbls[name] = value
-		return lbls
 	}
 
 	tests := []struct {
@@ -429,40 +344,8 @@ func TestADSC_handleMCP(t *testing.T) {
 		{
 			desc: "create-resources",
 			resources: []*any.Any{
-				constructResource("foo1", "foo1.bar.com", "192.1.1.1", "1"),
-				constructResource("foo2", "foo2.bar.com", "192.1.1.2", "1"),
-			},
-			expectedResources: [][]string{
-				{"foo1", "foo1.bar.com", "192.1.1.1"},
-				{"foo2", "foo2.bar.com", "192.1.1.2"},
-			},
-		},
-		{
-			desc: "create-resources-rev-1",
-			resources: []*any.Any{
-				constructResource("foo1", "foo1.bar.com", "192.1.1.1", "1"),
-				constructResourceWithOptions("foo2", "foo2.bar.com", "192.1.1.2", "1", func(resource *mcp.Resource) {
-					resource.Metadata.Labels = patchLabel(resource.Metadata.Labels, label.IoIstioRev.Name, rev+"wrong") // to del
-				}),
-				constructResourceWithOptions("foo3", "foo3.bar.com", "192.1.1.3", "1", func(resource *mcp.Resource) {
-					resource.Metadata.Labels = patchLabel(resource.Metadata.Labels, label.IoIstioRev.Name, rev) // to add
-				}),
-			},
-			expectedResources: [][]string{
-				{"foo1", "foo1.bar.com", "192.1.1.1"},
-				{"foo3", "foo3.bar.com", "192.1.1.3"},
-			},
-		},
-		{
-			desc: "create-resources-rev-2",
-			resources: []*any.Any{
-				constructResource("foo1", "foo1.bar.com", "192.1.1.1", "1"),
-				constructResourceWithOptions("foo2", "foo2.bar.com", "192.1.1.2", "1", func(resource *mcp.Resource) {
-					resource.Metadata.Labels = patchLabel(resource.Metadata.Labels, label.IoIstioRev.Name, rev) // to add back
-				}),
-				constructResourceWithOptions("foo3", "foo3.bar.com", "192.1.1.3", "1", func(resource *mcp.Resource) {
-					resource.Metadata.Labels = patchLabel(resource.Metadata.Labels, label.IoIstioRev.Name, rev+"wrong") // to del
-				}),
+				constructResource("foo1", "foo1.bar.com", "192.1.1.1"),
+				constructResource("foo2", "foo2.bar.com", "192.1.1.2"),
 			},
 			expectedResources: [][]string{
 				{"foo1", "foo1.bar.com", "192.1.1.1"},
@@ -472,36 +355,23 @@ func TestADSC_handleMCP(t *testing.T) {
 		{
 			desc: "update-and-create-resources",
 			resources: []*any.Any{
-				constructResource("foo1", "foo1.bar.com", "192.1.1.11", "2"),
-				constructResource("foo2", "foo2.bar.com", "192.1.1.22", "1"),
-				constructResource("foo3", "foo3.bar.com", "192.1.1.3", ""),
+				constructResource("foo1", "foo1.bar.com", "192.1.1.1"),
+				constructResource("foo2", "foo2.bar.com", "192.2.2.2"),
+				constructResource("foo3", "foo2.bar.com", "192.1.1.3"),
 			},
 			expectedResources: [][]string{
-				{"foo1", "foo1.bar.com", "192.1.1.11"},
-				{"foo2", "foo2.bar.com", "192.1.1.2"},
-				{"foo3", "foo3.bar.com", "192.1.1.3"},
+				{"foo1", "foo1.bar.com", "192.1.1.1"},
+				{"foo2", "foo2.bar.com", "192.2.2.2"},
+				{"foo3", "foo2.bar.com", "192.1.1.3"},
 			},
 		},
 		{
-			desc: "update-delete-and-create-resources",
+			desc: "delete-and-create-resources",
 			resources: []*any.Any{
-				constructResource("foo2", "foo2.bar.com", "192.1.1.222", "4"),
-				constructResource("foo4", "foo4.bar.com", "192.1.1.4", "1"),
+				constructResource("foo4", "foo4.bar.com", "192.1.1.4"),
 			},
 			expectedResources: [][]string{
-				{"foo2", "foo2.bar.com", "192.1.1.222"},
 				{"foo4", "foo4.bar.com", "192.1.1.4"},
-			},
-		},
-		{
-			desc: "update-and-delete-resources",
-			resources: []*any.Any{
-				constructResource("foo2", "foo2.bar.com", "192.2.2.22", "3"),
-				constructResource("foo3", "foo3.bar.com", "192.1.1.33", ""),
-			},
-			expectedResources: [][]string{
-				{"foo2", "foo2.bar.com", "192.2.2.22"},
-				{"foo3", "foo3.bar.com", "192.1.1.33"},
 			},
 		},
 	}
@@ -511,7 +381,7 @@ func TestADSC_handleMCP(t *testing.T) {
 			adsc.handleMCP(gvk, tt.resources)
 			configs, _ := adsc.Store.List(collections.IstioNetworkingV1Alpha3Serviceentries.Resource().GroupVersionKind(), "")
 			if len(configs) != len(tt.expectedResources) {
-				t.Errorf("expected %v got %v", len(tt.expectedResources), len(configs))
+				t.Errorf("expecte %v got %v", len(tt.expectedResources), len(configs))
 			}
 			configMap := make(map[string][]string)
 			for _, conf := range configs {
@@ -521,11 +391,11 @@ func TestADSC_handleMCP(t *testing.T) {
 			for _, expected := range tt.expectedResources {
 				got, ok := configMap[expected[0]]
 				if !ok {
-					t.Errorf("expected %v got none", expected)
+					t.Errorf("expecte %v got none", expected)
 				} else {
 					for i, value := range expected {
 						if value != got[i] {
-							t.Errorf("expected %v got %v", value, got[i])
+							t.Errorf("expecte %v got %v", value, got[i])
 						}
 					}
 				}
@@ -534,7 +404,7 @@ func TestADSC_handleMCP(t *testing.T) {
 	}
 }
 
-func constructResourceWithOptions(name string, host string, address, version string, options ...func(resource *mcp.Resource)) *any.Any {
+func constructResource(name string, host string, address string) *any.Any {
 	service := &networking.ServiceEntry{
 		Hosts:     []string{host},
 		Addresses: []string{address},
@@ -544,22 +414,12 @@ func constructResourceWithOptions(name string, host string, address, version str
 		Metadata: &mcp.Metadata{
 			Name:       "default/" + name,
 			CreateTime: types.TimestampNow(),
-			Version:    version,
 		},
 		Body: seAny,
 	}
-
-	for _, o := range options {
-		o(resource)
-	}
-
 	resAny, _ := types.MarshalAny(resource)
 	return &any.Any{
 		TypeUrl: resAny.TypeUrl,
 		Value:   resAny.Value,
 	}
-}
-
-func constructResource(name string, host string, address, version string) *any.Any {
-	return constructResourceWithOptions(name, host, address, version)
 }

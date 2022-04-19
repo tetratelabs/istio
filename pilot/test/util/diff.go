@@ -16,14 +16,15 @@ package util
 
 import (
 	"errors"
+	"io/ioutil"
 	"os"
 	"regexp"
 	"strings"
+	"testing"
 
 	"github.com/pmezard/go-difflib/difflib"
 
 	"istio.io/istio/pkg/file"
-	"istio.io/istio/pkg/test"
 	"istio.io/pkg/env"
 )
 
@@ -62,42 +63,42 @@ func Compare(content, golden []byte) error {
 }
 
 // CompareYAML compares a file "x" against a golden file "x.golden"
-func CompareYAML(t test.Failer, filename string) {
+func CompareYAML(filename string, t *testing.T) {
 	t.Helper()
-	content, err := os.ReadFile(filename)
+	content, err := ioutil.ReadFile(filename)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
 	goldenFile := filename + ".golden"
 	if Refresh() {
 		t.Logf("Refreshing golden file for %s", filename)
-		if err = os.WriteFile(goldenFile, content, 0o644); err != nil {
-			t.Fatal(err.Error())
+		if err = ioutil.WriteFile(goldenFile, content, 0o644); err != nil {
+			t.Errorf(err.Error())
 		}
 	}
 
-	golden, err := os.ReadFile(goldenFile)
+	golden, err := ioutil.ReadFile(goldenFile)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
 	if err = Compare(content, golden); err != nil {
-		t.Fatalf("Failed validating artifact %s:\n%v", filename, err)
+		t.Errorf("Failed validating artifact %s:\n%v", filename, err)
 	}
 }
 
 // CompareContent compares the content value against the golden file and fails the test if they differ
-func CompareContent(t test.Failer, content []byte, goldenFile string) {
+func CompareContent(content []byte, goldenFile string, t *testing.T) {
 	t.Helper()
-	golden := ReadGoldenFile(t, content, goldenFile)
-	CompareBytes(t, content, golden, goldenFile)
+	golden := ReadGoldenFile(content, goldenFile, t)
+	CompareBytes(content, golden, goldenFile, t)
 }
 
 // ReadGoldenFile reads the content of the golden file and fails the test if an error is encountered
-func ReadGoldenFile(t test.Failer, content []byte, goldenFile string) []byte {
+func ReadGoldenFile(content []byte, goldenFile string, t *testing.T) []byte {
 	t.Helper()
-	RefreshGoldenFile(t, content, goldenFile)
+	RefreshGoldenFile(content, goldenFile, t)
 
-	return ReadFile(t, goldenFile)
+	return ReadFile(goldenFile, t)
 }
 
 // StripVersion strips the version fields of a YAML content.
@@ -106,27 +107,27 @@ func StripVersion(yaml []byte) []byte {
 }
 
 // RefreshGoldenFile updates the golden file with the given content
-func RefreshGoldenFile(t test.Failer, content []byte, goldenFile string) {
+func RefreshGoldenFile(content []byte, goldenFile string, t *testing.T) {
 	if Refresh() {
 		t.Logf("Refreshing golden file %s", goldenFile)
 		if err := file.AtomicWrite(goldenFile, content, os.FileMode(0o644)); err != nil {
-			t.Fatal(err.Error())
+			t.Errorf(err.Error())
 		}
 	}
 }
 
 // ReadFile reads the content of the given file or fails the test if an error is encountered.
-func ReadFile(t test.Failer, file string) []byte {
+func ReadFile(file string, t testing.TB) []byte {
 	t.Helper()
-	golden, err := os.ReadFile(file)
+	golden, err := ioutil.ReadFile(file)
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatalf(err.Error())
 	}
 	return golden
 }
 
 // CompareBytes compares the content value against the golden bytes and fails the test if they differ
-func CompareBytes(t test.Failer, content []byte, golden []byte, name string) {
+func CompareBytes(content []byte, golden []byte, name string, t *testing.T) {
 	t.Helper()
 	if err := Compare(content, golden); err != nil {
 		t.Fatalf("Failed validating golden file %s:\n%v", name, err)

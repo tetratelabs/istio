@@ -22,26 +22,20 @@ import (
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
-	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
+	"github.com/golang/protobuf/ptypes/wrappers"
 
 	"istio.io/istio/pilot/pkg/model"
+	authnplugin "istio.io/istio/pilot/pkg/networking/plugin/authn"
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/security/authn"
 	"istio.io/istio/pilot/pkg/security/authn/factory"
 	"istio.io/istio/pilot/pkg/util/sets"
-	xdsfilters "istio.io/istio/pilot/pkg/xds/filters"
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/istio-agent/grpcxds"
 )
-
-var supportedFilters = []*hcm.HttpFilter{
-	xdsfilters.Fault,
-	xdsfilters.Router,
-}
 
 // BuildListeners handles a LDS request, returning listeners of ApiListener type.
 // The request may include a list of resource names, using the full_hostname[:port] format to select only
@@ -52,7 +46,7 @@ func (g *GrpcConfigGenerator) BuildListeners(node *model.Proxy, push *model.Push
 	log.Debugf("building lds for %s with filter:\n%v", node.ID, filter)
 
 	resp := make(model.Resources, 0, len(filter))
-	resp = append(resp, buildOutboundListeners(node, push, filter)...)
+	resp = append(resp, buildOutboundListeners(node, filter)...)
 	resp = append(resp, buildInboundListeners(node, push, filter.inboundNames())...)
 
 	return resp
@@ -97,7 +91,7 @@ func buildInboundListeners(node *model.Proxy, push *model.PushContext, names []s
 					},
 				},
 			}},
-			FilterChains: buildInboundFilterChains(node, push, si, policyApplier),
+			FilterChains: buildFilterChains(node, push, si, policyApplier),
 			// the following must not be set or the client will NACK
 			ListenerFilters: nil,
 			UseOriginalDst:  nil,
@@ -110,16 +104,13 @@ func buildInboundListeners(node *model.Proxy, push *model.PushContext, names []s
 	return out
 }
 
-// nolint: unparam
-func buildInboundFilterChains(node *model.Proxy, push *model.PushContext, si *model.ServiceInstance, applier authn.PolicyApplier) []*listener.FilterChain {
+func buildFilterChains(node *model.Proxy, push *model.PushContext, si *model.ServiceInstance, applier authn.PolicyApplier) []*listener.FilterChain {
 	mode := applier.GetMutualTLSModeForPort(si.Endpoint.EndpointPort)
 
 	var tlsContext *tls.DownstreamTlsContext
 	if mode != model.MTLSDisable && mode != model.MTLSUnknown {
 		tlsContext = &tls.DownstreamTlsContext{
-			CommonTlsContext: buildCommonTLSContext(nil),
-			// TODO match_subject_alt_names field in validation context is not supported on the server
-			// CommonTlsContext: buildCommonTLSContext(authnplugin.TrustDomainsForValidation(push.Mesh)),
+			CommonTlsContext: buildCommonTLSContext(authnplugin.TrustDomainsForValidation(push.Mesh)),
 			// TODO plain TLS support
 			RequireClientCertificate: &wrappers.BoolValue{Value: true},
 		}
@@ -139,16 +130,16 @@ func buildInboundFilterChains(node *model.Proxy, push *model.PushContext, si *mo
 	var out []*listener.FilterChain
 	switch mode {
 	case model.MTLSDisable:
-		out = append(out, buildInboundFilterChain("plaintext", nil))
+		out = append(out, buildFilterChain("plaintext", nil))
 	case model.MTLSStrict:
-		out = append(out, buildInboundFilterChain("mtls", tlsContext))
+		out = append(out, buildFilterChain("mtls", tlsContext))
 		// TODO permissive builts both plaintext and mtls; when tlsContext is present add a match for protocol
 	}
 
 	return out
 }
 
-func buildInboundFilterChain(nameSuffix string, tlsContext *tls.DownstreamTlsContext) *listener.FilterChain {
+func buildFilterChain(nameSuffix string, tlsContext *tls.DownstreamTlsContext) *listener.FilterChain {
 	out := &listener.FilterChain{
 		Name:             "inbound-" + nameSuffix,
 		FilterChainMatch: nil,
@@ -156,22 +147,7 @@ func buildInboundFilterChain(nameSuffix string, tlsContext *tls.DownstreamTlsCon
 			Name: "inbound-hcm" + nameSuffix,
 			ConfigType: &listener.Filter_TypedConfig{
 				TypedConfig: util.MessageToAny(&hcm.HttpConnectionManager{
-					RouteSpecifier: &hcm.HttpConnectionManager_RouteConfig{
-						// https://github.com/grpc/grpc-go/issues/4924
-						RouteConfig: &route.RouteConfiguration{
-							Name: "inbound",
-							VirtualHosts: []*route.VirtualHost{{
-								Domains: []string{"*"},
-								Routes: []*route.Route{{
-									Match: &route.RouteMatch{
-										PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
-									},
-									Action: &route.Route_NonForwardingAction{},
-								}},
-							}},
-						},
-					},
-					HttpFilters: []*hcm.HttpFilter{xdsfilters.Router},
+					// TODO gRPC doesn't support httpfilter yet; sending won't cause a NACK but they don't do anything
 				}),
 			},
 		}},
@@ -185,54 +161,55 @@ func buildInboundFilterChain(nameSuffix string, tlsContext *tls.DownstreamTlsCon
 	return out
 }
 
-func buildOutboundListeners(node *model.Proxy, push *model.PushContext, filter listenerNames) model.Resources {
+func buildOutboundListeners(node *model.Proxy, filter listenerNames) model.Resources {
 	out := make(model.Resources, 0, len(filter))
-	for _, sv := range push.Services(node) {
-		serviceHost := string(sv.Hostname)
-		match, ok := filter.includes(serviceHost)
-		if !ok {
-			continue
-		}
-		// we must duplicate the listener for every requested host - grpc may have watches for both foo and foo.ns
-		for _, matchedHost := range match.RequestedNames.SortedList() {
-			for _, p := range sv.Ports {
-				sPort := strconv.Itoa(p.Port)
-				if !match.includesPort(sPort) {
-					continue
-				}
-				ll := &listener.Listener{
-					Name: net.JoinHostPort(matchedHost, sPort),
-					Address: &core.Address{
-						Address: &core.Address_SocketAddress{
-							SocketAddress: &core.SocketAddress{
-								Address: sv.GetAddressForProxy(node),
-								PortSpecifier: &core.SocketAddress_PortValue{
-									PortValue: uint32(p.Port),
+	for _, el := range node.SidecarScope.EgressListeners {
+		for _, sv := range el.Services() {
+			serviceHost := string(sv.Hostname)
+			match, ok := filter.includes(serviceHost)
+			if !ok {
+				continue
+			}
+			// we must duplicate the listener for every requested host - grpc may have watches for both foo and foo.ns
+			for _, matchedHost := range match.RequestedNames.SortedList() {
+				for _, p := range sv.Ports {
+					sPort := strconv.Itoa(p.Port)
+					if !match.includesPort(sPort) {
+						continue
+					}
+					ll := &listener.Listener{
+						Name: net.JoinHostPort(matchedHost, sPort),
+						Address: &core.Address{
+							Address: &core.Address_SocketAddress{
+								SocketAddress: &core.SocketAddress{
+									Address: sv.Address,
+									PortSpecifier: &core.SocketAddress_PortValue{
+										PortValue: uint32(p.Port),
+									},
 								},
 							},
 						},
-					},
-					ApiListener: &listener.ApiListener{
-						ApiListener: util.MessageToAny(&hcm.HttpConnectionManager{
-							HttpFilters: supportedFilters,
-							RouteSpecifier: &hcm.HttpConnectionManager_Rds{
-								// TODO: for TCP listeners don't generate RDS, but some indication of cluster name.
-								Rds: &hcm.Rds{
-									ConfigSource: &core.ConfigSource{
-										ConfigSourceSpecifier: &core.ConfigSource_Ads{
-											Ads: &core.AggregatedConfigSource{},
+						ApiListener: &listener.ApiListener{
+							ApiListener: util.MessageToAny(&hcm.HttpConnectionManager{
+								RouteSpecifier: &hcm.HttpConnectionManager_Rds{
+									// TODO: for TCP listeners don't generate RDS, but some indication of cluster name.
+									Rds: &hcm.Rds{
+										ConfigSource: &core.ConfigSource{
+											ConfigSourceSpecifier: &core.ConfigSource_Ads{
+												Ads: &core.AggregatedConfigSource{},
+											},
 										},
+										RouteConfigName: clusterKey(serviceHost, p.Port),
 									},
-									RouteConfigName: clusterKey(serviceHost, p.Port),
 								},
-							},
-						}),
-					},
+							}),
+						},
+					}
+					out = append(out, &discovery.Resource{
+						Name:     ll.Name,
+						Resource: util.MessageToAny(ll),
+					})
 				}
-				out = append(out, &discovery.Resource{
-					Name:     ll.Name,
-					Resource: util.MessageToAny(ll),
-				})
 			}
 		}
 	}

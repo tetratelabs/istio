@@ -1,4 +1,4 @@
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: GatewayClass
 metadata:
   creationTimestamp: null
@@ -9,11 +9,11 @@ status:
   conditions:
   - lastTransitionTime: fake
     message: Handled by Istio controller
-    reason: Accepted
+    reason: Handled
     status: "True"
-    type: Accepted
+    type: Admitted
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: Gateway
 metadata:
   creationTimestamp: null

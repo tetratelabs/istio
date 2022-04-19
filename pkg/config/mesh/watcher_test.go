@@ -15,17 +15,18 @@
 package mesh_test
 
 import (
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	gogoproto "github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 	. "github.com/onsi/gomega"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pkg/config/mesh"
-	"istio.io/istio/pkg/util/gogoprotomarshal"
+	"istio.io/istio/pkg/util/protomarshal"
 	"istio.io/pkg/filewatcher"
 )
 
@@ -88,7 +89,7 @@ func newWatcher(t testing.TB, filename string, multi bool) mesh.Watcher {
 func newTempFile(t testing.TB) string {
 	t.Helper()
 
-	f, err := os.CreateTemp(t.TempDir(), t.Name())
+	f, err := ioutil.TempFile(t.TempDir(), t.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,9 +102,9 @@ func newTempFile(t testing.TB) string {
 	return path
 }
 
-func writeMessage(t testing.TB, path string, msg gogoproto.Message) {
+func writeMessage(t testing.TB, path string, msg proto.Message) {
 	t.Helper()
-	yml, err := gogoprotomarshal.ToYAML(msg)
+	yml, err := protomarshal.ToYAML(msg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func writeMessage(t testing.TB, path string, msg gogoproto.Message) {
 
 func writeFile(t testing.TB, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o666); err != nil {
+	if err := ioutil.WriteFile(path, []byte(content), 0o666); err != nil {
 		t.Fatal(err)
 	}
 }

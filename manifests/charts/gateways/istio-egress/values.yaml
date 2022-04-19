@@ -13,6 +13,17 @@ gateways:
       targetPort: 8443
       protocol: TCP
 
+    # Enable cross-cluster access using SNI matching.
+    # Make sure you set suffix if deploying multiple egress gateways.
+    zvpn:
+      # Must be different for each egress namespace.
+      # Used to control the domain name suffix for zero vpn routing.
+      # Domain names ending with this suffix will be routed to this egress gateway
+      # automatically.
+      # This can be a real domain name ( istio.example.com )
+      suffix: global
+      enabled: false
+
     labels:
       app: istio-egressgateway
       istio: egressgateway
@@ -55,7 +66,7 @@ gateways:
 
     ### Advanced options ############
     # TODO: convert to real options, env should not be exposed
-    env: {}
+    env:
       # Set this to "external" if and only if you want the egress gateway to
       # act as a transparent SNI gateway that routes mTLS/TLS traffic to
       # external services defined using service entries, where the service
@@ -64,6 +75,10 @@ gateways:
       # the egress gateway sees the same set of endpoints as the sidecars
       # preserving backward compatibility
       # ISTIO_META_REQUESTED_NETWORK_VIEW: ""
+      # A gateway with this mode ensures that pilot generates an additional
+      # set of clusters for internal services but without Istio mTLS, to
+      # enable cross cluster routing.
+      ISTIO_META_ROUTER_MODE: "standard"
 
     nodeSelector: {}
     tolerations: []
@@ -163,7 +178,7 @@ global:
   # To output all istio components logs in json format by adding --log_as_json argument to each container argument
   logAsJson: false
 
-  # Specify pod scheduling arch(amd64, ppc64le, s390x, arm64) and weight as follows:
+  # Specify pod scheduling arch(amd64, ppc64le, s390x) and weight as follows:
   #   0 - Never scheduled
   #   1 - Least preferred
   #   2 - No preference
@@ -172,7 +187,6 @@ global:
     amd64: 2
     s390x: 2
     ppc64le: 2
-    arm64: 2
 
   # Comma-separated minimum per-scope logging level of messages to output, in the form of <scope>:<level>,<scope>:<level>
   # The control plane has different scopes depending on component, but can configure default log level across all components

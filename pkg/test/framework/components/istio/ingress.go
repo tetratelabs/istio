@@ -49,7 +49,7 @@ const (
 
 var (
 	getAddressTimeout = retry.Timeout(3 * time.Minute)
-	getAddressDelay   = retry.BackoffDelay(500 * time.Millisecond)
+	getAddressDelay   = retry.Delay(5 * time.Second)
 
 	_ ingress.Instance = &ingressImpl{}
 )
@@ -96,7 +96,7 @@ type ingressImpl struct {
 // the returned net.Addr will have the externally reachable NodePort address and port.
 func (c *ingressImpl) getAddressInner(port int) (string, int, error) {
 	attempts := 0
-	addr, err := retry.UntilComplete(func() (result interface{}, completed bool, err error) {
+	addr, err := retry.Do(func() (result interface{}, completed bool, err error) {
 		attempts++
 		result, completed, err = getRemoteServiceAddress(c.env.Settings(), c.cluster, c.namespace, c.istioLabel, c.serviceName, port)
 		if err != nil && attempts > 1 {
@@ -204,7 +204,6 @@ func (c *ingressImpl) callEcho(options echo.CallOptions, retry bool, retryOption
 		addr string
 		port int
 	)
-	options = options.DeepCopy()
 	if options.Port.ServicePort == 0 {
 		// Default port based on protocol
 		switch options.Port.Protocol {
@@ -234,11 +233,8 @@ func (c *ingressImpl) callEcho(options echo.CallOptions, retry bool, retryOption
 	if options.Headers == nil {
 		options.Headers = map[string][]string{}
 	}
-	if host := options.GetHost(); len(host) > 0 {
-		options.Headers["Host"] = []string{host}
-	}
-	if len(c.cluster.HTTPProxy()) > 0 {
-		options.HTTPProxy = c.cluster.HTTPProxy()
+	if host := options.Headers["Host"]; len(host) == 0 {
+		options.Headers["Host"] = []string{options.Address}
 	}
 	return common.CallEcho(&options, retry, retryOptions...)
 }

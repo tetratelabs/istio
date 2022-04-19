@@ -171,7 +171,7 @@ spec:
               memory: 128Mi
           env:
             - name: WATCH_NAMESPACE
-              value: "istio-test-namespace1,istio-test-namespace2"
+              value: 
             - name: LEADER_ELECTION_NAMESPACE
               value: "operator-test-namespace"
             - name: POD_NAME
@@ -184,6 +184,14 @@ spec:
               value: "300s"
             - name: REVISION
               value: ""
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: operator-test-namespace
+  labels:
+    istio-operator-managed: Reconcile
+    istio-injection: disabled
 ---
 apiVersion: v1
 kind: Service
@@ -258,4 +266,3 @@ spec:
     served: true
     storage: true
 ---
-

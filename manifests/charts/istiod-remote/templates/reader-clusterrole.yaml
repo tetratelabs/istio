@@ -1,4 +1,3 @@
-{{ $mcsAPIGroup := or .Values.pilot.env.MCS_API_GROUP "multicluster.x-k8s.io" }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -26,12 +25,6 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["discovery.k8s.io"]
     resources: ["endpointslices"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["{{ $mcsAPIGroup }}"]
-    resources: ["serviceexports"]
-    verbs: ["get", "list", "watch", "create", "delete"]
-  - apiGroups: ["{{ $mcsAPIGroup }}"]
-    resources: ["serviceimports"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["replicasets"]

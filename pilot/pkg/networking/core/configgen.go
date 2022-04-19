@@ -17,6 +17,7 @@ package core
 import (
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
@@ -34,15 +35,10 @@ type ConfigGenerator interface {
 	BuildListeners(node *model.Proxy, push *model.PushContext) []*listener.Listener
 
 	// BuildClusters returns the list of clusters for the given proxy. This is the CDS output
-	BuildClusters(node *model.Proxy, req *model.PushRequest) ([]*discovery.Resource, model.XdsLogDetails)
-
-	// BuildDeltaClusters returns both a list of resources that need to be pushed for a given proxy and a list of resources
-	// that have been deleted and should be removed from a given proxy. This is Delta CDS output.
-	BuildDeltaClusters(proxy *model.Proxy, updates *model.PushRequest,
-		watched *model.WatchedResource) ([]*discovery.Resource, []string, model.XdsLogDetails, bool)
+	BuildClusters(node *model.Proxy, push *model.PushContext) ([]*discovery.Resource, model.XdsLogDetails)
 
 	// BuildHTTPRoutes returns the list of HTTP routes for the given proxy. This is the RDS output
-	BuildHTTPRoutes(node *model.Proxy, req *model.PushRequest, routeNames []string) ([]*discovery.Resource, model.XdsLogDetails)
+	BuildHTTPRoutes(node *model.Proxy, push *model.PushContext, routeNames []string) []*route.RouteConfiguration
 
 	// BuildNameTable returns list of hostnames and the associated IPs
 	BuildNameTable(node *model.Proxy, push *model.PushContext) *dnsProto.NameTable
@@ -50,7 +46,7 @@ type ConfigGenerator interface {
 	// BuildExtensionConfiguration returns the list of extension configuration for the given proxy and list of names. This is the ECDS output.
 	BuildExtensionConfiguration(node *model.Proxy, push *model.PushContext, extensionConfigNames []string) []*core.TypedExtensionConfig
 
-	// MeshConfigChanged is invoked when mesh config is changed, giving a chance to rebuild any cached config.
+	// ConfigChanged is invoked when mesh config is changed, giving a chance to rebuild any cached config.
 	MeshConfigChanged(mesh *meshconfig.MeshConfig)
 }
 

@@ -22,6 +22,8 @@ set -u
 # Print commands
 set -x
 
+UPDATE_BRANCH=${UPDATE_BRANCH:-"master"}
+
 SCRIPTPATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ROOTDIR=$(dirname "${SCRIPTPATH}")
 cd "${ROOTDIR}"

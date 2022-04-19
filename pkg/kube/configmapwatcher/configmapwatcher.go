@@ -23,21 +23,22 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
-	informersv1 "k8s.io/client-go/informers/core/v1"
+	infomersv1 "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
 
 	"istio.io/istio/pkg/kube"
-	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/pkg/log"
 )
 
 // Controller watches a ConfigMap and calls the given callback when the ConfigMap changes.
 // The ConfigMap is passed to the callback, or nil if it doesn't exist.
 type Controller struct {
-	informer informersv1.ConfigMapInformer
-	queue    controllers.Queue
+	informer infomersv1.ConfigMapInformer
+	queue    workqueue.RateLimitingInterface
 
 	configMapNamespace string
 	configMapName      string
@@ -49,6 +50,7 @@ type Controller struct {
 // NewController returns a new ConfigMap watcher controller.
 func NewController(client kube.Client, namespace, name string, callback func(*v1.ConfigMap)) *Controller {
 	c := &Controller{
+		queue:              workqueue.NewRateLimitingQueue(workqueue.DefaultItemBasedRateLimiter()),
 		configMapNamespace: namespace,
 		configMapName:      name,
 		callback:           callback,
@@ -59,34 +61,83 @@ func NewController(client kube.Client, namespace, name string, callback func(*v1
 	c.informer = informers.NewSharedInformerFactoryWithOptions(client.Kube(), 12*time.Hour,
 		informers.WithNamespace(namespace),
 		informers.WithTweakListOptions(func(listOptions *metav1.ListOptions) {
-			listOptions.FieldSelector = fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()
+			listOptions.FieldSelector = fields.OneTermEqualSelector("metadata.name", name).String()
 		})).
 		Core().V1().ConfigMaps()
 
-	c.queue = controllers.NewQueue("configmap "+name, controllers.WithReconciler(c.processItem))
-	c.informer.Informer().AddEventHandler(controllers.FilteredObjectSpecHandler(c.queue.AddObject, func(o controllers.Object) bool {
-		// Filter out configmaps
-		return o.GetName() == name && o.GetNamespace() == namespace
-	}))
-
+	c.informer.Informer().AddEventHandler(cache.FilteringResourceEventHandler{
+		FilterFunc: func(obj interface{}) bool {
+			key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+			if err != nil {
+				return false
+			}
+			return key == namespace+"/"+name
+		},
+		Handler: cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				c.queue.Add(struct{}{})
+			},
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				oldCM := oldObj.(*v1.ConfigMap)
+				newCM := newObj.(*v1.ConfigMap)
+				if oldCM.ResourceVersion == newCM.ResourceVersion {
+					return
+				}
+				c.queue.Add(struct{}{})
+			},
+			DeleteFunc: func(obj interface{}) {
+				c.queue.Add(struct{}{})
+			},
+		},
+	})
 	return c
 }
 
 func (c *Controller) Run(stop <-chan struct{}) {
+	defer utilruntime.HandleCrash()
+	defer c.queue.ShutDown()
+
 	go c.informer.Informer().Run(stop)
 	if !cache.WaitForCacheSync(stop, c.informer.Informer().HasSynced) {
 		log.Error("failed to wait for cache sync")
 		return
 	}
-	c.queue.Run(stop)
+
+	// Trigger initial callback.
+	c.queue.Add(struct{}{})
+
+	go wait.Until(c.runWorker, time.Second, stop)
+	<-stop
 }
 
 // HasSynced returns whether the underlying cache has synced and the callback has been called at least once.
 func (c *Controller) HasSynced() bool {
-	return c.queue.HasSynced()
+	return c.hasSynced.Load()
 }
 
-func (c *Controller) processItem(types.NamespacedName) error {
+func (c *Controller) runWorker() {
+	for c.processNextWorkItem() {
+	}
+}
+
+func (c *Controller) processNextWorkItem() bool {
+	obj, quit := c.queue.Get()
+	if quit {
+		return false
+	}
+	defer c.queue.Done(obj)
+
+	log.Debug("processing queue item")
+	if err := c.processItem(); err != nil {
+		log.Error("error processing queue item (retrying)")
+		c.queue.AddRateLimited(struct{}{})
+	} else {
+		c.queue.Forget(obj)
+	}
+	return true
+}
+
+func (c *Controller) processItem() error {
 	cm, err := c.informer.Lister().ConfigMaps(c.configMapNamespace).Get(c.configMapName)
 	if err != nil {
 		if !errors.IsNotFound(err) {

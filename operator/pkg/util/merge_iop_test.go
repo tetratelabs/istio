@@ -15,11 +15,11 @@
 package util
 
 import (
-	"os"
+	"io/ioutil"
 	"path/filepath"
 	"testing"
 
-	"sigs.k8s.io/yaml"
+	"github.com/ghodss/yaml"
 
 	v1alpha12 "istio.io/api/operator/v1alpha1"
 	"istio.io/istio/operator/pkg/apis/istio/v1alpha1"
@@ -29,7 +29,7 @@ import (
 
 func TestOverlayIOP(t *testing.T) {
 	defaultFilepath := filepath.Join(env.IstioSrc, "manifests/profiles/default.yaml")
-	b, err := os.ReadFile(defaultFilepath)
+	b, err := ioutil.ReadFile(defaultFilepath)
 	if err != nil {
 		t.Fatal(err)
 	}

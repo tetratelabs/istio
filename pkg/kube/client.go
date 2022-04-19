@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"reflect"
@@ -32,14 +33,12 @@ import (
 	"go.uber.org/atomic"
 	"google.golang.org/grpc/credentials"
 	v1 "k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	kubeExtClient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	extfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	kubeVersion "k8s.io/apimachinery/pkg/version"
 	"k8s.io/apimachinery/pkg/watch"
@@ -54,7 +53,7 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
-	kubescheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/metadata"
 	metadatafake "k8s.io/client-go/metadata/fake"
 	"k8s.io/client-go/metadata/metadatainformer"
@@ -67,23 +66,17 @@ import (
 	"k8s.io/kubectl/pkg/cmd/apply"
 	kubectlDelete "k8s.io/kubectl/pkg/cmd/delete"
 	"k8s.io/kubectl/pkg/cmd/util"
-	gatewayapi "sigs.k8s.io/gateway-api/apis/v1alpha2"
-	gatewayapiclient "sigs.k8s.io/gateway-api/pkg/client/clientset/gateway/versioned"
-	gatewayapifake "sigs.k8s.io/gateway-api/pkg/client/clientset/gateway/versioned/fake"
-	gatewayapiinformer "sigs.k8s.io/gateway-api/pkg/client/informers/gateway/externalversions"
+	gatewayapiclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
+	gatewayapifake "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/fake"
+	gatewayapiinformer "sigs.k8s.io/gateway-api/pkg/client/informers/externalversions"
+	mcsapisClient "sigs.k8s.io/mcs-api/pkg/client/clientset/versioned"
+	mcsapisfake "sigs.k8s.io/mcs-api/pkg/client/clientset/versioned/fake"
+	mcsapisInformer "sigs.k8s.io/mcs-api/pkg/client/informers/externalversions"
 
 	"istio.io/api/label"
-	clientextensions "istio.io/client-go/pkg/apis/extensions/v1alpha1"
-	clientnetworkingalpha "istio.io/client-go/pkg/apis/networking/v1alpha3"
-	clientnetworkingbeta "istio.io/client-go/pkg/apis/networking/v1beta1"
-	clientsecurity "istio.io/client-go/pkg/apis/security/v1beta1"
-	clienttelemetry "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
 	istioclient "istio.io/client-go/pkg/clientset/versioned"
 	istiofake "istio.io/client-go/pkg/clientset/versioned/fake"
 	istioinformer "istio.io/client-go/pkg/informers/externalversions"
-	"istio.io/istio/operator/pkg/apis"
-	"istio.io/istio/pkg/kube/mcs"
-	"istio.io/istio/pkg/queue"
 	"istio.io/pkg/version"
 )
 
@@ -116,8 +109,11 @@ type Client interface {
 	// Istio returns the Istio kube client.
 	Istio() istioclient.Interface
 
-	// GatewayAPI returns the gateway-api kube client.
+	// GatewayApi returns the gateway-api kube client.
 	GatewayAPI() gatewayapiclient.Interface
+
+	// MCSApis returns the mcs-apis kube client.
+	MCSApis() mcsapisClient.Interface
 
 	// KubeInformer returns an informer for core kube client
 	KubeInformer() informers.SharedInformerFactory
@@ -133,6 +129,9 @@ type Client interface {
 
 	// GatewayAPIInformer returns an informer for the gateway-api client
 	GatewayAPIInformer() gatewayapiinformer.SharedInformerFactory
+
+	// MCSApisInformer returns an informer for the mcs-apis client
+	MCSApisInformer() mcsapisInformer.SharedInformerFactory
 
 	// RunAndWait starts all informers and waits for their caches to sync.
 	// Warning: this must be called AFTER .Informer() is called, which will register the informer.
@@ -208,10 +207,15 @@ func NewFakeClient(objects ...runtime.Object) ExtendedClient {
 	c := &client{
 		informerWatchesPending: atomic.NewInt32(0),
 	}
-	c.Interface = fake.NewSimpleClientset(objects...)
+	fakeClient := fake.NewSimpleClientset(objects...)
+	c.Interface = fakeClient
 	c.kube = c.Interface
 	c.kubeInformer = informers.NewSharedInformerFactory(c.Interface, resyncInterval)
-	s := FakeIstioScheme
+
+	s := runtime.NewScheme()
+	if err := metav1.AddMetaToScheme(s); err != nil {
+		panic(err.Error())
+	}
 
 	c.metadata = metadatafake.NewSimpleMetadataClient(s)
 	c.metadataInformer = metadatainformer.NewSharedInformerFactory(c.metadata, resyncInterval)
@@ -223,11 +227,15 @@ func NewFakeClient(objects ...runtime.Object) ExtendedClient {
 	c.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(s, gvrToListKind)
 	c.dynamicInformer = dynamicinformer.NewDynamicSharedInformerFactory(c.dynamic, resyncInterval)
 
-	c.istio = istiofake.NewSimpleClientset()
+	istioFake := istiofake.NewSimpleClientset()
+	c.istio = istioFake
 	c.istioInformer = istioinformer.NewSharedInformerFactoryWithOptions(c.istio, resyncInterval)
 
 	c.gatewayapi = gatewayapifake.NewSimpleClientset()
 	c.gatewayapiInformer = gatewayapiinformer.NewSharedInformerFactory(c.gatewayapi, resyncInterval)
+
+	c.mcsapis = mcsapisfake.NewSimpleClientset()
+	c.mcsapisInformers = mcsapisInformer.NewSharedInformerFactory(c.mcsapis, resyncInterval)
 
 	c.extSet = extfake.NewSimpleClientset()
 
@@ -255,46 +263,13 @@ func NewFakeClient(objects ...runtime.Object) ExtendedClient {
 			return true, watch, nil
 		}
 	}
-	for _, fc := range []fakeClient{
-		c.kube.(*fake.Clientset),
-		c.istio.(*istiofake.Clientset),
-		c.gatewayapi.(*gatewayapifake.Clientset),
-		c.dynamic.(*dynamicfake.FakeDynamicClient),
-		// TODO: send PR to client-go to add Tracker()
-		// c.metadata.(*metadatafake.FakeMetadataClient),
-	} {
-		fc.PrependReactor("list", "*", listReactor)
-		fc.PrependWatchReactor("*", watchReactor(fc.Tracker()))
-	}
-
-	// discoveryv1/EndpontSlices readable from discoveryv1beta1/EndpointSlices
-	c.mirrorQueue = queue.NewQueue(1 * time.Second)
-	mirrorResource(
-		c.mirrorQueue,
-		c.kubeInformer.Discovery().V1().EndpointSlices().Informer(),
-		c.kube.DiscoveryV1beta1().EndpointSlices,
-		endpointSliceV1toV1beta1,
-	)
-
+	fakeClient.PrependReactor("list", "*", listReactor)
+	fakeClient.PrependWatchReactor("*", watchReactor(fakeClient.Tracker()))
+	istioFake.PrependReactor("list", "*", listReactor)
+	istioFake.PrependWatchReactor("*", watchReactor(istioFake.Tracker()))
 	c.fastSync = true
 
 	return c
-}
-
-func NewFakeClientWithVersion(minor string, objects ...runtime.Object) ExtendedClient {
-	c := NewFakeClient(objects...).(*client)
-	if minor != "" && minor != "latest" {
-		c.versionOnce.Do(func() {
-			c.version = &kubeVersion.Info{Major: "1", Minor: minor}
-		})
-	}
-	return c
-}
-
-type fakeClient interface {
-	PrependReactor(verb, resource string, reaction clienttesting.ReactionFunc)
-	PrependWatchReactor(resource string, reaction clienttesting.WatchReactionFunc)
-	Tracker() clienttesting.ObjectTracker
 }
 
 // Client is a helper wrapper around the Kube RESTClient for istioctl -> Pilot/Envoy/Mesh related things
@@ -321,12 +296,12 @@ type client struct {
 	gatewayapi         gatewayapiclient.Interface
 	gatewayapiInformer gatewayapiinformer.SharedInformerFactory
 
+	mcsapis          mcsapisClient.Interface
+	mcsapisInformers mcsapisInformer.SharedInformerFactory
+
 	// If enable, will wait for cache syncs with extremely short delay. This should be used only for tests
 	fastSync               bool
 	informerWatchesPending *atomic.Int32
-
-	mirrorQueue        queue.Instance
-	mirrorQueueStarted atomic.Bool
 
 	// These may be set only when creating an extended client.
 	revision        string
@@ -336,6 +311,7 @@ type client struct {
 
 	versionOnce sync.Once
 	version     *kubeVersion.Info
+	versionErr  error
 }
 
 // newClientInternal creates a Kubernetes client from the given factory.
@@ -394,6 +370,12 @@ func newClientInternal(clientFactory util.Factory, revision string) (*client, er
 	}
 	c.gatewayapiInformer = gatewayapiinformer.NewSharedInformerFactory(c.gatewayapi, resyncInterval)
 
+	c.mcsapis, err = mcsapisClient.NewForConfig(c.config)
+	if err != nil {
+		return nil, err
+	}
+	c.mcsapisInformers = mcsapisInformer.NewSharedInformerFactory(c.mcsapis, resyncInterval)
+
 	c.extSet, err = kubeExtClient.NewForConfig(c.config)
 	if err != nil {
 		return nil, err
@@ -414,9 +396,6 @@ func NewClient(clientConfig clientcmd.ClientConfig) (Client, error) {
 }
 
 func (c *client) RESTConfig() *rest.Config {
-	if c.config == nil {
-		return nil
-	}
 	cpy := *c.config
 	return &cpy
 }
@@ -445,6 +424,10 @@ func (c *client) GatewayAPI() gatewayapiclient.Interface {
 	return c.gatewayapi
 }
 
+func (c *client) MCSApis() mcsapisClient.Interface {
+	return c.mcsapis
+}
+
 func (c *client) KubeInformer() informers.SharedInformerFactory {
 	return c.kubeInformer
 }
@@ -465,18 +448,19 @@ func (c *client) GatewayAPIInformer() gatewayapiinformer.SharedInformerFactory {
 	return c.gatewayapiInformer
 }
 
+func (c *client) MCSApisInformer() mcsapisInformer.SharedInformerFactory {
+	return c.mcsapisInformers
+}
+
 // RunAndWait starts all informers and waits for their caches to sync.
 // Warning: this must be called AFTER .Informer() is called, which will register the informer.
 func (c *client) RunAndWait(stop <-chan struct{}) {
-	if c.mirrorQueue != nil && !c.mirrorQueueStarted.Load() {
-		c.mirrorQueueStarted.Store(true)
-		go c.mirrorQueue.Run(stop)
-	}
 	c.kubeInformer.Start(stop)
 	c.dynamicInformer.Start(stop)
 	c.metadataInformer.Start(stop)
 	c.istioInformer.Start(stop)
 	c.gatewayapiInformer.Start(stop)
+	c.mcsapisInformers.Start(stop)
 	if c.fastSync {
 		// WaitForCacheSync will virtually never be synced on the first call, as its called immediately after Start()
 		// This triggers a 100ms delay per call, which is often called 2-3 times in a test, delaying tests.
@@ -486,6 +470,7 @@ func (c *client) RunAndWait(stop <-chan struct{}) {
 		fastWaitForCacheSyncDynamic(stop, c.metadataInformer)
 		fastWaitForCacheSync(stop, c.istioInformer)
 		fastWaitForCacheSync(stop, c.gatewayapiInformer)
+		fastWaitForCacheSync(stop, c.mcsapisInformers)
 		_ = wait.PollImmediate(time.Microsecond*100, wait.ForeverTestTimeout, func() (bool, error) {
 			select {
 			case <-stop:
@@ -503,25 +488,17 @@ func (c *client) RunAndWait(stop <-chan struct{}) {
 		c.metadataInformer.WaitForCacheSync(stop)
 		c.istioInformer.WaitForCacheSync(stop)
 		c.gatewayapiInformer.WaitForCacheSync(stop)
+		c.mcsapisInformers.WaitForCacheSync(stop)
 	}
 }
 
 func (c *client) GetKubernetesVersion() (*kubeVersion.Info, error) {
 	c.versionOnce.Do(func() {
 		v, err := c.Discovery().ServerVersion()
-		if err == nil {
-			c.version = v
-		}
-	})
-	if c.version != nil {
-		return c.version, nil
-	}
-	// Initial attempt failed, retry on each call to this function
-	v, err := c.Discovery().ServerVersion()
-	if err != nil {
 		c.version = v
-	}
-	return c.version, err
+		c.versionErr = err
+	})
+	return c.version, c.versionErr
 }
 
 type reflectInformerSync interface {
@@ -594,10 +571,10 @@ func (c *client) PodExecCommands(podName, podNamespace, container string, comman
 		if err != nil {
 			if len(stderr) > 0 {
 				err = fmt.Errorf("error exec'ing into %s/%s %s container: %v\n%s",
-					podNamespace, podName, container, err, stderr)
+					podName, podNamespace, container, err, stderr)
 			} else {
 				err = fmt.Errorf("error exec'ing into %s/%s %s container: %v",
-					podNamespace, podName, container, err)
+					podName, podNamespace, container, err)
 			}
 		}
 	}()
@@ -615,7 +592,7 @@ func (c *client) PodExecCommands(podName, podNamespace, container string, comman
 			Stdout:    true,
 			Stderr:    true,
 			TTY:       false,
-		}, kubescheme.ParameterCodec)
+		}, scheme.ParameterCodec)
 
 	wrapper, upgrader, err := roundTripperFor(c.config)
 	if err != nil {
@@ -718,7 +695,7 @@ func (c *client) portForwardRequest(ctx context.Context, podName, podNamespace, 
 		return nil, formatError(err)
 	}
 	defer closeQuietly(resp.Body)
-	out, err := io.ReadAll(resp.Body)
+	out, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, formatError(err)
 	}
@@ -759,9 +736,9 @@ func (c *client) extractExecResult(podName, podNamespace, container, cmd string)
 	stdout, stderr, err := c.PodExec(podName, podNamespace, container, cmd)
 	if err != nil {
 		if stderr != "" {
-			return "", fmt.Errorf("error exec'ing into %s/%s %s container: %w\n%s", podNamespace, podName, container, err, stderr)
+			return "", fmt.Errorf("error exec'ing into %s/%s %s container: %w\n%s", podName, podNamespace, container, err, stderr)
 		}
-		return "", fmt.Errorf("error exec'ing into %s/%s %s container: %w", podNamespace, podName, container, err)
+		return "", fmt.Errorf("error exec'ing into %s/%s %s container: %w", podName, podNamespace, container, err)
 	}
 	return stdout, nil
 }
@@ -791,7 +768,7 @@ func (c *client) GetIstioVersions(ctx context.Context, namespace string) (*versi
 			bi, execErr := c.getIstioVersionUsingExec(&pod)
 			if execErr != nil {
 				errs = multierror.Append(errs,
-					fmt.Errorf("error port-forwarding into %s.%s: %v", pod.Namespace, pod.Name, err),
+					fmt.Errorf("error port-forwarding into %s.%s: %v", pod.Name, pod.Namespace, err),
 					execErr,
 				)
 				continue
@@ -801,7 +778,16 @@ func (c *client) GetIstioVersions(ctx context.Context, namespace string) (*versi
 			continue
 		}
 		if len(result) > 0 {
-			setServerInfoWithIstiodVersionInfo(&server.Info, string(result))
+			versionParts := strings.Split(string(result), "-")
+			nParts := len(versionParts)
+			if nParts >= 3 {
+				server.Info.Version = strings.Join(versionParts[0:nParts-2], "-")
+				server.Info.GitTag = server.Info.Version
+				server.Info.GitRevision = versionParts[nParts-2]
+				server.Info.BuildStatus = versionParts[nParts-1]
+			} else {
+				server.Info.Version = string(result)
+			}
 			// (Golang version not available through :15014/version endpoint)
 
 			res = append(res, server)
@@ -898,14 +884,7 @@ func (c *client) UtilFactory() util.Factory {
 func (c *client) applyYAMLFile(namespace string, dryRun bool, file string) error {
 	// Create the options.
 	streams, _, stdout, stderr := genericclioptions.NewTestIOStreams()
-	flags := apply.NewApplyFlags(c.clientFactory, streams)
-	flags.DeleteFlags.FileNameFlags.Filenames = &[]string{file}
-
-	cmd := apply.NewCmdApply("", c.clientFactory, streams)
-	opts, err := flags.ToOptions(cmd, "", nil)
-	if err != nil {
-		return err
-	}
+	opts := apply.NewApplyOptions(streams)
 	opts.DynamicClient = c.dynamic
 	opts.DryRunVerifier = resource.NewDryRunVerifier(c.dynamic, c.discoveryClient)
 	opts.FieldManager = fieldManager
@@ -931,14 +910,16 @@ func (c *client) applyYAMLFile(namespace string, dryRun bool, file string) error
 		}
 	}
 
+	opts.DeleteFlags.FileNameFlags.Filenames = &[]string{file}
 	opts.DeleteOptions = &kubectlDelete.DeleteOptions{
 		DynamicClient:   c.dynamic,
 		IOStreams:       streams,
-		FilenameOptions: flags.DeleteFlags.FileNameFlags.ToOptions(),
+		FilenameOptions: opts.DeleteFlags.FileNameFlags.ToOptions(),
 	}
 
 	opts.OpenAPISchema, _ = c.clientFactory.OpenAPISchema()
 
+	var err error
 	opts.Validator, err = c.clientFactory.Validator(true)
 	if err != nil {
 		return err
@@ -1053,47 +1034,4 @@ func isEmptyFile(f string) bool {
 		return true
 	}
 	return false
-}
-
-// IstioScheme returns a scheme will all known Istio-related types added
-var IstioScheme = istioScheme()
-
-// FakeIstioScheme is an IstioScheme that has List type registered.
-var FakeIstioScheme = func() *runtime.Scheme {
-	s := istioScheme()
-	// Workaround https://github.com/kubernetes/kubernetes/issues/107823
-	s.AddKnownTypeWithName(schema.GroupVersionKind{Group: "fake-metadata-client-group", Version: "v1", Kind: "List"}, &metav1.List{})
-	return s
-}()
-
-func istioScheme() *runtime.Scheme {
-	scheme := runtime.NewScheme()
-	utilruntime.Must(kubescheme.AddToScheme(scheme))
-	utilruntime.Must(mcs.AddToScheme(scheme))
-	utilruntime.Must(clientnetworkingalpha.AddToScheme(scheme))
-	utilruntime.Must(clientnetworkingbeta.AddToScheme(scheme))
-	utilruntime.Must(clientsecurity.AddToScheme(scheme))
-	utilruntime.Must(clienttelemetry.AddToScheme(scheme))
-	utilruntime.Must(clientextensions.AddToScheme(scheme))
-	utilruntime.Must(gatewayapi.AddToScheme(scheme))
-	utilruntime.Must(apis.AddToScheme(scheme))
-	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
-	return scheme
-}
-
-func setServerInfoWithIstiodVersionInfo(serverInfo *version.BuildInfo, istioInfo string) {
-	versionParts := strings.Split(istioInfo, "-")
-	nParts := len(versionParts)
-	if nParts >= 3 {
-		// The format will be like 1.12.0-016bc46f4a5e0ef3fa135b3c5380ab7765467c1a-dirty-Modified
-		// version is '1.12.0'
-		// revision is '016bc46f4a5e0ef3fa135b3c5380ab7765467c1a-dirty'
-		// status is 'Modified'
-		serverInfo.Version = versionParts[0]
-		serverInfo.GitTag = serverInfo.Version
-		serverInfo.GitRevision = strings.Join(versionParts[1:nParts-1], "-")
-		serverInfo.BuildStatus = versionParts[nParts-1]
-	} else {
-		serverInfo.Version = istioInfo
-	}
 }

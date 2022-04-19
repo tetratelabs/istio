@@ -1,6 +1,4 @@
-//go:build !agent
 // +build !agent
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -81,9 +79,6 @@ type TestOptions struct {
 
 	// If set, we will not run immediately, allowing adding event handlers, etc prior to start.
 	SkipRun bool
-
-	// Used to set the serviceentry registry's cluster id
-	ClusterID cluster2.ID
 }
 
 type ConfigGenTest struct {
@@ -121,9 +116,7 @@ func NewConfigGenTest(t test.Failer, opts TestOptions) *ConfigGenTest {
 	}
 
 	serviceDiscovery := aggregate.NewController(aggregate.Options{})
-	se := serviceentry.NewServiceDiscovery(
-		configController, model.MakeIstioStore(configStore),
-		&FakeXdsUpdater{}, serviceentry.WithClusterID(opts.ClusterID))
+	se := serviceentry.NewServiceDiscovery(configController, model.MakeIstioStore(configStore), &FakeXdsUpdater{})
 	// TODO allow passing in registry, for k8s, mem reigstry
 	serviceDiscovery.AddRegistry(se)
 	msd := memregistry.NewServiceDiscovery(opts.Services)
@@ -141,7 +134,7 @@ func NewConfigGenTest(t test.Failer, opts TestOptions) *ConfigGenTest {
 		serviceDiscovery.AddRegistry(reg)
 	}
 
-	env := &model.Environment{PushContext: model.NewPushContext()}
+	env := &model.Environment{}
 	env.Watcher = mesh.NewFixedWatcher(m)
 	if opts.NetworksWatcher == nil {
 		opts.NetworksWatcher = mesh.NewFixedNetworksWatcher(nil)
@@ -169,9 +162,7 @@ func NewConfigGenTest(t test.Failer, opts TestOptions) *ConfigGenTest {
 	}
 	if !opts.SkipRun {
 		fake.Run()
-		if err := env.InitNetworksManager(&FakeXdsUpdater{}); err != nil {
-			t.Fatal(err)
-		}
+		env.PushContext = model.NewPushContext()
 		if err := env.PushContext.InitContext(env, nil, nil); err != nil {
 			t.Fatalf("Failed to initialize push context: %v", err)
 		}
@@ -180,7 +171,6 @@ func NewConfigGenTest(t test.Failer, opts TestOptions) *ConfigGenTest {
 }
 
 func (f *ConfigGenTest) Run() {
-	go f.Registry.Run(f.stop)
 	go f.store.Run(f.stop)
 	// Setup configuration. This should be done after registries are added so they can process events.
 	for _, cfg := range f.initialConfigs {
@@ -208,7 +198,7 @@ func (f *ConfigGenTest) SetupProxy(p *model.Proxy) *model.Proxy {
 		p.Metadata = &model.NodeMetadata{}
 	}
 	if p.Metadata.IstioVersion == "" {
-		p.Metadata.IstioVersion = "1.13.0"
+		p.Metadata.IstioVersion = "1.9.0"
 	}
 	if p.IstioVersion == nil {
 		p.IstioVersion = model.ParseIstioVersion(p.Metadata.IstioVersion)
@@ -247,7 +237,7 @@ func (f *ConfigGenTest) Listeners(p *model.Proxy) []*listener.Listener {
 }
 
 func (f *ConfigGenTest) Clusters(p *model.Proxy) []*cluster.Cluster {
-	raw, _ := f.ConfigGen.BuildClusters(p, &model.PushRequest{Push: f.PushContext()})
+	raw, _ := f.ConfigGen.BuildClusters(p, f.PushContext())
 	res := make([]*cluster.Cluster, 0, len(raw))
 	for _, r := range raw {
 		c := &cluster.Cluster{}
@@ -259,34 +249,8 @@ func (f *ConfigGenTest) Clusters(p *model.Proxy) []*cluster.Cluster {
 	return res
 }
 
-func (f *ConfigGenTest) DeltaClusters(
-	p *model.Proxy,
-	configUpdated map[model.ConfigKey]struct{},
-	watched *model.WatchedResource) ([]*cluster.Cluster, []string, bool) {
-	raw, removed, _, delta := f.ConfigGen.BuildDeltaClusters(p,
-		&model.PushRequest{
-			Push: f.PushContext(), ConfigsUpdated: configUpdated,
-		}, watched)
-	res := make([]*cluster.Cluster, 0, len(raw))
-	for _, r := range raw {
-		c := &cluster.Cluster{}
-		if err := r.Resource.UnmarshalTo(c); err != nil {
-			f.t.Fatal(err)
-		}
-		res = append(res, c)
-	}
-	return res, removed, delta
-}
-
 func (f *ConfigGenTest) Routes(p *model.Proxy) []*route.RouteConfiguration {
-	resources, _ := f.ConfigGen.BuildHTTPRoutes(p, &model.PushRequest{Push: f.PushContext()}, xdstest.ExtractRoutesFromListeners(f.Listeners(p)))
-	out := make([]*route.RouteConfiguration, 0, len(resources))
-	for _, resource := range resources {
-		routeConfig := &route.RouteConfiguration{}
-		_ = resource.Resource.UnmarshalTo(routeConfig)
-		out = append(out, routeConfig)
-	}
-	return out
+	return f.ConfigGen.BuildHTTPRoutes(p, f.PushContext(), xdstest.ExtractRoutesFromListeners(f.Listeners(p)))
 }
 
 func (f *ConfigGenTest) PushContext() *model.PushContext {
@@ -347,12 +311,10 @@ type FakeXdsUpdater struct{}
 
 func (f *FakeXdsUpdater) ConfigUpdate(*model.PushRequest) {}
 
-func (f *FakeXdsUpdater) EDSUpdate(_ model.ShardKey, _, _ string, _ []*model.IstioEndpoint) {}
+func (f *FakeXdsUpdater) EDSUpdate(_, _, _ string, _ []*model.IstioEndpoint) {}
 
-func (f *FakeXdsUpdater) EDSCacheUpdate(_ model.ShardKey, _, _ string, _ []*model.IstioEndpoint) {}
+func (f *FakeXdsUpdater) EDSCacheUpdate(_, _, _ string, _ []*model.IstioEndpoint) {}
 
-func (f *FakeXdsUpdater) SvcUpdate(_ model.ShardKey, _, _ string, _ model.Event) {}
+func (f *FakeXdsUpdater) SvcUpdate(_, _, _ string, _ model.Event) {}
 
 func (f *FakeXdsUpdater) ProxyUpdate(_ cluster2.ID, _ string) {}
-
-func (f *FakeXdsUpdater) RemoveShard(_ model.ShardKey) {}

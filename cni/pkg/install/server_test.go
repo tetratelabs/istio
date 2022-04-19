@@ -19,15 +19,16 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"istio.io/istio/cni/pkg/constants"
-	"istio.io/istio/pkg/test/util/assert"
 )
 
 func TestServer(t *testing.T) {
 	router := http.NewServeMux()
 	isReady := initRouter(router)
 
-	assert.Equal(t, isReady.Load(), false)
+	assert.Falsef(t, isReady.Load().(bool), "isReady should be initialized to false")
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -36,13 +37,13 @@ func TestServer(t *testing.T) {
 	makeReq(t, server.URL, constants.ReadinessEndpoint, http.StatusServiceUnavailable)
 
 	SetReady(isReady)
-	assert.Equal(t, isReady.Load(), true)
+	assert.Truef(t, isReady.Load().(bool), "isReady should be set to true")
 
 	makeReq(t, server.URL, constants.LivenessEndpoint, http.StatusOK)
 	makeReq(t, server.URL, constants.ReadinessEndpoint, http.StatusOK)
 
 	SetNotReady(isReady)
-	assert.Equal(t, isReady.Load(), false)
+	assert.Falsef(t, isReady.Load().(bool), "isReady should be set to false")
 
 	makeReq(t, server.URL, constants.LivenessEndpoint, http.StatusOK)
 	makeReq(t, server.URL, constants.ReadinessEndpoint, http.StatusServiceUnavailable)
@@ -54,7 +55,6 @@ func makeReq(t *testing.T, url, endpoint string, expectedStatusCode int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
 	if res.StatusCode != expectedStatusCode {
 		t.Fatalf("expected status code from %s: %d, got: %d", endpoint, expectedStatusCode, res.StatusCode)
 	}

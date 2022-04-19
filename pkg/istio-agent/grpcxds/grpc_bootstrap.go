@@ -17,18 +17,18 @@ package grpcxds
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
 	"time"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/file"
-	"istio.io/istio/pkg/util/protomarshal"
-	"istio.io/pkg/log"
 )
 
 const (
@@ -66,43 +66,6 @@ type CertificateProvider struct {
 	Config     interface{} `json:"config,omitempty"`
 }
 
-func (cp *CertificateProvider) UnmarshalJSON(data []byte) error {
-	var dat map[string]*json.RawMessage
-	if err := json.Unmarshal(data, &dat); err != nil {
-		return err
-	}
-	*cp = CertificateProvider{}
-
-	if pluginNameVal, ok := dat["plugin_name"]; ok {
-		if err := json.Unmarshal(*pluginNameVal, &cp.PluginName); err != nil {
-			log.Warnf("failed parsing plugin_name in certificate_provider: %v", err)
-		}
-	} else {
-		log.Warnf("did not find plugin_name in certificate_provider")
-	}
-
-	if configVal, ok := dat["config"]; ok {
-		var err error
-		switch cp.PluginName {
-		case FileWatcherCertProviderName:
-			config := FileWatcherCertProviderConfig{}
-			err = json.Unmarshal(*configVal, &config)
-			cp.Config = config
-		default:
-			config := FileWatcherCertProviderConfig{}
-			err = json.Unmarshal(*configVal, &config)
-			cp.Config = config
-		}
-		if err != nil {
-			log.Warnf("failed parsing config in certificate_provider: %v", err)
-		}
-	} else {
-		log.Warnf("did not find config in certificate_provider")
-	}
-
-	return nil
-}
-
 const FileWatcherCertProviderName = "file_watcher"
 
 type FileWatcherCertProviderConfig struct {
@@ -135,7 +98,7 @@ func (b *Bootstrap) FileWatcherProvider() *FileWatcherCertProviderConfig {
 
 // LoadBootstrap loads a Bootstrap from the given file path.
 func LoadBootstrap(file string) (*Bootstrap, error) {
-	data, err := os.ReadFile(file)
+	data, err := ioutil.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
@@ -148,6 +111,7 @@ func LoadBootstrap(file string) (*Bootstrap, error) {
 
 type GenerateBootstrapOptions struct {
 	Node             *model.Node
+	ProxyXDSViaAgent bool
 	XdsUdsPath       string
 	DiscoveryAddress string
 	CertDir          string
@@ -162,7 +126,7 @@ func GenerateBootstrap(opts GenerateBootstrapOptions) (*Bootstrap, error) {
 
 	// TODO direct to CP should use secure channel (most likely JWT + TLS, but possibly allow mTLS)
 	serverURI := opts.DiscoveryAddress
-	if opts.XdsUdsPath != "" {
+	if opts.ProxyXDSViaAgent && opts.XdsUdsPath != "" {
 		serverURI = fmt.Sprintf("unix:///%s", opts.XdsUdsPath)
 	}
 
@@ -183,7 +147,7 @@ func GenerateBootstrap(opts GenerateBootstrapOptions) (*Bootstrap, error) {
 
 	if opts.CertDir != "" {
 		// TODO use a more appropriate interval
-		refresh, err := protomarshal.Marshal(durationpb.New(15 * time.Minute))
+		refresh, err := protojson.Marshal(durationpb.New(15 * time.Minute))
 		if err != nil {
 			return nil, err
 		}

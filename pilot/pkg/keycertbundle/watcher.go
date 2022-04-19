@@ -15,7 +15,7 @@
 package keycertbundle
 
 import (
-	"os"
+	"io/ioutil"
 	"sync"
 
 	"go.uber.org/atomic"
@@ -30,40 +30,26 @@ type KeyCertBundle struct {
 
 type Watcher struct {
 	// Indicated whether bundle has been set, it is used to invoke watcher for the first time.
-	initDone  atomic.Bool
-	mutex     sync.Mutex
-	bundle    KeyCertBundle
-	watcherID int32
-	watchers  map[int32]chan struct{}
+	initDone atomic.Bool
+	mutex    sync.Mutex
+	bundle   KeyCertBundle
+	watchers []chan KeyCertBundle
 }
 
 func NewWatcher() *Watcher {
-	return &Watcher{
-		watchers: make(map[int32]chan struct{}),
-	}
+	return &Watcher{}
 }
 
 // AddWatcher returns channel to receive the updated items.
-func (w *Watcher) AddWatcher() (int32, chan struct{}) {
-	ch := make(chan struct{}, 1)
+func (w *Watcher) AddWatcher() chan KeyCertBundle {
+	ch := make(chan KeyCertBundle, 1)
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
-	id := w.watcherID
-	w.watchers[id] = ch
-	w.watcherID++
-
-	return id, ch
-}
-
-// RemoveWatcher removes the given watcher.
-func (w *Watcher) RemoveWatcher(id int32) {
-	w.mutex.Lock()
-	defer w.mutex.Unlock()
-	ch := w.watchers[id]
-	if ch != nil {
-		close(ch)
+	if w.initDone.Load() {
+		ch <- w.bundle
 	}
-	delete(w.watchers, id)
+	w.watchers = append(w.watchers, ch)
+	return ch
 }
 
 // SetAndNotify sets the key cert and root cert and notify the watchers.
@@ -81,24 +67,21 @@ func (w *Watcher) SetAndNotify(key, cert, caBundle []byte) {
 	}
 	w.initDone.Store(true)
 	for _, ch := range w.watchers {
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
+		ch <- w.bundle
 	}
 }
 
 // SetFromFilesAndNotify sets the key cert and root cert from files and notify the watchers.
 func (w *Watcher) SetFromFilesAndNotify(keyFile, certFile, rootCert string) error {
-	cert, err := os.ReadFile(certFile)
+	cert, err := ioutil.ReadFile(certFile)
 	if err != nil {
 		return err
 	}
-	key, err := os.ReadFile(keyFile)
+	key, err := ioutil.ReadFile(keyFile)
 	if err != nil {
 		return err
 	}
-	caBundle, err := os.ReadFile(rootCert)
+	caBundle, err := ioutil.ReadFile(rootCert)
 	if err != nil {
 		return err
 	}
@@ -115,10 +98,7 @@ func (w *Watcher) SetFromFilesAndNotify(keyFile, certFile, rootCert string) erro
 	}
 	w.initDone.Store(true)
 	for _, ch := range w.watchers {
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
+		ch <- w.bundle
 	}
 	return nil
 }
@@ -128,11 +108,4 @@ func (w *Watcher) GetCABundle() []byte {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 	return w.bundle.CABundle
-}
-
-// GetCABundle returns the CABundle.
-func (w *Watcher) GetKeyCertBundle() KeyCertBundle {
-	w.mutex.Lock()
-	defer w.mutex.Unlock()
-	return w.bundle
 }

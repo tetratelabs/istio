@@ -18,9 +18,12 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"text/template"
+
+	"github.com/pkg/errors"
 
 	"istio.io/istio/cni/pkg/config"
 	"istio.io/istio/cni/pkg/constants"
@@ -57,12 +60,12 @@ type kubeconfigFields struct {
 
 func createKubeconfigFile(cfg *config.InstallConfig, saToken string) (kubeconfigFilepath string, err error) {
 	if len(cfg.K8sServiceHost) == 0 {
-		err = fmt.Errorf("KUBERNETES_SERVICE_HOST not set. Is this not running within a pod?")
+		err = errors.New("KUBERNETES_SERVICE_HOST not set. Is this not running within a pod?")
 		return
 	}
 
 	if len(cfg.K8sServicePort) == 0 {
-		err = fmt.Errorf("KUBERNETES_SERVICE_PORT not set. Is this not running within a pod?")
+		err = errors.New("KUBERNETES_SERVICE_PORT not set. Is this not running within a pod?")
 		return
 	}
 
@@ -90,7 +93,7 @@ func createKubeconfigFile(cfg *config.InstallConfig, saToken string) (kubeconfig
 			return "", fmt.Errorf("file does not exist: %s", caFile)
 		}
 		var caContents []byte
-		caContents, err = os.ReadFile(caFile)
+		caContents, err = ioutil.ReadFile(caFile)
 		if err != nil {
 			return
 		}

@@ -1,6 +1,4 @@
-//go:build agent
 // +build agent
-
 // GENERATED FILE -- DO NOT EDIT
 //
 
@@ -9,11 +7,9 @@ package collections
 import (
 	"reflect"
 
-	istioioapiextensionsv1alpha1 "istio.io/api/extensions/v1alpha1"
 	istioioapimeshv1alpha1 "istio.io/api/mesh/v1alpha1"
 	istioioapimetav1alpha1 "istio.io/api/meta/v1alpha1"
 	istioioapinetworkingv1alpha3 "istio.io/api/networking/v1alpha3"
-	istioioapinetworkingv1beta1 "istio.io/api/networking/v1beta1"
 	istioioapisecurityv1beta1 "istio.io/api/security/v1beta1"
 	istioioapitelemetryv1alpha1 "istio.io/api/telemetry/v1alpha1"
 	"istio.io/istio/pkg/config/schema/collection"
@@ -23,29 +19,12 @@ import (
 
 var (
 
-	// IstioExtensionsV1Alpha1Wasmplugins describes the collection
-	// istio/extensions/v1alpha1/wasmplugins
-	IstioExtensionsV1Alpha1Wasmplugins = collection.Builder{
-		Name:         "istio/extensions/v1alpha1/wasmplugins",
-		VariableName: "IstioExtensionsV1Alpha1Wasmplugins",
-		Resource: resource.Builder{
-			Group:   "extensions.istio.io",
-			Kind:    "WasmPlugin",
-			Plural:  "wasmplugins",
-			Version: "v1alpha1",
-			Proto:   "istio.extensions.v1alpha1.WasmPlugin", StatusProto: "istio.meta.v1alpha1.IstioStatus",
-			ReflectType: reflect.TypeOf(&istioioapiextensionsv1alpha1.WasmPlugin{}).Elem(), StatusType: reflect.TypeOf(&istioioapimetav1alpha1.IstioStatus{}).Elem(),
-			ProtoPackage: "istio.io/api/extensions/v1alpha1", StatusPackage: "istio.io/api/meta/v1alpha1",
-			ClusterScoped: false,
-			ValidateProto: validation.ValidateWasmPlugin,
-		}.MustBuild(),
-	}.MustBuild()
-
 	// IstioMeshV1Alpha1MeshConfig describes the collection
 	// istio/mesh/v1alpha1/MeshConfig
 	IstioMeshV1Alpha1MeshConfig = collection.Builder{
 		Name:         "istio/mesh/v1alpha1/MeshConfig",
 		VariableName: "IstioMeshV1Alpha1MeshConfig",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:         "",
 			Kind:          "MeshConfig",
@@ -64,6 +43,7 @@ var (
 	IstioMeshV1Alpha1MeshNetworks = collection.Builder{
 		Name:         "istio/mesh/v1alpha1/MeshNetworks",
 		VariableName: "IstioMeshV1Alpha1MeshNetworks",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:         "",
 			Kind:          "MeshNetworks",
@@ -82,6 +62,7 @@ var (
 	IstioNetworkingV1Alpha3Destinationrules = collection.Builder{
 		Name:         "istio/networking/v1alpha3/destinationrules",
 		VariableName: "IstioNetworkingV1Alpha3Destinationrules",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "networking.istio.io",
 			Kind:    "DestinationRule",
@@ -100,6 +81,7 @@ var (
 	IstioNetworkingV1Alpha3Envoyfilters = collection.Builder{
 		Name:         "istio/networking/v1alpha3/envoyfilters",
 		VariableName: "IstioNetworkingV1Alpha3Envoyfilters",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "networking.istio.io",
 			Kind:    "EnvoyFilter",
@@ -118,6 +100,7 @@ var (
 	IstioNetworkingV1Alpha3Gateways = collection.Builder{
 		Name:         "istio/networking/v1alpha3/gateways",
 		VariableName: "IstioNetworkingV1Alpha3Gateways",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "networking.istio.io",
 			Kind:    "Gateway",
@@ -136,6 +119,7 @@ var (
 	IstioNetworkingV1Alpha3Serviceentries = collection.Builder{
 		Name:         "istio/networking/v1alpha3/serviceentries",
 		VariableName: "IstioNetworkingV1Alpha3Serviceentries",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "networking.istio.io",
 			Kind:    "ServiceEntry",
@@ -154,6 +138,7 @@ var (
 	IstioNetworkingV1Alpha3Sidecars = collection.Builder{
 		Name:         "istio/networking/v1alpha3/sidecars",
 		VariableName: "IstioNetworkingV1Alpha3Sidecars",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "networking.istio.io",
 			Kind:    "Sidecar",
@@ -172,6 +157,7 @@ var (
 	IstioNetworkingV1Alpha3Virtualservices = collection.Builder{
 		Name:         "istio/networking/v1alpha3/virtualservices",
 		VariableName: "IstioNetworkingV1Alpha3Virtualservices",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "networking.istio.io",
 			Kind:    "VirtualService",
@@ -190,6 +176,7 @@ var (
 	IstioNetworkingV1Alpha3Workloadentries = collection.Builder{
 		Name:         "istio/networking/v1alpha3/workloadentries",
 		VariableName: "IstioNetworkingV1Alpha3Workloadentries",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "networking.istio.io",
 			Kind:    "WorkloadEntry",
@@ -208,6 +195,7 @@ var (
 	IstioNetworkingV1Alpha3Workloadgroups = collection.Builder{
 		Name:         "istio/networking/v1alpha3/workloadgroups",
 		VariableName: "IstioNetworkingV1Alpha3Workloadgroups",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "networking.istio.io",
 			Kind:    "WorkloadGroup",
@@ -221,29 +209,12 @@ var (
 		}.MustBuild(),
 	}.MustBuild()
 
-	// IstioNetworkingV1Beta1Proxyconfigs describes the collection
-	// istio/networking/v1beta1/proxyconfigs
-	IstioNetworkingV1Beta1Proxyconfigs = collection.Builder{
-		Name:         "istio/networking/v1beta1/proxyconfigs",
-		VariableName: "IstioNetworkingV1Beta1Proxyconfigs",
-		Resource: resource.Builder{
-			Group:   "networking.istio.io",
-			Kind:    "ProxyConfig",
-			Plural:  "proxyconfigs",
-			Version: "v1beta1",
-			Proto:   "istio.networking.v1beta1.ProxyConfig", StatusProto: "istio.meta.v1alpha1.IstioStatus",
-			ReflectType: reflect.TypeOf(&istioioapinetworkingv1beta1.ProxyConfig{}).Elem(), StatusType: reflect.TypeOf(&istioioapimetav1alpha1.IstioStatus{}).Elem(),
-			ProtoPackage: "istio.io/api/networking/v1beta1", StatusPackage: "istio.io/api/meta/v1alpha1",
-			ClusterScoped: false,
-			ValidateProto: validation.ValidateProxyConfig,
-		}.MustBuild(),
-	}.MustBuild()
-
 	// IstioSecurityV1Beta1Authorizationpolicies describes the collection
 	// istio/security/v1beta1/authorizationpolicies
 	IstioSecurityV1Beta1Authorizationpolicies = collection.Builder{
 		Name:         "istio/security/v1beta1/authorizationpolicies",
 		VariableName: "IstioSecurityV1Beta1Authorizationpolicies",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "security.istio.io",
 			Kind:    "AuthorizationPolicy",
@@ -262,6 +233,7 @@ var (
 	IstioSecurityV1Beta1Peerauthentications = collection.Builder{
 		Name:         "istio/security/v1beta1/peerauthentications",
 		VariableName: "IstioSecurityV1Beta1Peerauthentications",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "security.istio.io",
 			Kind:    "PeerAuthentication",
@@ -280,6 +252,7 @@ var (
 	IstioSecurityV1Beta1Requestauthentications = collection.Builder{
 		Name:         "istio/security/v1beta1/requestauthentications",
 		VariableName: "IstioSecurityV1Beta1Requestauthentications",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "security.istio.io",
 			Kind:    "RequestAuthentication",
@@ -298,6 +271,7 @@ var (
 	IstioTelemetryV1Alpha1Telemetries = collection.Builder{
 		Name:         "istio/telemetry/v1alpha1/telemetries",
 		VariableName: "IstioTelemetryV1Alpha1Telemetries",
+		Disabled:     false,
 		Resource: resource.Builder{
 			Group:   "telemetry.istio.io",
 			Kind:    "Telemetry",
@@ -313,7 +287,6 @@ var (
 
 	// All contains all collections in the system.
 	All = collection.NewSchemasBuilder().
-		MustAdd(IstioExtensionsV1Alpha1Wasmplugins).
 		MustAdd(IstioMeshV1Alpha1MeshConfig).
 		MustAdd(IstioMeshV1Alpha1MeshNetworks).
 		MustAdd(IstioNetworkingV1Alpha3Destinationrules).
@@ -324,7 +297,6 @@ var (
 		MustAdd(IstioNetworkingV1Alpha3Virtualservices).
 		MustAdd(IstioNetworkingV1Alpha3Workloadentries).
 		MustAdd(IstioNetworkingV1Alpha3Workloadgroups).
-		MustAdd(IstioNetworkingV1Beta1Proxyconfigs).
 		MustAdd(IstioSecurityV1Beta1Authorizationpolicies).
 		MustAdd(IstioSecurityV1Beta1Peerauthentications).
 		MustAdd(IstioSecurityV1Beta1Requestauthentications).
@@ -333,7 +305,6 @@ var (
 
 	// Istio contains only Istio collections.
 	Istio = collection.NewSchemasBuilder().
-		MustAdd(IstioExtensionsV1Alpha1Wasmplugins).
 		MustAdd(IstioMeshV1Alpha1MeshConfig).
 		MustAdd(IstioMeshV1Alpha1MeshNetworks).
 		MustAdd(IstioNetworkingV1Alpha3Destinationrules).
@@ -344,7 +315,6 @@ var (
 		MustAdd(IstioNetworkingV1Alpha3Virtualservices).
 		MustAdd(IstioNetworkingV1Alpha3Workloadentries).
 		MustAdd(IstioNetworkingV1Alpha3Workloadgroups).
-		MustAdd(IstioNetworkingV1Beta1Proxyconfigs).
 		MustAdd(IstioSecurityV1Beta1Authorizationpolicies).
 		MustAdd(IstioSecurityV1Beta1Peerauthentications).
 		MustAdd(IstioSecurityV1Beta1Requestauthentications).
@@ -355,14 +325,8 @@ var (
 	Kube = collection.NewSchemasBuilder().
 		Build()
 
-	// Builtin contains only native Kubernetes collections. This differs from Kube, which has
-	// Kubernetes controlled CRDs
-	Builtin = collection.NewSchemasBuilder().
-		Build()
-
 	// Pilot contains only collections used by Pilot.
 	Pilot = collection.NewSchemasBuilder().
-		MustAdd(IstioExtensionsV1Alpha1Wasmplugins).
 		MustAdd(IstioNetworkingV1Alpha3Destinationrules).
 		MustAdd(IstioNetworkingV1Alpha3Envoyfilters).
 		MustAdd(IstioNetworkingV1Alpha3Gateways).
@@ -371,16 +335,14 @@ var (
 		MustAdd(IstioNetworkingV1Alpha3Virtualservices).
 		MustAdd(IstioNetworkingV1Alpha3Workloadentries).
 		MustAdd(IstioNetworkingV1Alpha3Workloadgroups).
-		MustAdd(IstioNetworkingV1Beta1Proxyconfigs).
 		MustAdd(IstioSecurityV1Beta1Authorizationpolicies).
 		MustAdd(IstioSecurityV1Beta1Peerauthentications).
 		MustAdd(IstioSecurityV1Beta1Requestauthentications).
 		MustAdd(IstioTelemetryV1Alpha1Telemetries).
 		Build()
 
-	// PilotGatewayAPI contains only collections used by Pilot, including experimental Service Api.
-	PilotGatewayAPI = collection.NewSchemasBuilder().
-			MustAdd(IstioExtensionsV1Alpha1Wasmplugins).
+	// PilotServiceApi contains only collections used by Pilot, including experimental Service Api.
+	PilotServiceApi = collection.NewSchemasBuilder().
 			MustAdd(IstioNetworkingV1Alpha3Destinationrules).
 			MustAdd(IstioNetworkingV1Alpha3Envoyfilters).
 			MustAdd(IstioNetworkingV1Alpha3Gateways).
@@ -389,7 +351,6 @@ var (
 			MustAdd(IstioNetworkingV1Alpha3Virtualservices).
 			MustAdd(IstioNetworkingV1Alpha3Workloadentries).
 			MustAdd(IstioNetworkingV1Alpha3Workloadgroups).
-			MustAdd(IstioNetworkingV1Beta1Proxyconfigs).
 			MustAdd(IstioSecurityV1Beta1Authorizationpolicies).
 			MustAdd(IstioSecurityV1Beta1Peerauthentications).
 			MustAdd(IstioSecurityV1Beta1Requestauthentications).

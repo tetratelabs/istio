@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 //  Copyright Istio Authors
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
@@ -67,7 +65,7 @@ spec:
   mtls:
     mode: STRICT
 `, name, name)
-	ctx.ConfigIstio().ApplyYAMLOrFail(ctx, ns.Name(), policyYAML)
+	ctx.Config().ApplyYAMLOrFail(ctx, ns.Name(), policyYAML)
 
 	var healthcheck echo.Instance
 	cfg := echo.Config{

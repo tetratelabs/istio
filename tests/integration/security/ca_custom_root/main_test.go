@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -141,10 +139,9 @@ func SetupApps(ctx resource.Context, apps *EchoDeployments) error {
 				},
 			},
 			TLSSettings: &common.TLSSettings{
-				RootCert:      rootCert,
-				ClientCert:    clientCert,
-				Key:           Key,
-				AcceptAnyALPN: true,
+				RootCert:   rootCert,
+				ClientCert: clientCert,
+				Key:        Key,
 			},
 		}).
 		WithConfig(echo.Config{
@@ -166,10 +163,9 @@ func SetupApps(ctx resource.Context, apps *EchoDeployments) error {
 				},
 			},
 			TLSSettings: &common.TLSSettings{
-				RootCert:      rootCert,
-				ClientCert:    clientCert,
-				Key:           Key,
-				AcceptAnyALPN: true,
+				RootCert:   rootCert,
+				ClientCert: clientCert,
+				Key:        Key,
 			},
 		}).
 		WithConfig(echo.Config{
@@ -192,10 +188,9 @@ func SetupApps(ctx resource.Context, apps *EchoDeployments) error {
 				},
 			},
 			TLSSettings: &common.TLSSettings{
-				RootCert:      rootCertAlt,
-				ClientCert:    clientCertAlt,
-				Key:           keyAlt,
-				AcceptAnyALPN: true,
+				RootCert:   rootCertAlt,
+				ClientCert: clientCertAlt,
+				Key:        keyAlt,
 			},
 		}).
 		WithConfig(echo.Config{

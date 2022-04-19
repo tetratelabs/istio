@@ -22,11 +22,11 @@ import (
 	"text/tabwriter"
 
 	envoy_admin_v3 "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
+	"github.com/golang/protobuf/jsonpb"
 	"sigs.k8s.io/yaml"
 
 	"istio.io/istio/istioctl/pkg/util/configdump"
 	sdscompare "istio.io/istio/istioctl/pkg/writer/compare/sds"
-	"istio.io/istio/pkg/util/protomarshal"
 )
 
 // ConfigWriter is a writer for processing responses from the Envoy Admin config_dump endpoint
@@ -57,7 +57,8 @@ func (c *ConfigWriter) PrintBootstrapDump(outputFormat string) error {
 	if err != nil {
 		return err
 	}
-	out, err := protomarshal.ToJSONWithIndent(bootstrapDump, "    ")
+	jsonm := &jsonpb.Marshaler{Indent: "    "}
+	out, err := jsonm.MarshalToString(bootstrapDump)
 	if err != nil {
 		return fmt.Errorf("unable to marshal bootstrap in Envoy config dump")
 	}
@@ -81,7 +82,8 @@ func (c *ConfigWriter) PrintSecretDump(outputFormat string) error {
 	if err != nil {
 		return fmt.Errorf("sidecar doesn't support secrets: %v", err)
 	}
-	out, err := protomarshal.ToJSONWithIndent(secretDump, "    ")
+	jsonm := &jsonpb.Marshaler{Indent: "    "}
+	out, err := jsonm.MarshalToString(secretDump)
 	if err != nil {
 		return fmt.Errorf("unable to marshal secrets in Envoy config dump")
 	}
@@ -164,34 +166,6 @@ func (c *ConfigWriter) PrintVersionSummary() error {
 	}
 
 	return tw.Flush()
-}
-
-// PrintPodRootCAFromDynamicSecretDump prints just pod's root ca from dynamic secret config dump to the ConfigWriter stdout
-func (c *ConfigWriter) PrintPodRootCAFromDynamicSecretDump() (string, error) {
-	if c.configDump == nil {
-		return "", fmt.Errorf("config writer has not been primed")
-	}
-	secretDump, err := c.configDump.GetSecretConfigDump()
-	if err != nil {
-		return "", fmt.Errorf("sidecar doesn't support secrets: %v", err)
-	}
-	for _, secret := range secretDump.DynamicActiveSecrets {
-		// check the ROOTCA from secret dump
-		if secret.Name == "ROOTCA" {
-			var returnStr string
-			var returnErr error
-			strCA, err := c.configDump.GetRootCAFromSecretConfigDump(secret.GetSecret())
-			if err != nil {
-				returnStr = ""
-				returnErr = fmt.Errorf("can not dump ROOTCA from secret: %v", err)
-			} else {
-				returnStr = strCA
-				returnErr = nil
-			}
-			return returnStr, returnErr
-		}
-	}
-	return "", fmt.Errorf("can not find ROOTCA from secret")
 }
 
 func (c *ConfigWriter) getIstioVersionInfo(bootstrapDump *envoy_admin_v3.BootstrapConfigDump) (version, sha string) {

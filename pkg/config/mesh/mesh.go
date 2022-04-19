@@ -16,20 +16,21 @@ package mesh
 
 import (
 	"fmt"
-	"os"
+	"io/ioutil"
+	"net"
 	"time"
 
+	"github.com/ghodss/yaml"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	"github.com/hashicorp/go-multierror"
-	"sigs.k8s.io/yaml"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/api/networking/v1alpha3"
-	"istio.io/istio/pilot/pkg/util/sets"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/validation"
 	"istio.io/istio/pkg/util/gogoprotomarshal"
+	"istio.io/pkg/log"
 )
 
 // DefaultProxyConfig for individual proxies
@@ -38,7 +39,7 @@ func DefaultProxyConfig() meshconfig.ProxyConfig {
 	// TODO: set default namespace based on POD_NAMESPACE env
 	return meshconfig.ProxyConfig{
 		ConfigPath:               constants.ConfigPathDir,
-		ClusterName:              &meshconfig.ProxyConfig_ServiceCluster{ServiceCluster: constants.ServiceClusterName},
+		ServiceCluster:           constants.ServiceClusterName,
 		DrainDuration:            types.DurationProto(45 * time.Second),
 		ParentShutdownDuration:   types.DurationProto(60 * time.Second),
 		TerminationDrainDuration: types.DurationProto(5 * time.Second),
@@ -61,13 +62,6 @@ func DefaultProxyConfig() meshconfig.ProxyConfig {
 	}
 }
 
-// DefaultMeshNetworks returns a default meshnetworks configuration.
-// By default, it is empty.
-func DefaultMeshNetworks() *meshconfig.MeshNetworks {
-	mn := EmptyMeshNetworks()
-	return &mn
-}
-
 // DefaultMeshConfig returns the default mesh config.
 // This is merged with values from the mesh config map.
 func DefaultMeshConfig() meshconfig.MeshConfig {
@@ -85,7 +79,7 @@ func DefaultMeshConfig() meshconfig.MeshConfig {
 		IngressService:              "istio-ingressgateway",
 		IngressControllerMode:       meshconfig.MeshConfig_STRICT,
 		IngressClass:                "istio",
-		TrustDomain:                 constants.DefaultKubernetesDomain,
+		TrustDomain:                 "cluster.local",
 		TrustDomainAliases:          []string{},
 		EnableAutoMtls:              &types.BoolValue{Value: true},
 		OutboundTrafficPolicy:       &meshconfig.MeshConfig_OutboundTrafficPolicy{Mode: meshconfig.MeshConfig_OutboundTrafficPolicy_ALLOW_ANY},
@@ -105,20 +99,10 @@ func DefaultMeshConfig() meshconfig.MeshConfig {
 		ThriftConfig:                   &meshconfig.MeshConfig_ThriftConfig{},
 		ServiceSettings:                make([]*meshconfig.MeshConfig_ServiceSettings, 0),
 
-		DefaultProviders: &meshconfig.MeshConfig_DefaultProviders{},
+		DefaultProviders: &meshconfig.MeshConfig_DefaultProviders{
+			AccessLogging: []string{"envoy"},
+		},
 		ExtensionProviders: []*meshconfig.MeshConfig_ExtensionProvider{
-			{
-				Name: "prometheus",
-				Provider: &meshconfig.MeshConfig_ExtensionProvider_Prometheus{
-					Prometheus: &meshconfig.MeshConfig_ExtensionProvider_PrometheusMetricsProvider{},
-				},
-			},
-			{
-				Name: "stackdriver",
-				Provider: &meshconfig.MeshConfig_ExtensionProvider_Stackdriver{
-					Stackdriver: &meshconfig.MeshConfig_ExtensionProvider_StackdriverProvider{},
-				},
-			},
 			{
 				Name: "envoy",
 				Provider: &meshconfig.MeshConfig_ExtensionProvider_EnvoyFileAccessLog{
@@ -184,7 +168,6 @@ func ApplyMeshConfig(yaml string, defaultConfig meshconfig.MeshConfig) (*meshcon
 	prevProxyConfig := defaultConfig.DefaultConfig
 	prevDefaultProvider := defaultConfig.DefaultProviders
 	prevExtensionProviders := defaultConfig.ExtensionProviders
-	prevTrustDomainAliases := defaultConfig.TrustDomainAliases
 
 	defaultProxyConfig := DefaultProxyConfig()
 	defaultConfig.DefaultConfig = &defaultProxyConfig
@@ -236,8 +219,6 @@ func ApplyMeshConfig(yaml string, defaultConfig meshconfig.MeshConfig) (*meshcon
 			defaultConfig.ExtensionProviders = append(defaultConfig.ExtensionProviders, p)
 		}
 	}
-
-	defaultConfig.TrustDomainAliases = sets.NewSet(append(defaultConfig.TrustDomainAliases, prevTrustDomainAliases...)...).SortedList()
 
 	if err := validation.ValidateMeshConfig(&defaultConfig); err != nil {
 		return nil, err
@@ -300,7 +281,7 @@ func ParseMeshNetworks(yaml string) (*meshconfig.MeshNetworks, error) {
 
 // ReadMeshNetworks gets mesh networks configuration from a config file
 func ReadMeshNetworks(filename string) (*meshconfig.MeshNetworks, error) {
-	yaml, err := os.ReadFile(filename)
+	yaml, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, multierror.Prefix(err, "cannot read networks config file")
 	}
@@ -309,7 +290,7 @@ func ReadMeshNetworks(filename string) (*meshconfig.MeshNetworks, error) {
 
 // ReadMeshConfig gets mesh configuration from a config file
 func ReadMeshConfig(filename string) (*meshconfig.MeshConfig, error) {
-	yaml, err := os.ReadFile(filename)
+	yaml, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, multierror.Prefix(err, "cannot read mesh config file")
 	}
@@ -318,9 +299,34 @@ func ReadMeshConfig(filename string) (*meshconfig.MeshConfig, error) {
 
 // ReadMeshConfigData gets mesh configuration yaml from a config file
 func ReadMeshConfigData(filename string) (string, error) {
-	yaml, err := os.ReadFile(filename)
+	yaml, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return "", multierror.Prefix(err, "cannot read mesh config file")
 	}
 	return string(yaml), nil
+}
+
+// ResolveHostsInNetworksConfig will go through the Gateways addresses for all
+// networks in the config and if it's not an IP address it will try to lookup
+// that hostname and replace it with the IP address in the config
+func ResolveHostsInNetworksConfig(config *meshconfig.MeshNetworks) {
+	if config == nil {
+		return
+	}
+	for _, n := range config.Networks {
+		for _, gw := range n.Gateways {
+			gwAddr := gw.GetAddress()
+			gwIP := net.ParseIP(gwAddr)
+			if gwIP == nil && len(gwAddr) != 0 {
+				addrs, err := net.LookupHost(gwAddr)
+				if err != nil {
+					log.Warnf("error resolving host %#v: %v", gw.GetAddress(), err)
+				} else {
+					gw.Gw = &meshconfig.Network_IstioNetworkGateway_Address{
+						Address: addrs[0],
+					}
+				}
+			}
+		}
+	}
 }

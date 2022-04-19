@@ -15,6 +15,7 @@
 package xds
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -28,8 +29,10 @@ import (
 	adminapi "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
-	"google.golang.org/protobuf/proto"
-	any "google.golang.org/protobuf/types/known/anypb"
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/any"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	"istio.io/istio/pilot/pkg/config/kube/crd"
 	"istio.io/istio/pilot/pkg/features"
@@ -40,10 +43,10 @@ import (
 	"istio.io/istio/pilot/pkg/serviceregistry/memory"
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
+	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/schema/collection"
 	"istio.io/istio/pkg/network"
-	"istio.io/istio/pkg/util/protomarshal"
 	istiolog "istio.io/pkg/log"
 )
 
@@ -94,7 +97,6 @@ type AdsClient struct {
 	ConnectionID string              `json:"connectionId"`
 	ConnectedAt  time.Time           `json:"connectedAt"`
 	PeerAddress  string              `json:"address"`
-	Metadata     *model.NodeMetadata `json:"metadata,omitempty"`
 	Watches      map[string][]string `json:"watches,omitempty"`
 }
 
@@ -106,7 +108,6 @@ type AdsClients struct {
 
 // SyncStatus is the synchronization status between Pilot and a given Envoy
 type SyncStatus struct {
-	ClusterID     string `json:"cluster_id,omitempty"`
 	ProxyID       string `json:"proxy,omitempty"`
 	ProxyVersion  string `json:"proxy_version,omitempty"`
 	IstioVersion  string `json:"istio_version,omitempty"`
@@ -168,11 +169,11 @@ func (s *DiscoveryServer) AddDebugHandlers(mux, internalMux *http.ServeMux, enab
 	mux.HandleFunc("/debug", s.Debug)
 
 	if features.EnableUnsafeAdminEndpoints {
-		s.addDebugHandler(mux, internalMux, "/debug/force_disconnect", "Disconnects a proxy from this Pilot", s.forceDisconnect)
+		s.addDebugHandler(mux, internalMux, "/debug/force_disconnect", "Disconnects a proxy from this Pilot", s.ForceDisconnect)
 	}
 
 	s.addDebugHandler(mux, internalMux, "/debug/edsz", "Status and debug interface for EDS", s.Edsz)
-	s.addDebugHandler(mux, internalMux, "/debug/ndsz", "Status and debug interface for NDS", s.ndsz)
+	s.addDebugHandler(mux, internalMux, "/debug/ndsz", "Status and debug interface for NDS", s.Ndsz)
 	s.addDebugHandler(mux, internalMux, "/debug/adsz", "Status and debug interface for ADS", s.adsz)
 	s.addDebugHandler(mux, internalMux, "/debug/adsz?push=true", "Initiates push of the current state to all connected endpoints", s.adsz)
 
@@ -184,24 +185,23 @@ func (s *DiscoveryServer) AddDebugHandlers(mux, internalMux *http.ServeMux, enab
 	s.addDebugHandler(mux, internalMux, "/debug/endpointShardz", "Info about the endpoint shards", s.endpointShardz)
 	s.addDebugHandler(mux, internalMux, "/debug/cachez", "Info about the internal XDS caches", s.cachez)
 	s.addDebugHandler(mux, internalMux, "/debug/cachez?sizes=true", "Info about the size of the internal XDS caches", s.cachez)
-	s.addDebugHandler(mux, internalMux, "/debug/cachez?clear=true", "Clear the XDS caches", s.cachez)
 	s.addDebugHandler(mux, internalMux, "/debug/configz", "Debug support for config", s.configz)
 	s.addDebugHandler(mux, internalMux, "/debug/sidecarz", "Debug sidecar scope for a proxy", s.sidecarz)
 	s.addDebugHandler(mux, internalMux, "/debug/resourcesz", "Debug support for watched resources", s.resourcez)
 	s.addDebugHandler(mux, internalMux, "/debug/instancesz", "Debug support for service instances", s.instancesz)
 
-	s.addDebugHandler(mux, internalMux, "/debug/authorizationz", "Internal authorization policies", s.authorizationz)
+	s.addDebugHandler(mux, internalMux, "/debug/authorizationz", "Internal authorization policies", s.Authorizationz)
 	s.addDebugHandler(mux, internalMux, "/debug/telemetryz", "Debug Telemetry configuration", s.telemetryz)
 	s.addDebugHandler(mux, internalMux, "/debug/config_dump", "ConfigDump in the form of the Envoy admin config dump API for passed in proxyID", s.ConfigDump)
-	s.addDebugHandler(mux, internalMux, "/debug/push_status", "Last PushContext Details", s.pushStatusHandler)
-	s.addDebugHandler(mux, internalMux, "/debug/pushcontext", "Debug support for current push context", s.pushContextHandler)
-	s.addDebugHandler(mux, internalMux, "/debug/connections", "Info about the connected XDS clients", s.connectionsHandler)
+	s.addDebugHandler(mux, internalMux, "/debug/push_status", "Last PushContext Details", s.PushStatusHandler)
+	s.addDebugHandler(mux, internalMux, "/debug/pushcontext", "Debug support for current push context", s.PushContextHandler)
+	s.addDebugHandler(mux, internalMux, "/debug/connections", "Info about the connected XDS clients", s.ConnectionsHandler)
 
-	s.addDebugHandler(mux, internalMux, "/debug/inject", "Active inject template", s.injectTemplateHandler(webhook))
-	s.addDebugHandler(mux, internalMux, "/debug/mesh", "Active mesh config", s.meshHandler)
+	s.addDebugHandler(mux, internalMux, "/debug/inject", "Active inject template", s.InjectTemplateHandler(webhook))
+	s.addDebugHandler(mux, internalMux, "/debug/mesh", "Active mesh config", s.MeshHandler)
 	s.addDebugHandler(mux, internalMux, "/debug/clusterz", "List remote clusters where istiod reads endpoints", s.clusterz)
 	s.addDebugHandler(mux, internalMux, "/debug/networkz", "List cross-network gateways", s.networkz)
-	s.addDebugHandler(mux, internalMux, "/debug/mcsz", "List information about Kubernetes MCS services", s.mcsz)
+	s.addDebugHandler(mux, internalMux, "/debug/exportz", "List endpoints that been exported via MCS", s.exportz)
 
 	s.addDebugHandler(mux, internalMux, "/debug/list", "List all supported debug commands in json", s.List)
 }
@@ -266,7 +266,6 @@ func (s *DiscoveryServer) Syncz(w http.ResponseWriter, _ *http.Request) {
 		if node != nil {
 			syncz = append(syncz, SyncStatus{
 				ProxyID:       node.ID,
-				ClusterID:     node.Metadata.ClusterID.String(),
 				IstioVersion:  node.Metadata.IstioVersion,
 				ClusterSent:   con.NonceSent(v3.ClusterType),
 				ClusterAcked:  con.NonceAcked(v3.ClusterType),
@@ -309,38 +308,25 @@ func (s *DiscoveryServer) cachez(w http.ResponseWriter, req *http.Request) {
 		_, _ = w.Write([]byte("Failed to parse request\n"))
 		return
 	}
-	if req.Form.Get("clear") != "" {
-		s.Cache.ClearAll()
-		_, _ = w.Write([]byte("Cache cleared\n"))
-		return
-	}
 	if req.Form.Get("sizes") != "" {
 		snapshot := s.Cache.Snapshot()
 		res := make(map[string]string, len(snapshot))
 		totalSize := 0
-		for _, resource := range snapshot {
-			if resource == nil {
+		for k, v := range snapshot {
+			if v == nil {
 				continue
 			}
-			resourceType := resource.Resource.TypeUrl
-			sz := len(resource.Resource.GetValue())
-			res[resourceType] += util.ByteCount(sz)
+			sz := len(v.Resource.GetValue())
+			res[k] = util.ByteCount(sz)
 			totalSize += sz
 		}
 		res["total"] = util.ByteCount(totalSize)
 		writeJSON(w, res)
 		return
 	}
-	snapshot := s.Cache.Snapshot()
-	resources := make(map[string][]string, len(snapshot)) // Key is typeUrl and value is resource names.
-	for key, resource := range snapshot {
-		if resource == nil {
-			continue
-		}
-		resourceType := resource.Resource.TypeUrl
-		resources[resourceType] = append(resources[resourceType], resource.Name+"/"+key)
-	}
-	writeJSON(w, resources)
+	keys := s.Cache.Keys()
+	sort.Strings(keys)
+	writeJSON(w, keys)
 }
 
 type endpointzResponse struct {
@@ -470,9 +456,8 @@ func (s *DiscoveryServer) configz(w http.ResponseWriter, req *http.Request) {
 
 // SidecarScope debugging
 func (s *DiscoveryServer) sidecarz(w http.ResponseWriter, req *http.Request) {
-	proxyID, con := s.getDebugConnection(req)
+	con := s.getDebugConnection(w, req)
 	if con == nil {
-		s.errorHandler(w, proxyID, con)
 		return
 	}
 	writeJSON(w, con.proxy.SidecarScope)
@@ -494,8 +479,8 @@ type AuthorizationDebug struct {
 	AuthorizationPolicies *model.AuthorizationPolicies `json:"authorization_policies"`
 }
 
-// authorizationz dumps the internal authorization policies.
-func (s *DiscoveryServer) authorizationz(w http.ResponseWriter, req *http.Request) {
+// Authorizationz dumps the internal authorization policies.
+func (s *DiscoveryServer) Authorizationz(w http.ResponseWriter, req *http.Request) {
 	info := AuthorizationDebug{
 		AuthorizationPolicies: s.globalPushContext().AuthzPolicies,
 	}
@@ -506,9 +491,9 @@ func (s *DiscoveryServer) telemetryz(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, s.globalPushContext().Telemetry)
 }
 
-// connectionsHandler implements interface for displaying current connections.
+// ConnectionsHandler implements interface for displaying current connections.
 // It is mapped to /debug/connections.
-func (s *DiscoveryServer) connectionsHandler(w http.ResponseWriter, req *http.Request) {
+func (s *DiscoveryServer) ConnectionsHandler(w http.ResponseWriter, req *http.Request) {
 	adsClients := &AdsClients{}
 	connections := s.Clients()
 	adsClients.Total = len(connections)
@@ -530,29 +515,15 @@ func (s *DiscoveryServer) adsz(w http.ResponseWriter, req *http.Request) {
 	if s.handlePushRequest(w, req) {
 		return
 	}
-	proxyID, con := s.getDebugConnection(req)
-	if proxyID != "" && con == nil {
-		// We can't guarantee the Pilot we are connected to has a connection to the proxy we requested
-		// There isn't a great way around this, but for debugging purposes its suitable to have the caller retry.
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("Proxy not connected to this Pilot instance. It may be connected to another instance.\n"))
-		return
-	}
-	var connections []*Connection
-	if con != nil {
-		connections = []*Connection{con}
-	} else {
-		connections = s.Clients()
-	}
 
 	adsClients := &AdsClients{}
+	connections := s.Clients()
 	adsClients.Total = len(connections)
-	for _, c := range connections {
+	for _, c := range s.Clients() {
 		adsClient := AdsClient{
 			ConnectionID: c.ConID,
 			ConnectedAt:  c.Connect,
 			PeerAddress:  c.PeerAddr,
-			Metadata:     c.proxy.Metadata,
 			Watches:      map[string][]string{},
 		}
 		c.proxy.RLock()
@@ -566,9 +537,6 @@ func (s *DiscoveryServer) adsz(w http.ResponseWriter, req *http.Request) {
 		c.proxy.RUnlock()
 		adsClients.Connected = append(adsClients.Connected, adsClient)
 	}
-	sort.Slice(adsClients.Connected, func(i, j int) bool {
-		return adsClients.Connected[i].ConnectionID < adsClients.Connected[j].ConnectionID
-	})
 	writeJSON(w, adsClients)
 }
 
@@ -576,9 +544,8 @@ func (s *DiscoveryServer) adsz(w http.ResponseWriter, req *http.Request) {
 // The dump will only contain dynamic listeners/clusters/routes and can be used to compare what an Envoy instance
 // should look like according to Pilot vs what it currently does look like.
 func (s *DiscoveryServer) ConfigDump(w http.ResponseWriter, req *http.Request) {
-	proxyID, con := s.getDebugConnection(req)
+	con := s.getDebugConnection(w, req)
 	if con == nil {
-		s.errorHandler(w, proxyID, con)
 		return
 	}
 	dump, err := s.configDump(con)
@@ -586,15 +553,14 @@ func (s *DiscoveryServer) ConfigDump(w http.ResponseWriter, req *http.Request) {
 		handleHTTPError(w, err)
 		return
 	}
-	writeJSON(w, dump)
+	writeJSONProto(w, dump)
 }
 
 // configDump converts the connection internal state into an Envoy Admin API config dump proto
 // It is used in debugging to create a consistent object for comparison between Envoy and Pilot outputs
 func (s *DiscoveryServer) configDump(conn *Connection) (*adminapi.ConfigDump, error) {
 	dynamicActiveClusters := make([]*adminapi.ClustersConfigDump_DynamicCluster, 0)
-	req := &model.PushRequest{Push: s.globalPushContext(), Start: time.Now()}
-	clusters, _ := s.ConfigGenerator.BuildClusters(conn.proxy, req)
+	clusters, _ := s.ConfigGenerator.BuildClusters(conn.proxy, s.globalPushContext())
 
 	for _, cs := range clusters {
 		dynamicActiveClusters = append(dynamicActiveClusters, &adminapi.ClustersConfigDump_DynamicCluster{Cluster: cs.Resource})
@@ -608,9 +574,9 @@ func (s *DiscoveryServer) configDump(conn *Connection) (*adminapi.ConfigDump, er
 	}
 
 	dynamicActiveListeners := make([]*adminapi.ListenersConfigDump_DynamicListener, 0)
-	listeners := s.ConfigGenerator.BuildListeners(conn.proxy, req.Push)
+	listeners := s.ConfigGenerator.BuildListeners(conn.proxy, s.globalPushContext())
 	for _, cs := range listeners {
-		listener, err := any.New(cs)
+		listener, err := anypb.New(cs)
 		if err != nil {
 			return nil, err
 		}
@@ -627,12 +593,16 @@ func (s *DiscoveryServer) configDump(conn *Connection) (*adminapi.ConfigDump, er
 		return nil, err
 	}
 
-	routes, _ := s.ConfigGenerator.BuildHTTPRoutes(conn.proxy, req, conn.Routes())
+	routes := s.ConfigGenerator.BuildHTTPRoutes(conn.proxy, s.globalPushContext(), conn.Routes())
 	routeConfigAny := util.MessageToAny(&adminapi.RoutesConfigDump{})
 	if len(routes) > 0 {
 		dynamicRouteConfig := make([]*adminapi.RoutesConfigDump_DynamicRouteConfig, 0)
 		for _, rs := range routes {
-			dynamicRouteConfig = append(dynamicRouteConfig, &adminapi.RoutesConfigDump_DynamicRouteConfig{RouteConfig: rs.Resource})
+			route, err := anypb.New(rs)
+			if err != nil {
+				return nil, err
+			}
+			dynamicRouteConfig = append(dynamicRouteConfig, &adminapi.RoutesConfigDump_DynamicRouteConfig{RouteConfig: route})
 		}
 		routeConfigAny, err = util.MessageToAnyWithError(&adminapi.RoutesConfigDump{DynamicRouteConfigs: dynamicRouteConfig})
 		if err != nil {
@@ -642,7 +612,7 @@ func (s *DiscoveryServer) configDump(conn *Connection) (*adminapi.ConfigDump, er
 
 	secretsDump := &adminapi.SecretsConfigDump{}
 	if s.Generators[v3.SecretType] != nil {
-		secrets, _, _ := s.Generators[v3.SecretType].Generate(conn.proxy, req.Push, conn.Watched(v3.SecretType), nil)
+		secrets, _, _ := s.Generators[v3.SecretType].Generate(conn.proxy, s.globalPushContext(), conn.Watched(v3.SecretType), nil)
 		if len(secrets) > 0 {
 			for _, secretAny := range secrets {
 				secret := &tls.Secret{}
@@ -680,9 +650,9 @@ func (s *DiscoveryServer) configDump(conn *Connection) (*adminapi.ConfigDump, er
 	return configDump, nil
 }
 
-// injectTemplateHandler dumps the injection template
+// InjectTemplateHandler dumps the injection template
 // Replaces dumping the template at startup.
-func (s *DiscoveryServer) injectTemplateHandler(webhook func() map[string]string) func(http.ResponseWriter, *http.Request) {
+func (s *DiscoveryServer) InjectTemplateHandler(webhook func() map[string]string) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// TODO: we should split the inject template into smaller modules (separate one for dump core, etc),
 		// and allow pods to select which patches will be selected. When this happen, this should return
@@ -696,15 +666,13 @@ func (s *DiscoveryServer) injectTemplateHandler(webhook func() map[string]string
 	}
 }
 
-// meshHandler dumps the mesh config
-func (s *DiscoveryServer) meshHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, s.Env.Mesh())
+// MeshHandler dumps the mesh config
+func (s *DiscoveryServer) MeshHandler(w http.ResponseWriter, r *http.Request) {
+	writeJSONProto(w, s.Env.Mesh())
 }
 
-// pushStatusHandler dumps the last PushContext
-func (s *DiscoveryServer) pushStatusHandler(w http.ResponseWriter, req *http.Request) {
-	model.LastPushMutex.Lock()
-	defer model.LastPushMutex.Unlock()
+// PushStatusHandler dumps the last PushContext
+func (s *DiscoveryServer) PushStatusHandler(w http.ResponseWriter, req *http.Request) {
 	if model.LastPushStatus == nil {
 		return
 	}
@@ -724,8 +692,8 @@ type PushContextDebug struct {
 	NetworkGateways       map[network.ID][]model.NetworkGateway
 }
 
-// pushContextHandler dumps the current PushContext
-func (s *DiscoveryServer) pushContextHandler(w http.ResponseWriter, _ *http.Request) {
+// PushContextHandler dumps the current PushContext
+func (s *DiscoveryServer) PushContextHandler(w http.ResponseWriter, _ *http.Request) {
 	push := PushContextDebug{
 		AuthorizationPolicies: s.globalPushContext().AuthzPolicies,
 		NetworkGateways:       s.globalPushContext().NetworkManager().GatewaysByNetwork(),
@@ -780,20 +748,15 @@ func (s *DiscoveryServer) List(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, cmdNames)
 }
 
-// ndsz implements a status and debug interface for NDS.
-// It is mapped to /debug/ndsz on the monitor port (15014).
-func (s *DiscoveryServer) ndsz(w http.ResponseWriter, req *http.Request) {
+// Ndsz implements a status and debug interface for NDS.
+// It is mapped to /debug/Ndsz on the monitor port (15014).
+func (s *DiscoveryServer) Ndsz(w http.ResponseWriter, req *http.Request) {
 	if s.handlePushRequest(w, req) {
 		return
 	}
-	proxyID, con := s.getDebugConnection(req)
+
+	con := s.getDebugConnection(w, req)
 	if con == nil {
-		s.errorHandler(w, proxyID, con)
-		return
-	}
-	if !con.proxy.Metadata.DNSCapture {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("DNS capture is not enabled in the proxy\n"))
 		return
 	}
 
@@ -802,7 +765,7 @@ func (s *DiscoveryServer) ndsz(w http.ResponseWriter, req *http.Request) {
 		if len(nds) == 0 {
 			return
 		}
-		writeJSON(w, nds[0])
+		writeJSONProto(w, nds[0])
 	}
 }
 
@@ -813,9 +776,8 @@ func (s *DiscoveryServer) Edsz(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	proxyID, con := s.getDebugConnection(req)
+	con := s.getDebugConnection(w, req)
 	if con == nil {
-		s.errorHandler(w, proxyID, con)
 		return
 	}
 
@@ -827,10 +789,9 @@ func (s *DiscoveryServer) Edsz(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, eps)
 }
 
-func (s *DiscoveryServer) forceDisconnect(w http.ResponseWriter, req *http.Request) {
-	proxyID, con := s.getDebugConnection(req)
+func (s *DiscoveryServer) ForceDisconnect(w http.ResponseWriter, req *http.Request) {
+	con := s.getDebugConnection(w, req)
 	if con == nil {
-		s.errorHandler(w, proxyID, con)
 		return
 	}
 	con.Stop()
@@ -860,25 +821,41 @@ func (s *DiscoveryServer) instancesz(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *DiscoveryServer) networkz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, s.Env.NetworkManager.AllGateways())
+	// Merge the gateways from the service registries with those configured statically with MeshNetworks.
+	mgr := model.NewNetworkManager(s.Env)
+	writeJSON(w, mgr.AllGateways())
 }
 
-func (s *DiscoveryServer) mcsz(w http.ResponseWriter, _ *http.Request) {
-	svcs := sortMCSServices(s.Env.MCSServices())
-	writeJSON(w, svcs)
-}
+func (s *DiscoveryServer) exportz(w http.ResponseWriter, _ *http.Request) {
+	aggregateController, ok := s.Env.ServiceDiscovery.(*aggregate.Controller)
+	if !ok {
+		writeJSON(w, nil)
+		return
+	}
 
-func sortMCSServices(svcs []model.MCSServiceInfo) []model.MCSServiceInfo {
-	sort.Slice(svcs, func(i, j int) bool {
-		if strings.Compare(svcs[i].Cluster.String(), svcs[j].Cluster.String()) < 0 {
-			return true
+	type ServiceExporter interface {
+		ExportedServices() []string
+	}
+
+	jsonMap := make(map[cluster.ID][]string)
+	for _, registry := range aggregateController.GetRegistries() {
+		if ctrl, ok := registry.(ServiceExporter); ok {
+			for _, export := range ctrl.ExportedServices() {
+				parts := strings.Split(export, ":")
+				if len(parts) == 2 {
+					clusterID := cluster.ID(parts[0])
+					namespacedName := parts[1]
+
+					// Append the export and keep the array sorted.
+					svcs := append(jsonMap[clusterID], namespacedName)
+					sort.Strings(svcs)
+					jsonMap[clusterID] = svcs
+				}
+			}
 		}
-		if strings.Compare(svcs[i].Namespace, svcs[j].Namespace) < 0 {
-			return true
-		}
-		return strings.Compare(svcs[i].Name, svcs[j].Name) < 0
-	})
-	return svcs
+	}
+
+	writeJSON(w, jsonMap)
 }
 
 func (s *DiscoveryServer) clusterz(w http.ResponseWriter, _ *http.Request) {
@@ -905,27 +882,29 @@ func (s *DiscoveryServer) handlePushRequest(w http.ResponseWriter, req *http.Req
 	return false
 }
 
-// getDebugConnection fetches the Connection requested by proxyID
-func (s *DiscoveryServer) getDebugConnection(req *http.Request) (string, *Connection) {
-	if proxyID := req.URL.Query().Get("proxyID"); proxyID != "" {
-		return proxyID, s.getProxyConnection(proxyID)
-	}
-	return "", nil
-}
-
-func (s *DiscoveryServer) errorHandler(w http.ResponseWriter, proxyID string, con *Connection) {
-	if proxyID == "" {
+// getDebugConnection fetches the Connection requested
+func (s *DiscoveryServer) getDebugConnection(w http.ResponseWriter, req *http.Request) *Connection {
+	var con *Connection
+	if err := req.ParseForm(); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("You must provide a proxyID in the query string\n"))
-		return
+		_, _ = w.Write([]byte("Failed to parse request\n"))
+		return nil
 	}
-	if con == nil {
+	if proxyID := req.URL.Query().Get("proxyID"); proxyID != "" {
+		con = s.getProxyConnection(proxyID)
 		// We can't guarantee the Pilot we are connected to has a connection to the proxy we requested
 		// There isn't a great way around this, but for debugging purposes its suitable to have the caller retry.
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("Proxy not connected to this Pilot instance. It may be connected to another instance.\n"))
-		return
+		if con == nil {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("Proxy not connected to this Pilot instance. It may be connected to another instance.\n"))
+			return nil
+		}
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("You must provide a proxyID in the query string\n"))
+		return nil
 	}
+	return con
 }
 
 // jsonMarshalProto wraps a proto.Message so it can be marshaled with the standard encoding/json library
@@ -934,19 +913,39 @@ type jsonMarshalProto struct {
 }
 
 func (p jsonMarshalProto) MarshalJSON() ([]byte, error) {
-	return protomarshal.Marshal(p.Message)
+	buf := bytes.NewBuffer(nil)
+	if err := (&jsonpb.Marshaler{}).Marshal(buf, p.Message); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // writeJSON writes a json payload, handling content type, marshaling, and errors
 func writeJSON(w http.ResponseWriter, obj interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	b, err := config.ToJSON(obj)
+	by, err := json.MarshalIndent(obj, "", "  ")
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
-	_, err = w.Write(b)
+	_, err = w.Write(by)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+}
+
+// writeJSONProto writes a protobuf to a json payload, handling content type, marshaling, and errors
+func writeJSONProto(w http.ResponseWriter, obj proto.Message) {
+	w.Header().Set("Content-Type", "application/json")
+	buf := bytes.NewBuffer(nil)
+	err := (&jsonpb.Marshaler{Indent: "  "}).Marshal(buf, obj)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+	_, err = w.Write(buf.Bytes())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 	}

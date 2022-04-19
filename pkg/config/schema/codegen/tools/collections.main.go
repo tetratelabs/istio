@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build ignore
 // +build ignore
 
 package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 
+	"istio.io/istio/pkg/config/schema"
 	"istio.io/istio/pkg/config/schema/ast"
 	"istio.io/istio/pkg/config/schema/codegen"
 )
@@ -44,7 +45,7 @@ func main() {
 	}
 
 	// Read the input file
-	b, err := os.ReadFile(input)
+	b, err := ioutil.ReadFile(input)
 	if err != nil {
 		fmt.Printf("unable to read input file: %v", err)
 		os.Exit(-2)
@@ -57,6 +58,12 @@ func main() {
 		os.Exit(-3)
 	}
 
+	// Validate the input.
+	if _, err := schema.Build(m); err != nil {
+		fmt.Printf("failed building metadata: %v", err)
+		os.Exit(-4)
+	}
+
 	var contents string
 
 	if pkg == "gvk" {
@@ -65,7 +72,7 @@ func main() {
 			fmt.Printf("Error applying static init template: %v", err)
 			os.Exit(-3)
 		}
-		if err = os.WriteFile(output, []byte(contents), os.ModePerm); err != nil {
+		if err = ioutil.WriteFile(output, []byte(contents), os.ModePerm); err != nil {
 			fmt.Printf("Error writing output file: %v", err)
 			os.Exit(-4)
 		}
@@ -79,7 +86,7 @@ func main() {
 			fmt.Printf("Error applying static init template: %v", err)
 			os.Exit(-3)
 		}
-		if err = os.WriteFile(output, []byte(contents), os.ModePerm); err != nil {
+		if err = ioutil.WriteFile(output, []byte(contents), os.ModePerm); err != nil {
 			fmt.Printf("Error writing output file: %v", err)
 			os.Exit(-4)
 		}
@@ -93,7 +100,7 @@ func main() {
 		fmt.Printf("Error applying static init template: %v", err)
 		os.Exit(-3)
 	}
-	if err = os.WriteFile(output, []byte(fullContents), os.ModePerm); err != nil {
+	if err = ioutil.WriteFile(output, []byte(fullContents), os.ModePerm); err != nil {
 		fmt.Printf("Error writing output file: %v", err)
 		os.Exit(-4)
 	}
@@ -105,7 +112,7 @@ func main() {
 		fmt.Printf("Error applying static init template: %v", err)
 		os.Exit(-3)
 	}
-	if err = os.WriteFile(splitOutput, []byte(matchContents), os.ModePerm); err != nil {
+	if err = ioutil.WriteFile(splitOutput, []byte(matchContents), os.ModePerm); err != nil {
 		fmt.Printf("Error writing output file: %v", err)
 		os.Exit(-4)
 	}

@@ -15,22 +15,17 @@
 package ra
 
 import (
-	"os"
-	"path"
 	"testing"
 	"time"
 
-	cert "k8s.io/api/certificates/v1"
+	cert "k8s.io/api/certificates/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	kt "k8s.io/client-go/testing"
 
-	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pkg/spiffe"
-	"istio.io/istio/pkg/test/env"
 	"istio.io/istio/security/pkg/k8s/chiron"
-	"istio.io/istio/security/pkg/pki/ca"
 	pkiutil "istio.io/istio/security/pkg/pki/util"
 )
 
@@ -58,93 +53,13 @@ e+5z6MTAO6ktvHdQlSuH6ARn47bJrZOlkttAhg==
 )
 
 var (
-	testCsrHostName       string = spiffe.Identity{TrustDomain: "cluster.local", Namespace: "default", ServiceAccount: "bookinfo-productpage"}.String()
-	TestCACertFile        string = "../testdata/example-ca-cert.pem"
-	mismatchCertChainFile string = "../testdata/cert-chain.pem"
+	testCsrHostName string = spiffe.Identity{TrustDomain: "cluster.local", Namespace: "default", ServiceAccount: "bookinfo-productpage"}.String()
+	TestCACertFile  string = "../testdata/example-ca-cert.pem"
 )
 
 func defaultReactionFunc(obj runtime.Object) kt.ReactionFunc {
 	return func(act kt.Action) (bool, runtime.Object, error) {
 		return true, obj, nil
-	}
-}
-
-func TestK8sSignWithMeshConfig(t *testing.T) {
-	cases := map[string]struct {
-		rootCertForMeshConfig        string
-		certChain                    string
-		updatedRootCertForMeshConfig string
-		expectedFail                 bool
-	}{
-		"Root cert from mesh config and cert chain does not match": {
-			rootCertForMeshConfig: path.Join(env.IstioSrc, "samples/certs", "root-cert.pem"),
-			certChain:             mismatchCertChainFile,
-			expectedFail:          true,
-		},
-		"Root cert is specified in mesh config and Root cert from cert chain is empty(only one leaf cert)": {
-			rootCertForMeshConfig: path.Join(env.IstioSrc, "samples/certs", "root-cert.pem"),
-			certChain:             path.Join(env.IstioSrc, "samples/certs", "cert-chain.pem"),
-		},
-		"Root cert is specified in mesh config and cert chain contains only intermediate CA(only leaf cert + intermediate CA) ": {
-			rootCertForMeshConfig: path.Join(env.IstioSrc, "samples/certs", "root-cert.pem"),
-			certChain:             path.Join(env.IstioSrc, "samples/certs", "workload-foo-cert.pem"),
-		},
-		"Root cert is specified in mesh config and be updated to an invalid value": {
-			rootCertForMeshConfig:        path.Join(env.IstioSrc, "samples/certs", "root-cert.pem"),
-			certChain:                    path.Join(env.IstioSrc, "samples/certs", "cert-chain.pem"),
-			updatedRootCertForMeshConfig: TestCACertFile,
-			expectedFail:                 true,
-		},
-	}
-	for id, tc := range cases {
-		csrPEM := createFakeCsr(t)
-		csrName := chiron.GenCsrName()
-		rootCertPem, err := os.ReadFile(tc.rootCertForMeshConfig)
-		if err != nil {
-			t.Errorf("Failed to read sample root-cert.pem")
-		}
-		certChainPem, err := os.ReadFile(tc.certChain)
-		if err != nil {
-			t.Errorf("Failed to read sample cert-chain.pem")
-		}
-		client := initFakeKubeClient(csrName, string(certChainPem))
-		ra, err := createFakeK8sRA(client, "")
-		if err != nil {
-			t.Errorf("Failed to create Fake K8s RA")
-		}
-		signer := "kubernates.io/kube-apiserver-client"
-		ra.certSignerDomain = "kubernates.io"
-		caCertificates := []*meshconfig.MeshConfig_CertificateData{
-			{CertificateData: &meshconfig.MeshConfig_CertificateData_Pem{Pem: string(rootCertPem)}, CertSigners: []string{signer}},
-		}
-		ra.SetCACertificatesFromMeshConfig(caCertificates)
-		subjectID := spiffe.Identity{TrustDomain: "cluster.local", Namespace: "default", ServiceAccount: "bookinfo-productpage"}.String()
-		certOptions := ca.CertOpts{
-			SubjectIDs: []string{subjectID},
-			TTL:        60 * time.Second, ForCA: false,
-			CertSigner: "kube-apiserver-client",
-		}
-		// expect to sign back successfully
-		_, err = ra.SignWithCertChain(csrPEM, certOptions)
-		if err != nil && !tc.expectedFail {
-			t.Errorf("%s failed", id)
-		}
-		if tc.updatedRootCertForMeshConfig != "" {
-			testCACert, err := os.ReadFile(tc.updatedRootCertForMeshConfig)
-			if err != nil && !tc.expectedFail {
-				t.Errorf("Failed to read test CA Cert file")
-			}
-			updatedCACertificates := []*meshconfig.MeshConfig_CertificateData{
-				{CertificateData: &meshconfig.MeshConfig_CertificateData_Pem{Pem: string(testCACert)}, CertSigners: []string{signer}},
-			}
-			ra.SetCACertificatesFromMeshConfig(updatedCACertificates)
-			// expect failure in sign since root cert in mesh config does not match
-			_, err = ra.SignWithCertChain(csrPEM, certOptions)
-			if err == nil && !tc.expectedFail {
-				t.Errorf("%s failed", id)
-			}
-		}
-
 	}
 }
 
@@ -163,24 +78,25 @@ func createFakeCsr(t *testing.T) []byte {
 	return csrPEM
 }
 
-func initFakeKubeClient(csrName, certificate string) *fake.Clientset {
+func initFakeKubeClient(csrName string) *fake.Clientset {
 	client := fake.NewSimpleClientset()
 	csr := &cert.CertificateSigningRequest{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: csrName,
 		},
 		Status: cert.CertificateSigningRequestStatus{
-			Certificate: []byte(certificate),
+			Certificate: []byte(TestCertificatePEM),
 		},
 	}
 	client.PrependReactor("get", "certificatesigningrequests", defaultReactionFunc(csr))
 	return client
 }
 
-func createFakeK8sRA(client *fake.Clientset, caCertFile string) (*KubernetesRA, error) {
+func createFakeK8sRA(client *fake.Clientset) (*KubernetesRA, error) {
 	defaultCertTTL := 30 * time.Minute
 	maxCertTTL := time.Hour
 	caSigner := "kubernates.io/kube-apiserver-client"
+	caCertFile := "../testdata/example-ca-cert.pem"
 	raOpts := &IstioRAOptions{
 		ExternalCAType: ExtCAK8s,
 		DefaultCertTTL: defaultCertTTL,
@@ -188,7 +104,7 @@ func createFakeK8sRA(client *fake.Clientset, caCertFile string) (*KubernetesRA, 
 		CaSigner:       caSigner,
 		CaCertFile:     caCertFile,
 		VerifyAppendCA: true,
-		K8sClient:      client,
+		K8sClient:      client.CertificatesV1beta1(),
 	}
 	return NewKubernetesRA(raOpts)
 }
@@ -197,16 +113,12 @@ func createFakeK8sRA(client *fake.Clientset, caCertFile string) (*KubernetesRA, 
 func TestK8sSign(t *testing.T) {
 	csrPEM := createFakeCsr(t)
 	csrName := chiron.GenCsrName()
-	client := initFakeKubeClient(csrName, TestCertificatePEM)
-	r, err := createFakeK8sRA(client, TestCACertFile)
+	client := initFakeKubeClient(csrName)
+	r, err := createFakeK8sRA(client)
 	if err != nil {
 		t.Errorf("Validation CSR failed")
 	}
-	subjectID := spiffe.Identity{TrustDomain: "cluster.local", Namespace: "default", ServiceAccount: "bookinfo-productpage"}.String()
-	_, err = r.Sign(csrPEM, ca.CertOpts{
-		SubjectIDs: []string{subjectID},
-		TTL:        60 * time.Second, ForCA: false,
-	})
+	_, err = r.kubernetesSign(csrPEM, csrName, r.raOpts.CaCertFile)
 	if err != nil {
 		t.Errorf("K8s CA Signing CSR failed")
 	}
@@ -215,8 +127,8 @@ func TestK8sSign(t *testing.T) {
 func TestValidateCSR(t *testing.T) {
 	csrPEM := createFakeCsr(t)
 	csrName := chiron.GenCsrName()
-	client := initFakeKubeClient(csrName, TestCertificatePEM)
-	_, err := createFakeK8sRA(client, TestCACertFile)
+	client := initFakeKubeClient(csrName)
+	_, err := createFakeK8sRA(client)
 	if err != nil {
 		t.Errorf("Validation CSR failed")
 	}

@@ -17,7 +17,6 @@ package controller
 import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
@@ -39,10 +38,10 @@ type kubeEndpointsController interface {
 	InstancesByPort(c *Controller, svc *model.Service, reqSvcPort int, labelsList labels.Collection) []*model.ServiceInstance
 	GetProxyServiceInstances(c *Controller, proxy *model.Proxy) []*model.ServiceInstance
 	buildIstioEndpoints(ep interface{}, host host.Name) []*model.IstioEndpoint
-	buildIstioEndpointsWithService(name, namespace string, host host.Name, clearCache bool) []*model.IstioEndpoint
+	buildIstioEndpointsWithService(name, namespace string, host host.Name) []*model.IstioEndpoint
 	// forgetEndpoint does internal bookkeeping on a deleted endpoint
-	forgetEndpoint(endpoint interface{}) map[host.Name][]*model.IstioEndpoint
-	getServiceNamespacedName(ep interface{}) types.NamespacedName
+	forgetEndpoint(endpoint interface{}) []*model.IstioEndpoint
+	getServiceInfo(ep interface{}) (host.Name, string, string)
 }
 
 // kubeEndpoints abstracts the common behavior across endpoint and endpoint slices.
@@ -66,21 +65,20 @@ func processEndpointEvent(c *Controller, epc kubeEndpointsController, name strin
 	updateEDS(c, epc, ep, event)
 	if features.EnableHeadlessService {
 		if svc, _ := c.serviceLister.Services(namespace).Get(name); svc != nil {
-			for _, modelSvc := range c.servicesForNamespacedName(kube.NamespacedNameForK8sObject(svc)) {
-				// if the service is headless service, trigger a full push.
-				if svc.Spec.ClusterIP == v1.ClusterIPNone {
-					c.opts.XDSUpdater.ConfigUpdate(&model.PushRequest{
-						Full: true,
-						// TODO: extend and set service instance type, so no need to re-init push context
-						ConfigsUpdated: map[model.ConfigKey]struct{}{{
-							Kind:      gvk.ServiceEntry,
-							Name:      modelSvc.Hostname.String(),
-							Namespace: svc.Namespace,
-						}: {}},
-						Reason: []model.TriggerReason{model.EndpointUpdate},
-					})
-					return nil
-				}
+			// if the service is headless service, trigger a full push.
+			if svc.Spec.ClusterIP == v1.ClusterIPNone {
+				hostname := kube.ServiceHostname(svc.Name, svc.Namespace, c.opts.DomainSuffix)
+				c.opts.XDSUpdater.ConfigUpdate(&model.PushRequest{
+					Full: true,
+					// TODO: extend and set service instance type, so no need to re-init push context
+					ConfigsUpdated: map[model.ConfigKey]struct{}{{
+						Kind:      gvk.ServiceEntry,
+						Name:      string(hostname),
+						Namespace: svc.Namespace,
+					}: {}},
+					Reason: []model.TriggerReason{model.EndpointUpdate},
+				})
+				return nil
 			}
 		}
 	}
@@ -89,36 +87,29 @@ func processEndpointEvent(c *Controller, epc kubeEndpointsController, name strin
 }
 
 func updateEDS(c *Controller, epc kubeEndpointsController, ep interface{}, event model.Event) {
-	namespacedName := epc.getServiceNamespacedName(ep)
-	log.Debugf("Handle EDS endpoint %s %s %s in namespace %s", namespacedName.Name, event, namespacedName.Namespace)
-	var forgottenEndpointsByHost map[host.Name][]*model.IstioEndpoint
+	host, svcName, ns := epc.getServiceInfo(ep)
+	log.Debugf("Handle EDS endpoint %s in namespace %s", svcName, ns)
+	var endpoints []*model.IstioEndpoint
 	if event == model.EventDelete {
-		forgottenEndpointsByHost = epc.forgetEndpoint(ep)
+		endpoints = epc.forgetEndpoint(ep)
+	} else {
+		endpoints = epc.buildIstioEndpoints(ep, host)
 	}
 
-	shard := model.ShardKeyFromRegistry(c)
-
-	for _, hostName := range c.hostNamesForNamespacedName(namespacedName) {
-		var endpoints []*model.IstioEndpoint
-		if forgottenEndpointsByHost != nil {
-			endpoints = forgottenEndpointsByHost[hostName]
+	// handling k8s service selecting workload entries
+	if features.EnableK8SServiceSelectWorkloadEntries {
+		c.RLock()
+		svc := c.servicesMap[host]
+		c.RUnlock()
+		if svc != nil {
+			fep := c.collectWorkloadInstanceEndpoints(svc)
+			endpoints = append(endpoints, fep...)
 		} else {
-			endpoints = epc.buildIstioEndpoints(ep, hostName)
+			log.Debugf("Handle EDS endpoint: skip collecting workload entry endpoints, service %s/%s has not been populated", svcName, ns)
 		}
-
-		if features.EnableK8SServiceSelectWorkloadEntries {
-			svc := c.GetService(hostName)
-			if svc != nil {
-				fep := c.collectWorkloadInstanceEndpoints(svc)
-				endpoints = append(endpoints, fep...)
-			} else {
-				log.Debugf("Handle EDS endpoint: skip collecting workload entry endpoints, service %s/%s has not been populated",
-					namespacedName.Namespace, namespacedName.Name)
-			}
-		}
-
-		c.opts.XDSUpdater.EDSUpdate(shard, string(hostName), namespacedName.Namespace, endpoints)
 	}
+
+	c.opts.XDSUpdater.EDSUpdate(string(c.Cluster()), string(host), ns, endpoints)
 }
 
 // getPod fetches a pod by name or IP address.

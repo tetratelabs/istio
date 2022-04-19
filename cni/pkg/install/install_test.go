@@ -17,16 +17,18 @@ package install
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"istio.io/istio/cni/pkg/config"
 	testutils "istio.io/istio/pilot/test/util"
 	"istio.io/istio/pkg/file"
-	"istio.io/istio/pkg/test/util/assert"
 )
 
 func TestCheckInstall(t *testing.T) {
@@ -94,7 +96,7 @@ func TestCheckInstall(t *testing.T) {
 	for i, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			// Create temp directory for files
-			tempDir, err := os.MkdirTemp("", fmt.Sprintf("test-case-%d-", i))
+			tempDir, err := ioutil.TempDir("", fmt.Sprintf("test-case-%d-", i))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -149,7 +151,7 @@ func TestSleepCheckInstall(t *testing.T) {
 	for i, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			// Create temp directory for files
-			tempDir, err := os.MkdirTemp("", fmt.Sprintf("test-case-%d-", i))
+			tempDir, err := ioutil.TempDir("", fmt.Sprintf("test-case-%d-", i))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -181,7 +183,7 @@ func TestSleepCheckInstall(t *testing.T) {
 			if err = sleepCheckInstall(ctx, cfg, cniConfigFilepath, isReady); err != nil {
 				t.Fatalf("error should be nil due to invalid config, got: %v", err)
 			}
-			assert.Equal(t, isReady.Load(), false)
+			assert.Falsef(t, isReady.Load().(bool), "isReady should still be false")
 
 			if len(c.invalidConfigFilename) > 0 {
 				if err = os.Remove(cniConfigFilepath); err != nil {
@@ -220,7 +222,7 @@ func TestSleepCheckInstall(t *testing.T) {
 
 			select {
 			case <-readyChan:
-				assert.Equal(t, isReady.Load(), true)
+				assert.Truef(t, isReady.Load().(bool), "isReady should have been set to true")
 			case err = <-errChan:
 				if err == nil {
 					t.Fatal("invalid configuration detected")
@@ -249,7 +251,7 @@ func TestSleepCheckInstall(t *testing.T) {
 					// Either an invalid config did not return nil (which is an issue) or an unexpected error occurred
 					t.Fatal(err)
 				}
-				assert.Equal(t, isReady.Load(), false)
+				assert.Falsef(t, isReady.Load().(bool), "isReady should have been set to false after returning from sleepCheckInstall")
 			case <-time.After(5 * time.Second):
 				t.Fatal("timed out waiting for invalid configuration to be detected")
 			}
@@ -283,11 +285,11 @@ func TestCleanup(t *testing.T) {
 	for i, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			// Create temp directory for files
-			cniNetDir, err := os.MkdirTemp("", fmt.Sprintf("test-case-%d-cni-net", i))
+			cniNetDir, err := ioutil.TempDir("", fmt.Sprintf("test-case-%d-cni-net", i))
 			if err != nil {
 				t.Fatal(err)
 			}
-			cniBinDir, err := os.MkdirTemp("", fmt.Sprintf("test-case-%d-cni-bin", i))
+			cniBinDir, err := ioutil.TempDir("", fmt.Sprintf("test-case-%d-cni-bin", i))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -308,13 +310,13 @@ func TestCleanup(t *testing.T) {
 			}
 
 			// Create existing binary files
-			if err := os.WriteFile(filepath.Join(cniBinDir, "istio-cni"), []byte{1, 2, 3}, 0o755); err != nil {
+			if err := ioutil.WriteFile(filepath.Join(cniBinDir, "istio-cni"), []byte{1, 2, 3}, 0o755); err != nil {
 				t.Fatal(err)
 			}
 
 			// Create kubeconfig
 			kubeConfigFilePath := filepath.Join(cniNetDir, "kubeconfig")
-			if err := os.WriteFile(kubeConfigFilePath, []byte{1, 2, 3}, 0o755); err != nil {
+			if err := ioutil.WriteFile(kubeConfigFilePath, []byte{1, 2, 3}, 0o755); err != nil {
 				t.Fatal(err)
 			}
 
@@ -336,11 +338,11 @@ func TestCleanup(t *testing.T) {
 
 			// check if conf file is deleted/conflist file is updated
 			if c.chainedCNIPlugin {
-				resultConfig := testutils.ReadFile(t, cniConfigFilePath)
+				resultConfig := testutils.ReadFile(cniConfigFilePath, t)
 
 				goldenFilepath := filepath.Join("testdata", c.expectedConfigFilename)
-				goldenConfig := testutils.ReadFile(t, goldenFilepath)
-				testutils.CompareBytes(t, resultConfig, goldenConfig, goldenFilepath)
+				goldenConfig := testutils.ReadFile(goldenFilepath, t)
+				testutils.CompareBytes(resultConfig, goldenConfig, goldenFilepath, t)
 			} else if file.Exists(cniConfigFilePath) {
 				t.Fatalf("file %s was not deleted", c.configFilename)
 			}

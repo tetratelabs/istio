@@ -194,19 +194,8 @@ func TestServiceConversion(t *testing.T) {
 			service.Hostname, ServiceHostname(serviceName, namespace, domainSuffix))
 	}
 
-	ips := service.ClusterVIPs.GetAddressesFor(clusterID)
-	if len(ips) != 1 {
-		t.Fatalf("number of ips incorrect => %q, want 1", len(ips))
-	}
-
-	if ips[0] != ip {
-		t.Fatalf("service IP incorrect => %q, want %q", ips[0], ip)
-	}
-
-	actualIPs := service.ClusterVIPs.GetAddressesFor(clusterID)
-	expectedIPs := []string{ip}
-	if !reflect.DeepEqual(actualIPs, expectedIPs) {
-		t.Fatalf("service IPs incorrect => %q, want %q", actualIPs, expectedIPs)
+	if service.Address != ip {
+		t.Fatalf("service IP incorrect => %q, want %q", service.Address, ip)
 	}
 
 	if !reflect.DeepEqual(service.Attributes.LabelSelectors, localSvc.Spec.Selector) {
@@ -400,8 +389,7 @@ func TestLBServiceConversion(t *testing.T) {
 		t.Fatalf("could not convert external service")
 	}
 
-	gotAddresses := service.Attributes.ClusterExternalAddresses.GetAddressesFor(clusterID)
-	if len(gotAddresses) == 0 {
+	if len(service.Attributes.ClusterExternalAddresses[clusterID]) == 0 {
 		t.Fatalf("no load balancer addresses found")
 	}
 
@@ -412,7 +400,7 @@ func TestLBServiceConversion(t *testing.T) {
 		} else {
 			want = addr.Hostname
 		}
-		got := gotAddresses[i]
+		got := service.Attributes.ClusterExternalAddresses[clusterID][i]
 		if got != want {
 			t.Fatalf("Expected address %s but got %s", want, got)
 		}

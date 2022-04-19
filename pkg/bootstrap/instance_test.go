@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -32,16 +33,16 @@ import (
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	trace "github.com/envoyproxy/go-control-plane/envoy/config/trace/v3"
 	matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
+	"github.com/ghodss/yaml"
 	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
-	"sigs.k8s.io/yaml"
 
 	"istio.io/api/annotation"
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pilot/test/util"
 	"istio.io/istio/pkg/bootstrap/platform"
-	"istio.io/istio/pkg/util/protomarshal"
 )
 
 type stats struct {
@@ -81,6 +82,7 @@ func TestGolden(t *testing.T) {
 		expectLightstepAccessToken bool
 		stats                      stats
 		checkLocality              bool
+		proxyViaAgent              bool
 		stsPort                    int
 		platformMeta               map[string]string
 		setup                      func()
@@ -88,7 +90,8 @@ func TestGolden(t *testing.T) {
 		check                      func(got *bootstrap.Bootstrap, t *testing.T)
 	}{
 		{
-			base: "xdsproxy",
+			base:          "xdsproxy",
+			proxyViaAgent: true,
 		},
 		{
 			base: "auth",
@@ -298,7 +301,7 @@ func TestGolden(t *testing.T) {
 				meta: c.platformMeta,
 			}
 
-			annoFile, err := os.CreateTemp("", "annotations")
+			annoFile, err := ioutil.TempFile("", "annotations")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -318,6 +321,7 @@ func TestGolden(t *testing.T) {
 					"spiffe://cluster.local/ns/istio-system/sa/istio-pilot-service-account",
 				},
 				OutlierLogPath:      "/dev/stdout",
+				ProxyViaAgent:       c.proxyViaAgent,
 				annotationFilePath:  annoFile.Name(),
 				EnvoyPrometheusPort: 15090,
 				EnvoyStatusPort:     15021,
@@ -332,7 +336,7 @@ func TestGolden(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			read, err := os.ReadFile(fn)
+			read, err := ioutil.ReadFile(fn)
 			if err != nil {
 				t.Error("Error reading generated file ", err)
 				return
@@ -340,23 +344,23 @@ func TestGolden(t *testing.T) {
 
 			// apply minor modifications for the generated file so that tests are consistent
 			// across different env setups
-			err = os.WriteFile(fn, correctForEnvDifference(read, !c.checkLocality), 0o700)
+			err = ioutil.WriteFile(fn, correctForEnvDifference(read, !c.checkLocality), 0o700)
 			if err != nil {
 				t.Error("Error modifying generated file ", err)
 				return
 			}
 
 			// re-read generated file with the changes having been made
-			read, err = os.ReadFile(fn)
+			read, err = ioutil.ReadFile(fn)
 			if err != nil {
 				t.Error("Error reading generated file ", err)
 				return
 			}
 
 			goldenFile := "testdata/" + c.base + "_golden.json"
-			util.RefreshGoldenFile(t, read, goldenFile)
+			util.RefreshGoldenFile(read, goldenFile, t)
 
-			golden, err := os.ReadFile(goldenFile)
+			golden, err := ioutil.ReadFile(goldenFile)
 			if err != nil {
 				golden = []byte{}
 			}
@@ -369,7 +373,7 @@ func TestGolden(t *testing.T) {
 				t.Fatalf("unable to convert: %s %v", c.base, err)
 			}
 
-			if err = protomarshal.Unmarshal(jgolden, goldenM); err != nil {
+			if err = jsonpb.UnmarshalString(string(jgolden), goldenM); err != nil {
 				t.Fatalf("invalid json %s %s\n%v", c.base, err, string(jgolden))
 			}
 
@@ -377,7 +381,7 @@ func TestGolden(t *testing.T) {
 				t.Fatalf("invalid golden %s: %v", c.base, err)
 			}
 
-			if err = protomarshal.Unmarshal(read, realM); err != nil {
+			if err = jsonpb.UnmarshalString(string(read), realM); err != nil {
 				t.Fatalf("invalid json %v\n%s", err, string(read))
 			}
 
@@ -541,7 +545,7 @@ func correctForEnvDifference(in []byte, excludeLocality bool) []byte {
 }
 
 func loadProxyConfig(base, out string, _ *testing.T) (*meshconfig.ProxyConfig, error) {
-	content, err := os.ReadFile("testdata/" + base + ".proxycfg")
+	content, err := ioutil.ReadFile("testdata/" + base + ".proxycfg")
 	if err != nil {
 		return nil, err
 	}
@@ -562,6 +566,36 @@ func loadProxyConfig(base, out string, _ *testing.T) (*meshconfig.ProxyConfig, e
 		cfg.StatusPort = 15020
 	}
 	return cfg, nil
+}
+
+func TestIsIPv6Proxy(t *testing.T) {
+	tests := []struct {
+		name     string
+		addrs    []string
+		expected bool
+	}{
+		{
+			name:     "ipv4 only",
+			addrs:    []string{"1.1.1.1", "127.0.0.1", "2.2.2.2"},
+			expected: false,
+		},
+		{
+			name:     "ipv6 only",
+			addrs:    []string{"1111:2222::1", "::1", "2222:3333::1"},
+			expected: true,
+		},
+		{
+			name:     "mixed ipv4 and ipv6",
+			addrs:    []string{"1111:2222::1", "::1", "127.0.0.1", "2.2.2.2", "2222:3333::1"},
+			expected: false,
+		},
+	}
+	for _, tt := range tests {
+		result := isIPv6Proxy(tt.addrs)
+		if result != tt.expected {
+			t.Errorf("Test %s failed, expected: %t got: %t", tt.name, tt.expected, result)
+		}
+	}
 }
 
 // createEnv takes labels and annotations are returns environment in go format.

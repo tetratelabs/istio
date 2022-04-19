@@ -21,23 +21,14 @@ import (
 	"math"
 	"strings"
 	"time"
-)
 
-type ResourceType int
-
-const (
-	Namespace ResourceType = iota
-	Deployment
-	Pod
-	Label
-	Annotation
-	Container
+	cluster2 "istio.io/istio/tools/bug-report/pkg/cluster"
 )
 
 // SelectionSpec is a spec for pods that will be Include in the capture
 // archive. The format is:
 //
-//   Namespace1,Namespace2../Deployments/Pods/Label1,Label2.../Annotation1,Annotation2.../ContainerName1,ContainerName2...
+//   Namespace1,Namespace2../Services/Pods/Label1,Label2.../Annotation1,Annotation2.../ContainerName1,ContainerName2...
 //
 // Namespace, pod and container names are pattern matching while labels
 // and annotations may have pattern in the values with exact match for keys.
@@ -91,7 +82,7 @@ func (s SelectionSpecs) String() string {
 			st += fmt.Sprintf("Namespaces: %s", strings.Join(ss.Namespaces, ","))
 		}
 		if !defaultListSetting(ss.Deployments) {
-			st += fmt.Sprintf("/Deployments: %s", strings.Join(ss.Deployments, ","))
+			st += fmt.Sprintf("/Services: %s", strings.Join(ss.Deployments, ","))
 		}
 		if !defaultListSetting(ss.Pods) {
 			st += fmt.Sprintf("/Pods:%s", strings.Join(ss.Pods, ","))
@@ -191,7 +182,7 @@ func (b *BugReportConfig) String() string {
 }
 
 func parseToIncludeTypeSlice(s string) []string {
-	if strings.TrimSpace(s) == "*" || s == "" {
+	if strings.TrimSpace(s) == "*" {
 		return nil
 	}
 	return strings.Split(s, ",")
@@ -219,28 +210,28 @@ func parseToIncludeTypeMap(s string) (map[string]string, error) {
 }
 
 func (s *SelectionSpec) UnmarshalJSON(b []byte) error {
-	ft := []ResourceType{Namespace, Deployment, Pod, Label, Annotation, Container}
+	ft := []cluster2.ResourceType{cluster2.Namespace, cluster2.Deployment, cluster2.Pod, cluster2.Label, cluster2.Annotation, cluster2.Container}
 	str := strings.TrimPrefix(strings.TrimSuffix(string(b), `"`), `"`)
 	for i, f := range strings.Split(str, "/") {
 		var err error
 		switch ft[i] {
-		case Namespace:
+		case cluster2.Namespace:
 			s.Namespaces = parseToIncludeTypeSlice(f)
-		case Deployment:
+		case cluster2.Deployment:
 			s.Deployments = parseToIncludeTypeSlice(f)
-		case Pod:
+		case cluster2.Pod:
 			s.Pods = parseToIncludeTypeSlice(f)
-		case Label:
+		case cluster2.Label:
 			s.Labels, err = parseToIncludeTypeMap(f)
 			if err != nil {
 				return err
 			}
-		case Annotation:
+		case cluster2.Annotation:
 			s.Annotations, err = parseToIncludeTypeMap(f)
 			if err != nil {
 				return err
 			}
-		case Container:
+		case cluster2.Container:
 			s.Containers = parseToIncludeTypeSlice(f)
 		}
 	}
@@ -252,17 +243,17 @@ func (s *SelectionSpec) MarshalJSON() ([]byte, error) {
 	out := fmt.Sprint(strings.Join(s.Namespaces, ","))
 	out += fmt.Sprintf("/%s", strings.Join(s.Deployments, ","))
 	out += fmt.Sprintf("/%s", strings.Join(s.Pods, ","))
-	tmp := []string{}
-	for k, v := range s.Labels {
-		tmp = append(tmp, fmt.Sprintf("%s=%s", k, v))
-	}
-	out += fmt.Sprintf("/%s", strings.Join(tmp, ","))
-	tmp = []string{}
-	for k, v := range s.Annotations {
-		tmp = append(tmp, fmt.Sprintf("%s=%s", k, v))
-	}
-	out += fmt.Sprintf("/%s", strings.Join(tmp, ","))
 	out += fmt.Sprintf("/%s", strings.Join(s.Containers, ","))
+	tmp := "/"
+	for k, v := range s.Labels {
+		tmp += fmt.Sprintf("%s=%s", k, v)
+	}
+	out += tmp
+	tmp = "/"
+	for k, v := range s.Annotations {
+		tmp += fmt.Sprintf("%s=%s", k, v)
+	}
+	out += tmp
 	return []byte(`"` + out + `"`), nil
 }
 

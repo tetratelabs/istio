@@ -62,19 +62,7 @@ func newPodCache(c *Controller, informer filter.FilteredSharedIndexInformer, que
 	return out
 }
 
-// Copied from kubernetes/pkg/controller/endpoint/endpoints_controller.go
-func shouldPodBeInEndpoints(pod *v1.Pod) bool {
-	switch pod.Spec.RestartPolicy {
-	case v1.RestartPolicyNever:
-		return pod.Status.Phase != v1.PodFailed && pod.Status.Phase != v1.PodSucceeded
-	case v1.RestartPolicyOnFailure:
-		return pod.Status.Phase != v1.PodSucceeded
-	default:
-		return true
-	}
-}
-
-// IsPodReady is copied from kubernetes/pkg/api/v1/pod/utils.go
+// copy from kubernetes/pkg/api/v1/pod/utils.go
 func IsPodReady(pod *v1.Pod) bool {
 	return IsPodReadyConditionTrue(pod.Status)
 }
@@ -113,6 +101,9 @@ func GetPodConditionFromList(conditions []v1.PodCondition, conditionType v1.PodC
 
 // onEvent updates the IP-based index (pc.podsByIP).
 func (pc *PodCache) onEvent(curr interface{}, ev model.Event) error {
+	pc.Lock()
+	defer pc.Unlock()
+
 	// When a pod is deleted obj could be an *v1.Pod or a DeletionFinalStateUnknown marker item.
 	pod, ok := curr.(*v1.Pod)
 	if !ok {
@@ -127,56 +118,66 @@ func (pc *PodCache) onEvent(curr interface{}, ev model.Event) error {
 	}
 
 	ip := pod.Status.PodIP
+
 	// PodIP will be empty when pod is just created, but before the IP is assigned
 	// via UpdateStatus.
-	if len(ip) == 0 {
-		return nil
-	}
-
-	key := kube.KeyFunc(pod.Name, pod.Namespace)
-	switch ev {
-	case model.EventAdd:
-		// can happen when istiod just starts
-		if pod.DeletionTimestamp != nil || !IsPodReady(pod) {
-			return nil
-		} else if shouldPodBeInEndpoints(pod) {
-			pc.update(ip, key)
-		} else {
-			return nil
-		}
-	case model.EventUpdate:
-		if pod.DeletionTimestamp != nil || !IsPodReady(pod) {
+	if len(ip) > 0 {
+		key := kube.KeyFunc(pod.Name, pod.Namespace)
+		switch ev {
+		case model.EventAdd:
+			switch pod.Status.Phase {
+			case v1.PodPending, v1.PodRunning:
+				if key != pc.podsByIP[ip] {
+					// add to cache if the pod is running or pending
+					pc.update(ip, key)
+				}
+				if !IsPodReady(pod) {
+					ev = model.EventDelete
+				}
+			}
+		case model.EventUpdate:
+			if pod.DeletionTimestamp != nil {
+				// delete only if this pod was in the cache
+				if pc.podsByIP[ip] == key {
+					pc.deleteIP(ip)
+				}
+				ev = model.EventDelete
+			} else {
+				switch pod.Status.Phase {
+				case v1.PodPending, v1.PodRunning:
+					if key != pc.podsByIP[ip] {
+						// add to cache if the pod is running or pending
+						pc.update(ip, key)
+					}
+					if !IsPodReady(pod) {
+						ev = model.EventDelete
+					}
+				default:
+					// delete if the pod switched to other states and is in the cache
+					if pc.podsByIP[ip] == key {
+						pc.deleteIP(ip)
+					}
+					ev = model.EventDelete
+				}
+			}
+		case model.EventDelete:
 			// delete only if this pod was in the cache
-			pc.deleteIP(ip, key)
-			ev = model.EventDelete
-		} else if shouldPodBeInEndpoints(pod) {
-			pc.update(ip, key)
-		} else {
-			return nil
+			if pc.podsByIP[ip] == key {
+				pc.deleteIP(ip)
+			}
 		}
-	case model.EventDelete:
-		// delete only if this pod was in the cache,
-		// in most case it has already been deleted in `UPDATE` with `DeletionTimestamp` set.
-		if !pc.deleteIP(ip, key) {
-			return nil
+		// fire instance handles for workload
+		for _, handler := range pc.c.workloadHandlers {
+			ep := NewEndpointBuilder(pc.c, pod).buildIstioEndpoint(ip, 0, "", model.AlwaysDiscoverable)
+			handler(&model.WorkloadInstance{
+				Name:      pod.Name,
+				Namespace: pod.Namespace,
+				Endpoint:  ep,
+				PortMap:   getPortMap(pod),
+			}, ev)
 		}
 	}
-	pc.notifyWorkloadHandlers(pod, ev)
 	return nil
-}
-
-// notifyWorkloadHandlers fire workloadInstance handlers for pod
-func (pc *PodCache) notifyWorkloadHandlers(pod *v1.Pod, ev model.Event) {
-	// fire instance handles for workload
-	ep := NewEndpointBuilder(pc.c, pod).buildIstioEndpoint(pod.Status.PodIP, 0, "", model.AlwaysDiscoverable)
-	workloadInstance := &model.WorkloadInstance{
-		Name:      pod.Name,
-		Namespace: pod.Namespace,
-		Kind:      model.PodKind,
-		Endpoint:  ep,
-		PortMap:   getPortMap(pod),
-	}
-	pc.c.handlers.NotifyWorkloadHandlers(workloadInstance, ev)
 }
 
 func getPortMap(pod *v1.Pod) map[string]uint32 {
@@ -195,25 +196,13 @@ func getPortMap(pod *v1.Pod) map[string]uint32 {
 	return pmap
 }
 
-// deleteIP returns true if the pod and ip are really deleted.
-func (pc *PodCache) deleteIP(ip string, podKey string) bool {
-	pc.Lock()
-	defer pc.Unlock()
-	if pc.podsByIP[ip] == podKey {
-		delete(pc.podsByIP, ip)
-		delete(pc.IPByPods, podKey)
-		return true
-	}
-	return false
+func (pc *PodCache) deleteIP(ip string) {
+	pod := pc.podsByIP[ip]
+	delete(pc.podsByIP, ip)
+	delete(pc.IPByPods, pod)
 }
 
 func (pc *PodCache) update(ip, key string) {
-	pc.Lock()
-	// if the pod has been cached, return
-	if key == pc.podsByIP[ip] {
-		pc.Unlock()
-		return
-	}
 	if current, f := pc.IPByPods[key]; f {
 		// The pod already exists, but with another IP Address. We need to clean up that
 		delete(pc.podsByIP, current)
@@ -228,7 +217,6 @@ func (pc *PodCache) update(ip, key string) {
 		}
 		endpointsPendingPodUpdate.Record(float64(len(pc.needResync)))
 	}
-	pc.Unlock()
 
 	pc.proxyUpdates(ip)
 }
@@ -263,6 +251,7 @@ func (pc *PodCache) proxyUpdates(ip string) {
 	}
 }
 
+// nolint: unparam
 func (pc *PodCache) getPodKey(addr string) (string, bool) {
 	pc.RLock()
 	defer pc.RUnlock()

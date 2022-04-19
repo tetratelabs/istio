@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"path"
 	"testing"
 	"time"
@@ -26,7 +25,6 @@ import (
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/balancer"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/serviceconfig"
 
@@ -165,7 +163,7 @@ func TestGRPC(t *testing.T) {
 		rb := xdsresolver
 		stateCh := &Channel{ch: make(chan interface{}, 1)}
 		errorCh := &Channel{ch: make(chan interface{}, 1)}
-		_, err := rb.Build(resolver.Target{URL: url.URL{Scheme: "xds", Path: "/" + istiodSvcAddr}},
+		_, err := rb.Build(resolver.Target{Endpoint: istiodSvcAddr},
 			&testClientConn{stateCh: stateCh, errorCh: errorCh}, resolver.BuildOptions{})
 		if err != nil {
 			t.Fatal("Failed to resolve XDS ", err)
@@ -182,7 +180,7 @@ func TestGRPC(t *testing.T) {
 	})
 
 	t.Run("gRPC-cdslb", func(t *testing.T) {
-		rb := balancer.Get("cluster_resolver_experimental")
+		rb := balancer.Get("eds_experimental")
 		b := rb.Build(&testLBClientConn{}, balancer.BuildOptions{})
 		defer b.Close()
 	})
@@ -197,7 +195,7 @@ func TestGRPC(t *testing.T) {
 			t.Run(host, func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 				defer cancel()
-				conn, err := grpc.DialContext(ctx, "xds:///"+host+":14057", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock(),
+				conn, err := grpc.DialContext(ctx, "xds:///"+host+":14057", grpc.WithInsecure(), grpc.WithBlock(),
 					grpc.WithResolvers(xdsresolver))
 				if err != nil {
 					t.Fatal("XDS gRPC", err)

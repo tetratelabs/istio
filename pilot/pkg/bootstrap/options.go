@@ -102,7 +102,7 @@ type InjectionOptions struct {
 	InjectionDirectory string
 }
 
-// TLSOptions is optional TLS parameters for Istiod server.
+// Optional TLS parameters for Istiod server.
 type TLSOptions struct {
 	CaCertFile      string
 	CertFile        string
@@ -134,6 +134,13 @@ func NewPilotArgs(initFuncs ...func(*PilotArgs)) *PilotArgs {
 		fn(p)
 	}
 
+	// Set the ClusterRegistries namespace based on the selected namespace.
+	if p.Namespace != "" {
+		p.RegistryOptions.ClusterRegistriesNamespace = p.Namespace
+	} else {
+		p.RegistryOptions.ClusterRegistriesNamespace = constants.IstioSystemNamespace
+	}
+
 	return p
 }
 
@@ -146,7 +153,6 @@ func (p *PilotArgs) applyDefaults() {
 	p.KeepaliveOptions = keepalive.DefaultOption()
 	p.RegistryOptions.DistributionTrackingEnabled = features.EnableDistributionTracking
 	p.RegistryOptions.DistributionCacheRetention = features.DistributionHistoryRetention
-	p.RegistryOptions.ClusterRegistriesNamespace = p.Namespace
 }
 
 func (p *PilotArgs) Complete() error {

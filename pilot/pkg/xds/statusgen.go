@@ -20,8 +20,8 @@ import (
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	status "github.com/envoyproxy/go-control-plane/envoy/service/status/v3"
-	"google.golang.org/protobuf/proto"
-	any "google.golang.org/protobuf/types/known/anypb"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/any"
 
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
@@ -119,24 +119,31 @@ func (sg *StatusGen) debugSyncz() model.Resources {
 		con.proxy.RLock()
 		// Skip "nodes" without metdata (they are probably istioctl queries!)
 		if isProxy(con) {
-			xdsConfigs := make([]*status.ClientConfig_GenericXdsConfig, 0)
+			xdsConfigs := []*status.PerXdsConfig{}
 			for _, stype := range stypes {
-				pxc := &status.ClientConfig_GenericXdsConfig{}
+				pxc := &status.PerXdsConfig{}
 				if watchedResource, ok := con.proxy.WatchedResources[stype]; ok {
-					pxc.ConfigStatus = debugSyncStatus(watchedResource)
+					pxc.Status = debugSyncStatus(watchedResource)
 				} else {
-					pxc.ConfigStatus = status.ConfigStatus_NOT_SENT
+					pxc.Status = status.ConfigStatus_NOT_SENT
 				}
-
-				pxc.TypeUrl = stype
-
+				switch stype {
+				case v3.ListenerType:
+					pxc.PerXdsConfig = &status.PerXdsConfig_ListenerConfig{}
+				case v3.RouteType:
+					pxc.PerXdsConfig = &status.PerXdsConfig_RouteConfig{}
+				case v3.EndpointType:
+					pxc.PerXdsConfig = &status.PerXdsConfig_EndpointConfig{}
+				case v3.ClusterType:
+					pxc.PerXdsConfig = &status.PerXdsConfig_ClusterConfig{}
+				}
 				xdsConfigs = append(xdsConfigs, pxc)
 			}
 			clientConfig := &status.ClientConfig{
 				Node: &core.Node{
 					Id: con.proxy.ID,
 				},
-				GenericXdsConfigs: xdsConfigs,
+				XdsConfig: xdsConfigs,
 			}
 			res = append(res, &discovery.Resource{
 				Name:     clientConfig.Node.Id,

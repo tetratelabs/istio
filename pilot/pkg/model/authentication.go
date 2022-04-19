@@ -84,7 +84,7 @@ type AuthenticationPolicies struct {
 
 	peerAuthentications map[string][]config.Config
 
-	// namespaceMutualTLSMode is the MutualTLSMode corresponding to the namespace-level PeerAuthentication.
+	// namespaceMutualTLSMode is the MutualTLSMode correspoinding to the namespace-level PeerAuthentication.
 	// All namespace-level policies, and only them, are added to this map. If the policy mTLS mode is set
 	// to UNSET, it will be resolved to the value set by mesh policy if exist (i.e not UNKNOWN), or MTLSPermissive
 	// otherwise.
@@ -96,8 +96,8 @@ type AuthenticationPolicies struct {
 
 	rootNamespace string
 
-	// aggregateVersion contains the versions of all peer authentications.
-	aggregateVersion string
+	// AggregateVersion contains the versions of all peer authentications.
+	AggregateVersion string
 }
 
 // initAuthenticationPolicies creates a new AuthenticationPolicies struct and populates with the
@@ -130,7 +130,8 @@ func initAuthenticationPolicies(env *Environment) (*AuthenticationPolicies, erro
 
 func (policy *AuthenticationPolicies) addRequestAuthentication(configs []config.Config) {
 	for _, config := range configs {
-		policy.requestAuthentications[config.Namespace] = append(policy.requestAuthentications[config.Namespace], config)
+		policy.requestAuthentications[config.Namespace] =
+			append(policy.requestAuthentications[config.Namespace], config)
 	}
 }
 
@@ -168,24 +169,25 @@ func (policy *AuthenticationPolicies) addPeerAuthentication(configs []config.Con
 					policy.globalMutualTLSMode = ConvertToMutualTLSMode(mode)
 				}
 			} else {
-				// For regular namespace, just add to the intermediate map.
+				// For regular namespace, just add to the intemediate map.
 				foundNamespaceMTLS[config.Namespace] = mode
 			}
 		}
 
 		// Add the config to the map by namespace for future look up. This is done after namespace/mesh
 		// singleton check so there should be at most one namespace/mesh config is added to the map.
-		policy.peerAuthentications[config.Namespace] = append(policy.peerAuthentications[config.Namespace], config)
+		policy.peerAuthentications[config.Namespace] =
+			append(policy.peerAuthentications[config.Namespace], config)
 	}
 
-	policy.aggregateVersion = fmt.Sprintf("%x", md5.Sum([]byte(strings.Join(versions, ";"))))
+	policy.AggregateVersion = fmt.Sprintf("%x", md5.Sum([]byte(strings.Join(versions, ";"))))
 
 	// Process found namespace-level policy.
 	policy.namespaceMutualTLSMode = make(map[string]MutualTLSMode, len(foundNamespaceMTLS))
 
 	inheritedMTLSMode := policy.globalMutualTLSMode
 	if inheritedMTLSMode == MTLSUnknown {
-		// If the mesh policy is not explicitly presented, use default value MTLSPermissive.
+		// If the mesh policy is not explicitly presented, use default valude MTLSPermissive.
 		inheritedMTLSMode = MTLSPermissive
 	}
 	for ns, mtlsMode := range foundNamespaceMTLS {
@@ -222,11 +224,6 @@ func (policy *AuthenticationPolicies) GetPeerAuthenticationsForWorkload(namespac
 // GetRootNamespace return root namespace that is tracked by the policy object.
 func (policy *AuthenticationPolicies) GetRootNamespace() string {
 	return policy.rootNamespace
-}
-
-// GetVersion return versions of all peer authentications..
-func (policy *AuthenticationPolicies) GetVersion() string {
-	return policy.aggregateVersion
 }
 
 func getConfigsForWorkload(configsByNamespace map[string][]config.Config,
@@ -267,4 +264,59 @@ func getConfigsForWorkload(configsByNamespace map[string][]config.Config,
 	}
 
 	return configs
+}
+
+// SdsCertificateConfig holds TLS certs needed to build SDS TLS context.
+type SdsCertificateConfig struct {
+	CertificatePath   string
+	PrivateKeyPath    string
+	CaCertificatePath string
+}
+
+// GetResourceName converts a SdsCertificateConfig to a string to be used as an SDS resource name
+func (s SdsCertificateConfig) GetResourceName() string {
+	if s.IsKeyCertificate() {
+		return "file-cert:" + s.CertificatePath + ResourceSeparator + s.PrivateKeyPath // Format: file-cert:%s~%s
+	}
+	return ""
+}
+
+// GetRootResourceName converts a SdsCertificateConfig to a string to be used as an SDS resource name for the root
+func (s SdsCertificateConfig) GetRootResourceName() string {
+	if s.IsRootCertificate() {
+		return "file-root:" + s.CaCertificatePath // Format: file-root:%s
+	}
+	return ""
+}
+
+// IsRootCertificate returns true if this config represents a root certificate config.
+func (s SdsCertificateConfig) IsRootCertificate() bool {
+	return s.CaCertificatePath != ""
+}
+
+// IsKeyCertificate returns true if this config represents key certificate config.
+func (s SdsCertificateConfig) IsKeyCertificate() bool {
+	return s.CertificatePath != "" && s.PrivateKeyPath != ""
+}
+
+// SdsCertificateConfigFromResourceName converts the provided resource name into a SdsCertificateConfig
+// If the resource name is not valid, false is returned.
+func SdsCertificateConfigFromResourceName(resource string) (SdsCertificateConfig, bool) {
+	if strings.HasPrefix(resource, "file-cert:") {
+		filesString := strings.TrimPrefix(resource, "file-cert:")
+		split := strings.Split(filesString, ResourceSeparator)
+		if len(split) != 2 {
+			return SdsCertificateConfig{}, false
+		}
+		return SdsCertificateConfig{split[0], split[1], ""}, true
+	} else if strings.HasPrefix(resource, "file-root:") {
+		filesString := strings.TrimPrefix(resource, "file-root:")
+		split := strings.Split(filesString, ResourceSeparator)
+		if len(split) != 1 {
+			return SdsCertificateConfig{}, false
+		}
+		return SdsCertificateConfig{"", "", split[0]}, true
+	} else {
+		return SdsCertificateConfig{}, false
+	}
 }

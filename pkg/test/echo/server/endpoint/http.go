@@ -86,13 +86,9 @@ func (s *httpInstance) Start(onReady OnReadyFunc) error {
 		if cerr != nil {
 			return fmt.Errorf("could not load TLS keys: %v", cerr)
 		}
-		nextProtos := []string{"h2", "http/1.1", "http/1.0"}
-		if s.DisableALPN {
-			nextProtos = nil
-		}
 		config := &tls.Config{
 			Certificates: []tls.Certificate{cert},
-			NextProtos:   nextProtos,
+			NextProtos:   []string{"h2", "http/1.1", "http/1.0"},
 			GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
 				// There isn't a way to pass through all ALPNs presented by the client down to the
 				// HTTP server to return in the response. However, for debugging, we can at least log
@@ -166,7 +162,6 @@ func (s *httpInstance) awaitReady(onReady OnReadyFunc, address string) {
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
 
 		// The handler applies server readiness when handling HTTP requests. Since the
 		// server won't become ready until all endpoints (including this one) report
@@ -373,8 +368,7 @@ func setHeaderResponseFromHeaders(request *http.Request, response http.ResponseW
 		}
 		name := parts[0]
 		value := parts[1]
-		// Avoid using .Set() to allow users to pass non-canonical forms
-		response.Header()[name] = []string{value}
+		response.Header().Set(name, value)
 	}
 	return nil
 }

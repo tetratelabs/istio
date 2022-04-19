@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,10 +16,8 @@
 package pilot
 
 import (
-	"fmt"
 	"testing"
 
-	kubelib "istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/resource"
@@ -40,16 +36,13 @@ var (
 func TestMain(m *testing.M) {
 	framework.
 		NewSuite(m).
-		RequireMultiPrimary().
 		RequireMinVersion(17).
 		Setup(istio.Setup(&i, func(t resource.Context, cfg *istio.Config) {
-			cfg.ControlPlaneValues = fmt.Sprintf(`
+			cfg.ControlPlaneValues = `
 values:
   pilot:
     env:
-      PILOT_USE_ENDPOINT_SLICE: "%v"`,
-				// for k8s 1.21+, this suite should test disabling EndpointSlice mode
-				kubelib.IsLessThanVersion(t.Clusters().Kube().Default(), 21))
+      PILOT_USE_ENDPOINT_SLICE: "true"`
 		})).
 		Setup(func(t resource.Context) error {
 			return common.SetupApps(t, i, apps)

@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -65,7 +66,7 @@ func (e *Env) TearDown() {
 }
 
 func getDataFromFile(filePath string, t *testing.T) string {
-	data, err := os.ReadFile(filePath)
+	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		t.Fatalf("failed to read %q", filePath)
 	}
@@ -213,7 +214,6 @@ func (e *Env) WaitForStsFlowReady(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		resp, err := hTTPClient.Do(req)
 		if err == nil {
-			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK && resp.Header.Get("Content-Type") == "application/json" {
 				t.Logf("%s all servers in the STS flow are up and ready", time.Now().String())
 				return
@@ -249,8 +249,9 @@ func setupSTS(stsPort int, backendURL string, enableCache bool) (*stsServer.Serv
 	accessTokenTestingEndpoint := backendURL + "/v1/projects/-/serviceAccounts/service-%s@gcp-sa-meshdataplane.iam.gserviceaccount.com:generateAccessToken"
 	tokenExchangePlugin.SetEndpoints(federatedTokenTestingEndpoint, accessTokenTestingEndpoint)
 	// Create token manager
-	tm := &tokenmanager.TokenManager{}
-	tm.SetPlugin(tokenExchangePlugin)
+	tm := tokenmanager.CreateTokenManager(tokenmanager.GoogleTokenExchange,
+		tokenmanager.Config{TrustDomain: tokenBackend.FakeTrustDomain})
+	tm.(*tokenmanager.TokenManager).SetPlugin(tokenExchangePlugin)
 	// Create STS server
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:%d", stsPort))
 	if err != nil {

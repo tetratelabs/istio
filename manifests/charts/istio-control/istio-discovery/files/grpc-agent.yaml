@@ -1,15 +1,11 @@
 {{- $containers := list }}
 {{- range $index, $container := .Spec.Containers }}{{ if not (eq $container.Name "istio-proxy") }}{{ $containers = append $containers $container.Name }}{{end}}{{- end}}
 metadata:
-  labels:
-    service.istio.io/canonical-name: {{ index .ObjectMeta.Labels `service.istio.io/canonical-name` | default (index .ObjectMeta.Labels `app.kubernetes.io/name`) | default (index .ObjectMeta.Labels `app`) | default .DeploymentMeta.Name  | quote }}
-    service.istio.io/canonical-revision: {{ index .ObjectMeta.Labels `service.istio.io/canonical-revision` | default (index .ObjectMeta.Labels `app.kubernetes.io/version`) | default (index .ObjectMeta.Labels `version`) | default "latest"  | quote }}
   annotations: {
     {{- if eq (len $containers) 1 }}
     kubectl.kubernetes.io/default-logs-container: "{{ index $containers 0 }}",
     kubectl.kubernetes.io/default-container: "{{ index $containers 0 }}",
     {{ end }}
-    sidecar.istio.io/rewriteAppHTTPProbers: "false",
   }
 spec:
   containers:
@@ -17,10 +13,10 @@ spec:
   {{ if not (eq $container.Name "istio-proxy") }}
   - name: {{ $container.Name }}
     env:
+    - name: "GRPC_XDS_BOOTSTRAP"
+      value: "/var/lib/istio/data/grpc-bootstrap.json"
     - name: "GRPC_XDS_EXPERIMENTAL_SECURITY_SUPPORT"
       value: "true"
-    - name: "GRPC_XDS_BOOTSTRAP"
-      value: "/etc/istio/proxy/grpc-bootstrap.json"
     volumeMounts:
     - mountPath: /var/lib/istio/data
       name: istio-data
@@ -33,7 +29,7 @@ spec:
   {{- if contains "/" (annotation .ObjectMeta `sidecar.istio.io/proxyImage` .Values.global.proxy.image) }}
     image: "{{ annotation .ObjectMeta `sidecar.istio.io/proxyImage` .Values.global.proxy.image }}"
   {{- else }}
-    image: "{{ .ProxyImage }}"
+    image: "{{ .Values.global.hub }}/{{ .Values.global.proxy.image }}:{{ .Values.global.tag }}"
   {{- end }}
     args:
     - proxy
@@ -48,6 +44,8 @@ spec:
     - --log_as_json
   {{- end }}
     env:
+    - name: "GRPC_XDS_BOOTSTRAP"
+      value: "/var/lib/istio/data/grpc-bootstrap.json"
     - name: ISTIO_META_GENERATOR
       value: grpc
     - name: OUTPUT_CERTS

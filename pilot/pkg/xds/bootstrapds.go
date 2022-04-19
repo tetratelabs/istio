@@ -21,7 +21,8 @@ import (
 
 	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	"google.golang.org/protobuf/proto"
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/proto"
 
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/model"
@@ -29,7 +30,6 @@ import (
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/util/runtime"
 	"istio.io/istio/pkg/bootstrap"
-	"istio.io/istio/pkg/util/protomarshal"
 )
 
 // Bootstrap generator produces an Envoy bootstrap from node descriptors.
@@ -40,8 +40,8 @@ type BootstrapGenerator struct {
 var _ model.XdsResourceGenerator = &BootstrapGenerator{}
 
 // Generate returns a bootstrap discovery response.
-func (e *BootstrapGenerator) Generate(proxy *model.Proxy, push *model.PushContext, w *model.WatchedResource,
-	updates *model.PushRequest) (model.Resources, model.XdsLogDetails, error) {
+func (e *BootstrapGenerator) Generate(proxy *model.Proxy, push *model.PushContext, _ *model.WatchedResource,
+	_ *model.PushRequest) (model.Resources, model.XdsLogDetails, error) {
 	// The model.Proxy information is incomplete, re-parse the discovery request.
 	node := bootstrap.ConvertXDSNodeToNode(proxy.XdsNode)
 
@@ -55,7 +55,7 @@ func (e *BootstrapGenerator) Generate(proxy *model.Proxy, push *model.PushContex
 	}
 
 	bs := &bootstrapv3.Bootstrap{}
-	if err = protomarshal.Unmarshal(buf.Bytes(), bs); err != nil {
+	if err = jsonpb.Unmarshal(io.Reader(&buf), bs); err != nil {
 		log.Warnf("failed to unmarshal bootstrap from JSON %q: %v", buf.String(), err)
 	}
 	bs = e.applyPatches(bs, proxy, push)

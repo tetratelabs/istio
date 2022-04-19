@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -607,7 +605,7 @@ spec:
 									"IP": getWorkload(dst[0], t).Address(),
 								},
 							), ns.Name())
-							return t.ConfigIstio().ApplyYAML(ns.Name(), cfg, fakesvc)
+							return t.Config().ApplyYAML(ns.Name(), cfg, fakesvc)
 						}).
 						From(srcFilter...).
 						ConditionallyTo(echotest.ReachableDestinations).

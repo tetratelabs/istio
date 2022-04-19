@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"reflect"
 	"regexp"
@@ -160,7 +161,7 @@ func createConstantString(path []string) string {
 
 // Reads the yaml file and generates a string constant for each leaf node
 func createLabelsFromYaml() string {
-	data, err := os.ReadFile(input)
+	data, err := ioutil.ReadFile(input)
 	if err != nil {
 		pwd, _ := os.Getwd()
 		fmt.Println("Error running featuresgen on file: ", pwd, "/", input)

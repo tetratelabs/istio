@@ -23,7 +23,7 @@ import (
 	"strconv"
 
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	any "google.golang.org/protobuf/types/known/anypb"
+	"github.com/golang/protobuf/ptypes/any"
 
 	"istio.io/istio/pilot/pkg/model"
 )

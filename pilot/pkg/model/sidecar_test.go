@@ -443,9 +443,7 @@ var (
 	}
 
 	services1 = []*Service{
-		{
-			Hostname: "bar",
-		},
+		{Hostname: "bar"},
 	}
 
 	services2 = []*Service{
@@ -453,9 +451,7 @@ var (
 			Hostname: "bar",
 			Ports:    port8000,
 		},
-		{
-			Hostname: "barprime",
-		},
+		{Hostname: "barprime"},
 	}
 
 	services3 = []*Service{
@@ -463,18 +459,12 @@ var (
 			Hostname: "bar",
 			Ports:    port9000,
 		},
-		{
-			Hostname: "barprime",
-		},
+		{Hostname: "barprime"},
 	}
 
 	services4 = []*Service{
-		{
-			Hostname: "bar",
-		},
-		{
-			Hostname: "barprime",
-		},
+		{Hostname: "bar"},
+		{Hostname: "barprime"},
 	}
 
 	services5 = []*Service{
@@ -1457,7 +1447,7 @@ func TestCreateSidecarScope(t *testing.T) {
 					}
 				}
 				if !found {
-					t.Errorf("UnExpected service %v in SidecarScope", s1.Hostname)
+					t.Errorf("UnExpected service %v in SidecarScope", s1)
 				}
 			}
 			// TODO destination rule
@@ -1629,14 +1619,8 @@ func TestContainsEgressDependencies(t *testing.T) {
 			ps.Mesh = &meshConfig
 
 			services := []*Service{
-				{
-					Hostname:   "nomatch",
-					Attributes: ServiceAttributes{Namespace: "nomatch"},
-				},
-				{
-					Hostname:   svcName,
-					Attributes: ServiceAttributes{Namespace: nsName},
-				},
+				{Hostname: "nomatch", Attributes: ServiceAttributes{Namespace: "nomatch"}},
+				{Hostname: svcName, Attributes: ServiceAttributes{Namespace: nsName}},
 			}
 			virtualServices := []config.Config{
 				{

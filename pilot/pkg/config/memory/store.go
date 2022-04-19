@@ -33,8 +33,6 @@ var (
 	errConflict = errors.New("conflicting resource version, try again")
 )
 
-const ResourceVersion string = "ResourceVersion"
-
 // Make creates an in-memory config store from a config schemas
 // It is with validation
 func Make(schemas collection.Schemas) model.ConfigStore {
@@ -125,7 +123,7 @@ func (cr *store) Delete(kind config.GroupVersionKind, name, namespace string, re
 	defer cr.mutex.Unlock()
 	data, ok := cr.data[kind]
 	if !ok {
-		return fmt.Errorf("unknown type %v", kind)
+		return errors.New("unknown type")
 	}
 	ns, exists := data[namespace]
 	if !exists {
@@ -164,9 +162,8 @@ func (cr *store) Create(cfg config.Config) (string, error) {
 
 	if !exists {
 		tnow := time.Now()
-		if cfg.ResourceVersion == "" {
-			cfg.ResourceVersion = tnow.String()
-		}
+		cfg.ResourceVersion = tnow.String()
+
 		// Set the creation timestamp, if not provided.
 		if cfg.CreationTimestamp.IsZero() {
 			cfg.CreationTimestamp = tnow
@@ -184,7 +181,45 @@ func (cr *store) Update(cfg config.Config) (string, error) {
 	kind := cfg.GroupVersionKind
 	s, ok := cr.schemas.FindByGroupVersionKind(kind)
 	if !ok {
-		return "", fmt.Errorf("unknown type %v", kind)
+		return "", errors.New("unknown type")
+	}
+	if !cr.skipValidation {
+		if _, err := s.Resource().ValidateConfig(cfg); err != nil {
+			return "", err
+		}
+	}
+
+	ns, exists := cr.data[kind][cfg.Namespace]
+	if !exists {
+		return "", errNotFound
+	}
+
+	_, exists = ns.Load(cfg.Name)
+	if !exists {
+		return "", errNotFound
+	}
+
+	existing, exists := ns.Load(cfg.Name)
+	if !exists {
+		return "", errNotFound
+	}
+	if hasConflict(existing.(config.Config), cfg) {
+		return "", errConflict
+	}
+
+	rev := time.Now().String()
+	cfg.ResourceVersion = rev
+	ns.Store(cfg.Name, cfg)
+	return rev, nil
+}
+
+func (cr *store) UpdateStatus(cfg config.Config) (string, error) {
+	cr.mutex.Lock()
+	defer cr.mutex.Unlock()
+	kind := cfg.GroupVersionKind
+	s, ok := cr.schemas.FindByGroupVersionKind(kind)
+	if !ok {
+		return "", errors.New("unknown type")
 	}
 	if !cr.skipValidation {
 		if _, err := s.Resource().ValidateConfig(cfg); err != nil {
@@ -204,19 +239,11 @@ func (cr *store) Update(cfg config.Config) (string, error) {
 	if hasConflict(existing.(config.Config), cfg) {
 		return "", errConflict
 	}
-	if cfg.Annotations != nil && cfg.Annotations[ResourceVersion] != "" {
-		cfg.ResourceVersion = cfg.Annotations[ResourceVersion]
-		delete(cfg.Annotations, ResourceVersion)
-	} else {
-		cfg.ResourceVersion = time.Now().String()
-	}
 
+	rev := time.Now().String()
+	cfg.ResourceVersion = rev
 	ns.Store(cfg.Name, cfg)
-	return cfg.ResourceVersion, nil
-}
-
-func (cr *store) UpdateStatus(cfg config.Config) (string, error) {
-	return cr.Update(cfg)
+	return rev, nil
 }
 
 func (cr *store) Patch(orig config.Config, patchFn config.PatchFunc) (string, error) {
@@ -226,7 +253,7 @@ func (cr *store) Patch(orig config.Config, patchFn config.PatchFunc) (string, er
 	gvk := orig.GroupVersionKind
 	s, ok := cr.schemas.FindByGroupVersionKind(gvk)
 	if !ok {
-		return "", fmt.Errorf("unknown type %v", gvk)
+		return "", errors.New("unknown type")
 	}
 
 	cfg, _ := patchFn(orig)

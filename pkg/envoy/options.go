@@ -17,6 +17,7 @@ package envoy
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"math/rand"
 	"os"
@@ -25,8 +26,8 @@ import (
 	"time"
 
 	envoyBootstrap "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
+	"github.com/ghodss/yaml"
 	"github.com/hashicorp/go-multierror"
-	"sigs.k8s.io/yaml"
 
 	"istio.io/pkg/log"
 )
@@ -674,7 +675,7 @@ func (c *configContext) getAdminPort() (uint32, error) {
 		return 0, multierror.Append(err, errors.New("unable to process envoy bootstrap"))
 	}
 
-	content, e := os.ReadFile(c.configPath)
+	content, e := ioutil.ReadFile(c.configPath)
 	if e != nil {
 		return 0, multierror.Append(err, fmt.Errorf("failed reading config-path file %s: %v", c.configPath, e))
 	}

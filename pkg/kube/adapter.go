@@ -15,8 +15,7 @@
 package kube
 
 import (
-	"fmt"
-
+	"github.com/pkg/errors"
 	kubeApiAdmissionv1 "k8s.io/api/admission/v1"
 	kubeApiAdmissionv1beta1 "k8s.io/api/admission/v1beta1"
 	authenticationv1 "k8s.io/api/authentication/v1"
@@ -228,7 +227,7 @@ func AdmissionReviewKubeToAdapter(object runtime.Object) (*AdmissionReview, erro
 		}
 
 	default:
-		return nil, fmt.Errorf("unsupported type :%v", object.GetObjectKind())
+		return nil, errors.Errorf("unsupported type :%v", object.GetObjectKind())
 	}
 
 	return &AdmissionReview{

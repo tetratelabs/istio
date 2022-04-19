@@ -16,11 +16,11 @@ package wasm
 
 import (
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
+	"github.com/cenkalti/backoff"
 )
 
 // HTTPFetcher fetches remote wasm module with HTTP get.
@@ -59,13 +59,13 @@ func (f *HTTPFetcher) Fetch(url string, timeout time.Duration) ([]byte, error) {
 			continue
 		}
 		if resp.StatusCode == http.StatusOK {
-			body, err := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			defer resp.Body.Close()
+			body, err := ioutil.ReadAll(resp.Body)
 			return body, err
 		}
 		lastError = fmt.Errorf("wasm module download request failed: status code %v", resp.StatusCode)
 		if retryable(resp.StatusCode) {
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := ioutil.ReadAll(resp.Body)
 			wasmLog.Debugf("wasm module download failed: status code %v, body %v", resp.StatusCode, string(body))
 			resp.Body.Close()
 			time.Sleep(b.NextBackOff())

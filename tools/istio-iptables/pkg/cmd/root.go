@@ -19,13 +19,13 @@ import (
 	"net"
 	"os"
 	"os/user"
+	"strconv"
 	"strings"
 
 	"github.com/miekg/dns"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"istio.io/istio/tools/istio-iptables/pkg/capture"
 	"istio.io/istio/tools/istio-iptables/pkg/config"
 	"istio.io/istio/tools/istio-iptables/pkg/constants"
 	dep "istio.io/istio/tools/istio-iptables/pkg/dependencies"
@@ -39,9 +39,6 @@ var (
 	// Enable interception of DNS.
 	dnsCaptureByAgent = env.RegisterBoolVar("ISTIO_META_DNS_CAPTURE", false,
 		"If set to true, enable the capture of outgoing DNS packets on port 53, redirecting to istio-agent on :15053").Get()
-	// InvalidDropByIptables is the flag to enable invalid drop iptables rule to drop the out of window packets
-	InvalidDropByIptables = env.RegisterBoolVar("INVALID_DROP", false,
-		"If set to true, enable the invalid drop iptables rule, default false will cause iptables reset out of window packets")
 )
 
 var rootCmd = &cobra.Command{
@@ -61,13 +58,9 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
-		iptConfigurator := capture.NewIptablesConfigurator(cfg, ext)
+		iptConfigurator := NewIptablesConfigurator(cfg, ext)
 		if !cfg.SkipRuleApply {
-			iptConfigurator.Run()
-			if err := capture.ConfigureRoutes(cfg, ext); err != nil {
-				log.Errorf("failed to configure routes: ")
-				handleErrorWithCode(err, 1)
-			}
+			iptConfigurator.run()
 		}
 		if cfg.RunValidation {
 			hostIP, err := getLocalIP()
@@ -84,24 +77,9 @@ var rootCmd = &cobra.Command{
 	},
 }
 
-var configureRoutesCommand = &cobra.Command{
-	Use:    "configure-routes",
-	Short:  "Configures iproute2 rules for the Istio sidecar",
-	PreRun: bindFlags,
-	Run: func(cmd *cobra.Command, args []string) {
-		cfg := constructConfig()
-		if !cfg.SkipRuleApply {
-			if err := capture.ConfigureRoutes(cfg, nil); err != nil {
-				handleErrorWithCode(err, 1)
-			}
-		}
-	},
-}
-
 func constructConfig() *config.Config {
 	cfg := &config.Config{
 		DryRun:                  viper.GetBool(constants.DryRun),
-		TraceLogging:            viper.GetBool(constants.TraceLogging),
 		RestoreFormat:           viper.GetBool(constants.RestoreFormat),
 		ProxyPort:               viper.GetString(constants.EnvoyPort),
 		InboundCapturePort:      viper.GetString(constants.InboundCapturePort),
@@ -117,14 +95,13 @@ func constructConfig() *config.Config {
 		OutboundPortsExclude:    viper.GetString(constants.LocalOutboundPortsExclude),
 		OutboundIPRangesInclude: viper.GetString(constants.ServiceCidr),
 		OutboundIPRangesExclude: viper.GetString(constants.ServiceExcludeCidr),
-		KubeVirtInterfaces:      viper.GetString(constants.KubeVirtInterfaces),
+		KubevirtInterfaces:      viper.GetString(constants.KubeVirtInterfaces),
 		ExcludeInterfaces:       viper.GetString(constants.ExcludeInterfaces),
 		IptablesProbePort:       uint16(viper.GetUint(constants.IptablesProbePort)),
 		ProbeTimeout:            viper.GetDuration(constants.ProbeTimeout),
 		SkipRuleApply:           viper.GetBool(constants.SkipRuleApply),
 		RunValidation:           viper.GetBool(constants.RunValidation),
 		RedirectDNS:             viper.GetBool(constants.RedirectDNS),
-		DropInvalid:             viper.GetBool(constants.DropInvalid),
 		CaptureAllDNS:           viper.GetBool(constants.CaptureAllDNS),
 		OutputPath:              viper.GetString(constants.OutputPath),
 		NetworkNamespace:        viper.GetString(constants.NetworkNamespace),
@@ -164,7 +141,7 @@ func constructConfig() *config.Config {
 		if err != nil {
 			panic(fmt.Sprintf("failed to load /etc/resolv.conf: %v", err))
 		}
-		cfg.DNSServersV4, cfg.DNSServersV6 = capture.SplitV4V6(dnsConfig.Servers)
+		cfg.DNSServersV4, cfg.DNSServersV6 = SplitV4V6(dnsConfig.Servers)
 	}
 	return cfg
 }
@@ -290,11 +267,6 @@ func bindFlags(cmd *cobra.Command, args []string) {
 	}
 	viper.SetDefault(constants.DryRun, false)
 
-	if err := viper.BindPFlag(constants.TraceLogging, cmd.Flags().Lookup(constants.TraceLogging)); err != nil {
-		handleError(err)
-	}
-	viper.SetDefault(constants.TraceLogging, false)
-
 	if err := viper.BindPFlag(constants.RestoreFormat, cmd.Flags().Lookup(constants.RestoreFormat)); err != nil {
 		handleError(err)
 	}
@@ -303,7 +275,7 @@ func bindFlags(cmd *cobra.Command, args []string) {
 	if err := viper.BindPFlag(constants.IptablesProbePort, cmd.Flags().Lookup(constants.IptablesProbePort)); err != nil {
 		handleError(err)
 	}
-	viper.SetDefault(constants.IptablesProbePort, constants.DefaultIptablesProbePort)
+	viper.SetDefault(constants.IptablesProbePort, strconv.Itoa(constants.DefaultIptablesProbePort))
 
 	if err := viper.BindPFlag(constants.ProbeTimeout, cmd.Flags().Lookup(constants.ProbeTimeout)); err != nil {
 		handleError(err)
@@ -324,11 +296,6 @@ func bindFlags(cmd *cobra.Command, args []string) {
 		handleError(err)
 	}
 	viper.SetDefault(constants.RedirectDNS, dnsCaptureByAgent)
-
-	if err := viper.BindPFlag(constants.DropInvalid, cmd.Flags().Lookup(constants.DropInvalid)); err != nil {
-		handleError(err)
-	}
-	viper.SetDefault(constants.DropInvalid, InvalidDropByIptables)
 
 	if err := viper.BindPFlag(constants.CaptureAllDNS, cmd.Flags().Lookup(constants.CaptureAllDNS)); err != nil {
 		handleError(err)
@@ -355,11 +322,6 @@ func bindFlags(cmd *cobra.Command, args []string) {
 // Only adding flags in `init()` while moving its binding to Viper and value defaulting as part of the command execution.
 // Otherwise, the flag with the same name shared across subcommands will be overwritten by the last.
 func init() {
-	bindCmdlineFlags(rootCmd)
-	bindCmdlineFlags(configureRoutesCommand)
-}
-
-func bindCmdlineFlags(rootCmd *cobra.Command) {
 	rootCmd.Flags().StringP(constants.EnvoyPort, "p", "", "Specify the envoy port to which redirect all TCP traffic (default $ENVOY_PORT = 15001)")
 
 	rootCmd.Flags().StringP(constants.InboundCapturePort, "z", "",
@@ -411,11 +373,9 @@ func bindCmdlineFlags(rootCmd *cobra.Command) {
 
 	rootCmd.Flags().BoolP(constants.DryRun, "n", false, "Do not call any external dependencies like iptables")
 
-	rootCmd.Flags().Bool(constants.TraceLogging, false, "Insert tracing logs for each iptables rules, using the LOG chain.")
-
 	rootCmd.Flags().BoolP(constants.RestoreFormat, "f", true, "Print iptables rules in iptables-restore interpretable format")
 
-	rootCmd.Flags().String(constants.IptablesProbePort, constants.DefaultIptablesProbePort, "set listen port for failure detection")
+	rootCmd.Flags().String(constants.IptablesProbePort, strconv.Itoa(constants.DefaultIptablesProbePort), "set listen port for failure detection")
 
 	rootCmd.Flags().Duration(constants.ProbeTimeout, constants.DefaultProbeTimeout, "failure detection timeout")
 
@@ -424,8 +384,6 @@ func bindCmdlineFlags(rootCmd *cobra.Command) {
 	rootCmd.Flags().Bool(constants.RunValidation, false, "Validate iptables")
 
 	rootCmd.Flags().Bool(constants.RedirectDNS, dnsCaptureByAgent, "Enable capture of dns traffic by istio-agent")
-
-	rootCmd.Flags().Bool(constants.DropInvalid, InvalidDropByIptables.Get(), "Enable invalid drop in the iptables rules")
 
 	rootCmd.Flags().Bool(constants.CaptureAllDNS, false,
 		"Instead of only capturing DNS traffic to DNS server IP, capture all DNS traffic at port 53. This setting is only effective when redirect dns is enabled.")
@@ -439,10 +397,6 @@ func bindCmdlineFlags(rootCmd *cobra.Command) {
 
 func GetCommand() *cobra.Command {
 	return rootCmd
-}
-
-func GetRouteCommand() *cobra.Command {
-	return configureRoutesCommand
 }
 
 func Execute() {

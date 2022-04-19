@@ -15,11 +15,9 @@
 package options
 
 import (
-	"path/filepath"
 	"time"
 
 	"istio.io/istio/pilot/cmd/pilot-agent/status"
-	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/jwt"
 	"istio.io/pkg/env"
 )
@@ -82,10 +80,11 @@ var (
 		"The type of the credential fetcher. Currently supported types include GoogleComputeEngine").Get()
 	credIdentityProvider = env.RegisterStringVar("CREDENTIAL_IDENTITY_PROVIDER", "GoogleComputeEngine",
 		"The identity provider for credential. Currently default supported identity provider is GoogleComputeEngine").Get()
+	proxyXDSViaAgent = env.RegisterBoolVar("PROXY_XDS_VIA_AGENT", true,
+		"If set to true, envoy will proxy XDS calls via the agent instead of directly connecting to istiod. This option "+
+			"will be removed once the feature is stabilized.").Get()
 	proxyXDSDebugViaAgent = env.RegisterBoolVar("PROXY_XDS_DEBUG_VIA_AGENT", true,
-		"If set to true, the agent will listen on tap port and offer pilot's XDS istio.io/debug debug API there.").Get()
-	proxyXDSDebugViaAgentPort = env.RegisterIntVar("PROXY_XDS_DEBUG_VIA_AGENT_PORT", 15004,
-		"Agent debugging port.").Get()
+		"If set to true, the agent will listen on 15004 and offer pilot's XDS istio.io/debug debug API there.").Get()
 	// DNSCaptureByAgent is a copy of the env var in the init code.
 	DNSCaptureByAgent = env.RegisterBoolVar("ISTIO_META_DNS_CAPTURE", false,
 		"If set to true, enable the capture of outgoing DNS packets on port 53, redirecting to istio-agent on :15053")
@@ -98,9 +97,6 @@ var (
 	enableProxyConfigXdsEnv = env.RegisterBoolVar("PROXY_CONFIG_XDS_AGENT", false,
 		"If set to true, agent retrieves dynamic proxy-config updates via xds channel").Get()
 
-	wasmInsecureRegistries = env.RegisterStringVar("WASM_INSECURE_REGISTRIES", "",
-		"allow agent pull wasm plugin from insecure registries, for example: 'localhost:5000,docker-registry:5000'").Get()
-
 	// Ability of istio-agent to retrieve bootstrap via XDS
 	enableBootstrapXdsEnv = env.RegisterBoolVar("BOOTSTRAP_XDS_AGENT", false,
 		"If set to true, agent retrieves the bootstrap configuration prior to starting Envoy").Get()
@@ -111,26 +107,9 @@ var (
 		"Envoy prometheus redirection port value").Get()
 
 	// Defined by https://github.com/grpc/proposal/blob/c5722a35e71f83f07535c6c7c890cf0c58ec90c0/A27-xds-global-load-balancing.md#xdsclient-and-bootstrap-file
-	grpcBootstrapEnv = env.RegisterStringVar("GRPC_XDS_BOOTSTRAP", filepath.Join(constants.ConfigPathDir, "grpc-bootstrap.json"),
+	grpcBootstrapEnv = env.RegisterStringVar("GRPC_XDS_BOOTSTRAP", "",
 		"Path where gRPC expects to read a bootstrap file. Agent will generate one if set.").Get()
 
 	disableEnvoyEnv = env.RegisterBoolVar("DISABLE_ENVOY", false,
 		"Disables all Envoy agent features.").Get()
-
-	// certSigner is cert signer for workload cert
-	certSigner = env.RegisterStringVar("ISTIO_META_CERT_SIGNER", "",
-		"The cert signer info for workload cert")
-
-	istiodSAN = env.RegisterStringVar("ISTIOD_SAN", "",
-		"Override the ServerName used to validate Istiod certificate. "+
-			"Can be used as an alternative to setting /etc/hosts for VMs - discovery address will be an IP:port")
-
-	minimumDrainDurationEnv = env.RegisterDurationVar("MINIMUM_DRAIN_DURATION",
-		5*time.Second,
-		"The minimum duration for which agent waits before it checks for active connections and terminates proxy"+
-			"when number of active connections become zero").Get()
-
-	exitOnZeroActiveConnectionsEnv = env.RegisterBoolVar("EXIT_ON_ZERO_ACTIVE_CONNECTIONS",
-		false,
-		"When set to true, terminates proxy when number of active connections become zero during draining").Get()
 )

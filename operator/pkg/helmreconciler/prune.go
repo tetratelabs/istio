@@ -73,7 +73,6 @@ var (
 	// ClusterCPResources lists cluster scope resources types which should be deleted during uninstall command.
 	ClusterCPResources = []schema.GroupVersionKind{
 		{Group: "admissionregistration.k8s.io", Version: "v1", Kind: name.MutatingWebhookConfigurationStr},
-		{Group: "admissionregistration.k8s.io", Version: "v1", Kind: name.ValidatingWebhookConfigurationStr},
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: name.ClusterRoleStr},
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: name.ClusterRoleBindingStr},
 	}
@@ -218,21 +217,6 @@ func (h *HelmReconciler) GetPrunedResources(revision string, includeClusterResou
 		gvkList = append(NamespacedResources, AllClusterResources...)
 		if ioplist := h.getIstioOperatorCR(); ioplist.Items != nil {
 			usList = append(usList, ioplist)
-		}
-	} else if componentName == "" {
-		// Remove Istio operator CR with specified revision if it is uninstalled
-		ioplist := h.getIstioOperatorCR()
-		if ioplist.Items != nil {
-			for _, iop := range ioplist.Items {
-				revisionIop := getIstioOperatorCRName(revision)
-				if iop.GetName() == revisionIop {
-					if iopToList, err := iop.ToList(); err == nil {
-						iopToList.Items = []unstructured.Unstructured{iop}
-						usList = append(usList, iopToList)
-						break
-					}
-				}
-			}
 		}
 	}
 	for _, gvk := range gvkList {

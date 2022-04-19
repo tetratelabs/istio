@@ -16,6 +16,7 @@ package framework
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
 	"reflect"
@@ -153,11 +154,11 @@ func (s *suiteContext) Environment() resource.Environment {
 }
 
 func (s *suiteContext) Clusters() cluster.Clusters {
-	return s.Environment().Clusters()
+	return s.AllClusters().MeshClusters()
 }
 
 func (s *suiteContext) AllClusters() cluster.Clusters {
-	return s.Environment().AllClusters()
+	return s.Environment().Clusters()
 }
 
 // Settings returns the current runtime.Settings.
@@ -167,7 +168,7 @@ func (s *suiteContext) Settings() *resource.Settings {
 
 // CreateDirectory creates a new subdirectory within this context.
 func (s *suiteContext) CreateDirectory(name string) (string, error) {
-	dir, err := os.MkdirTemp(s.workDir, name)
+	dir, err := ioutil.TempDir(s.workDir, name)
 	if err != nil {
 		scopes.Framework.Errorf("Error creating temp dir: runID='%s', prefix='%s', workDir='%v', err='%v'",
 			s.settings.RunID, name, s.workDir, err)
@@ -183,7 +184,7 @@ func (s *suiteContext) CreateTmpDirectory(prefix string) (string, error) {
 		prefix += "-"
 	}
 
-	dir, err := os.MkdirTemp(s.workDir, prefix)
+	dir, err := ioutil.TempDir(s.workDir, prefix)
 	if err != nil {
 		scopes.Framework.Errorf("Error creating temp dir: runID='%s', prefix='%s', workDir='%v', err='%v'",
 			s.settings.RunID, prefix, s.workDir, err)
@@ -194,12 +195,8 @@ func (s *suiteContext) CreateTmpDirectory(prefix string) (string, error) {
 	return dir, err
 }
 
-func (s *suiteContext) ConfigKube(clusters ...cluster.Cluster) resource.ConfigManager {
+func (s *suiteContext) Config(clusters ...cluster.Cluster) resource.ConfigManager {
 	return newConfigManager(s, clusters)
-}
-
-func (s *suiteContext) ConfigIstio() resource.ConfigManager {
-	return newConfigManager(s, s.Clusters().Configs())
 }
 
 type Outcome string

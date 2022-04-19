@@ -24,8 +24,7 @@ import (
 
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
-	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
-	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	"github.com/golang/protobuf/jsonpb"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
@@ -36,13 +35,13 @@ import (
 	"istio.io/istio/pilot/pkg/simulation"
 	"istio.io/istio/pilot/pkg/xds"
 	"istio.io/istio/pilot/test/xdstest"
+	cluster2 "istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/test"
-	"istio.io/istio/pkg/util/protomarshal"
 )
 
 func flattenInstances(il ...[]*model.ServiceInstance) []*model.ServiceInstance {
@@ -78,8 +77,9 @@ func TestInboundClusters(t *testing.T) {
 		Metadata:    &model.NodeMetadata{},
 	}
 	service := &model.Service{
-		Hostname:       host.Name("backend.default.svc.cluster.local"),
-		DefaultAddress: "1.1.1.1",
+		Hostname:    host.Name("backend.default.svc.cluster.local"),
+		Address:     "1.1.1.1",
+		ClusterVIPs: make(map[cluster2.ID]string),
 		Ports: model.PortList{&model.Port{
 			Name:     "default",
 			Port:     80,
@@ -92,8 +92,9 @@ func TestInboundClusters(t *testing.T) {
 		Resolution: model.ClientSideLB,
 	}
 	serviceAlt := &model.Service{
-		Hostname:       host.Name("backend-alt.default.svc.cluster.local"),
-		DefaultAddress: "1.1.1.2",
+		Hostname:    host.Name("backend-alt.default.svc.cluster.local"),
+		Address:     "1.1.1.2",
+		ClusterVIPs: make(map[cluster2.ID]string),
 		Ports: model.PortList{&model.Port{
 			Name:     "default",
 			Port:     80,
@@ -466,12 +467,12 @@ func extractClusterMetadataServices(t test.Failer, c *cluster.Cluster) []string 
 	if got == nil {
 		return nil
 	}
-	s, err := protomarshal.Marshal(got)
+	s, err := (&jsonpb.Marshaler{}).MarshalToString(got)
 	if err != nil {
 		t.Fatal(err)
 	}
 	meta := clusterServicesMetadata{}
-	if err := json.Unmarshal(s, &meta); err != nil {
+	if err := json.Unmarshal([]byte(s), &meta); err != nil {
 		t.Fatal(err)
 	}
 	res := []string{}
@@ -1310,268 +1311,165 @@ func TestLoop(t *testing.T) {
 	})
 }
 
-func TestInboundSidecarTLSModes(t *testing.T) {
-	peerAuthConfig := func(m string) string {
-		return fmt.Sprintf(`apiVersion: security.istio.io/v1beta1
-kind: PeerAuthentication
+// Regression test for https://github.com/istio/istio/issues/35127
+func TestVirtualServiceNameConflict(t *testing.T) {
+	svc := `
+apiVersion: v1
+kind: Service
 metadata:
-  name: peer-auth
-  namespace: default
+  name: api
+  namespace: alpha
 spec:
+  clusterIP: "1.2.3.2"
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: beta
+spec:
+  clusterIP: "1.2.3.3"
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: example
+  namespace: example
+spec:
+  clusterIP: "1.2.3.4"
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
   selector:
-    matchLabels:
-      app: foo
-  mtls:
-    mode: STRICT
-  portLevelMtls:
-    9080:
-      mode: %s
+    app: example
 ---
-`, m)
-	}
-	sidecarSimple := func(protocol string) string {
-		return fmt.Sprintf(`
+`
+	vs := `---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: api
+  namespace: alpha
+spec:
+  gateways:
+  - mesh
+  hosts:
+  - api.alpha.svc.cluster.local
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: example.example.svc.cluster.local
+        port:
+          number: 8080
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: api
+  namespace: beta
+spec:
+  gateways:
+  - mesh
+  hosts:
+  - api.beta.svc.cluster.local
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: example.example.svc.cluster.local
+        port:
+          number: 8080
+---
+`
+	sidecar := `
 apiVersion: networking.istio.io/v1alpha3
 kind: Sidecar
 metadata:
-  labels:
-    app: foo
-  name: sidecar
-  namespace: default
+  name: debug
+  namespace: debug
 spec:
-  ingress:
-    - defaultEndpoint: 0.0.0.0:9080
-      port:
-        name: tls
-        number: 9080
-        protocol: %s
-      tls:
-        mode: SIMPLE
-        privateKey: "httpbinkey.pem"
-        serverCertificate: "httpbin.pem"
-  workloadSelector:
-    labels:
-      app: foo
+  egress:
+    - hosts:
+      - "./*"
+      - "alpha/*"
+      - "beta/*"
+      - "example/*"
 ---
-`, protocol)
-	}
-	sidecarMutual := func(protocol string) string {
-		return fmt.Sprintf(`
-apiVersion: networking.istio.io/v1alpha3
-kind: Sidecar
-metadata:
-  labels:
-    app: foo
-  name: sidecar
-  namespace: default
-spec:
-  ingress:
-    - defaultEndpoint: 0.0.0.0:9080
-      port:
-        name: tls
-        number: 9080
-        protocol: %s
-      tls:
-        mode: MUTUAL
-        privateKey: "httpbinkey.pem"
-        serverCertificate: "httpbin.pem"
-        caCertificates: "rootCA.pem"
-  workloadSelector:
-    labels:
-      app: foo
----
-`, protocol)
-	}
-	expectedTLSContext := func(filterChain *listener.FilterChain) error {
-		tlsContext := &tls.DownstreamTlsContext{}
-		if err := filterChain.GetTransportSocket().GetTypedConfig().UnmarshalTo(tlsContext); err != nil {
-			return err
-		}
-		commonTLSContext := tlsContext.CommonTlsContext
-		if len(commonTLSContext.TlsCertificateSdsSecretConfigs) == 0 {
-			return fmt.Errorf("expected tls certificates")
-		}
-		if commonTLSContext.TlsCertificateSdsSecretConfigs[0].Name != "file-cert:httpbin.pem~httpbinkey.pem" {
-			return fmt.Errorf("expected certificate httpbin.pem, actual %s", commonTLSContext.TlsCertificates[0].CertificateChain.String())
-		}
-		if tlsContext.RequireClientCertificate.Value == true {
-			return fmt.Errorf("expected RequireClientCertificate to be false")
-		}
-		return nil
-	}
-
-	mkCall := func(port int, protocol simulation.Protocol,
-		tls simulation.TLSMode, validations []simulation.CustomFilterChainValidation,
-		mTLSSecretConfigName string) simulation.Call {
-		return simulation.Call{
-			Protocol:                  protocol,
-			Port:                      port,
-			CallMode:                  simulation.CallModeInbound,
-			TLS:                       tls,
-			CustomListenerValidations: validations,
-			MtlsSecretConfigName:      mTLSSecretConfigName,
-		}
-	}
-	cases := []struct {
-		name   string
-		config string
-		calls  []simulation.Expect
-	}{
-		{
-			name:   "sidecar http over TLS simple mode with peer auth on port disabled",
-			config: peerAuthConfig("DISABLE") + sidecarSimple("HTTPS"),
-			calls: []simulation.Expect{
-				{
-					Name: "http over tls",
-					Call: mkCall(9080, simulation.HTTP, simulation.TLS, []simulation.CustomFilterChainValidation{expectedTLSContext}, ""),
-					Result: simulation.Result{
-						FilterChainMatched: "1.1.1.1_9080",
-						ClusterMatched:     "inbound|9080||",
-						VirtualHostMatched: "inbound|http|9080",
-						RouteMatched:       "default",
-						ListenerMatched:    "virtualInbound",
-					},
+`
+	runSimulationTest(t, &model.Proxy{ConfigNamespace: "debug"}, xds.FakeOptions{}, simulationTest{
+		config:     vs + sidecar,
+		kubeConfig: svc,
+		calls: []simulation.Expect{
+			{
+				Name: "with sidecar alpha",
+				Call: simulation.Call{
+					HostHeader: "api.alpha.svc.cluster.local",
+					Protocol:   simulation.HTTP,
+					Port:       8080,
 				},
-				{
-					Name: "plaintext",
-					Call: mkCall(9080, simulation.HTTP, simulation.Plaintext, nil, ""),
-					Result: simulation.Result{
-						Error: simulation.ErrNoFilterChain,
-					},
+				Result: simulation.Result{
+					ClusterMatched: "outbound|8080||example.example.svc.cluster.local",
 				},
-				{
-					Name: "http over mTLS",
-					Call: mkCall(9080, simulation.HTTP, simulation.MTLS, nil, "file-cert:httpbin.pem~httpbinkey.pem"),
-					Result: simulation.Result{
-						Error: simulation.ErrMTLSError,
-					},
+			},
+			{
+				Name: "with sidecar beta",
+				Call: simulation.Call{
+					HostHeader: "api.beta.svc.cluster.local",
+					Protocol:   simulation.HTTP,
+					Port:       8080,
+				},
+				Result: simulation.Result{
+					ClusterMatched: "outbound|8080||example.example.svc.cluster.local",
 				},
 			},
 		},
-		{
-			name:   "sidecar TCP over TLS simple mode with peer auth on port disabled",
-			config: peerAuthConfig("DISABLE") + sidecarSimple("TLS"),
-			calls: []simulation.Expect{
-				{
-					Name: "tcp over tls",
-					Call: mkCall(9080, simulation.TCP, simulation.TLS, []simulation.CustomFilterChainValidation{expectedTLSContext}, ""),
-					Result: simulation.Result{
-						FilterChainMatched: "1.1.1.1_9080",
-						ClusterMatched:     "inbound|9080||",
-						ListenerMatched:    "virtualInbound",
-					},
+	})
+	runSimulationTest(t, &model.Proxy{ConfigNamespace: "debug"}, xds.FakeOptions{}, simulationTest{
+		config:     vs,
+		kubeConfig: svc,
+		calls: []simulation.Expect{
+			{
+				Name: "without sidecar alpha",
+				Call: simulation.Call{
+					HostHeader: "api.alpha.svc.cluster.local",
+					Protocol:   simulation.HTTP,
+					Port:       8080,
 				},
-				{
-					Name: "plaintext",
-					Call: mkCall(9080, simulation.TCP, simulation.Plaintext, nil, ""),
-					Result: simulation.Result{
-						Error: simulation.ErrNoFilterChain,
-					},
+				Result: simulation.Result{
+					ClusterMatched: "outbound|8080||example.example.svc.cluster.local",
 				},
-				{
-					Name: "tcp over mTLS",
-					Call: mkCall(9080, simulation.TCP, simulation.MTLS, nil, "file-cert:httpbin.pem~httpbinkey.pem"),
-					Result: simulation.Result{
-						Error: simulation.ErrMTLSError,
-					},
+			},
+			{
+				Name: "without sidecar beta",
+				Call: simulation.Call{
+					HostHeader: "api.beta.svc.cluster.local",
+					Protocol:   simulation.HTTP,
+					Port:       8080,
+				},
+				Result: simulation.Result{
+					ClusterMatched: "outbound|8080||example.example.svc.cluster.local",
 				},
 			},
 		},
-		{
-			name:   "sidecar http over mTLS mutual mode with peer auth on port disabled",
-			config: peerAuthConfig("DISABLE") + sidecarMutual("HTTPS"),
-			calls: []simulation.Expect{
-				{
-					Name: "http over mtls",
-					Call: mkCall(9080, simulation.HTTP, simulation.MTLS, nil, "file-cert:httpbin.pem~httpbinkey.pem"),
-					Result: simulation.Result{
-						FilterChainMatched: "1.1.1.1_9080",
-						ClusterMatched:     "inbound|9080||",
-						ListenerMatched:    "virtualInbound",
-					},
-				},
-				{
-					Name: "plaintext",
-					Call: mkCall(9080, simulation.HTTP, simulation.Plaintext, nil, ""),
-					Result: simulation.Result{
-						Error: simulation.ErrNoFilterChain,
-					},
-				},
-				{
-					Name: "http over tls",
-					Call: mkCall(9080, simulation.HTTP, simulation.TLS, nil, "file-cert:httpbin.pem~httpbinkey.pem"),
-					Result: simulation.Result{
-						Error: simulation.ErrMTLSError,
-					},
-				},
-			},
-		},
-		{
-			name:   "sidecar tcp over mTLS mutual mode with peer auth on port disabled",
-			config: peerAuthConfig("DISABLE") + sidecarMutual("TLS"),
-			calls: []simulation.Expect{
-				{
-					Name: "tcp over mtls",
-					Call: mkCall(9080, simulation.TCP, simulation.MTLS, nil, "file-cert:httpbin.pem~httpbinkey.pem"),
-					Result: simulation.Result{
-						FilterChainMatched: "1.1.1.1_9080",
-						ClusterMatched:     "inbound|9080||",
-						ListenerMatched:    "virtualInbound",
-					},
-				},
-				{
-					Name: "plaintext",
-					Call: mkCall(9080, simulation.TCP, simulation.Plaintext, nil, ""),
-					Result: simulation.Result{
-						Error: simulation.ErrNoFilterChain,
-					},
-				},
-				{
-					Name: "http over tls",
-					Call: mkCall(9080, simulation.TCP, simulation.TLS, nil, "file-cert:httpbin.pem~httpbinkey.pem"),
-					Result: simulation.Result{
-						Error: simulation.ErrMTLSError,
-					},
-				},
-			},
-		},
-		{
-			name:   "sidecar http over TLS SIMPLE mode with peer auth on port STRICT",
-			config: peerAuthConfig("STRICT") + sidecarMutual("TLS"),
-			calls: []simulation.Expect{
-				{
-					Name: "http over tls",
-					Call: mkCall(9080, simulation.HTTP, simulation.TLS, nil, ""),
-					Result: simulation.Result{
-						Error: simulation.ErrMTLSError,
-					},
-				},
-				{
-					Name: "plaintext",
-					Call: mkCall(9080, simulation.HTTP, simulation.Plaintext, nil, ""),
-					Result: simulation.Result{
-						Error: simulation.ErrNoFilterChain,
-					},
-				},
-				{
-					Name: "http over mtls",
-					Call: mkCall(9080, simulation.HTTP, simulation.MTLS, nil, ""),
-					Result: simulation.Result{
-						FilterChainMatched: "1.1.1.1_9080",
-						ClusterMatched:     "inbound|9080||",
-						ListenerMatched:    "virtualInbound",
-					},
-				},
-			},
-		},
-	}
-	proxy := &model.Proxy{Metadata: &model.NodeMetadata{Labels: map[string]string{"app": "foo"}}}
-	features.EnableTLSOnSidecarIngress = true
-	for _, tt := range cases {
-		runSimulationTest(t, proxy, xds.FakeOptions{}, simulationTest{
-			name:   tt.name,
-			config: tt.config,
-			calls:  tt.calls,
-		})
-	}
+	})
 }

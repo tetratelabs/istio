@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,8 +18,7 @@ package cacustomroot
 import (
 	"context"
 	"fmt"
-	"net"
-	"os"
+	"io/ioutil"
 	"path"
 	"strings"
 	"testing"
@@ -95,13 +92,13 @@ func TestTrustDomainValidation(t *testing.T) {
 	framework.NewTest(t).Features("security.peer.trust-domain-validation").Run(
 		func(ctx framework.TestContext) {
 			// TODO https://github.com/istio/istio/issues/32294
-			if ctx.AllClusters().IsMulticluster() {
+			if ctx.Clusters().IsMulticluster() {
 				ctx.Skip()
 			}
 
 			testNS := apps.Namespace
 
-			ctx.ConfigIstio().ApplyYAMLOrFail(ctx, testNS.Name(), fmt.Sprintf(policy, testNS.Name()))
+			ctx.Config().ApplyYAMLOrFail(ctx, testNS.Name(), fmt.Sprintf(policy, testNS.Name()))
 
 			trustDomains := map[string]struct {
 				cert string
@@ -148,7 +145,7 @@ func TestTrustDomainValidation(t *testing.T) {
 								if port == passThrough {
 									// Manually make the request for pass through port.
 									resp, err = workload(t, from).ForwardEcho(context.TODO(), &epb.ForwardEchoRequest{
-										Url:   fmt.Sprintf("tcp://%s", net.JoinHostPort(workload(t, server).Address(), "9000")),
+										Url:   fmt.Sprintf("tcp://%s:9000", workload(t, server).Address()),
 										Count: 1,
 										Cert:  trustDomains[td].cert,
 										Key:   trustDomains[td].key,
@@ -201,7 +198,7 @@ func TestTrustDomainValidation(t *testing.T) {
 }
 
 func readFile(ctx framework.TestContext, name string) string {
-	data, err := os.ReadFile(path.Join(env.IstioSrc, "samples/certs", name))
+	data, err := ioutil.ReadFile(path.Join(env.IstioSrc, "samples/certs", name))
 	if err != nil {
 		ctx.Fatal(err)
 	}

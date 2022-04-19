@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 	"testing"
@@ -29,12 +30,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"istio.io/api/annotation"
 	meshapi "istio.io/api/mesh/v1alpha1"
-	proxyConfig "istio.io/api/networking/v1beta1"
-	opconfig "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
 	"istio.io/istio/pilot/pkg/features"
-	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/util/sets"
 	"istio.io/istio/pilot/test/util"
 	"istio.io/istio/pkg/config/constants"
@@ -53,7 +50,6 @@ func TestInjection(t *testing.T) {
 		mesh          func(m *meshapi.MeshConfig)
 		skipWebhook   bool
 		expectedError string
-		expectedLog   string
 		setup         func()
 		teardown      func()
 	}
@@ -66,13 +62,6 @@ func TestInjection(t *testing.T) {
 				"components.cni.enabled=true",
 				"values.istio_cni.chained=true",
 				"values.global.network=network1",
-			},
-		},
-		{
-			in:   "hello.yaml",
-			want: "hello.yaml.proxyImageName.injected",
-			setFlags: []string{
-				"values.global.proxy.image=proxyTest",
 			},
 		},
 		{
@@ -291,25 +280,6 @@ func TestInjection(t *testing.T) {
 			want:       "custom-template.yaml.injected",
 			inFilePath: "custom-template.iop.yaml",
 		},
-		{
-			in:   "tcp-probes.yaml",
-			want: "tcp-probes.yaml.injected",
-		},
-		{
-			in:   "tcp-probes.yaml",
-			want: "tcp-probes-disabled.yaml.injected",
-			setup: func() {
-				features.RewriteTCPProbes = false
-			},
-			teardown: func() {
-				features.RewriteTCPProbes = true
-			},
-		},
-		{
-			in:          "hello-host-network-with-ns.yaml",
-			want:        "hello-host-network-with-ns.yaml.injected",
-			expectedLog: "Skipping injection because Deployment \"sample/hello-host-network\" has host networking enabled",
-		},
 	}
 	// Keep track of tests we add options above
 	// We will search for all test files and skip these ones
@@ -321,7 +291,7 @@ func TestInjection(t *testing.T) {
 			alreadyTested.Insert(t.in + ".injected")
 		}
 	}
-	files, err := os.ReadDir("testdata/inject")
+	files, err := ioutil.ReadDir("testdata/inject")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,9 +363,7 @@ func TestInjection(t *testing.T) {
 			// First we test kube-inject. This will run exactly what kube-inject does, and write output to the golden files
 			t.Run("kube-inject", func(t *testing.T) {
 				var got bytes.Buffer
-				logs := make([]string, 0)
 				warn := func(s string) {
-					logs = append(logs, s)
 					t.Log(s)
 				}
 				if err = IntoResourceFile(nil, sidecarTemplate.Templates, valuesConfig, "", mc, in, &got, warn); err != nil {
@@ -410,24 +378,12 @@ func TestInjection(t *testing.T) {
 				if c.expectedError != "" {
 					t.Fatalf("expected error but got none")
 				}
-				if c.expectedLog != "" {
-					hasExpectedLog := false
-					for _, log := range logs {
-						if strings.Contains(log, c.expectedLog) {
-							hasExpectedLog = true
-							break
-						}
-					}
-					if !hasExpectedLog {
-						t.Fatal("expected log but got none")
-					}
-				}
 
 				// The version string is a maintenance pain for this test. Strip the version string before comparing.
 				gotBytes := util.StripVersion(got.Bytes())
-				wantBytes := util.ReadGoldenFile(t, gotBytes, wantFilePath)
+				wantBytes := util.ReadGoldenFile(gotBytes, wantFilePath, t)
 
-				util.CompareBytes(t, gotBytes, wantBytes, wantFilePath)
+				util.CompareBytes(gotBytes, wantBytes, wantFilePath, t)
 			})
 
 			// Exit early if we don't need to test webhook. We can skip errors since its redundant
@@ -442,13 +398,8 @@ func TestInjection(t *testing.T) {
 			// kube-inject. Instead, we just compare the desired/actual pod specs.
 			t.Run("webhook", func(t *testing.T) {
 				webhook := &Webhook{
-					Config:     sidecarTemplate,
-					meshConfig: mc,
-					env: &model.Environment{
-						PushContext: &model.PushContext{
-							ProxyConfigs: &model.ProxyConfigs{},
-						},
-					},
+					Config:       sidecarTemplate,
+					meshConfig:   mc,
 					valuesConfig: valuesConfig,
 					revision:     "default",
 				}
@@ -484,11 +435,6 @@ func testInjectionTemplate(t *testing.T, template, input, expected string) {
 			Policy:           InjectionPolicyEnabled,
 			DefaultTemplates: []string{SidecarTemplateName},
 		},
-		env: &model.Environment{
-			PushContext: &model.PushContext{
-				ProxyConfigs: &model.ProxyConfigs{},
-			},
-		},
 	}
 	runWebhook(t, webhook, []byte(input), []byte(expected), false)
 }
@@ -512,11 +458,6 @@ spec:
 			},
 			Aliases: map[string][]string{"both": {"sidecar", "init"}},
 			Policy:  InjectionPolicyEnabled,
-		},
-		env: &model.Environment{
-			PushContext: &model.PushContext{
-				ProxyConfigs: &model.ProxyConfigs{},
-			},
 		},
 	}
 
@@ -946,119 +887,6 @@ func TestQuantityConversion(t *testing.T) {
 				if tt.out != got {
 					t.Errorf("got %v, want %v", got, tt.out)
 				}
-			}
-		})
-	}
-}
-
-func TestProxyImage(t *testing.T) {
-	val := func(hub string, tag interface{}) *opconfig.Values {
-		return &opconfig.Values{
-			Global: &opconfig.GlobalConfig{
-				Hub: hub,
-				Tag: tag,
-			},
-		}
-	}
-	pc := func(imageType string) *proxyConfig.ProxyImage {
-		return &proxyConfig.ProxyImage{
-			ImageType: imageType,
-		}
-	}
-
-	ann := func(imageType string) map[string]string {
-		if imageType == "" {
-			return nil
-		}
-		return map[string]string{
-			annotation.SidecarProxyImageType.Name: imageType,
-		}
-	}
-
-	for _, tt := range []struct {
-		desc string
-		v    *opconfig.Values
-		pc   *proxyConfig.ProxyImage
-		ann  map[string]string
-		want string
-	}{
-		{
-			desc: "vals-only-int-tag",
-			v:    val("docker.io/istio", 11),
-			want: "docker.io/istio/proxyv2:11",
-		},
-		{
-			desc: "pc overrides imageType - float tag",
-			v:    val("docker.io/istio", 1.12),
-			pc:   pc("distroless"),
-			want: "docker.io/istio/proxyv2:1.12-distroless",
-		},
-		{
-			desc: "annotation overrides imageType",
-			v:    val("gcr.io/gke-release/asm", "1.11.2-asm.17"),
-			ann:  ann("distroless"),
-			want: "gcr.io/gke-release/asm/proxyv2:1.11.2-asm.17-distroless",
-		},
-		{
-			desc: "pc and annotation overrides imageType",
-			v:    val("gcr.io/gke-release/asm", "1.11.2-asm.17"),
-			pc:   pc("distroless"),
-			ann:  ann("debug"),
-			want: "gcr.io/gke-release/asm/proxyv2:1.11.2-asm.17-debug",
-		},
-		{
-			desc: "pc and annotation overrides imageType, ann is default",
-			v:    val("gcr.io/gke-release/asm", "1.11.2-asm.17"),
-			pc:   pc("debug"),
-			ann:  ann("default"),
-			want: "gcr.io/gke-release/asm/proxyv2:1.11.2-asm.17",
-		},
-		{
-			desc: "pc overrides imageType with default, tag also has image type",
-			v:    val("gcr.io/gke-release/asm", "1.11.2-asm.17-distroless"),
-			pc:   pc("default"),
-			want: "gcr.io/gke-release/asm/proxyv2:1.11.2-asm.17",
-		},
-		{
-			desc: "ann overrides imageType with default, tag also has image type",
-			v:    val("gcr.io/gke-release/asm", "1.11.2-asm.17-distroless"),
-			ann:  ann("default"),
-			want: "gcr.io/gke-release/asm/proxyv2:1.11.2-asm.17",
-		},
-		{
-			desc: "pc overrides imageType, tag also has image type",
-			v:    val("docker.io/istio", "1.12-debug"),
-			pc:   pc("distroless"),
-			want: "docker.io/istio/proxyv2:1.12-distroless",
-		},
-		{
-			desc: "annotation overrides imageType, tag also has the same image type",
-			v:    val("docker.io/istio", "1.12-distroless"),
-			ann:  ann("distroless"),
-			want: "docker.io/istio/proxyv2:1.12-distroless",
-		},
-		{
-			desc: "unusual tag should work",
-			v:    val("private-repo/istio", "1.12-this-is-unusual-tag"),
-			want: "private-repo/istio/proxyv2:1.12-this-is-unusual-tag",
-		},
-		{
-			desc: "unusual tag should work, default override",
-			v:    val("private-repo/istio", "1.12-this-is-unusual-tag-distroless"),
-			pc:   pc("default"),
-			want: "private-repo/istio/proxyv2:1.12-this-is-unusual-tag",
-		},
-		{
-			desc: "annotation overrides imageType with unusual tag",
-			v:    val("private-repo/istio", "1.12-this-is-unusual-tag"),
-			ann:  ann("distroless"),
-			want: "private-repo/istio/proxyv2:1.12-this-is-unusual-tag-distroless",
-		},
-	} {
-		t.Run(tt.desc, func(t *testing.T) {
-			got := ProxyImage(tt.v, tt.pc, tt.ann)
-			if got != tt.want {
-				t.Errorf("got: <%s>, want <%s> <== value(%v) proxyConfig(%v) ann(%v)", got, tt.want, tt.v, tt.pc, tt.ann)
 			}
 		})
 	}

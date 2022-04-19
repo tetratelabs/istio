@@ -19,19 +19,17 @@ import (
 
 	goversion "github.com/hashicorp/go-version"
 	"k8s.io/apimachinery/pkg/version"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"istio.io/istio/operator/pkg/util/clog"
-	"istio.io/istio/pkg/kube"
 	pkgVersion "istio.io/pkg/version"
 )
 
 const (
 	// MinK8SVersion is the minimum k8s version required to run this version of Istio
 	// https://istio.io/docs/setup/platform-setup/
-	MinK8SVersion               = 19
-	UnSupportedK8SVersionLogMsg = "\nThe Kubernetes version %s is not supported by Istio %s. The minimum supported Kubernetes version is 1.%d.\n" +
-		"Proceeding with the installation, but you might experience problems. " +
-		"See https://istio.io/latest/docs/setup/platform-setup/ for a list of supported versions.\n"
+	MinK8SVersion = 17
 )
 
 // CheckKubernetesVersion checks if this Istio version is supported in the k8s version
@@ -54,16 +52,34 @@ func extractKubernetesVersion(versionInfo *version.Info) (int, error) {
 	return num, nil
 }
 
-// IsK8VersionSupported checks minimum supported Kubernetes version for Istio.
-// If the K8s version is not atleast the `MinK8SVersion`, it logs a message warning the user that they
-// may experience problems if they proceed with the install.
-func IsK8VersionSupported(c kube.Client, l clog.Logger) error {
-	serverVersion, err := c.GetKubernetesVersion()
+// GetKubernetesVersion fetches the Kubernetes minor version. For example, `v1.19.1` will return `19`
+func GetKubernetesVersion(restConfig *rest.Config) (int, error) {
+	client, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return 0, fmt.Errorf("error creating Kubernetes client: %w", err)
+	}
+	serverVersion, err := client.Discovery().ServerVersion()
+	if err != nil {
+		return 0, fmt.Errorf("error getting Kubernetes version: %w", err)
+	}
+	return extractKubernetesVersion(serverVersion)
+}
+
+// IsK8VersionSupported checks minimum supported Kubernetes version for istio
+func IsK8VersionSupported(clientset kubernetes.Interface, l clog.Logger) error {
+	serverVersion, err := clientset.Discovery().ServerVersion()
 	if err != nil {
 		return fmt.Errorf("error getting Kubernetes version: %w", err)
 	}
-	if !kube.IsAtLeastVersion(c, MinK8SVersion) {
-		l.LogAndPrintf(UnSupportedK8SVersionLogMsg, serverVersion.GitVersion, pkgVersion.Info.Version, MinK8SVersion)
+	ok, err := CheckKubernetesVersion(serverVersion)
+	if err != nil {
+		return fmt.Errorf("error checking if Kubernetes version is supported: %w", err)
+	}
+	if !ok {
+		l.LogAndPrintf("\nThe Kubernetes version %s is not supported by Istio %s. The minimum supported Kubernetes version is 1.%d.\n"+
+			"Proceeding with the installation, but you might experience problems. "+
+			"See https://istio.io/latest/docs/setup/platform-setup/ for a list of supported versions.\n",
+			serverVersion.GitVersion, pkgVersion.Info.Version, MinK8SVersion)
 	}
 	return nil
 }

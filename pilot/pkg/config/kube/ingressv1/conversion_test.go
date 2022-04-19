@@ -17,12 +17,13 @@ package ingress
 import (
 	"context"
 	"fmt"
-	"os"
+	"io/ioutil"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ghodss/yaml"
 	"github.com/google/go-cmp/cmp"
 	coreV1 "k8s.io/api/core/v1"
 	knetworking "k8s.io/api/networking/v1"
@@ -34,7 +35,6 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	listerv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
-	"sigs.k8s.io/yaml"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
@@ -78,11 +78,11 @@ func TestGoldenConversion(t *testing.T) {
 			output := marshalYaml(t, ordered)
 			goldenFile := fmt.Sprintf("testdata/%s.yaml.golden", tt)
 			if util.Refresh() {
-				if err := os.WriteFile(goldenFile, output, 0o644); err != nil {
+				if err := ioutil.WriteFile(goldenFile, output, 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
-			expected, err := os.ReadFile(goldenFile)
+			expected, err := ioutil.ReadFile(goldenFile)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -116,7 +116,7 @@ func marshalYaml(t *testing.T, cl []config.Config) []byte {
 func readConfig(t *testing.T, filename string) ([]runtime.Object, error) {
 	t.Helper()
 
-	data, err := os.ReadFile(filename)
+	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		t.Fatalf("failed to read input yaml file: %v", err)
 	}
@@ -135,10 +135,6 @@ func readConfig(t *testing.T, filename string) ([]runtime.Object, error) {
 func TestConversion(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	prefix := knetworking.PathTypePrefix
-	exact := knetworking.PathTypeExact
-
 	ingress := knetworking.Ingress{
 		ObjectMeta: metaV1.ObjectMeta{
 			Namespace: "mock", // goes into backend full name
@@ -152,16 +148,6 @@ func TestConversion(t *testing.T) {
 							Paths: []knetworking.HTTPIngressPath{
 								{
 									Path: "/test",
-									Backend: knetworking.IngressBackend{
-										Service: &knetworking.IngressServiceBackend{
-											Name: "foo",
-											Port: knetworking.ServiceBackendPort{Number: 8000},
-										},
-									},
-								},
-								{
-									Path:     "/test/foo",
-									PathType: &prefix,
 									Backend: knetworking.IngressBackend{
 										Service: &knetworking.IngressServiceBackend{
 											Name: "foo",
@@ -232,26 +218,6 @@ func TestConversion(t *testing.T) {
 										},
 									},
 								},
-								{
-									Path:     "/test/foo/bar",
-									PathType: &prefix,
-									Backend: knetworking.IngressBackend{
-										Service: &knetworking.IngressServiceBackend{
-											Name: "foo",
-											Port: knetworking.ServiceBackendPort{Number: 8000},
-										},
-									},
-								},
-								{
-									Path:     "/test/foo/bar",
-									PathType: &exact,
-									Backend: knetworking.IngressBackend{
-										Service: &knetworking.IngressServiceBackend{
-											Name: "foo",
-											Port: knetworking.ServiceBackendPort{Number: 8000},
-										},
-									},
-								},
 							},
 						},
 					},
@@ -268,9 +234,6 @@ func TestConversion(t *testing.T) {
 		t.Error("VirtualServices, expected 3 got ", len(cfgs))
 	}
 
-	expectedLength := [5]int{13, 13, 9, 6, 5}
-	expectedExact := [5]bool{true, false, false, true, true}
-
 	for n, cfg := range cfgs {
 		vs := cfg.Spec.(*networking.VirtualService)
 
@@ -278,15 +241,8 @@ func TestConversion(t *testing.T) {
 			if vs.Hosts[0] != "my.host.com" {
 				t.Error("Unexpected host", vs)
 			}
-			if len(vs.Http) != 5 {
+			if len(vs.Http) != 2 {
 				t.Error("Unexpected rules", vs.Http)
-			}
-			for i, route := range vs.Http {
-				length, exact := getMatchURILength(route.Match[0])
-				if length != expectedLength[i] || exact != expectedExact[i] {
-					t.Errorf("Unexpected rule at idx:%d, want {length:%d, exact:%v}, got {length:%d, exact: %v}",
-						i, expectedLength[i], expectedExact[i], length, exact)
-				}
 			}
 		}
 	}

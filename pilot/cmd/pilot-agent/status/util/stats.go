@@ -22,8 +22,6 @@ import (
 	"time"
 
 	multierror "github.com/hashicorp/go-multierror"
-
-	"istio.io/istio/pkg/http"
 )
 
 const (
@@ -74,7 +72,7 @@ func GetReadinessStats(localHostAddr string, adminPort uint16) (*uint64, bool, e
 	}
 
 	readinessURL := fmt.Sprintf("http://%s:%d/stats?usedonly&filter=%s", localHostAddr, adminPort, readyStatsRegex)
-	stats, err := http.DoHTTPGetWithTimeout(readinessURL, readinessTimeout)
+	stats, err := doHTTPGetWithTimeout(readinessURL, readinessTimeout)
 	if err != nil {
 		return nil, false, err
 	}
@@ -105,7 +103,7 @@ func GetUpdateStatusStats(localHostAddr string, adminPort uint16) (*Stats, error
 		localHostAddr = "localhost"
 	}
 
-	stats, err := http.DoHTTPGet(fmt.Sprintf("http://%s:%d/stats?usedonly&filter=%s", localHostAddr, adminPort, updateStatsRegex))
+	stats, err := doHTTPGet(fmt.Sprintf("http://%s:%d/stats?usedonly&filter=%s", localHostAddr, adminPort, updateStatsRegex))
 	if err != nil {
 		return nil, err
 	}

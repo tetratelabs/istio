@@ -33,10 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	root "istio.io/istio/operator/cmd/mesh"
 	"istio.io/istio/operator/pkg/apis"
 	"istio.io/istio/operator/pkg/controller"
-	"istio.io/istio/operator/pkg/controller/istiocontrolplane"
 	"istio.io/istio/operator/pkg/metrics"
 	"istio.io/pkg/ctrlz"
 	"istio.io/pkg/log"
@@ -49,19 +47,10 @@ const (
 	metricsPort int32 = 8383
 )
 
-type serverArgs struct {
-	// force proceeds even if there are validation errors
-	force bool
-}
-
-func addServerFlags(cmd *cobra.Command, args *serverArgs) {
-	cmd.PersistentFlags().BoolVar(&args.force, "force", false, root.ForceFlagHelpStr)
-}
-
 func serverCmd() *cobra.Command {
 	loggingOptions := log.DefaultOptions()
 	introspectionOptions := ctrlz.DefaultOptions()
-	sArgs := &serverArgs{}
+
 	serverCmd := &cobra.Command{
 		Use:   "server",
 		Short: "Starts the Istio operator server",
@@ -77,28 +66,24 @@ func serverCmd() *cobra.Command {
 				log.Errorf("Unable to initialize ControlZ: %v", err)
 			}
 
-			run(sArgs)
+			run()
 			return nil
 		},
 	}
 
 	loggingOptions.AttachCobraFlags(serverCmd)
 	introspectionOptions.AttachCobraFlags(serverCmd)
-	addServerFlags(serverCmd, sArgs)
 
 	return serverCmd
 }
 
-// getWatchNamespaces returns the namespaces the operator should be watching for changes
-func getWatchNamespaces() ([]string, error) {
-	value, found := os.LookupEnv("WATCH_NAMESPACE")
+// getWatchNamespace returns the namespace the operator should be watching for changes
+func getWatchNamespace() (string, error) {
+	ns, found := os.LookupEnv("WATCH_NAMESPACE")
 	if !found {
-		return nil, fmt.Errorf("WATCH_NAMESPACE must be set")
+		return "", fmt.Errorf("WATCH_NAMESPACE must be set")
 	}
-	if value == "" {
-		return nil, nil
-	}
-	return strings.Split(value, ","), nil
+	return ns, nil
 }
 
 // getLeaderElectionNamespace returns the namespace in which the leader election configmap will be created
@@ -115,16 +100,16 @@ func getRenewDeadline() *time.Duration {
 	}
 	duration, err := time.ParseDuration(ddl)
 	if err != nil {
-		log.Errorf("Failed to parse renewDeadline: %v, use default value: %s", err, df.String())
+		log.Errorf("failed to parse renewDeadline: %v, use default value", err)
 		return &df
 	}
 	return &duration
 }
 
-func run(sArgs *serverArgs) {
-	watchNamespaces, err := getWatchNamespaces()
+func run() {
+	watchNS, err := getWatchNamespace()
 	if err != nil {
-		log.Fatalf("Failed to get watch namespaces: %v", err)
+		log.Fatalf("Failed to get watch namespace: %v", err)
 	}
 
 	leaderElectionNS, leaderElectionEnabled := getLeaderElectionNamespace()
@@ -147,11 +132,12 @@ func run(sArgs *serverArgs) {
 	if operatorRevision, found := os.LookupEnv("REVISION"); found && operatorRevision != "" {
 		leaderElectionID += "-" + operatorRevision
 	}
-	log.Infof("Leader election cm: %s", leaderElectionID)
-	if len(watchNamespaces) > 0 {
+	log.Infof("leader election cm: %s", leaderElectionID)
+	if watchNS != "" {
+		namespaces := strings.Split(watchNS, ",")
 		// Create MultiNamespacedCache with watched namespaces if it's not empty.
 		mgrOpt = manager.Options{
-			NewCache:                cache.MultiNamespacedCacheBuilder(watchNamespaces),
+			NewCache:                cache.MultiNamespacedCacheBuilder(namespaces),
 			MetricsBindAddress:      fmt.Sprintf("%s:%d", metricsHost, metricsPort),
 			LeaderElection:          leaderElectionEnabled,
 			LeaderElectionNamespace: leaderElectionNS,
@@ -162,7 +148,7 @@ func run(sArgs *serverArgs) {
 	} else {
 		// Create manager option for watching all namespaces.
 		mgrOpt = manager.Options{
-			Namespace:               "",
+			Namespace:               watchNS,
 			MetricsBindAddress:      fmt.Sprintf("%s:%d", metricsHost, metricsPort),
 			LeaderElection:          leaderElectionEnabled,
 			LeaderElectionNamespace: leaderElectionNS,
@@ -197,8 +183,7 @@ func run(sArgs *serverArgs) {
 	}
 
 	// Setup all Controllers
-	options := &istiocontrolplane.Options{Force: sArgs.force}
-	if err := controller.AddToManager(mgr, options); err != nil {
+	if err := controller.AddToManager(mgr); err != nil {
 		log.Fatalf("Could not add all controllers to operator manager: %v", err)
 	}
 

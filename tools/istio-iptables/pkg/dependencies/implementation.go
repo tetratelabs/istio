@@ -22,8 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
-	"github.com/spf13/viper"
+	"github.com/cenkalti/backoff"
 
 	"istio.io/istio/pilot/pkg/util/sets"
 	"istio.io/istio/tools/istio-iptables/pkg/constants"
@@ -83,16 +82,6 @@ func (r *RealDependencies) execute(cmd string, ignoreErrors bool, args ...string
 	externalCommand.Stdout = stdout
 	externalCommand.Stderr = stderr
 
-	// Grab all viper config and propagate it as environment variables to the child process
-	repl := strings.NewReplacer("-", "_")
-	for _, k := range viper.AllKeys() {
-		v := viper.Get(k)
-		if v == nil {
-			continue
-		}
-		externalCommand.Env = append(externalCommand.Env, fmt.Sprintf("%s=%v", strings.ToUpper(repl.Replace(k)), v))
-	}
-
 	err := externalCommand.Run()
 
 	if len(stdout.String()) != 0 {
@@ -106,7 +95,7 @@ func (r *RealDependencies) execute(cmd string, ignoreErrors bool, args ...string
 	return err
 }
 
-func (r *RealDependencies) executeXTables(cmd string, ignoreErrors bool, args ...string) error {
+func (r *RealDependencies) executeXTables(cmd string, ignoreErrors bool, args ...string) (err error) {
 	if r.CNIMode {
 		originalCmd := cmd
 		cmd = constants.NSENTER
@@ -120,14 +109,13 @@ func (r *RealDependencies) executeXTables(cmd string, ignoreErrors bool, args ..
 	b.InitialInterval = 100 * time.Millisecond
 	b.MaxInterval = 2 * time.Second
 	b.MaxElapsedTime = 10 * time.Second
-	var err error
-	backoffError := backoff.Retry(func() error {
+	err = backoff.Retry(func() error {
 		externalCommand := exec.Command(cmd, args...)
 		stdout = &bytes.Buffer{}
 		stderr = &bytes.Buffer{}
 		externalCommand.Stdout = stdout
 		externalCommand.Stderr = stderr
-		err = externalCommand.Run()
+		err := externalCommand.Run()
 		exitCode, ok := exitCode(err)
 		if !ok {
 			// cannot get exit code. consider this as non-retriable.
@@ -145,9 +133,6 @@ func (r *RealDependencies) executeXTables(cmd string, ignoreErrors bool, args ..
 		log.Debugf("Failed to acquire XTables lock, retry iptables command..")
 		return err
 	}, b)
-	if backoffError != nil {
-		return fmt.Errorf("timed out trying to acquire XTables lock: %v", err)
-	}
 
 	if len(stdout.String()) != 0 {
 		log.Infof("Command output: \n%v", stdout.String())

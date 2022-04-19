@@ -21,7 +21,7 @@ import (
 	"sort"
 	"strings"
 
-	udpa "github.com/cncf/xds/go/udpa/type/v1"
+	udpa "github.com/cncf/udpa/go/udpa/type/v1"
 	"k8s.io/client-go/tools/cache"
 
 	networking "istio.io/api/networking/v1alpha3"
@@ -34,19 +34,6 @@ import (
 
 // Statically link protobuf descriptors from UDPA
 var _ = udpa.TypedStruct{}
-
-// NamespacedName defines a name and namespace of a resource, with the type elided. This can be used in
-// places where the type is implied.
-// This is preferred to a ConfigKey with empty Kind, especially in performance sensitive code - hashing this struct
-// is 2x faster than ConfigKey.
-type NamespacedName struct {
-	Name      string
-	Namespace string
-}
-
-func (key NamespacedName) String() string {
-	return key.Namespace + "/" + key.Name
-}
 
 // ConfigKey describe a specific config item.
 // In most cases, the name is the config's name. However, for ServiceEntry it is service's FQDN.
@@ -70,10 +57,6 @@ func (key ConfigKey) HashCode() uint64 {
 	var tmp [md5.Size]byte
 	sum := hash.Sum(tmp[:0])
 	return binary.BigEndian.Uint64(sum)
-}
-
-func (key ConfigKey) String() string {
-	return key.Kind.Kind + "/" + key.Namespace + "/" + key.Name
 }
 
 // ConfigsOfKind extracts configs of the specified kind.
@@ -131,7 +114,7 @@ func ConfigNamesOfKind(configs map[ConfigKey]struct{}, kind config.GroupVersionK
 // treated as read-only. Modifying them violates thread-safety.
 type ConfigStore interface {
 	// Schemas exposes the configuration type schema known by the config store.
-	// The type schema defines the bidirectional mapping between configuration
+	// The type schema defines the bidrectional mapping between configuration
 	// types and the protobuf encoding schema.
 	Schemas() collection.Schemas
 
@@ -153,6 +136,7 @@ type ConfigStore interface {
 	// operation to achieve optimistic concurrency. This method returns a new
 	// revision if the operation succeeds.
 	Update(config config.Config) (newRevision string, err error)
+
 	UpdateStatus(config config.Config) (newRevision string, err error)
 
 	// Patch applies only the modifications made in the PatchFunc rather than doing a full replace. Useful to avoid
@@ -189,6 +173,7 @@ type ConfigStoreCache interface {
 
 	// Run until a signal is received
 	Run(stop <-chan struct{})
+
 	SetWatchErrorHandler(func(r *cache.Reflector, err error)) error
 
 	// HasSynced returns true after initial cache synchronization is complete
@@ -197,6 +182,7 @@ type ConfigStoreCache interface {
 
 // IstioConfigStore is a specialized interface to access config store using
 // Istio configuration types
+// nolint
 type IstioConfigStore interface {
 	ConfigStore
 
@@ -356,7 +342,7 @@ func (store *istioConfigStore) ServiceEntries() []config.Config {
 
 // sortConfigByCreationTime sorts the list of config objects in ascending order by their creation time (if available).
 func sortConfigByCreationTime(configs []config.Config) {
-	sort.Slice(configs, func(i, j int) bool {
+	sort.SliceStable(configs, func(i, j int) bool {
 		// If creation time is the same, then behavior is nondeterministic. In this case, we can
 		// pick an arbitrary but consistent ordering based on name and namespace, which is unique.
 		// CreationTimestamp is stored in seconds, so this is not uncommon.

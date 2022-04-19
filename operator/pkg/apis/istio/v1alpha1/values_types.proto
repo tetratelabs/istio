@@ -28,8 +28,7 @@ option (gogoproto.marshaler_all) = false;
 option (gogoproto.unmarshaler_all) = false;
 option (gogoproto.sizer_all) = false;
 
-// ArchConfig specifies the pod scheduling target architecture(amd64, ppc64le, s390x, arm64)
-// for all the Istio control plane components.
+// ArchConfig specifies the pod scheduling target architecture(amd64, ppc64le, s390x) for all the Istio control plane components.
 message ArchConfig {
   // Sets pod scheduling weight for amd64 arch
   uint32 amd64 = 1;
@@ -39,9 +38,6 @@ message ArchConfig {
 
   // Sets pod scheduling weight for s390x arch.
   uint32 s390x = 3;
-
-  // Sets pod scheduling weight for arm64 arch.
-  uint32 arm64 = 4;
 }
 
 // Configuration for CNI.
@@ -77,10 +73,6 @@ message CNIConfig {
 
   CNITaintConfig taint  = 15;
 
-  ResourceQuotas resource_quotas = 16;
-
-  Resources resources = 17;
-
   google.protobuf.BoolValue privileged = 18;
 }
 
@@ -112,13 +104,6 @@ message CNIRepairConfig {
   string brokenPodLabelValue = 9;
 
   string initContainerName = 10;
-}
-
-message ResourceQuotas {
-  // Controls whether to create resource quotas or not for the CNI DaemonSet.
-  google.protobuf.BoolValue enabled = 1;
-
-  int64 pods = 2;
 }
 
 // Configuration for CPU target utilization for HorizontalPodAutoscaler target.
@@ -277,7 +262,7 @@ message GatewaysConfig {
 
 // Global Configuration for Istio components.
 message GlobalConfig {
-  // Specifies pod scheduling arch(amd64, ppc64le, s390x, arm64) and weight as follows:
+  // Specifies pod scheduling arch(amd64, ppc64le, s390x) and weight as follows:
   //   0 - Never scheduled
   //   1 - Least preferred
   //   2 - No preference
@@ -433,14 +418,7 @@ message GlobalConfig {
   // Controls whether a remote cluster is the config cluster for an external istiod
   google.protobuf.BoolValue configCluster = 64;
 
-  // The name of the CA for workloads.
-  // For example, when caName=GkeWorkloadCertificate, GKE workload certificates
-  // will be used as the certificates for workloads.
-  // The default value is "" and when caName="", the CA will be configured by other
-  // mechanisms (e.g., environmental variable CA_PROVIDER).
-  string caName = 65;
-
-  // The next available key is 66
+  // The next available key is 65
 }
 
 // Configuration for Security Token Service (STS) server.
@@ -649,12 +627,10 @@ message PilotConfig {
   // Examples: 300s, 30m, 1h
   google.protobuf.Duration keepaliveMaxServerConnectionAge = 13;
 
-  // Labels that are added to Pilot deployment and pods.
+  // Labels that are added to Pilot pods.
   //
   // See https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
   TypeMapStringInterface deploymentLabels = 14;
-
-  TypeMapStringInterface podLabels = 36;
 
   // Configuration settings passed to Pilot as a ConfigMap.
   //
@@ -693,8 +669,6 @@ message PilotConfig {
   //
   // See: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
   TypeMapStringInterface podAnnotations = 30 [deprecated=true];
-
-  TypeMapStringInterface serviceAnnotations = 37;
 
   // ConfigSource describes a source of configuration data for networking
   // rules, and other Istio configuration artifacts. Multiple data sources
@@ -930,10 +904,6 @@ message ProxyConfig {
   //
   // Deprecated: replaced by ProxyConfig setting which allows per-pod configuration of this behavior.
   google.protobuf.BoolValue holdApplicationUntilProxyStarts = 37 [deprecated=true];
-
-  string includeInboundPorts = 38;
-
-  string includeOutboundPorts = 39;
 }
 
 // Specifies which tracer to use.
@@ -1032,17 +1002,17 @@ message SidecarInjectorConfig {
   TypeMapStringInterface templates = 23;
 
   // Default templates specifies a set of default templates that are used in sidecar injection.
-  // By default, a template `sidecar` is always provided, which contains the template of default sidecar.
-  // To inject other additional templates, define it using the `templates` option, and add it to
+  // By default, a template `sidecar` is always provided, which contains the template of default sidecar. 
+  // To inject other additional templates, define it using the `templates` option, and add it to 
   // the default templates list.
   // For example:
-
+  
   // templates:
   //   hello: |
   //     metadata:
   //       labels:
   //         hello: world
-
+  
   // defaultTemplates: ["sidecar", "hello"]
   repeated string defaultTemplates = 24;
 
@@ -1152,8 +1122,6 @@ message Values {
   IstiodRemoteConfig istiodRemote = 38;
 
   repeated string revisionTags = 39;
-
-  string defaultRevision = 40;
 }
 
 // GOTYPE: map[string]interface{}

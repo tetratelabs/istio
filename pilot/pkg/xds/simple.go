@@ -79,7 +79,7 @@ func NewXDS(stop chan struct{}) *SimpleServer {
 	env.PushContext.Mesh = env.Watcher.Mesh()
 	env.Init()
 
-	ds := NewDiscoveryServer(env, nil, "istiod", "istio-system", map[string]string{})
+	ds := NewDiscoveryServer(env, nil, "istiod", "istio-system")
 	ds.InitGenerators(env, "istio-system")
 	ds.CachesSynced()
 
@@ -104,7 +104,12 @@ func NewXDS(stop chan struct{}) *SimpleServer {
 	serviceControllers := aggregate.NewController(aggregate.Options{})
 
 	serviceEntryStore := serviceentry.NewServiceDiscovery(configController, s.MemoryConfigStore, ds)
-	serviceControllers.AddRegistry(serviceEntryStore)
+	serviceEntryRegistry := serviceregistry.Simple{
+		ProviderID:       "External",
+		Controller:       serviceEntryStore,
+		ServiceDiscovery: serviceEntryStore,
+	}
+	serviceControllers.AddRegistry(serviceEntryRegistry)
 
 	sd := controllermemory.NewServiceDiscovery(nil)
 	sd.EDSUpdater = ds
@@ -123,7 +128,7 @@ func NewXDS(stop chan struct{}) *SimpleServer {
 		configController,
 	})
 	if err != nil {
-		log.Fatalf("Creating aggregate config: %v", err)
+		log.Fatala("Creating aggregate config ", err)
 	}
 
 	// TODO: fix the mess of store interfaces - most are too generic for their own good.
@@ -145,7 +150,7 @@ func (s *SimpleServer) StartGRPC(addr string) error {
 	go func() {
 		err = gs.Serve(lis)
 		if err != nil {
-			log.Infof("Serve done with %v", err)
+			log.Info("Serve done ", err)
 		}
 	}()
 	return nil

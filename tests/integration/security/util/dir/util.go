@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 //  Copyright Istio Authors
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,22 +29,22 @@ import (
 
 // ListDir lists the given directory on a pod and calls the validation function on
 // the output.
-func ListDir(ns namespace.Instance, t *testing.T, labelSelector, container, kubeconfig, directory string, validate func(string) error) {
+func ListDir(ns namespace.Instance, t *testing.T, labelSelector, container, directory string, validate func(string) error) {
 	retry := util.Retrier{
 		BaseDelay: 10 * time.Second,
 		Retries:   3,
 		MaxDelay:  30 * time.Second,
 	}
 
-	podName, err := GetPodName(ns, labelSelector, kubeconfig)
+	podName, err := GetPodName(ns, labelSelector)
 	if err != nil {
 		t.Errorf("err getting pod name: %v", err)
 		return
 	}
 	retryFn := func(_ context.Context, i int) error {
 		execCmd := fmt.Sprintf(
-			"kubectl exec -it %s -c %s -n %s --kubeconfig %s -- ls -la %s",
-			podName, container, ns.Name(), kubeconfig, directory)
+			"kubectl exec -it %s -c %s -n %s -- ls -la %s",
+			podName, container, ns.Name(), directory)
 		out, err := shell.Execute(false,
 			execCmd)
 		if err != nil {
@@ -64,7 +62,7 @@ func ListDir(ns namespace.Instance, t *testing.T, labelSelector, container, kube
 	}
 }
 
-func GetPodName(ns namespace.Instance, labelSelector, kubeconfig string) (string, error) {
+func GetPodName(ns namespace.Instance, labelSelector string) (string, error) {
 	retry := util.Retrier{
 		BaseDelay: 10 * time.Second,
 		Retries:   3,
@@ -74,8 +72,8 @@ func GetPodName(ns namespace.Instance, labelSelector, kubeconfig string) (string
 
 	retryFn := func(_ context.Context, i int) error {
 		podCmd := fmt.Sprintf(
-			"kubectl get pod -l %s -n %s --kubeconfig %s -o jsonpath='{.items[0].metadata.name}'",
-			labelSelector, ns.Name(), kubeconfig)
+			"kubectl get pod -l %s -n %s -o jsonpath='{.items[0].metadata.name}'",
+			labelSelector, ns.Name())
 		out, err := shell.Execute(false,
 			podCmd)
 		if err != nil {

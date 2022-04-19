@@ -52,6 +52,7 @@ var versionMap = map[string]*resourceNames{
 		},
 		istioDebugURLs: []string{
 			"debug/adsz",
+			"debug/cdsz",
 			"debug/syncz",
 			"debug/registryz",
 			"debug/endpointz",

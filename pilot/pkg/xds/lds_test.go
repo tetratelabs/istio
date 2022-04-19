@@ -14,6 +14,7 @@
 package xds_test
 
 import (
+	"io/ioutil"
 	"os"
 	"testing"
 
@@ -69,11 +70,11 @@ func TestLDSIsolated(t *testing.T) {
 		}
 
 		for _, s := range []string{"lds_tcp", "lds_http", "rds", "cds", "ecds"} {
-			want, err := os.ReadFile(env.IstioOut + "/none_" + s + ".json")
+			want, err := ioutil.ReadFile(env.IstioOut + "/none_" + s + ".json")
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := os.ReadFile("testdata/none_" + s + ".json")
+			got, err := ioutil.ReadFile("testdata/none_" + s + ".json")
 			if err != nil {
 				t.Fatal(err)
 			}

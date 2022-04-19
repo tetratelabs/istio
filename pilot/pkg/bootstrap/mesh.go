@@ -21,6 +21,7 @@ import (
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/config/mesh/kubemesh"
+	"istio.io/istio/pkg/util/gogoprotomarshal"
 	"istio.io/pkg/filewatcher"
 	"istio.io/pkg/log"
 	"istio.io/pkg/version"
@@ -48,7 +49,8 @@ func (s *Server) initMeshConfiguration(args *PilotArgs, fileWatcher filewatcher.
 	log.Info("initializing mesh configuration ", args.MeshConfigFile)
 	defer func() {
 		if s.environment.Watcher != nil {
-			log.Infof("mesh configuration: %s", mesh.PrettyFormatOfMeshConfig(s.environment.Mesh()))
+			meshdump, _ := gogoprotomarshal.ToJSONWithIndent(s.environment.Mesh(), "    ")
+			log.Infof("mesh configuration: %s", meshdump)
 			log.Infof("version: %s", version.Info.String())
 			argsdump, _ := json.MarshalIndent(args, "", "   ")
 			log.Infof("flags: %s", argsdump)
@@ -85,11 +87,8 @@ func (s *Server) initMeshConfiguration(args *PilotArgs, fileWatcher filewatcher.
 	// Watch the istio ConfigMap for mesh config changes.
 	// This may be necessary for external Istiod.
 	configMapName := getMeshConfigMapName(args.Revision)
-	multiWatcher := kubemesh.NewConfigMapWatcher(
+	s.environment.Watcher = kubemesh.NewConfigMapWatcher(
 		s.kubeClient, args.Namespace, configMapName, configMapKey, multiWatch, s.internalStop)
-	s.environment.Watcher = multiWatcher
-	s.environment.NetworksWatcher = multiWatcher
-	log.Infof("initializing mesh networks from mesh config watcher")
 
 	if multiWatch {
 		kubemesh.AddUserMeshConfig(s.kubeClient, s.environment.Watcher, args.Namespace, configMapKey, features.SharedMeshConfig, s.internalStop)
@@ -99,7 +98,11 @@ func (s *Server) initMeshConfiguration(args *PilotArgs, fileWatcher filewatcher.
 // initMeshNetworks loads the mesh networks configuration from the file provided
 // in the args and add a watcher for changes in this file.
 func (s *Server) initMeshNetworks(args *PilotArgs, fileWatcher filewatcher.FileWatcher) {
-	if s.environment.NetworksWatcher != nil {
+	if mw, ok := s.environment.Watcher.(mesh.NetworksWatcher); ok {
+		// The mesh config watcher is also a NetworksWatcher, this is common for reading ConfigMap
+		// directly from Kubernetes
+		log.Infof("initializing mesh networks from mesh config watcher")
+		s.environment.NetworksWatcher = mw
 		return
 	}
 	log.Info("initializing mesh networks")

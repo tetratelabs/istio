@@ -11,19 +11,19 @@ typedConfig:
                 rules:
                 - header:
                     name: :authority
-                    stringMatch:
-                      exact: exact.com
-                      ignoreCase: true
+                    safeRegexMatch:
+                      googleRe2: {}
+                      regex: (?i)exact\.com
                 - header:
                     name: :authority
-                    stringMatch:
-                      ignoreCase: true
-                      suffix: .suffix.com
+                    safeRegexMatch:
+                      googleRe2: {}
+                      regex: (?i).*\.suffix\.com
                 - header:
                     name: :authority
-                    stringMatch:
-                      ignoreCase: true
-                      prefix: prefix.
+                    safeRegexMatch:
+                      googleRe2: {}
+                      regex: (?i)prefix\..*
                 - header:
                     name: :authority
                     presentMatch: true
@@ -32,19 +32,19 @@ typedConfig:
                   rules:
                   - header:
                       name: :authority
-                      stringMatch:
-                        exact: not-exact.com
-                        ignoreCase: true
+                      safeRegexMatch:
+                        googleRe2: {}
+                        regex: (?i)not-exact\.com
                   - header:
                       name: :authority
-                      stringMatch:
-                        ignoreCase: true
-                        suffix: .not-suffix.com
+                      safeRegexMatch:
+                        googleRe2: {}
+                        regex: (?i).*\.not-suffix\.com
                   - header:
                       name: :authority
-                      stringMatch:
-                        ignoreCase: true
-                        prefix: not-prefix.
+                      safeRegexMatch:
+                        googleRe2: {}
+                        regex: (?i)not-prefix\..*
                   - header:
                       name: :authority
                       presentMatch: true

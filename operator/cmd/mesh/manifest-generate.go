@@ -16,6 +16,7 @@ package mesh
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -184,7 +185,7 @@ func renderRecursive(manifests name.ManifestMap, installTree helmreconciler.Comp
 		fname := filepath.Join(dirName, componentName) + ".yaml"
 		l.LogAndPrintf("Writing manifest to %s", fname)
 		if !dryRun {
-			if err := os.WriteFile(fname, []byte(ym), 0o644); err != nil {
+			if err := ioutil.WriteFile(fname, []byte(ym), 0o644); err != nil {
 				return fmt.Errorf("could not write manifest config; %s", err)
 			}
 		}

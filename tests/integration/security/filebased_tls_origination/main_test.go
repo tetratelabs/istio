@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 //  Copyright Istio Authors
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,7 +32,6 @@ func TestMain(m *testing.M) {
 		NewSuite(m).
 		Label(label.CustomSetup).
 		Label("CustomSetup").
-		RequireMultiPrimary().
 		Setup(istio.Setup(&inst, setupConfig, cert.CreateCustomEgressSecret)).
 		Run()
 }

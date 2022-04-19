@@ -17,6 +17,7 @@ package framework
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -96,8 +97,6 @@ type Suite interface {
 	RequireMaxClusters(maxClusters int) Suite
 	// RequireSingleCluster is a utility method that requires that there be exactly 1 cluster in the environment.
 	RequireSingleCluster() Suite
-	// RequireMultiPrimary ensures that each cluster is running a control plane.
-	RequireMultiPrimary() Suite
 	// RequireMinVersion validates the environment meets a minimum version
 	RequireMinVersion(minorVersion uint) Suite
 	// RequireMaxVersion validates the environment meets a maximum version
@@ -230,21 +229,6 @@ func (s *suiteImpl) RequireMaxClusters(maxClusters int) Suite {
 
 func (s *suiteImpl) RequireSingleCluster() Suite {
 	return s.RequireMinClusters(1).RequireMaxClusters(1)
-}
-
-func (s *suiteImpl) RequireMultiPrimary() Suite {
-	fn := func(ctx resource.Context) error {
-		for _, c := range ctx.Clusters() {
-			if !c.IsPrimary() {
-				s.Skip(fmt.Sprintf("Cluster %s is not using a local control plane",
-					c.Name()))
-			}
-		}
-		return nil
-	}
-
-	s.requireFns = append(s.requireFns, fn)
-	return s
 }
 
 func (s *suiteImpl) RequireMinVersion(minorVersion uint) Suite {
@@ -448,7 +432,7 @@ func (s *suiteImpl) writeOutput() {
 		if err != nil {
 			log.Errorf("failed writing test suite outcome to yaml: %s", err)
 		}
-		err = os.WriteFile(path.Join(artifactsPath, out.Name+".yaml"), outbytes, 0o644)
+		err = ioutil.WriteFile(path.Join(artifactsPath, out.Name+".yaml"), outbytes, 0o644)
 		if err != nil {
 			log.Errorf("failed writing test suite outcome to file: %s", err)
 		}

@@ -103,7 +103,7 @@ func TestMetadataListMatcher(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			want := getWant(tc.want)
-			actual := MetadataListMatcher("istio_authn", []string{"key1", "key2"}, StringMatcher("*"))
+			actual := MetadataListMatcher("istio_authn", []string{"key1", "key2"}, "*")
 			if !cmp.Equal(want, actual, protocmp.Transform()) {
 				t.Errorf("want %s, but got %s", want.String(), actual.String())
 			}

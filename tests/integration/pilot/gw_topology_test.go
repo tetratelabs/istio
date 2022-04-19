@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -46,11 +44,9 @@ func TestXFFGateway(t *testing.T) {
 			templateParams := map[string]string{
 				"imagePullSecret": image.PullSecretNameOrFail(t),
 				"injectLabel":     injectLabel,
-				"imagePullPolicy": image.PullImagePolicy(t),
 			}
 
-			// we only apply to config clusters
-			t.ConfigIstio().ApplyYAMLOrFail(t, gatewayNs.Name(), tmpl.MustEvaluate(`apiVersion: v1
+			t.Config().ApplyYAMLOrFail(t, gatewayNs.Name(), tmpl.MustEvaluate(`apiVersion: v1
 kind: Service
 metadata:
   name: custom-gateway
@@ -59,7 +55,6 @@ metadata:
 spec:
   ports:
   - port: 80
-    targetPort: 8080
     name: http
   selector:
     istio: ingressgateway
@@ -90,7 +85,6 @@ spec:
       containers:
       - name: istio-proxy
         image: auto
-        imagePullPolicy: {{ .imagePullPolicy }}
 ---
 `, templateParams))
 			cs := t.Clusters().Default().(*kubecluster.Cluster)

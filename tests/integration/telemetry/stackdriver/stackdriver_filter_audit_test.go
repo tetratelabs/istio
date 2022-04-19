@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -53,15 +51,15 @@ func TestStackdriverHTTPAuditLogging(t *testing.T) {
 		Run(func(ctx framework.TestContext) {
 			g, _ := errgroup.WithContext(context.Background())
 
-			ns := EchoNsInst.Name()
+			ns := getEchoNamespaceInstance().Name()
 			args := map[string]string{
 				"Namespace": ns,
 			}
 			policies := tmpl.EvaluateAllOrFail(t, args, file.AsStringOrFail(t, filepath.Join(env.IstioSrc, auditPolicyForLogEntry)))
-			ctx.ConfigIstio().ApplyYAMLOrFail(t, ns, policies...)
+			ctx.Config().ApplyYAMLOrFail(t, ns, policies...)
 			t.Logf("Audit policy deployed to namespace %v", ns)
 
-			for _, cltInstance := range Clt {
+			for _, cltInstance := range clt {
 				cltInstance := cltInstance
 				scopes.Framework.Infof("Validating Audit policy and Telemetry for Cluster %v", cltInstance.Config().Cluster.StableName())
 				g.Go(func() error {
@@ -72,33 +70,33 @@ func TestStackdriverHTTPAuditLogging(t *testing.T) {
 						t.Logf("Traffic sent to namespace %v", ns)
 
 						clName := cltInstance.Config().Cluster.Name()
-						trustDomain := telemetry.GetTrustDomain(cltInstance.Config().Cluster, Ist.Settings().SystemNamespace)
+						trustDomain := telemetry.GetTrustDomain(cltInstance.Config().Cluster, ist.Settings().SystemNamespace)
 						t.Logf("Collect Audit Log for cluster %v", clName)
 
 						var errs []string
 
-						errAuditFoo := ValidateLogs(t, filepath.Join(env.IstioSrc, serverAuditFooLogEntry), clName, trustDomain, stackdriver.ServerAuditLog)
+						errAuditFoo := validateLogs(t, filepath.Join(env.IstioSrc, serverAuditFooLogEntry), clName, trustDomain, stackdriver.ServerAuditLog)
 						if errAuditFoo == nil {
 							t.Logf("Foo Audit Log validated for cluster %v", clName)
 						} else {
 							errs = append(errs, errAuditFoo.Error())
 						}
 
-						errAuditBar := ValidateLogs(t, filepath.Join(env.IstioSrc, serverAuditBarLogEntry), clName, trustDomain, stackdriver.ServerAuditLog)
+						errAuditBar := validateLogs(t, filepath.Join(env.IstioSrc, serverAuditBarLogEntry), clName, trustDomain, stackdriver.ServerAuditLog)
 						if errAuditBar == nil {
 							t.Logf("Bar Audit Log validated for cluster %v", clName)
 						} else {
 							errs = append(errs, errAuditBar.Error())
 						}
 
-						errAuditAll := ValidateLogs(t, filepath.Join(env.IstioSrc, serverAuditAllLogEntry), clName, trustDomain, stackdriver.ServerAuditLog)
+						errAuditAll := validateLogs(t, filepath.Join(env.IstioSrc, serverAuditAllLogEntry), clName, trustDomain, stackdriver.ServerAuditLog)
 						if errAuditAll == nil {
 							t.Logf("All Audit Log validated for cluster %v", clName)
 						} else {
 							errs = append(errs, errAuditAll.Error())
 						}
 
-						entries, err := SDInst.ListLogEntries(stackdriver.ServerAuditLog, EchoNsInst.Name())
+						entries, err := sdInst.ListLogEntries(stackdriver.ServerAuditLog, getEchoNamespaceInstance().Name())
 						if err != nil {
 							errs = append(errs, err.Error())
 						} else {
@@ -133,7 +131,7 @@ func sendTrafficForAudit(t *testing.T, cltInstance echo.Instance) error {
 
 	newOptions := func(headers http.Header, path string) echo.CallOptions {
 		return echo.CallOptions{
-			Target:   Srv[0],
+			Target:   srv[0],
 			PortName: "http",
 			Headers:  headers,
 			Path:     path,

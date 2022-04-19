@@ -16,7 +16,6 @@ package xds
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -32,7 +31,6 @@ import (
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/apigen"
 	"istio.io/istio/pilot/pkg/networking/core"
-	"istio.io/istio/pilot/pkg/networking/core/v1alpha3/envoyfilter"
 	"istio.io/istio/pilot/pkg/networking/grpcgen"
 	"istio.io/istio/pilot/pkg/serviceregistry"
 	"istio.io/istio/pilot/pkg/serviceregistry/aggregate"
@@ -156,10 +154,6 @@ type DiscoveryServer struct {
 
 	// ListRemoteClusters collects debug information about other clusters this istiod reads from.
 	ListRemoteClusters func() []cluster.DebugInfo
-
-	// ClusterAliases are aliase names for cluster. When a proxy connects with a cluster ID
-	// and if it has a different alias we should use that a cluster ID for proxy.
-	ClusterAliases map[cluster.ID]cluster.ID
 }
 
 // EndpointShards holds the set of endpoint shards of a service. Registries update
@@ -172,7 +166,7 @@ type EndpointShards struct {
 	// Shards is used to track the shards. EDS updates are grouped by shard.
 	// Current implementation uses the registry name as key - in multicluster this is the
 	// name of the k8s cluster, derived from the config (secret).
-	Shards map[model.ShardKey][]*model.IstioEndpoint
+	Shards map[string][]*model.IstioEndpoint
 
 	// ServiceAccounts has the concatenation of all service accounts seen so far in endpoints.
 	// This is updated on push, based on shards. If the previous list is different than
@@ -183,8 +177,7 @@ type EndpointShards struct {
 }
 
 // NewDiscoveryServer creates DiscoveryServer that sources data from Pilot's internal mesh data structures
-func NewDiscoveryServer(env *model.Environment, plugins []string, instanceID string, systemNameSpace string,
-	clusterAliases map[string]string) *DiscoveryServer {
+func NewDiscoveryServer(env *model.Environment, plugins []string, instanceID string, systemNameSpace string) *DiscoveryServer {
 	out := &DiscoveryServer{
 		Env:                     env,
 		Generators:              map[string]model.XdsResourceGenerator{},
@@ -205,11 +198,6 @@ func NewDiscoveryServer(env *model.Environment, plugins []string, instanceID str
 		},
 		Cache:      model.DisabledCache{},
 		instanceID: instanceID,
-	}
-
-	out.ClusterAliases = make(map[cluster.ID]cluster.ID)
-	for alias := range clusterAliases {
-		out.ClusterAliases[cluster.ID(alias)] = cluster.ID(clusterAliases[alias])
 	}
 
 	out.initJwksResolver()
@@ -341,8 +329,6 @@ func (s *DiscoveryServer) Push(req *model.PushRequest) {
 	oldPushContext := s.globalPushContext()
 	if oldPushContext != nil {
 		oldPushContext.OnConfigChange()
-		// Push the previous push Envoy metrics.
-		envoyfilter.RecordMetrics()
 	}
 	// PushContext is reset after a config change. Previous status is
 	// saved.
@@ -427,15 +413,10 @@ func debounce(ch chan *model.PushRequest, stopCh <-chan struct{}, opts debounceO
 		if eventDelay >= opts.debounceMax || quietTime >= opts.debounceAfter {
 			if req != nil {
 				pushCounter++
-				if req.ConfigsUpdated == nil {
-					log.Infof("Push debounce stable[%d] %d: %v since last change, %v since last push, full=%v",
-						pushCounter, debouncedEvents,
-						quietTime, eventDelay, req.Full)
-				} else {
-					log.Infof("Push debounce stable[%d] %d for config %s: %v since last change, %v since last push, full=%v",
-						pushCounter, debouncedEvents, configsUpdated(req),
-						quietTime, eventDelay, req.Full)
-				}
+				log.Infof("Push debounce stable[%d] %d: %v since last change, %v since last push, full=%v",
+					pushCounter, debouncedEvents,
+					quietTime, eventDelay, req.Full)
+
 				free = false
 				go push(req, debouncedEvents)
 				req = nil
@@ -458,10 +439,7 @@ func debounce(ch chan *model.PushRequest, stopCh <-chan struct{}, opts debounceO
 			}
 			if !opts.enableEDSDebounce && !r.Full {
 				// trigger push now, just for EDS
-				go func(req *model.PushRequest) {
-					pushFn(req)
-					updateSent.Inc()
-				}(r)
+				go pushFn(r)
 				continue
 			}
 
@@ -481,19 +459,6 @@ func debounce(ch chan *model.PushRequest, stopCh <-chan struct{}, opts debounceO
 			return
 		}
 	}
-}
-
-func configsUpdated(req *model.PushRequest) string {
-	configs := ""
-	for key := range req.ConfigsUpdated {
-		configs += key.String()
-		break
-	}
-	if len(req.ConfigsUpdated) > 1 {
-		more := fmt.Sprintf(" and %d more configs", len(req.ConfigsUpdated)-1)
-		configs += more
-	}
-	return configs
 }
 
 func doSendPushes(stopCh <-chan struct{}, semaphore chan struct{}, queue *PushQueue) {
@@ -552,7 +517,7 @@ func (s *DiscoveryServer) initPushContext(req *model.PushRequest, oldPushContext
 	push.PushVersion = version
 	push.JwtKeyResolver = s.JwtKeyResolver
 	if err := push.InitContext(s.Env, oldPushContext, req); err != nil {
-		log.Errorf("XDS: failed to init push context: %v", err)
+		log.Errorf("XDS: Failed to update services: %v", err)
 		// We can't push if we can't read the data - stick with previous version.
 		pushContextErrors.Increment()
 		return nil, err
@@ -653,7 +618,7 @@ func (s *DiscoveryServer) SendResponse(connections []*Connection, res *discovery
 		go func() {
 			err := con.stream.Send(res)
 			if err != nil {
-				log.Errorf("Failed to send internal event %s: %v", con.ConID, err)
+				log.Info("Failed to send internal event ", con.ConID, " ", err)
 			}
 		}()
 	}

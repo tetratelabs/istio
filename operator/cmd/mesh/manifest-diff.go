@@ -16,6 +16,7 @@ package mesh
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -114,11 +115,11 @@ func compareManifestsFromFiles(rootArgs *rootArgs, args []string, verbose bool,
 	renameResources, selectResources, ignoreResources string) (bool, error) {
 	initLogsOrExit(rootArgs)
 
-	a, err := os.ReadFile(args[0])
+	a, err := ioutil.ReadFile(args[0])
 	if err != nil {
 		return false, fmt.Errorf("could not read %q: %v", args[0], err)
 	}
-	b, err := os.ReadFile(args[1])
+	b, err := ioutil.ReadFile(args[1])
 	if err != nil {
 		return false, fmt.Errorf("could not read %q: %v", args[1], err)
 	}

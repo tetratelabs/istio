@@ -20,10 +20,9 @@ import (
 	"net/http"
 	"time"
 
-	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
-
 	"istio.io/istio/pkg/test/echo/client"
 	"istio.io/istio/pkg/test/echo/common/scheme"
+	"istio.io/istio/pkg/test/echo/proto"
 	"istio.io/istio/pkg/test/framework/components/cluster"
 )
 
@@ -44,10 +43,6 @@ type CallOptions struct {
 
 	// If true, h2c will be used in HTTP requests
 	HTTP2 bool
-
-	// If true, HTTP/3 request over QUIC will be used.
-	// It is mandatory to specify TLS settings
-	HTTP3 bool
 
 	// Address specifies the host name or IP address to be used on the request. If not provided,
 	// an appropriate default is chosen for the target Instance.
@@ -70,9 +65,6 @@ type CallOptions struct {
 	// Message to be sent if this is a GRPC request
 	Message string
 
-	// ExpectedResponse asserts this is in the response for TCP requests.
-	ExpectedResponse *wrappers.StringValue
-
 	// Method to send. Defaults to HTTP. Only relevant for HTTP.
 	Method string
 
@@ -94,50 +86,8 @@ type CallOptions struct {
 	// will be verified.
 	Validator Validator
 
-	// HTTProxy used for making ingress echo call via proxy
-	HTTPProxy string
-
-	Alpn       []string
+	Alpn       *proto.Alpn
 	ServerName string
-}
-
-// GetHost returns the best default host for the call. Returns the first host defined from the following
-// sources (in order of precedence): Host header, target's DefaultHostHeader, Address, target's FQDN.
-func (o CallOptions) GetHost() string {
-	// First, use the host header, if specified.
-	if h := o.Headers["Host"]; len(h) > 0 {
-		return o.Headers["Host"][0]
-	}
-
-	// Next use the target's default, if specified.
-	if o.Target != nil && len(o.Target.Config().DefaultHostHeader) > 0 {
-		return o.Target.Config().DefaultHostHeader
-	}
-
-	// Next, if the Address was manually specified use it as the Host.
-	if len(o.Address) > 0 {
-		return o.Address
-	}
-
-	// Finally, use the target's FQDN.
-	if o.Target != nil {
-		return o.Target.Config().ClusterLocalFQDN()
-	}
-
-	return ""
-}
-
-func (o CallOptions) DeepCopy() CallOptions {
-	clone := o
-	if o.Port != nil {
-		dc := *o.Port
-		clone.Port = &dc
-	}
-	if o.Alpn != nil {
-		clone.Alpn = make([]string, len(o.Alpn))
-		copy(clone.Alpn, o.Alpn)
-	}
-	return clone
 }
 
 // Validator validates that the given responses are expected.
@@ -154,7 +104,7 @@ var _ Validator = validators{}
 func (all validators) Validate(inResp client.ParsedResponses, err error) error {
 	if len(all) == 0 {
 		// By default, just assume no error.
-		return ExpectNoError().Validate(inResp, err)
+		return expectNoError.Validate(inResp, err)
 	}
 
 	for _, v := range all {
@@ -192,21 +142,16 @@ var (
 	})
 )
 
-// ExpectNoError returns a Validator that fails if the call returned an error.
-func ExpectNoError() Validator {
-	return expectNoError
-}
-
-// ExpectError returns a Validator that fails if the call did not return an error.
+// ExpectError returns a Validator that is completed when an error occurs.
 func ExpectError() Validator {
 	return expectError
 }
 
 // ExpectOK returns a Validator that calls CheckOK on the given responses.
 func ExpectOK() Validator {
-	return And(ExpectNoError(), ValidatorFunc(func(resp client.ParsedResponses, err error) error {
+	return ValidatorFunc(func(resp client.ParsedResponses, err error) error {
 		return resp.CheckOK()
-	}))
+	})
 }
 
 // ExpectReachedClusters returns a Validator that checks that all provided clusters are reached.

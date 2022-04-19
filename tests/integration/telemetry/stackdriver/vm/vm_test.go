@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,10 +21,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/protobuf/proto"
 	"google.golang.org/genproto/googleapis/devtools/cloudtrace/v1"
 	loggingpb "google.golang.org/genproto/googleapis/logging/v2"
 	monitoring "google.golang.org/genproto/googleapis/monitoring/v3"
-	"google.golang.org/protobuf/proto"
 
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/echo"
@@ -42,7 +40,7 @@ func TestVMTelemetry(t *testing.T) {
 		Run(func(ctx framework.TestContext) {
 			// Set up strict mTLS. This gives a bit more assurance the calls are actually going through envoy,
 			// and certs are set up correctly.
-			ctx.ConfigIstio().ApplyYAMLOrFail(ctx, ns.Name(), enforceMTLS)
+			ctx.Config().ApplyYAMLOrFail(ctx, ns.Name(), enforceMTLS)
 
 			clientBuilder.BuildOrFail(t)
 			serverBuilder.BuildOrFail(t)

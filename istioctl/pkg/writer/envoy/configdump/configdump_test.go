@@ -16,11 +16,12 @@ package configdump
 
 import (
 	"bytes"
-	"os"
+	"io/ioutil"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"istio.io/istio/pilot/test/util"
-	"istio.io/istio/pkg/test/util/assert"
 )
 
 func TestConfigWriter_Prime(t *testing.T) {
@@ -40,7 +41,7 @@ func TestConfigWriter_Prime(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cw := &ConfigWriter{}
-			cd, _ := os.ReadFile(tt.inputFile)
+			cd, _ := ioutil.ReadFile(tt.inputFile)
 			err := cw.Prime(cd)
 			if cw.configDump == nil {
 				if tt.wantConfigs != 0 {
@@ -80,13 +81,13 @@ func TestConfigWriter_PrintBootstrapDump(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gotOut := &bytes.Buffer{}
 			cw := &ConfigWriter{Stdout: gotOut}
-			cd, _ := os.ReadFile("testdata/configdump.json")
+			cd, _ := ioutil.ReadFile("testdata/configdump.json")
 			if tt.callPrime {
 				cw.Prime(cd)
 			}
 			err := cw.PrintBootstrapDump("json")
 			if tt.wantOutputFile != "" {
-				util.CompareContent(t, gotOut.Bytes(), tt.wantOutputFile)
+				util.CompareContent(gotOut.Bytes(), tt.wantOutputFile, t)
 			}
 			if err == nil && tt.wantErr {
 				t.Errorf("PrintBootstrapDump (%v) did not produce expected err", tt.name)
@@ -118,13 +119,13 @@ func TestConfigWriter_PrintVersionSummary(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gotOut := &bytes.Buffer{}
 			cw := &ConfigWriter{Stdout: gotOut}
-			cd, _ := os.ReadFile("testdata/configdump.json")
+			cd, _ := ioutil.ReadFile("testdata/configdump.json")
 			if tt.callPrime {
 				cw.Prime(cd)
 			}
 			err := cw.PrintVersionSummary()
 			if tt.wantOutputFile != "" {
-				util.CompareContent(t, gotOut.Bytes(), tt.wantOutputFile)
+				util.CompareContent(gotOut.Bytes(), tt.wantOutputFile, t)
 			}
 			if err == nil && tt.wantErr {
 				t.Errorf("PrintVersionSummary (%v) did not produce expected err", tt.name)

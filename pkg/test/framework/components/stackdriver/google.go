@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	cloudtrace "google.golang.org/api/cloudtrace/v1"
@@ -76,7 +75,7 @@ var (
 			resourceType: "k8s_pod",
 		},
 	}
-	queryInterval = -90 * time.Second
+	queryInterval = -5 * time.Minute
 )
 
 func newRealStackdriver(_ resource.Context, _ Config) (Instance, error) {
@@ -109,17 +108,13 @@ func (s *realStackdriver) ListTimeSeries(namespace string) ([]*monitoringpb.Time
 		TimeSeries: make([]*monitoringpb.TimeSeries, 0),
 	}
 	for _, q := range timeseriesQueries {
-		filter := fmt.Sprintf("metric.type = %q AND resource.type = %q", q.metricName, q.resourceType)
-		if strings.HasPrefix(q.resourceType, "k8s") {
-			filter = fmt.Sprintf("%s AND resource.labels.namespace_name = %q", filter, namespace)
-		}
 		lr := s.monitoringService.Projects.TimeSeries.List(fmt.Sprintf("projects/%v", s.projectID)).
 			IntervalStartTime(startTime.Format(time.RFC3339)).
 			IntervalEndTime(endTime.Format(time.RFC3339)).
 			AggregationCrossSeriesReducer("REDUCE_NONE").
 			AggregationAlignmentPeriod("60s").
 			AggregationPerSeriesAligner("ALIGN_RATE").
-			Filter(filter).
+			Filter(fmt.Sprintf("metric.type = %q AND resource.type = %q AND resource.labels.namespace_name = %q", q.metricName, q.resourceType, namespace)).
 			Context(context.Background())
 		resp, err := lr.Do()
 		if err != nil {
@@ -153,7 +148,7 @@ func (s *realStackdriver) ListLogEntries(filter LogType, namespace string) ([]*l
 	logName := logNameSuffix(filter)
 	resp, err := s.loggingService.Entries.List(&logging.ListLogEntriesRequest{
 		ResourceNames: []string{fmt.Sprintf("projects/%v", s.projectID)},
-		PageSize:      1000,
+		PageSize:      200,
 		Filter: fmt.Sprintf("timestamp > %q AND logName:%q AND resource.labels.namespace_name=%q",
 			time.Now().Add(queryInterval).Format(time.RFC3339), logName, namespace),
 	}).Context(context.Background()).Do()

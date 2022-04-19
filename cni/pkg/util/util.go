@@ -17,16 +17,14 @@ package util
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"os"
+	"io/ioutil"
 
 	"github.com/fsnotify/fsnotify"
-
-	"istio.io/istio/pkg/file"
+	"github.com/pkg/errors"
 )
 
 // Creates a file watcher that watches for any changes to the directory
-func CreateFileWatcher(dirs ...string) (watcher *fsnotify.Watcher, fileModified chan bool, errChan chan error, err error) {
+func CreateFileWatcher(dir string) (watcher *fsnotify.Watcher, fileModified chan bool, errChan chan error, err error) {
 	watcher, err = fsnotify.NewWatcher()
 	if err != nil {
 		return
@@ -35,16 +33,11 @@ func CreateFileWatcher(dirs ...string) (watcher *fsnotify.Watcher, fileModified 
 	fileModified, errChan = make(chan bool), make(chan error)
 	go watchFiles(watcher, fileModified, errChan)
 
-	for _, dir := range dirs {
-		if file.IsDirWriteable(dir) != nil {
-			continue
+	if err = watcher.Add(dir); err != nil {
+		if closeErr := watcher.Close(); closeErr != nil {
+			err = errors.Wrap(err, closeErr.Error())
 		}
-		if err = watcher.Add(dir); err != nil {
-			if closeErr := watcher.Close(); closeErr != nil {
-				err = fmt.Errorf("%s: %w", closeErr.Error(), err)
-			}
-			return nil, nil, nil, err
-		}
+		return nil, nil, nil, err
 	}
 
 	return
@@ -53,13 +46,11 @@ func CreateFileWatcher(dirs ...string) (watcher *fsnotify.Watcher, fileModified 
 func watchFiles(watcher *fsnotify.Watcher, fileModified chan bool, errChan chan error) {
 	for {
 		select {
-		case event, ok := <-watcher.Events:
+		case _, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			if event.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove) != 0 {
-				fileModified <- true
-			}
+			fileModified <- true
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
@@ -83,14 +74,14 @@ func WaitForFileMod(ctx context.Context, fileModified chan bool, errChan chan er
 
 // Read CNI config from file and return the unmarshalled JSON as a map
 func ReadCNIConfigMap(path string) (map[string]interface{}, error) {
-	cniConfig, err := os.ReadFile(path)
+	cniConfig, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
 	var cniConfigMap map[string]interface{}
 	if err = json.Unmarshal(cniConfig, &cniConfigMap); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, errors.Wrap(err, path)
 	}
 
 	return cniConfigMap, nil
@@ -100,7 +91,7 @@ func ReadCNIConfigMap(path string) (map[string]interface{}, error) {
 func GetPlugins(cniConfigMap map[string]interface{}) (plugins []interface{}, err error) {
 	plugins, ok := cniConfigMap["plugins"].([]interface{})
 	if !ok {
-		err = fmt.Errorf("error reading plugin list from CNI config")
+		err = errors.New("error reading plugin list from CNI config")
 		return
 	}
 	return
@@ -110,7 +101,7 @@ func GetPlugins(cniConfigMap map[string]interface{}) (plugins []interface{}, err
 func GetPlugin(rawPlugin interface{}) (plugin map[string]interface{}, err error) {
 	plugin, ok := rawPlugin.(map[string]interface{})
 	if !ok {
-		err = fmt.Errorf("error reading plugin from CNI config plugin list")
+		err = errors.New("error reading plugin from CNI config plugin list")
 		return
 	}
 	return

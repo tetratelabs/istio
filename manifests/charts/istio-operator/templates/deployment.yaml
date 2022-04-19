@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  namespace: {{.Release.Namespace}}
+  namespace: {{.Values.operatorNamespace}}
   name: istio-operator{{- if not (eq .Values.revision "") }}-{{ .Values.revision }}{{- end }}
 spec:
   replicas: 1
@@ -12,13 +12,6 @@ spec:
     metadata:
       labels:
         name: istio-operator
-        {{- range $key, $val := .Values.podLabels }}
-        {{ $key }}: "{{ $val }}"
-        {{- end }}
-    {{- if .Values.podAnnotations }}
-      annotations:
-{{ toYaml .Values.podAnnotations | indent 8 }}
-    {{- end }}
     spec:
       serviceAccountName: istio-operator{{- if not (eq .Values.revision "") }}-{{ .Values.revision }}{{- end }}
       containers:
@@ -44,27 +37,15 @@ spec:
             - name: WATCH_NAMESPACE
               value: {{.Values.watchedNamespaces | quote}}
             - name: LEADER_ELECTION_NAMESPACE
-              value: {{.Release.Namespace | quote}}
+              value: {{.Values.operatorNamespace | quote}}
             - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
-              value: {{.Release.Namespace | quote}}
+              value: {{.Values.operatorNamespace | quote}}
             - name: WAIT_FOR_RESOURCES_TIMEOUT
               value: {{.Values.waitForResourcesTimeout | quote}}
             - name: REVISION
               value: {{.Values.revision | quote}}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
 ---

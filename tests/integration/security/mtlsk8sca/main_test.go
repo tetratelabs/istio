@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,7 +34,6 @@ func TestMain(m *testing.M) {
 	framework.
 		NewSuite(m).
 		RequireSingleCluster().
-		RequireMultiPrimary().
 		Label(label.CustomSetup).
 		// https://github.com/istio/istio/issues/22161. 1.22 drops support for legacy-unknown signer
 		RequireMaxVersion(21).

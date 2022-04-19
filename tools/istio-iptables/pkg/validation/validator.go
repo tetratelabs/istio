@@ -95,7 +95,11 @@ func (validator *Validator) Run() error {
 func genListenerAddress(ip net.IP, ports []string) []string {
 	addresses := make([]string, 0, len(ports))
 	for _, port := range ports {
-		addresses = append(addresses, net.JoinHostPort(ip.String(), port))
+		if ip.To4() != nil {
+			addresses = append(addresses, fmt.Sprintf("%s:%s", ip.String(), port))
+		} else {
+			addresses = append(addresses, fmt.Sprintf("[%s]:%s", ip.String(), port))
+		}
 	}
 	return addresses
 }
@@ -190,14 +194,14 @@ func (c *Client) Run() error {
 	if err != nil {
 		return err
 	}
+	serverOriginalAddress := fmt.Sprintf("%s:%d", c.Config.ServerOriginalIP, c.Config.ServerOriginalPort)
 	if c.Config.ServerOriginalIP.To4() == nil {
 		laddr, err = net.ResolveTCPAddr("tcp", "[::1]:0")
 		if err != nil {
 			return err
 		}
+		serverOriginalAddress = fmt.Sprintf("[%s]:%d", c.Config.ServerOriginalIP, c.Config.ServerOriginalPort)
 	}
-	sOriginalPort := fmt.Sprintf("%d", c.Config.ServerOriginalPort)
-	serverOriginalAddress := net.JoinHostPort(c.Config.ServerOriginalIP.String(), sOriginalPort)
 	raddr, err := net.ResolveTCPAddr("tcp", serverOriginalAddress)
 	if err != nil {
 		return err

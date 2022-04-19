@@ -27,12 +27,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/informers"
-	informersv1 "k8s.io/client-go/informers/core/v1"
+	informerv1 "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
-
-	"istio.io/istio/pkg/config/constants"
 )
 
 const (
@@ -47,9 +45,8 @@ func TestUpdateDataInConfigMap(t *testing.T) {
 		Version:  "v1",
 	}
 	testMeta := metav1.ObjectMeta{Namespace: namespaceName, Name: configMapName}
-	caBundle := "test-data"
 	testData := map[string]string{
-		constants.CACertNamespaceConfigMapDataName: "test-data",
+		"test-key": "test-data",
 	}
 	testCases := []struct {
 		name              string
@@ -94,7 +91,7 @@ func TestUpdateDataInConfigMap(t *testing.T) {
 				}
 			}
 			client.ClearActions()
-			err := UpdateDataInConfigMap(client.CoreV1(), tc.existingConfigMap, []byte(caBundle))
+			err := UpdateDataInConfigMap(client.CoreV1(), tc.existingConfigMap, testData)
 			if err != nil && err.Error() != tc.expectedErr {
 				t.Errorf("actual error (%s) different from expected error (%s).", err.Error(), tc.expectedErr)
 			}
@@ -114,15 +111,14 @@ func TestInsertDataToConfigMap(t *testing.T) {
 		Resource: "configmaps",
 		Version:  "v1",
 	}
-	caBundle := []byte("test-data")
 	testData := map[string]string{
-		constants.CACertNamespaceConfigMapDataName: "test-data",
+		"test-key": "test-data",
 	}
 	testCases := []struct {
 		name              string
 		meta              metav1.ObjectMeta
 		existingConfigMap *v1.ConfigMap
-		caBundle          []byte
+		data              map[string]string
 		expectedActions   []ktesting.Action
 		expectedErr       string
 		client            *fake.Clientset
@@ -130,7 +126,7 @@ func TestInsertDataToConfigMap(t *testing.T) {
 		{
 			name:              "non-existing ConfigMap",
 			existingConfigMap: nil,
-			caBundle:          caBundle,
+			data:              testData,
 			meta:              metav1.ObjectMeta{Namespace: namespaceName, Name: configMapName},
 			expectedActions: []ktesting.Action{
 				ktesting.NewCreateAction(gvr, namespaceName, createConfigMap(namespaceName,
@@ -142,7 +138,7 @@ func TestInsertDataToConfigMap(t *testing.T) {
 			name:              "existing ConfigMap",
 			meta:              metav1.ObjectMeta{Namespace: namespaceName, Name: configMapName},
 			existingConfigMap: createConfigMap(namespaceName, configMapName, map[string]string{}),
-			caBundle:          caBundle,
+			data:              testData,
 			expectedActions: []ktesting.Action{
 				ktesting.NewUpdateAction(gvr, namespaceName, createConfigMap(namespaceName, configMapName, testData)),
 			},
@@ -151,7 +147,7 @@ func TestInsertDataToConfigMap(t *testing.T) {
 		{
 			name:              "creation failure for ConfigMap",
 			existingConfigMap: nil,
-			caBundle:          caBundle,
+			data:              testData,
 			meta:              metav1.ObjectMeta{Namespace: namespaceName, Name: configMapName},
 			expectedActions: []ktesting.Action{
 				ktesting.NewGetAction(gvr, namespaceName, configMapName),
@@ -183,7 +179,7 @@ func TestInsertDataToConfigMap(t *testing.T) {
 				}
 			}
 			client.ClearActions()
-			err := InsertDataToConfigMap(client.CoreV1(), lister.Lister(), tc.meta, tc.caBundle)
+			err := InsertDataToConfigMap(client.CoreV1(), lister.Lister(), tc.meta, tc.data)
 			if err != nil && err.Error() != tc.expectedErr {
 				t.Errorf("actual error (%s) different from expected error (%s).", err.Error(), tc.expectedErr)
 			}
@@ -239,7 +235,7 @@ func checkActions(actual, expected []ktesting.Action) error {
 	return nil
 }
 
-func createFakeLister(kubeClient *fake.Clientset) informersv1.ConfigMapInformer {
+func createFakeLister(kubeClient *fake.Clientset) informerv1.ConfigMapInformer {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	informerFactory := informers.NewSharedInformerFactory(kubeClient, time.Second)

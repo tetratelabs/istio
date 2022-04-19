@@ -18,12 +18,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/containernetworking/cni/libcni"
+	"github.com/pkg/errors"
 
 	"istio.io/istio/cni/pkg/config"
 	"istio.io/istio/cni/pkg/util"
@@ -91,7 +93,7 @@ func createCNIConfigFile(ctx context.Context, cfg *config.InstallConfig, saToken
 
 func readCNIConfigTemplate(template cniConfigTemplate) ([]byte, error) {
 	if file.Exists(template.cniNetworkConfigFile) {
-		cniConfig, err := os.ReadFile(template.cniNetworkConfigFile)
+		cniConfig, err := ioutil.ReadFile(template.cniNetworkConfigFile)
 		if err != nil {
 			return nil, err
 		}
@@ -104,7 +106,7 @@ func readCNIConfigTemplate(template cniConfigTemplate) ([]byte, error) {
 		return []byte(template.cniNetworkConfig), nil
 	}
 
-	return nil, fmt.Errorf("need CNI_NETWORK_CONFIG or CNI_NETWORK_CONFIG_FILE to be set")
+	return nil, errors.New("need CNI_NETWORK_CONFIG or CNI_NETWORK_CONFIG_FILE to be set")
 }
 
 func replaceCNIConfigVars(cniConfig []byte, vars cniConfigVars, saToken string) []byte {
@@ -138,7 +140,7 @@ func writeCNIConfig(ctx context.Context, cniConfig []byte, cfg pluginConfig) (st
 			return "", fmt.Errorf("CNI config file %s removed during configuration", cniConfigFilepath)
 		}
 		// This section overwrites an existing plugins list entry for istio-cni
-		existingCNIConfig, err := os.ReadFile(cniConfigFilepath)
+		existingCNIConfig, err := ioutil.ReadFile(cniConfigFilepath)
 		if err != nil {
 			return "", err
 		}
@@ -149,8 +151,7 @@ func writeCNIConfig(ctx context.Context, cniConfig []byte, cfg pluginConfig) (st
 	}
 
 	if err = file.AtomicWrite(cniConfigFilepath, cniConfig, os.FileMode(0o644)); err != nil {
-		installLog.Errorf("Failed to write CNI config file %v: %v", cniConfigFilepath, err)
-		return cniConfigFilepath, err
+		return "", err
 	}
 
 	if cfg.chainedCNIPlugin && strings.HasSuffix(cniConfigFilepath, ".conf") {
@@ -158,8 +159,7 @@ func writeCNIConfig(ctx context.Context, cniConfig []byte, cfg pluginConfig) (st
 		installLog.Infof("Renaming %s extension to .conflist", cniConfigFilepath)
 		err = os.Rename(cniConfigFilepath, cniConfigFilepath+"list")
 		if err != nil {
-			installLog.Errorf("Failed to rename CNI config file %v: %v", cniConfigFilepath, err)
-			return cniConfigFilepath, err
+			return "", err
 		}
 		cniConfigFilepath += "list"
 	}

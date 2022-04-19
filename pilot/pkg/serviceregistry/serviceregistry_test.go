@@ -24,7 +24,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	discovery "k8s.io/api/discovery/v1"
+	discovery "k8s.io/api/discovery/v1beta1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -38,7 +38,6 @@ import (
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/model/status"
 	"istio.io/istio/pilot/pkg/serviceregistry"
-	"istio.io/istio/pilot/pkg/serviceregistry/aggregate"
 	kubecontroller "istio.io/istio/pilot/pkg/serviceregistry/kube/controller"
 	"istio.io/istio/pilot/pkg/serviceregistry/serviceentry"
 	"istio.io/istio/pilot/pkg/xds"
@@ -67,14 +66,12 @@ func setupTest(t *testing.T) (
 	xdsUpdater := &xds.FakeXdsUpdater{
 		Events: eventch,
 	}
-	meshWatcher := mesh.NewFixedWatcher(&meshconfig.MeshConfig{})
 	kc := kubecontroller.NewController(
 		client,
 		kubecontroller.Options{
-			XDSUpdater:            xdsUpdater,
-			DomainSuffix:          "cluster.local",
-			MeshWatcher:           meshWatcher,
-			MeshServiceController: aggregate.NewController(aggregate.Options{meshWatcher}),
+			XDSUpdater:   xdsUpdater,
+			DomainSuffix: "cluster.local",
+			MeshWatcher:  mesh.NewFixedWatcher(&meshconfig.MeshConfig{}),
 		},
 	)
 	configController := memory.NewController(memory.Make(collections.Pilot))
@@ -248,7 +245,7 @@ func TestWorkloadInstances(t *testing.T) {
 		expectServiceInstances(t, kc, expectedSvc, 80, instances)
 	})
 
-	t.Run("External only: workLoadEntry port and serviceEntry target port is not set, use serviceEntry port.number", func(t *testing.T) {
+	t.Run("External only", func(t *testing.T) {
 		_, wc, store, _, _ := setupTest(t)
 		makeIstioObject(t, store, serviceEntry)
 		makeIstioObject(t, store, workloadEntry)
@@ -262,7 +259,7 @@ func TestWorkloadInstances(t *testing.T) {
 		expectServiceInstances(t, wc, expectedSvc, 80, instances)
 	})
 
-	t.Run("External only: the port name of the workloadEntry and serviceEntry does match, use workloadEntry port to override", func(t *testing.T) {
+	t.Run("External only with named port override", func(t *testing.T) {
 		_, wc, store, _, _ := setupTest(t)
 		makeIstioObject(t, store, serviceEntry)
 		makeIstioObject(t, store, config.Config{
@@ -290,7 +287,7 @@ func TestWorkloadInstances(t *testing.T) {
 		expectServiceInstances(t, wc, expectedSvc, 80, instances)
 	})
 
-	t.Run("External only: workloadEntry port is not set, use target port", func(t *testing.T) {
+	t.Run("External only with target port", func(t *testing.T) {
 		_, wc, store, _, _ := setupTest(t)
 		makeIstioObject(t, store, config.Config{
 			Meta: config.Meta{
@@ -319,82 +316,6 @@ func TestWorkloadInstances(t *testing.T) {
 			Namestring: expectedSvc.Attributes.Namespace,
 			Address:    workloadEntry.Spec.(*networking.WorkloadEntry).Address,
 			Port:       8080,
-		}}
-		expectServiceInstances(t, wc, expectedSvc, 80, instances)
-	})
-
-	t.Run("External only: the port name of the workloadEntry and serviceEntry does not match, use target port", func(t *testing.T) {
-		_, wc, store, _, _ := setupTest(t)
-		makeIstioObject(t, store, config.Config{
-			Meta: config.Meta{
-				Name:             "service-entry",
-				Namespace:        namespace,
-				GroupVersionKind: gvk.ServiceEntry,
-				Domain:           "cluster.local",
-			},
-			Spec: &networking.ServiceEntry{
-				Hosts: []string{"service.namespace.svc.cluster.local"},
-				Ports: []*networking.Port{{
-					Name:       "http",
-					Number:     80,
-					Protocol:   "http",
-					TargetPort: 8080,
-				}},
-				WorkloadSelector: &networking.WorkloadSelector{
-					Labels: labels,
-				},
-			},
-		})
-		makeIstioObject(t, store, config.Config{
-			Meta: config.Meta{
-				Name:             "workload",
-				Namespace:        namespace,
-				GroupVersionKind: gvk.WorkloadEntry,
-				Domain:           "cluster.local",
-			},
-			Spec: &networking.WorkloadEntry{
-				Address: "2.3.4.5",
-				Labels:  labels,
-				Ports: map[string]uint32{
-					"different-port-name": 8081,
-				},
-			},
-		})
-
-		instances := []ServiceInstanceResponse{{
-			Hostname:   expectedSvc.Hostname,
-			Namestring: expectedSvc.Attributes.Namespace,
-			Address:    workloadEntry.Spec.(*networking.WorkloadEntry).Address,
-			Port:       8080,
-		}}
-		expectServiceInstances(t, wc, expectedSvc, 80, instances)
-	})
-
-	t.Run("External only: the port name of the workloadEntry and serviceEntry does not match, "+
-		"and the serivceEntry target port is not set, use serviceEntry port.number", func(t *testing.T) {
-		_, wc, store, _, _ := setupTest(t)
-		makeIstioObject(t, store, serviceEntry)
-		makeIstioObject(t, store, config.Config{
-			Meta: config.Meta{
-				Name:             "workload",
-				Namespace:        namespace,
-				GroupVersionKind: gvk.WorkloadEntry,
-				Domain:           "cluster.local",
-			},
-			Spec: &networking.WorkloadEntry{
-				Address: "2.3.4.5",
-				Labels:  labels,
-				Ports: map[string]uint32{
-					"different-port-name": 8081,
-				},
-			},
-		})
-
-		instances := []ServiceInstanceResponse{{
-			Hostname:   expectedSvc.Hostname,
-			Namestring: expectedSvc.Attributes.Namespace,
-			Address:    workloadEntry.Spec.(*networking.WorkloadEntry).Address,
-			Port:       80,
 		}}
 		expectServiceInstances(t, wc, expectedSvc, 80, instances)
 	})
@@ -981,11 +902,6 @@ func TestEndpointsDeduping(t *testing.T) {
 	createEndpointSlice(t, s.KubeClient(), "slice1", "service", namespace, []v1.EndpointPort{{Name: "http", Port: 80}}, []string{"1.2.3.4"})
 	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
 
-	// create an FQDN endpoint that should be ignored
-	createEndpointSliceWithType(t, s.KubeClient(), "slice1", "service",
-		namespace, []v1.EndpointPort{{Name: "http", Port: 80}}, []string{"foo.com"}, discovery.AddressTypeFQDN)
-	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
-
 	// Add another port endpoint
 	createEndpointSlice(t, s.KubeClient(), "slice1", "service", namespace,
 		[]v1.EndpointPort{{Name: "http-other", Port: 90}, {Name: "http", Port: 80}}, []string{"1.2.3.4", "2.3.4.5"})
@@ -1007,7 +923,7 @@ func TestEndpointsDeduping(t *testing.T) {
 	createEndpointSlice(t, s.KubeClient(), "slice2", "service", namespace, []v1.EndpointPort{{Name: "http", Port: 80}}, []string{})
 	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
 
-	_ = s.KubeClient().DiscoveryV1().EndpointSlices(namespace).Delete(context.TODO(), "slice1", metav1.DeleteOptions{})
+	s.KubeClient().DiscoveryV1beta1().EndpointSlices(namespace).Delete(context.TODO(), "slice1", metav1.DeleteOptions{})
 	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
 
 	// Ensure there is nothing is left over
@@ -1028,63 +944,58 @@ func TestEndpointsDeduping(t *testing.T) {
 
 // TestEndpointSlicingServiceUpdate is a regression test to ensure we do not end up with duplicate endpoints when a service changes.
 func TestEndpointSlicingServiceUpdate(t *testing.T) {
-	for _, version := range []string{"latest", "20"} {
-		t.Run("kuberentes 1."+version, func(t *testing.T) {
-			s := xds.NewFakeDiscoveryServer(t, xds.FakeOptions{
-				KubernetesEndpointMode: kubecontroller.EndpointSliceOnly,
-				KubernetesVersion:      version,
-				EnableFakeXDSUpdater:   true,
-			})
-			namespace := "namespace"
-			labels := map[string]string{
-				"app": "bar",
-			}
-			makeService(t, s.KubeClient(), &v1.Service{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "service",
-					Namespace: namespace,
-				},
-				Spec: v1.ServiceSpec{
-					Ports: []v1.ServicePort{{
-						Name: "http",
-						Port: 80,
-					}, {
-						Name: "http-other",
-						Port: 90,
-					}},
-					Selector:  labels,
-					ClusterIP: "9.9.9.9",
-				},
-			})
-			xdsUpdater := s.XdsUpdater.(*xds.FakeXdsUpdater)
-			createEndpointSlice(t, s.KubeClient(), "slice1", "service", namespace, []v1.EndpointPort{{Name: "http", Port: 80}}, []string{"1.2.3.4"})
-			createEndpointSlice(t, s.KubeClient(), "slice2", "service", namespace, []v1.EndpointPort{{Name: "http", Port: 80}}, []string{"1.2.3.4"})
-			expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
-			xdsUpdater.WaitOrFail(t, "svcupdate")
-
-			// Trigger a service updates
-			makeService(t, s.KubeClient(), &v1.Service{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "service",
-					Namespace: namespace,
-					Labels:    map[string]string{"foo": "bar"},
-				},
-				Spec: v1.ServiceSpec{
-					Ports: []v1.ServicePort{{
-						Name: "http",
-						Port: 80,
-					}, {
-						Name: "http-other",
-						Port: 90,
-					}},
-					Selector:  labels,
-					ClusterIP: "9.9.9.9",
-				},
-			})
-			xdsUpdater.WaitOrFail(t, "svcupdate")
-			expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
-		})
+	s := xds.NewFakeDiscoveryServer(t, xds.FakeOptions{
+		KubernetesEndpointMode: kubecontroller.EndpointSliceOnly,
+		EnableFakeXDSUpdater:   true,
+	})
+	namespace := "namespace"
+	labels := map[string]string{
+		"app": "bar",
 	}
+	makeService(t, s.KubeClient(), &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "service",
+			Namespace: namespace,
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Name: "http",
+				Port: 80,
+			}, {
+				Name: "http-other",
+				Port: 90,
+			}},
+			Selector:  labels,
+			ClusterIP: "9.9.9.9",
+		},
+	})
+	xdsUpdater := s.XdsUpdater.(*xds.FakeXdsUpdater)
+	createEndpointSlice(t, s.KubeClient(), "slice1", "service", namespace, []v1.EndpointPort{{Name: "http", Port: 80}}, []string{"1.2.3.4"})
+	createEndpointSlice(t, s.KubeClient(), "slice2", "service", namespace, []v1.EndpointPort{{Name: "http", Port: 80}}, []string{"1.2.3.4"})
+	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
+	xdsUpdater.WaitOrFail(t, "svcupdate")
+
+	// Trigger a service updates
+	makeService(t, s.KubeClient(), &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "service",
+			Namespace: namespace,
+			Labels:    map[string]string{"foo": "bar"},
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Name: "http",
+				Port: 80,
+			}, {
+				Name: "http-other",
+				Port: 90,
+			}},
+			Selector:  labels,
+			ClusterIP: "9.9.9.9",
+		},
+	})
+	xdsUpdater.WaitOrFail(t, "svcupdate")
+	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
 }
 
 func TestSameIPEndpointSlicing(t *testing.T) {
@@ -1121,10 +1032,10 @@ func TestSameIPEndpointSlicing(t *testing.T) {
 	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
 
 	// delete slice 1, it should still exist
-	_ = s.KubeClient().DiscoveryV1().EndpointSlices(namespace).Delete(context.TODO(), "slice1", metav1.DeleteOptions{})
+	s.KubeClient().DiscoveryV1beta1().EndpointSlices(namespace).Delete(context.TODO(), "slice1", metav1.DeleteOptions{})
 	xdsUpdater.WaitOrFail(t, "eds")
 	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", []string{"1.2.3.4:80"})
-	_ = s.KubeClient().DiscoveryV1().EndpointSlices(namespace).Delete(context.TODO(), "slice2", metav1.DeleteOptions{})
+	s.KubeClient().DiscoveryV1beta1().EndpointSlices(namespace).Delete(context.TODO(), "slice2", metav1.DeleteOptions{})
 	xdsUpdater.WaitOrFail(t, "eds")
 	expectEndpoints(t, s, "outbound|80||service.namespace.svc.cluster.local", nil)
 }
@@ -1293,13 +1204,7 @@ func createEndpoints(t *testing.T, c kubernetes.Interface, name, namespace strin
 }
 
 // nolint: unparam
-func createEndpointSlice(t *testing.T, c kubernetes.Interface, name, serviceName, namespace string, ports []v1.EndpointPort, addrs []string) {
-	createEndpointSliceWithType(t, c, name, serviceName, namespace, ports, addrs, discovery.AddressTypeIPv4)
-}
-
-// nolint: unparam
-func createEndpointSliceWithType(t *testing.T, c kubernetes.Interface, name, serviceName, namespace string,
-	ports []v1.EndpointPort, ips []string, addrType discovery.AddressType) {
+func createEndpointSlice(t *testing.T, c kubernetes.Interface, name, serviceName, namespace string, ports []v1.EndpointPort, ips []string) {
 	esps := make([]discovery.EndpointPort, 0)
 	for _, name := range ports {
 		n := name // Create a stable reference to take the pointer from
@@ -1326,13 +1231,12 @@ func createEndpointSliceWithType(t *testing.T, c kubernetes.Interface, name, ser
 				discovery.LabelServiceName: serviceName,
 			},
 		},
-		AddressType: addrType,
-		Endpoints:   sliceEndpoint,
-		Ports:       esps,
+		Endpoints: sliceEndpoint,
+		Ports:     esps,
 	}
-	if _, err := c.DiscoveryV1().EndpointSlices(namespace).Create(context.TODO(), endpointSlice, metav1.CreateOptions{}); err != nil {
+	if _, err := c.DiscoveryV1beta1().EndpointSlices(namespace).Create(context.TODO(), endpointSlice, metav1.CreateOptions{}); err != nil {
 		if kerrors.IsAlreadyExists(err) {
-			_, err = c.DiscoveryV1().EndpointSlices(namespace).Update(context.TODO(), endpointSlice, metav1.UpdateOptions{})
+			_, err = c.DiscoveryV1beta1().EndpointSlices(namespace).Update(context.TODO(), endpointSlice, metav1.UpdateOptions{})
 		}
 		if err != nil {
 			t.Fatalf("failed to create endpoint slice %s in namespace %s (error %v)", name, namespace, err)

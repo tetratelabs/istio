@@ -25,8 +25,6 @@ import (
 	"github.com/gogo/protobuf/types"
 
 	networking "istio.io/api/networking/v1alpha3"
-	authzmatcher "istio.io/istio/pilot/pkg/security/authz/matcher"
-	authz "istio.io/istio/pilot/pkg/security/authz/model"
 	"istio.io/istio/pkg/config/labels"
 )
 
@@ -75,6 +73,7 @@ func TestIsCatchAllMatch(t *testing.T) {
 		{
 			name: "uri regex with headers",
 			match: &networking.HTTPMatchRequest{
+
 				Name: "regex with headers",
 				Headers: map[string]*networking.StringMatch{
 					"Authentication": {
@@ -456,66 +455,6 @@ func TestSourceMatchHTTP(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := sourceMatchHTTP(tt.args.match, tt.args.proxyLabels, tt.args.gatewayNames, tt.args.proxyNamespace); got != tt.want {
 				t.Errorf("sourceMatchHTTP() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestTranslateMetadataMatch(t *testing.T) {
-	cases := []struct {
-		name string
-		in   *networking.StringMatch
-		want *matcher.MetadataMatcher
-	}{
-		{
-			name: "@request.auth.claims",
-		},
-		{
-			name: "@request.auth.claims-",
-		},
-		{
-			name: "request.auth.claims.",
-		},
-		{
-			name: "@request.auth.claims-",
-		},
-		{
-			name: "@request.auth.claims-abc",
-		},
-		{
-			name: "x-some-other-header",
-		},
-		{
-			name: "@request.auth.claims.key1",
-			in:   &networking.StringMatch{MatchType: &networking.StringMatch_Exact{Exact: "exact"}},
-			want: authz.MetadataMatcherForJWTClaims([]string{"key1"}, authzmatcher.StringMatcher("exact")),
-		},
-		{
-			name: "@request.auth.claims.key1.KEY2",
-			in:   &networking.StringMatch{MatchType: &networking.StringMatch_Exact{Exact: "exact"}},
-			want: authz.MetadataMatcherForJWTClaims([]string{"key1", "KEY2"}, authzmatcher.StringMatcher("exact")),
-		},
-		{
-			name: "@request.auth.claims.key1-key2",
-			in:   &networking.StringMatch{MatchType: &networking.StringMatch_Exact{Exact: "exact"}},
-			want: authz.MetadataMatcherForJWTClaims([]string{"key1-key2"}, authzmatcher.StringMatcher("exact")),
-		},
-		{
-			name: "@request.auth.claims.prefix",
-			in:   &networking.StringMatch{MatchType: &networking.StringMatch_Prefix{Prefix: "prefix"}},
-			want: authz.MetadataMatcherForJWTClaims([]string{"prefix"}, authzmatcher.StringMatcher("prefix*")),
-		},
-		{
-			name: "@request.auth.claims.regex",
-			in:   &networking.StringMatch{MatchType: &networking.StringMatch_Regex{Regex: ".+?\\..+?\\..+?"}},
-			want: authz.MetadataMatcherForJWTClaims([]string{"regex"}, authzmatcher.StringMatcherRegex(".+?\\..+?\\..+?")),
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := translateMetadataMatch(tc.name, tc.in)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("Unexpected metadata matcher want %v, got %v", tc.want, got)
 			}
 		})
 	}

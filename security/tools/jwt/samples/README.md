@@ -43,7 +43,7 @@ Alternatively, you can use the `gen-jwt.py` script to create new test token:
 TOKEN=$(./gen-jwt.py key.pem --expire=300 --iss "new-issuer@secure.istio.io")
 ```
 
-> Before you start, run the following command to install python dependencies.
+> Before you start, run the following command to install python dependences.
 
 ```bash
 pip install jwcrypto

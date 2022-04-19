@@ -44,8 +44,6 @@ type Test interface {
 	RequiresMaxClusters(maxClusters int) Test
 	// RequiresSingleCluster this a utility that requires the min/max clusters to both = 1.
 	RequiresSingleCluster() Test
-	// RequiresLocalControlPlane ensures that clusters are using locally-deployed control planes.
-	RequiresLocalControlPlane() Test
 	// Run the test, supplied as a lambda.
 	Run(fn func(t TestContext))
 	// RunParallel runs this test in parallel with other children of the same parent test/suite. Under the hood,
@@ -110,7 +108,6 @@ type testImpl struct {
 	s                   *suiteContext
 	requiredMinClusters int
 	requiredMaxClusters int
-	requireLocalIstiod  bool
 	minIstioVersion     string
 
 	ctx *testContext
@@ -181,11 +178,6 @@ func (t *testImpl) RequiresSingleCluster() Test {
 	return t.RequiresMaxClusters(1).RequiresMinClusters(1)
 }
 
-func (t *testImpl) RequiresLocalControlPlane() Test {
-	t.requireLocalIstiod = true
-	return t
-}
-
 func (t *testImpl) RequireIstioVersion(version string) Test {
 	t.minIstioVersion = version
 	return t
@@ -252,19 +244,8 @@ func (t *testImpl) doRun(ctx *testContext, fn func(ctx TestContext), parallel bo
 		return
 	}
 
-	if t.requireLocalIstiod {
-		for _, c := range ctx.Clusters() {
-			if !c.IsPrimary() {
-				ctx.Done()
-				t.goTest.Skipf(fmt.Sprintf("Skipping %q: cluster %s is not using a local control plane",
-					t.goTest.Name(), c.Name()))
-				return
-			}
-		}
-	}
-
 	if t.minIstioVersion != "" {
-		if !t.ctx.Settings().Revisions.AtLeast(resource.IstioVersion(t.minIstioVersion)) {
+		if resource.IstioVersion(t.minIstioVersion).Compare(t.ctx.Settings().Revisions.Minimum()) > 0 {
 			ctx.Done()
 			t.goTest.Skipf("Skipping %q: running with min Istio version %q, test requires at least %s",
 				t.goTest.Name(), t.ctx.Settings().Revisions.Minimum(), t.minIstioVersion)

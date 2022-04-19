@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -43,7 +41,6 @@ func TestRevisionTraffic(t *testing.T) {
 	extraRevs := strings.Split(rawExtraRevs, ",")
 	framework.NewTest(t).
 		RequiresSingleCluster().
-		RequiresLocalControlPlane().
 		Features("installation.upgrade").
 		Run(func(t framework.TestContext) {
 			namespaces := make([]revisionedNamespace, 0, len(extraRevs))
@@ -58,7 +55,7 @@ func TestRevisionTraffic(t *testing.T) {
 				})
 			}
 			// Allow all namespaces so we do not hit passthrough cluster
-			t.ConfigIstio().ApplyYAMLOrFail(t, apps.Namespace.Name(), `apiVersion: networking.istio.io/v1alpha3
+			t.Config().ApplyYAMLOrFail(t, apps.Namespace.Name(), `apiVersion: networking.istio.io/v1alpha3
 kind: Sidecar
 metadata:
   name: allow-cross-namespaces

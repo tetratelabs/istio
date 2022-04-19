@@ -74,13 +74,7 @@ func (p *Probe) checkConfigStatus() error {
 		return nil
 	}
 
-	if !CDSUpdated && !LDSUpdated {
-		return fmt.Errorf("config not received from XDS server (is Istiod running?): %s", s.String())
-	} else if s.LDSUpdatesRejection > 0 || s.CDSUpdatesRejection > 0 {
-		return fmt.Errorf("config received from XDS server, but was rejected: %s", s.String())
-	} else {
-		return fmt.Errorf("config not fully received from XDS server: %s", s.String())
-	}
+	return fmt.Errorf("config not received from Pilot (is Pilot running?): %s", s.String())
 }
 
 // isEnvoyReady checks to ensure that Envoy is in the LIVE state and workers have started.
@@ -100,11 +94,11 @@ func (p *Probe) isEnvoyReady() error {
 }
 
 func (p *Probe) checkEnvoyReadiness() error {
-	// If Envoy is ready at least once i.e. server state is LIVE and workers
+	// If Envoy is ready atleast once i.e. server state is LIVE and workers
 	// have started, they will not go back in the life time of Envoy process.
-	// They will only change at hot restart or health check fails. Since istio
+	// They will only change at hot restart or health check fails. Since Istio
 	// does not use both of them, it is safe to cache this value. Since the
-	// actual readiness probe goes via Envoy, it ensures that Envoy is actively
+	// actual readiness probe goes via Envoy it ensures that Envoy is actively
 	// serving traffic and we can rely on that.
 	if p.atleastOnceReady {
 		return nil

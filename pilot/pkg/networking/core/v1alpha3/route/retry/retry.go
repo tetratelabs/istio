@@ -21,7 +21,7 @@ import (
 
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	previouspriorities "github.com/envoyproxy/go-control-plane/envoy/extensions/retry/priority/previous_priorities/v3"
-	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
+	"github.com/golang/protobuf/ptypes/wrappers"
 
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/networking/util"
@@ -75,7 +75,7 @@ func ConvertPolicy(in *networking.HTTPRetry) *route.RetryPolicy {
 
 	// A policy was specified. Start with the default and override with user-provided fields where appropriate.
 	out := DefaultPolicy()
-	out.NumRetries = &wrappers.UInt32Value{Value: uint32(in.Attempts)}
+	out.NumRetries = &wrappers.UInt32Value{Value: uint32(in.GetAttempts())}
 
 	if in.RetryOn != "" {
 		// Allow the incoming configuration to specify both Envoy RetryOn and RetriableStatusCodes. Any integers are

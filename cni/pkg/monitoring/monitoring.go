@@ -35,12 +35,10 @@ func SetupMonitoring(port int, path string, stop <-chan struct{}) {
 	var err error
 	if listener, err = net.Listen("tcp", fmt.Sprintf(":%d", port)); err != nil {
 		log.Errorf("unable to listen on socket: %v", err)
-		return
 	}
 	exporter, err := ocprom.NewExporter(ocprom.Options{Registry: prometheus.DefaultRegisterer.(*prometheus.Registry)})
 	if err != nil {
 		log.Errorf("could not set up prometheus exporter: %v", err)
-		return
 	}
 	view.RegisterExporter(exporter)
 	mux.Handle(path, exporter)

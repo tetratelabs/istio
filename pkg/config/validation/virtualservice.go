@@ -90,12 +90,8 @@ func validateHTTPRoute(http *networking.HTTPRoute, delegate bool) (errs Validati
 	}
 
 	if http.MirrorPercentage != nil {
-		value := http.MirrorPercentage.GetValue()
-		if value > 100 {
+		if value := http.MirrorPercentage.GetValue(); value > 100 {
 			errs = appendValidation(errs, fmt.Errorf("mirror_percentage must have a max value of 100 (it has %f)", value))
-		}
-		if value < 0 {
-			errs = appendValidation(errs, fmt.Errorf("mirror_percentage must have a min value of 0 (it has %f)", value))
 		}
 	}
 
@@ -106,7 +102,7 @@ func validateHTTPRoute(http *networking.HTTPRoute, delegate bool) (errs Validati
 	errs = appendValidation(errs, validateAuthorityRewrite(http.Rewrite, http.Headers))
 	errs = appendValidation(errs, validateHTTPRouteDestinations(http.Route))
 	if http.Timeout != nil {
-		errs = appendValidation(errs, ValidateDuration(http.Timeout))
+		errs = appendValidation(errs, ValidateDurationGogo(http.Timeout))
 	}
 
 	return
@@ -266,12 +262,10 @@ func containRegexMatch(config *networking.StringMatch) bool {
 	if config == nil {
 		return false
 	}
-	switch config.GetMatchType().(type) {
-	case *networking.StringMatch_Regex:
+	if config.GetRegex() != "" {
 		return true
-	default:
-		return false
 	}
+	return false
 }
 
 // isInternalHeader returns true if a header refers to an internal value that cannot be modified by Envoy

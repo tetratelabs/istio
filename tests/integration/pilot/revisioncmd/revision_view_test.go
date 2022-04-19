@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 //  Copyright Istio Authors
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
@@ -73,7 +71,6 @@ func TestRevisionCommand(t *testing.T) {
 	framework.
 		NewTest(t).
 		RequiresSingleCluster().
-		RequiresLocalControlPlane().
 		Features("installation.istioctl.revision_centric_view").
 		Run(func(t framework.TestContext) {
 			skipIfUnsupportedKubernetesVersion(t)
@@ -258,6 +255,16 @@ func getDescriptionForRevision(istioCtl istioctl.Instance, revision string) (*cm
 }
 
 func verifyRevisionOutput(t framework.TestContext, descr *cmd.RevisionDescription, rev string) {
+	expectedTagSet := map[string]bool{}
+	actualTagSet := map[string]bool{}
+	for _, mwh := range descr.Webhooks {
+		if mwh.Tag != "" {
+			actualTagSet[mwh.Tag] = true
+		}
+	}
+	if !setsMatch(expectedTagSet, actualTagSet) {
+		t.Fatalf("tag sets don't match for %s. Expected: %v, Actual:%v", rev, expectedTagSet, actualTagSet)
+	}
 	expectedComponents, ok := expectedComponentsPerRevision[rev]
 	if !ok {
 		t.Fatalf("unexpected error. Could not find expected components for %s", rev)

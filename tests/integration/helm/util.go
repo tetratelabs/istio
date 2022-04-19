@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,8 +25,6 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	networking "istio.io/api/networking/v1alpha3"
-	"istio.io/client-go/pkg/apis/networking/v1alpha3"
 	"istio.io/istio/pkg/test"
 	"istio.io/istio/pkg/test/env"
 	"istio.io/istio/pkg/test/framework"
@@ -169,7 +165,7 @@ func deleteIstio(t framework.TestContext, h *helm.Helm, cs *kube.Cluster) {
 		t.Errorf("failed to delete %s release", IngressReleaseName)
 	}
 	if err := h.DeleteChart(IstiodReleaseName, IstioNamespace); err != nil {
-		t.Errorf("failed to delete %s release", IstiodReleaseName)
+		t.Errorf("failed to delete %s release", IngressReleaseName)
 	}
 	if err := h.DeleteChart(BaseReleaseName, IstioNamespace); err != nil {
 		t.Errorf("failed to delete %s release", BaseReleaseName)
@@ -178,7 +174,7 @@ func deleteIstio(t framework.TestContext, h *helm.Helm, cs *kube.Cluster) {
 		t.Errorf("failed to delete istio namespace: %v", err)
 	}
 	if err := kubetest.WaitForNamespaceDeletion(cs, IstioNamespace, retry.Timeout(RetryTimeOut)); err != nil {
-		t.Errorf("waiting for istio namespace to be deleted: %v", err)
+		t.Errorf("wating for istio namespace to be deleted: %v", err)
 	}
 }
 
@@ -213,50 +209,20 @@ func SetRevisionTag(ctx framework.TestContext, h *helm.Helm, fileSuffix, revisio
 		ctx.Fatalf("failed to install istio %s chart", DiscoveryChart)
 	}
 
-	err = ctx.ConfigIstio().ApplyYAML(IstioNamespace, template)
+	err = ctx.Config().ApplyYAML(IstioNamespace, template)
 	if err != nil {
-		ctx.Fatalf("failed to apply templated revision tags yaml: %v", err)
+		ctx.Fatalf("failed to apply templated reivision tags yaml: %v", err)
 	}
 
 	scopes.Framework.Infof("=== succeeded === ")
 }
 
-// VerifyMutatingWebhookConfigurations verifies that the proper number of mutating webhooks are running, used with
+// VerifyMutatingWebhookConfigurations verifies that that the proper number of mutating webhooks are running, used with
 // revisions and revision tags
 func VerifyMutatingWebhookConfigurations(ctx framework.TestContext, cs cluster.Cluster, names []string) {
 	scopes.Framework.Infof("=== verifying mutating webhook configurations === ")
 	if ok := kubetest.MutatingWebhookConfigurationsExists(cs, names); !ok {
-		ctx.Fatalf("Not all mutating webhook configurations were installed. Expected [%v]", names)
+		ctx.Fatalf("not all mutating webhook configurations were installed")
 	}
 	scopes.Framework.Infof("=== succeeded ===")
-}
-
-// ValidatingWebhookConfigurations verifies that the proper number of validating webhooks are running, used with
-// revisions and revision tags
-func ValidatingWebhookConfigurations(ctx framework.TestContext, cs cluster.Cluster, names []string) {
-	scopes.Framework.Infof("=== verifying validating webhook configurations === ")
-	if ok := kubetest.ValidatingWebhookConfigurationsExists(cs, names); !ok {
-		ctx.Fatalf("Not all validating webhook configurations were installed. Expected [%v]", names)
-	}
-	scopes.Framework.Infof("=== succeeded ===")
-}
-
-// VerifyValidation verifies that Istio resource validation is active on the cluster.
-func VerifyValidation(ctx framework.TestContext) {
-	ctx.Helper()
-	invalidGateway := &v1alpha3.Gateway{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "invalid-istio-gateway",
-			Namespace: IstioNamespace,
-		},
-		Spec: networking.Gateway{},
-	}
-
-	createOptions := metav1.CreateOptions{DryRun: []string{metav1.DryRunAll}}
-	istioClient := ctx.Clusters().Default().Istio().NetworkingV1alpha3()
-	retry.UntilOrFail(ctx, func() bool {
-		_, err := istioClient.Gateways(IstioNamespace).Create(context.TODO(), invalidGateway, createOptions)
-		rejected := err != nil
-		return rejected
-	})
 }

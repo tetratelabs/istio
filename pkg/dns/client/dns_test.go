@@ -217,11 +217,6 @@ func TestDNS(t *testing.T) {
 			expectResolutionFailure: dns.RcodeSuccess,
 			expected:                giantResponse[:29],
 		},
-		{
-			name:     "success: hostname with a period",
-			host:     "example.localhost.",
-			expected: a("example.localhost.", []net.IP{net.ParseIP("3.3.3.3").To4()}),
-		},
 	}
 
 	clients := []dns.Client{
@@ -420,16 +415,8 @@ func makeUpstream(t test.Failer, responses map[string]string) string {
 		ReadTimeout:       time.Second,
 		WriteTimeout:      time.Second,
 	}
-	go func() {
-		if err := server.ListenAndServe(); err != nil {
-			log.Warnf("listen error: %v", err)
-		}
-	}()
-	select {
-	case <-time.After(time.Second * 10):
-		t.Fatalf("setup timeout")
-	case <-up:
-	}
+	go func() { _ = server.ListenAndServe() }()
+	<-up
 	t.Cleanup(func() { _ = server.Shutdown() })
 	server.Addr = server.PacketConn.LocalAddr().String()
 
@@ -441,16 +428,8 @@ func makeUpstream(t test.Failer, responses map[string]string) string {
 		Handler:           mux,
 		NotifyStartedFunc: func() { close(up) },
 	}
-	go func() {
-		if err := tcp.ListenAndServe(); err != nil {
-			log.Warnf("listen error: %v", err)
-		}
-	}()
-	select {
-	case <-time.After(time.Second * 10):
-		t.Fatalf("setup timeout")
-	case <-up:
-	}
+	go func() { _ = tcp.ListenAndServe() }()
+	<-up
 	t.Cleanup(func() { _ = tcp.Shutdown() })
 	t.Cleanup(func() { _ = server.Shutdown() })
 	tcp.Addr = server.PacketConn.LocalAddr().String()
@@ -517,10 +496,6 @@ func initDNS(t test.Failer) *LocalDNSServer {
 			},
 			"*.wildcard": {
 				Ips:      []string{"10.10.10.10"},
-				Registry: "External",
-			},
-			"example.localhost.": {
-				Ips:      []string{"3.3.3.3"},
 				Registry: "External",
 			},
 		},

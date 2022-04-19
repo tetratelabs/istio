@@ -19,9 +19,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -148,7 +148,7 @@ type kubeComponent struct {
 }
 
 func getZipkinYaml() (string, error) {
-	yamlBytes, err := os.ReadFile(filepath.Join(env.IstioSrc, "samples/addons/extras/zipkin.yaml"))
+	yamlBytes, err := ioutil.ReadFile(filepath.Join(env.IstioSrc, "samples/addons/extras/zipkin.yaml"))
 	if err != nil {
 		return "", err
 	}
@@ -161,18 +161,18 @@ func installZipkin(ctx resource.Context, ns string) error {
 	if err != nil {
 		return err
 	}
-	return ctx.ConfigKube().ApplyYAML(ns, yaml)
+	return ctx.Config().ApplyYAML(ns, yaml)
 }
 
 func installServiceEntry(ctx resource.Context, ns, ingressAddr string) error {
 	// Setup remote access to zipkin in cluster
 	yaml := strings.ReplaceAll(remoteZipkinEntry, "{INGRESS_DOMAIN}", ingressAddr)
-	err := ctx.ConfigIstio().ApplyYAML(ns, yaml)
+	err := ctx.Config().ApplyYAML(ns, yaml)
 	if err != nil {
 		return err
 	}
 	yaml = strings.ReplaceAll(extServiceEntry, "{INGRESS_DOMAIN}", ingressAddr)
-	err = ctx.ConfigIstio().ApplyYAML(ns, yaml)
+	err = ctx.Config().ApplyYAML(ns, yaml)
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ func newKube(ctx resource.Context, cfgIn Config) (Instance, error) {
 	isIP := net.ParseIP(cfgIn.IngressAddr).String() != "<nil>"
 	ingressDomain := cfgIn.IngressAddr
 	if isIP {
-		ingressDomain = fmt.Sprintf("%s.sslip.io", strings.ReplaceAll(cfgIn.IngressAddr, ":", "-"))
+		ingressDomain = fmt.Sprintf("%s.nip.io", cfgIn.IngressAddr)
 	}
 
 	c.address = fmt.Sprintf("http://tracing.%s", ingressDomain)
@@ -248,7 +248,7 @@ func (c *kubeComponent) QueryTraces(limit int, spanName, annotationQuery string)
 		return nil, fmt.Errorf("zipkin api returns non-ok: %v", resp.StatusCode)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -261,9 +261,7 @@ func (c *kubeComponent) QueryTraces(limit int, spanName, annotationQuery string)
 
 // Close implements io.Closer.
 func (c *kubeComponent) Close() error {
-	if c.forwarder != nil {
-		c.forwarder.Close()
-	}
+	c.forwarder.Close()
 	return nil
 }
 

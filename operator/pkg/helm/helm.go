@@ -16,7 +16,7 @@ package helm
 
 import (
 	"fmt"
-	"os"
+	"io/ioutil"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -99,8 +99,7 @@ func renderChart(namespace, values string, chrt *chart.Chart, filterFunc Templat
 		return "", fmt.Errorf("failed to unmarshal values: %v", err)
 	}
 
-	caps := *chartutil.DefaultCapabilities
-	vals, err := chartutil.ToRenderValues(chrt, valuesMap, options, &caps)
+	vals, err := chartutil.ToRenderValues(chrt, valuesMap, options, nil)
 	if err != nil {
 		return "", err
 	}
@@ -202,7 +201,7 @@ func IsDefaultProfile(profile string) bool {
 }
 
 func readFile(path string) (string, error) {
-	b, err := os.ReadFile(path)
+	b, err := ioutil.ReadFile(path)
 	return string(b), err
 }
 

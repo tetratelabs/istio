@@ -30,32 +30,29 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"istio.io/api/label"
 	"istio.io/api/operator/v1alpha1"
-	"istio.io/istio/istioctl/pkg/util/formatting"
-	istioV1Alpha1 "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
+	"istio.io/istio/istioctl/pkg/install/k8sversion"
+	valuesv1alpha1 "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
 	"istio.io/istio/operator/pkg/metrics"
 	"istio.io/istio/operator/pkg/name"
 	"istio.io/istio/operator/pkg/object"
 	"istio.io/istio/operator/pkg/util"
 	"istio.io/istio/operator/pkg/util/clog"
 	"istio.io/istio/operator/pkg/util/progress"
-	"istio.io/istio/pkg/config/analysis"
-	"istio.io/istio/pkg/config/analysis/analyzers/webhook"
-	"istio.io/istio/pkg/config/analysis/local"
 	"istio.io/istio/pkg/config/constants"
-	"istio.io/istio/pkg/config/resource"
-	"istio.io/istio/pkg/kube"
 	"istio.io/pkg/version"
 )
 
 // HelmReconciler reconciles resources rendered by a set of helm charts.
 type HelmReconciler struct {
 	client     client.Client
-	kubeClient kube.Client
-	iop        *istioV1Alpha1.IstioOperator
+	restConfig *rest.Config
+	clientSet  *kubernetes.Clientset
+	iop        *valuesv1alpha1.IstioOperator
 	opts       *Options
 	// copy of the last generated manifests.
 	manifests name.ManifestMap
@@ -91,7 +88,7 @@ var defaultOptions = &Options{
 }
 
 // NewHelmReconciler creates a HelmReconciler and returns a ptr to it
-func NewHelmReconciler(client client.Client, kubeClient kube.Client, iop *istioV1Alpha1.IstioOperator, opts *Options) (*HelmReconciler, error) {
+func NewHelmReconciler(client client.Client, restConfig *rest.Config, iop *valuesv1alpha1.IstioOperator, opts *Options) (*HelmReconciler, error) {
 	if opts == nil {
 		opts = defaultOptions
 	}
@@ -114,12 +111,21 @@ func NewHelmReconciler(client client.Client, kubeClient kube.Client, iop *istioV
 	}
 	if iop == nil {
 		// allows controller code to function for cases where IOP is not provided (e.g. operator remove).
-		iop = &istioV1Alpha1.IstioOperator{}
+		iop = &valuesv1alpha1.IstioOperator{}
 		iop.Spec = &v1alpha1.IstioOperatorSpec{}
+	}
+	var cs *kubernetes.Clientset
+	var err error
+	if restConfig != nil {
+		cs, err = kubernetes.NewForConfig(restConfig)
+	}
+	if err != nil {
+		return nil, err
 	}
 	return &HelmReconciler{
 		client:           client,
-		kubeClient:       kubeClient,
+		restConfig:       restConfig,
+		clientSet:        cs,
 		iop:              iop,
 		opts:             opts,
 		dependencyWaitCh: initDependencies(),
@@ -141,7 +147,7 @@ func initDependencies() map[name.ComponentName]chan struct{} {
 
 // Reconcile reconciles the associated resources.
 func (h *HelmReconciler) Reconcile() (*v1alpha1.InstallStatus, error) {
-	if err := h.createNamespace(istioV1Alpha1.Namespace(h.iop.Spec), h.networkName()); err != nil {
+	if err := h.createNamespace(valuesv1alpha1.Namespace(h.iop.Spec), h.networkName()); err != nil {
 		return nil, err
 	}
 	manifestMap, err := h.RenderCharts()
@@ -149,14 +155,6 @@ func (h *HelmReconciler) Reconcile() (*v1alpha1.InstallStatus, error) {
 		return nil, err
 	}
 
-	err = h.analyzeWebhooks(manifestMap[name.PilotComponentName])
-	if err != nil {
-		if h.opts.Force {
-			scope.Error("invalid webhook configs; continuing because of --force")
-		} else {
-			return nil, err
-		}
-	}
 	status := h.processRecursive(manifestMap)
 
 	h.opts.ProgressLog.SetState(progress.StatePruning)
@@ -236,14 +234,19 @@ func (h *HelmReconciler) processRecursive(manifests name.ManifestMap) *v1alpha1.
 
 // CheckSSAEnabled is a helper function to check whether ServerSideApply should be used when applying manifests.
 func (h *HelmReconciler) CheckSSAEnabled() bool {
-	if h.kubeClient != nil {
+	if h.restConfig != nil {
+		// check k8s minor version
+		k8sVer, err := k8sversion.GetKubernetesVersion(h.restConfig)
+		if err != nil {
+			scope.Errorf("failed to get k8s version: %s", err)
+		}
 		// There is a mutatingwebhook in gke that would corrupt the managedFields, which is fixed in k8s 1.18.
 		// See: https://github.com/kubernetes/kubernetes/issues/96351
-		if kube.IsAtLeastVersion(h.kubeClient, 18) {
+		if k8sVer >= 18 {
 			// todo(kebe7jun) a more general test method
 			// API Server does not support detecting whether ServerSideApply is enabled
 			// through the API for the time being.
-			ns, err := h.kubeClient.Kube().CoreV1().Namespaces().Get(context.TODO(), constants.KubeSystemNamespace, v12.GetOptions{})
+			ns, err := h.clientSet.CoreV1().Namespaces().Get(context.TODO(), constants.KubeSystemNamespace, v12.GetOptions{})
 			if err != nil {
 				scope.Warnf("failed to get namespace: %v", err)
 				return false
@@ -300,7 +303,7 @@ func (h *HelmReconciler) DeleteAll() error {
 
 // SetStatusBegin updates the status field on the IstioOperator instance before reconciling.
 func (h *HelmReconciler) SetStatusBegin() error {
-	isop := &istioV1Alpha1.IstioOperator{}
+	isop := &valuesv1alpha1.IstioOperator{}
 	namespacedName := types.NamespacedName{
 		Name:      h.iop.Name,
 		Namespace: h.iop.Namespace,
@@ -328,7 +331,7 @@ func (h *HelmReconciler) SetStatusBegin() error {
 
 // SetStatusComplete updates the status field on the IstioOperator instance based on the resulting err parameter.
 func (h *HelmReconciler) SetStatusComplete(status *v1alpha1.InstallStatus) error {
-	iop := &istioV1Alpha1.IstioOperator{}
+	iop := &valuesv1alpha1.IstioOperator{}
 	namespacedName := types.NamespacedName{
 		Name:      h.iop.Name,
 		Namespace: h.iop.Namespace,
@@ -475,8 +478,8 @@ func (h *HelmReconciler) getCRHash(componentName string) (string, error) {
 		return "", err
 	}
 	var host string
-	if h.kubeClient != nil && h.kubeClient.RESTConfig() != nil {
-		host = h.kubeClient.RESTConfig().Host
+	if h.restConfig != nil {
+		host = h.restConfig.Host
 	}
 	return strings.Join([]string{crName, crNamespace, componentName, host}, "-"), nil
 }
@@ -515,11 +518,7 @@ func (h *HelmReconciler) reportPrunedObjectKind() {
 }
 
 // CreateNamespace creates a namespace using the given k8s interface.
-func CreateNamespace(cs kubernetes.Interface, namespace string, network string, dryRun bool) error {
-	if dryRun {
-		scope.Infof("Not applying Namespace %s because of dry run.", namespace)
-		return nil
-	}
+func CreateNamespace(cs kubernetes.Interface, namespace string, network string) error {
 	if namespace == "" {
 		// Setup default namespace
 		namespace = name.IstioDefaultNamespace
@@ -547,61 +546,12 @@ func CreateNamespace(cs kubernetes.Interface, namespace string, network string, 
 	return nil
 }
 
-func (h *HelmReconciler) analyzeWebhooks(whs []string) error {
-	if len(whs) == 0 {
-		return nil
-	}
-
-	sa := local.NewSourceAnalyzer(analysis.Combine("webhook", &webhook.Analyzer{
-		SkipServiceCheck: true,
-	}),
-		resource.Namespace(h.iop.Spec.GetNamespace()), resource.Namespace(istioV1Alpha1.Namespace(h.iop.Spec)), nil, true, 30*time.Second)
-	var localWebhookYAMLReaders []local.ReaderSource
-	var parsedK8sObjects object.K8sObjects
-	for _, wh := range whs {
-		k8sObjects, err := object.ParseK8sObjectsFromYAMLManifest(wh)
-		if err != nil {
-			return err
-		}
-		objYaml, err := k8sObjects.YAMLManifest()
-		if err != nil {
-			return err
-		}
-		whReaderSource := local.ReaderSource{
-			Name:   "",
-			Reader: strings.NewReader(objYaml),
-		}
-		localWebhookYAMLReaders = append(localWebhookYAMLReaders, whReaderSource)
-		parsedK8sObjects = append(parsedK8sObjects, k8sObjects...)
-	}
-	err := sa.AddReaderKubeSource(localWebhookYAMLReaders)
-	if err != nil {
-		return err
-	}
-
-	if h.kubeClient != nil {
-		sa.AddRunningKubeSource(h.kubeClient)
-	}
-
-	// Analyze webhooks
-	res, err := sa.Analyze(make(chan struct{}))
-	if err != nil {
-		return err
-	}
-	relevantMessages := res.Messages.FilterOutBasedOnResources(parsedK8sObjects)
-	if len(relevantMessages) > 0 {
-		o, err := formatting.Print(relevantMessages, formatting.LogFormat, false)
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("creating default tag would conflict:\n%v", o)
-	}
-	return nil
-}
-
 // createNamespace creates a namespace using the given k8s client.
 func (h *HelmReconciler) createNamespace(namespace string, network string) error {
-	return CreateNamespace(h.kubeClient, namespace, network, h.opts.DryRun)
+	if h.opts.DryRun {
+		return nil
+	}
+	return CreateNamespace(h.clientSet, namespace, network)
 }
 
 func (h *HelmReconciler) networkName() string {

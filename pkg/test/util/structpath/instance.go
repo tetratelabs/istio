@@ -23,12 +23,12 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/google/go-cmp/cmp"
-	"google.golang.org/protobuf/proto"
 	"k8s.io/client-go/util/jsonpath"
 
 	"istio.io/istio/pkg/test"
-	"istio.io/istio/pkg/util/protomarshal"
 )
 
 var (
@@ -77,12 +77,12 @@ func newErrorInstance(err error) *Instance {
 
 func protoToParsedJSON(message proto.Message) (interface{}, error) {
 	// Convert proto to json and then parse into struct
-	jsonText, err := protomarshal.MarshalIndent(message, "  ")
+	jsonText, err := (&jsonpb.Marshaler{Indent: " "}).MarshalToString(message)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert proto to JSON: %v", err)
 	}
 	var parsed interface{}
-	err = json.Unmarshal(jsonText, &parsed)
+	err = json.Unmarshal([]byte(jsonText), &parsed)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse into JSON struct: %v", err)
 	}
@@ -232,9 +232,6 @@ func (i *Instance) NotExists(path string, args ...interface{}) *Instance {
 		values, err := parser.AllowMissingKeys(true).FindResults(i.structure)
 		if err != nil {
 			return fmt.Errorf("err finding results for path: %v - %v", path, err)
-		}
-		if len(values) == 0 {
-			return nil
 		}
 		if len(values[0]) > 0 {
 			return fmt.Errorf("expected no result but got: %v for path: %v", values[0], path)

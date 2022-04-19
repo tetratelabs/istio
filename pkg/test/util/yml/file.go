@@ -16,6 +16,7 @@ package yml
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 
@@ -88,7 +89,7 @@ func writeContentsToTempFile(workDir, contents string) (filename string, err err
 	}()
 
 	var f *os.File
-	f, err = os.CreateTemp(workDir, yamlToFilename(contents)+".*.yaml")
+	f, err = ioutil.TempFile(workDir, yamlToFilename(contents)+".*.yaml")
 	if err != nil {
 		return
 	}
@@ -158,7 +159,7 @@ type yamlDoc struct {
 }
 
 func (d *yamlDoc) toTempFile(workDir, fileNamePrefix string) (string, error) {
-	f, err := os.CreateTemp(workDir, fmt.Sprintf("%s_%s.yaml", fileNamePrefix, d.docType))
+	f, err := ioutil.TempFile(workDir, fmt.Sprintf("%s_%s.yaml", fileNamePrefix, d.docType))
 	if err != nil {
 		return "", err
 	}

@@ -21,7 +21,7 @@ import (
 	"istio.io/istio/pkg/kube"
 )
 
-// Map can be given as a shared reference to multiple Topology/Cluster implementations.
+// Map can be given as a shared reference to multiple Topology/Cluster implemetations
 // allowing clusters to find each other for lookups of Primary, ConfigCluster, etc.
 type Map = map[string]Cluster
 
@@ -30,7 +30,6 @@ func NewTopology(config Config, allClusters Map) Topology {
 		ClusterName:        config.Name,
 		ClusterKind:        config.Kind,
 		Network:            config.Network,
-		ClusterHTTPProxy:   config.HTTPProxy,
 		PrimaryClusterName: config.PrimaryClusterName,
 		ConfigClusterName:  config.ConfigClusterName,
 		AllClusters:        allClusters,
@@ -44,7 +43,6 @@ type Topology struct {
 	ClusterName        string
 	ClusterKind        Kind
 	Network            string
-	ClusterHTTPProxy   string
 	PrimaryClusterName string
 	ConfigClusterName  string
 	Index              int
@@ -60,11 +58,6 @@ func (c Topology) NetworkName() string {
 // Name provides the ClusterName this cluster used by Istio.
 func (c Topology) Name() string {
 	return c.ClusterName
-}
-
-// HTTPProxy to connect to the cluster
-func (c Topology) HTTPProxy() string {
-	return c.ClusterHTTPProxy
 }
 
 // knownClusterNames maintains a well-known set of cluster names. These will always be used with
@@ -187,7 +180,6 @@ func (c Topology) String() string {
 	_, _ = fmt.Fprintf(buf, "PrimaryCluster:     %s\n", c.Primary().Name())
 	_, _ = fmt.Fprintf(buf, "ConfigCluster:      %s\n", c.Config().Name())
 	_, _ = fmt.Fprintf(buf, "Network:            %s\n", c.NetworkName())
-	_, _ = fmt.Fprintf(buf, "HTTPProxy:            %s\n", c.HTTPProxy())
 
 	return buf.String()
 }

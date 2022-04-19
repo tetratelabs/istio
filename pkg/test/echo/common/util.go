@@ -61,8 +61,7 @@ func GetCount(request *proto.ForwardEchoRequest) int {
 func GetHeaders(request *proto.ForwardEchoRequest) http.Header {
 	headers := make(http.Header)
 	for _, h := range request.Headers {
-		// Avoid using .Add() to allow users to pass non-canonical forms
-		headers[h.Key] = append(headers[h.Key], h.Value)
+		headers.Add(h.Key, h.Value)
 	}
 	return headers
 }

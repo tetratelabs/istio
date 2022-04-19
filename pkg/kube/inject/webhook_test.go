@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,7 +27,8 @@ import (
 	"strings"
 	"testing"
 
-	jsonpatch "github.com/evanphx/json-patch/v5"
+	jsonpatch "github.com/evanphx/json-patch"
+	"github.com/ghodss/yaml"
 	"github.com/gogo/protobuf/types"
 	openshiftv1 "github.com/openshift/api/apps/v1"
 	"k8s.io/api/admission/v1beta1"
@@ -39,19 +40,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
-	"sigs.k8s.io/yaml"
 
 	"istio.io/api/annotation"
 	meshconfig "istio.io/api/mesh/v1alpha1"
-	v1beta12 "istio.io/api/networking/v1beta1"
 	"istio.io/istio/operator/pkg/manifest"
 	"istio.io/istio/operator/pkg/name"
 	"istio.io/istio/operator/pkg/util/clog"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/test/util"
-	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/mesh"
-	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/test/util/retry"
 	sutil "istio.io/istio/security/pkg/nodeagent/util"
 )
@@ -462,62 +459,10 @@ func TestInjectRequired(t *testing.T) {
 			},
 			want: true,
 		},
-		{
-			config: &Config{
-				Policy: InjectionPolicyDisabled,
-			},
-			podSpec: podSpec,
-			meta: metav1.ObjectMeta{
-				Name:      "policy-disabled-label-enabled",
-				Namespace: "test-namespace",
-				// Annotations: map[string]string{annotation.SidecarInject.Name: "true"},
-				Labels: map[string]string{annotation.SidecarInject.Name: "true"},
-			},
-			want: true,
-		},
-		{
-			config: &Config{
-				Policy: InjectionPolicyDisabled,
-			},
-			podSpec: podSpec,
-			meta: metav1.ObjectMeta{
-				Name:        "policy-disabled-both-enabled",
-				Namespace:   "test-namespace",
-				Annotations: map[string]string{annotation.SidecarInject.Name: "true"},
-				Labels:      map[string]string{annotation.SidecarInject.Name: "true"},
-			},
-			want: true,
-		},
-		{
-			config: &Config{
-				Policy: InjectionPolicyDisabled,
-			},
-			podSpec: podSpec,
-			meta: metav1.ObjectMeta{
-				Name:        "policy-disabled-label-enabled-annotation-disabled",
-				Namespace:   "test-namespace",
-				Annotations: map[string]string{annotation.SidecarInject.Name: "false"},
-				Labels:      map[string]string{annotation.SidecarInject.Name: "true"},
-			},
-			want: true,
-		},
-		{
-			config: &Config{
-				Policy: InjectionPolicyDisabled,
-			},
-			podSpec: podSpec,
-			meta: metav1.ObjectMeta{
-				Name:        "policy-disabled-label-disabled-annotation-enabled",
-				Namespace:   "test-namespace",
-				Annotations: map[string]string{annotation.SidecarInject.Name: "true"},
-				Labels:      map[string]string{annotation.SidecarInject.Name: "false"},
-			},
-			want: false,
-		},
 	}
 
 	for _, c := range cases {
-		if got := injectRequired(IgnoredNamespaces.UnsortedList(), c.config, c.podSpec, c.meta); got != c.want {
+		if got := injectRequired(IgnoredNamespaces, c.config, c.podSpec, c.meta); got != c.want {
 			t.Errorf("injectRequired(%v, %v) got %v want %v", c.config, c.meta, got, c.want)
 		}
 	}
@@ -655,7 +600,7 @@ func loadInjectionSettings(t testing.TB, setFlags []string, inFilePath string) (
 
 func splitYamlFile(yamlFile string, t *testing.T) [][]byte {
 	t.Helper()
-	yamlBytes := util.ReadFile(t, yamlFile)
+	yamlBytes := util.ReadFile(yamlFile, t)
 	return splitYamlBytes(yamlBytes, t)
 }
 
@@ -847,9 +792,9 @@ func makeTestData(t testing.TB, skip bool, apiVersion string) []byte {
 	return reviewJSON
 }
 
-func createWebhook(t testing.TB, cfg *Config, pcResources int) (*Webhook, func()) {
+func createWebhook(t testing.TB, cfg *Config) (*Webhook, func()) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "webhook_test")
+	dir, err := ioutil.TempDir("", "webhook_test")
 	if err != nil {
 		t.Fatalf("TempDir() failed: %v", err)
 	}
@@ -869,32 +814,18 @@ func createWebhook(t testing.TB, cfg *Config, pcResources int) (*Webhook, func()
 		port       = 0
 	)
 
-	if err := os.WriteFile(configFile, configBytes, 0o644); err != nil { // nolint: vetshadow
+	if err := ioutil.WriteFile(configFile, configBytes, 0o644); err != nil { // nolint: vetshadow
 		t.Fatalf("WriteFile(%v) failed: %v", configFile, err)
 	}
 
-	if err := os.WriteFile(valuesFile, []byte(values), 0o644); err != nil { // nolint: vetshadow
+	if err := ioutil.WriteFile(valuesFile, []byte(values), 0o644); err != nil { // nolint: vetshadow
 		t.Fatalf("WriteFile(%v) failed: %v", valuesFile, err)
 	}
 
 	// mesh config
 	m := mesh.DefaultMeshConfig()
-	store := model.NewFakeStore()
-	for i := 0; i < pcResources; i++ {
-		store.Create(newProxyConfig(fmt.Sprintf("pc-%d", i), "istio-system", &v1beta12.ProxyConfig{
-			Concurrency: &types.Int32Value{Value: int32(i % 5)},
-			EnvironmentVariables: map[string]string{
-				fmt.Sprintf("VAR_%d", i): fmt.Sprint(i),
-			},
-		}))
-	}
-	pcs, _ := model.GetProxyConfigs(store, &m)
 	env := model.Environment{
 		Watcher: mesh.NewFixedWatcher(&m),
-		PushContext: &model.PushContext{
-			ProxyConfigs: pcs,
-		},
-		IstioConfigStore: model.MakeIstioStore(store),
 	}
 	watcher, err := NewFileWatcher(configFile, valuesFile)
 	if err != nil {
@@ -914,7 +845,7 @@ func createWebhook(t testing.TB, cfg *Config, pcResources int) (*Webhook, func()
 
 func TestRunAndServe(t *testing.T) {
 	// TODO: adjust the test to match prod defaults instead of fake defaults.
-	wh, cleanup := createWebhook(t, minimalSidecarTemplate, 0)
+	wh, cleanup := createWebhook(t, minimalSidecarTemplate)
 	defer cleanup()
 	stop := make(chan struct{})
 	defer func() { close(stop) }()
@@ -1048,7 +979,7 @@ func TestRunAndServe(t *testing.T) {
 				return
 			}
 
-			gotBody, err := io.ReadAll(res.Body)
+			gotBody, err := ioutil.ReadAll(res.Body)
 			if err != nil {
 				t.Fatalf("could not read body: %v", err)
 			}
@@ -1104,9 +1035,9 @@ func testSideCarInjectorMetrics(t *testing.T) {
 	}
 }
 
-func benchmarkInjectServe(pcs int, b *testing.B) {
+func BenchmarkInjectServe(b *testing.B) {
 	sidecarTemplate, _, _ := loadInjectionSettings(b, nil, "")
-	wh, cleanup := createWebhook(b, sidecarTemplate, pcs)
+	wh, cleanup := createWebhook(b, sidecarTemplate)
 	defer cleanup()
 
 	stop := make(chan struct{})
@@ -1122,18 +1053,6 @@ func benchmarkInjectServe(pcs int, b *testing.B) {
 
 		wh.serveInject(httptest.NewRecorder(), req)
 	}
-}
-
-func BenchmarkInjectServePC0(b *testing.B) {
-	benchmarkInjectServe(0, b)
-}
-
-func BenchmarkInjectServePC5(b *testing.B) {
-	benchmarkInjectServe(5, b)
-}
-
-func BenchmarkInjectServePC15(b *testing.B) {
-	benchmarkInjectServe(15, b)
 }
 
 func TestEnablePrometheusAggregation(t *testing.T) {
@@ -1280,17 +1199,6 @@ func TestParseInjectEnvs(t *testing.T) {
 				t.Fatalf("Expected result %#v, but got %#v", tc.want, actual)
 			}
 		})
-	}
-}
-
-func newProxyConfig(name, ns string, spec config.Spec) config.Config {
-	return config.Config{
-		Meta: config.Meta{
-			GroupVersionKind: gvk.ProxyConfig,
-			Name:             name,
-			Namespace:        ns,
-		},
-		Spec: spec,
 	}
 }
 

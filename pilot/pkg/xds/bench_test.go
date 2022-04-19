@@ -17,9 +17,9 @@ package xds
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
-	"strings"
 	"testing"
 	"text/template"
 	"time"
@@ -27,7 +27,9 @@ import (
 	"github.com/Masterminds/sprig/v3"
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	any "google.golang.org/protobuf/types/known/anypb"
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/ptypes/any"
+	"k8s.io/client-go/kubernetes/fake"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
@@ -35,6 +37,7 @@ import (
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
+	kubesecrets "istio.io/istio/pilot/pkg/secrets/kube"
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
 	"istio.io/istio/pilot/test/xdstest"
 	"istio.io/istio/pkg/config"
@@ -44,7 +47,6 @@ import (
 	"istio.io/istio/pkg/spiffe"
 	"istio.io/istio/pkg/test"
 	"istio.io/istio/pkg/test/util/yml"
-	"istio.io/istio/pkg/util/protomarshal"
 	"istio.io/pkg/env"
 	istiolog "istio.io/pkg/log"
 )
@@ -58,8 +60,6 @@ type ConfigInput struct {
 	ConfigName string
 	// Number of services to make
 	Services int
-	// Number of instances to make
-	Instances int
 	// Type of proxy to generate configs for
 	ProxyType model.NodeType
 }
@@ -93,10 +93,6 @@ var testCases = []ConfigInput{
 		Services: 100,
 	},
 	{
-		Name:     "telemetry-api",
-		Services: 100,
-	},
-	{
 		Name:     "virtualservice",
 		Services: 100,
 	},
@@ -113,23 +109,7 @@ var testCases = []ConfigInput{
 		Services:  100,
 		ProxyType: model.Router,
 	},
-	{
-		Name:      "serviceentry-workloadentry",
-		Services:  100,
-		Instances: 1000,
-		ProxyType: model.SidecarProxy,
-	},
 }
-
-var sidecarTestCases = func() (res []ConfigInput) {
-	for _, c := range testCases {
-		if c.ProxyType == model.Router {
-			continue
-		}
-		res = append(res, c)
-	}
-	return res
-}()
 
 func configureBenchmark(t test.Failer) {
 	for _, s := range istiolog.Scopes() {
@@ -152,9 +132,32 @@ func BenchmarkInitPushContext(b *testing.B) {
 			s, proxy := setupTest(b, tt)
 			b.ResetTimer()
 			for n := 0; n < b.N; n++ {
-				s.Env().PushContext.InitDone.Store(false)
 				initPushContext(s.Env(), proxy)
 			}
+		})
+	}
+}
+
+func BenchmarkRouteGeneration(b *testing.B) {
+	configureBenchmark(b)
+	for _, tt := range testCases {
+		b.Run(tt.Name, func(b *testing.B) {
+			s, proxy := setupAndInitializeTest(b, tt)
+			// To determine which routes to generate, first gen listeners once (not part of benchmark) and extract routes
+			l := s.Discovery.ConfigGenerator.BuildListeners(proxy, s.PushContext())
+			routeNames := xdstest.ExtractRoutesFromListeners(l)
+			if len(routeNames) == 0 {
+				b.Fatal("Got no route names!")
+			}
+			b.ResetTimer()
+			var c model.Resources
+			for n := 0; n < b.N; n++ {
+				c, _, _ = s.Discovery.Generators[v3.RouteType].Generate(proxy, s.PushContext(), &model.WatchedResource{ResourceNames: routeNames}, nil)
+				if len(c) == 0 {
+					b.Fatal("Got no routes!")
+				}
+			}
+			logDebug(b, c)
 		})
 	}
 }
@@ -163,7 +166,7 @@ func BenchmarkInitPushContext(b *testing.B) {
 // update our benchmark doesn't become useless.
 func TestValidateTelemetry(t *testing.T) {
 	s, proxy := setupAndInitializeTest(t, ConfigInput{Name: "telemetry", Services: 1})
-	c, _, _ := s.Discovery.Generators[v3.ClusterType].Generate(proxy, s.PushContext(), nil, &model.PushRequest{Full: true, Push: s.PushContext()})
+	c, _, _ := s.Discovery.Generators[v3.ClusterType].Generate(proxy, s.PushContext(), nil, nil)
 	if len(c) == 0 {
 		t.Fatal("Got no clusters!")
 	}
@@ -181,57 +184,101 @@ func TestValidateTelemetry(t *testing.T) {
 	t.Fatalf("telemetry v2 filters not found")
 }
 
-func BenchmarkRouteGeneration(b *testing.B) {
-	runBenchmark(b, v3.RouteType, testCases)
-}
-
-func TestRouteGeneration(t *testing.T) {
-	testBenchmark(t, v3.RouteType, testCases)
-}
-
 func BenchmarkClusterGeneration(b *testing.B) {
-	runBenchmark(b, v3.ClusterType, testCases)
-}
-
-func TestClusterGeneration(t *testing.T) {
-	testBenchmark(t, v3.ClusterType, testCases)
+	configureBenchmark(b)
+	for _, tt := range testCases {
+		b.Run(tt.Name, func(b *testing.B) {
+			s, proxy := setupAndInitializeTest(b, tt)
+			b.ResetTimer()
+			var c model.Resources
+			for n := 0; n < b.N; n++ {
+				c, _, _ = s.Discovery.Generators[v3.ClusterType].Generate(proxy, s.PushContext(), nil, nil)
+				if len(c) == 0 {
+					b.Fatal("Got no clusters!")
+				}
+			}
+			logDebug(b, c)
+		})
+	}
 }
 
 func BenchmarkListenerGeneration(b *testing.B) {
-	runBenchmark(b, v3.ListenerType, testCases)
-}
-
-func TestListenerGeneration(t *testing.T) {
-	testBenchmark(t, v3.ListenerType, testCases)
+	configureBenchmark(b)
+	for _, tt := range testCases {
+		b.Run(tt.Name, func(b *testing.B) {
+			s, proxy := setupAndInitializeTest(b, tt)
+			b.ResetTimer()
+			var c model.Resources
+			for n := 0; n < b.N; n++ {
+				c, _, _ = s.Discovery.Generators[v3.ListenerType].Generate(proxy, s.PushContext(), nil, nil)
+				if len(c) == 0 {
+					b.Fatal("Got no listeners!")
+				}
+			}
+			logDebug(b, c)
+		})
+	}
 }
 
 func BenchmarkNameTableGeneration(b *testing.B) {
-	runBenchmark(b, v3.NameTableType, sidecarTestCases)
-}
-
-func TestNameTableGeneration(t *testing.T) {
-	testBenchmark(t, v3.NameTableType, sidecarTestCases)
-}
-
-var secretCases = []ConfigInput{
-	{
-		Name:      "secrets",
-		Services:  10,
-		ProxyType: model.Router,
-	},
-	{
-		Name:      "secrets",
-		Services:  1000,
-		ProxyType: model.Router,
-	},
-}
-
-func TestSecretGeneration(t *testing.T) {
-	testBenchmark(t, v3.SecretType, secretCases)
+	configureBenchmark(b)
+	for _, tt := range testCases {
+		b.Run(tt.Name, func(b *testing.B) {
+			s, proxy := setupAndInitializeTest(b, tt)
+			b.ResetTimer()
+			var c model.Resources
+			for n := 0; n < b.N; n++ {
+				c, _, _ = s.Discovery.Generators[v3.NameTableType].Generate(proxy, s.PushContext(), nil, nil)
+				if len(c) == 0 && tt.ProxyType != model.Router {
+					b.Fatal("Got no name tables!")
+				}
+			}
+			logDebug(b, c)
+		})
+	}
 }
 
 func BenchmarkSecretGeneration(b *testing.B) {
-	runBenchmark(b, v3.SecretType, secretCases)
+	configureBenchmark(b)
+	cases := []ConfigInput{
+		{
+			Name:     "secrets",
+			Services: 10,
+		},
+		{
+			Name:     "secrets",
+			Services: 1000,
+		},
+	}
+	for _, tt := range cases {
+		b.Run(fmt.Sprintf("%s-%d", tt.Name, tt.Services), func(b *testing.B) {
+			tmpl := template.Must(template.New("").Funcs(sprig.TxtFuncMap()).ParseFiles(path.Join("testdata", "benchmarks", tt.Name+".yaml")))
+			var buf bytes.Buffer
+			if err := tmpl.ExecuteTemplate(&buf, tt.Name+".yaml", tt); err != nil {
+				b.Fatalf("failed to execute template: %v", err)
+			}
+			s := NewFakeDiscoveryServer(b, FakeOptions{
+				KubernetesObjectString: buf.String(),
+			})
+			kubesecrets.DisableAuthorizationForTest(s.KubeClient().Kube().(*fake.Clientset))
+			watchedResources := []string{}
+			for i := 0; i < tt.Services; i++ {
+				watchedResources = append(watchedResources, fmt.Sprintf("kubernetes://istio-system/sds-credential-%d", i))
+			}
+			proxy := s.SetupProxy(&model.Proxy{Type: model.Router, ConfigNamespace: "istio-system", VerifiedIdentity: &spiffe.Identity{}})
+			gen := s.Discovery.Generators[v3.SecretType]
+			res := &model.WatchedResource{ResourceNames: watchedResources}
+			b.ResetTimer()
+			var c model.Resources
+			for n := 0; n < b.N; n++ {
+				c, _, _ = gen.Generate(proxy, s.PushContext(), res, &model.PushRequest{Full: true})
+				if len(c) == 0 {
+					b.Fatal("Got no secrets!")
+				}
+			}
+			logDebug(b, c)
+		})
+	}
 }
 
 func createGateways(n int) map[string]*meshconfig.Network {
@@ -295,57 +342,6 @@ func BenchmarkEndpointGeneration(b *testing.B) {
 	}
 }
 
-func runBenchmark(b *testing.B, tpe string, testCases []ConfigInput) {
-	configureBenchmark(b)
-	for _, tt := range testCases {
-		b.Run(tt.Name, func(b *testing.B) {
-			s, proxy := setupAndInitializeTest(b, tt)
-			wr := getWatchedResources(tpe, tt, s, proxy)
-			b.ResetTimer()
-			var c model.Resources
-			for n := 0; n < b.N; n++ {
-				c, _, _ = s.Discovery.Generators[tpe].Generate(proxy, s.PushContext(), wr, &model.PushRequest{Full: true, Push: s.PushContext()})
-				if len(c) == 0 {
-					b.Fatalf("Got no %v's!", tpe)
-				}
-			}
-			logDebug(b, c)
-		})
-	}
-}
-
-func testBenchmark(t *testing.T, tpe string, testCases []ConfigInput) {
-	for _, tt := range testCases {
-		t.Run(tt.Name, func(t *testing.T) {
-			// No need for large test here
-			tt.Services = 1
-			tt.Instances = 1
-			s, proxy := setupAndInitializeTest(t, tt)
-			wr := getWatchedResources(tpe, tt, s, proxy)
-			c, _, _ := s.Discovery.Generators[tpe].Generate(proxy, s.PushContext(), wr, &model.PushRequest{Full: true, Push: s.PushContext()})
-			if len(c) == 0 {
-				t.Fatalf("Got no %v's!", tpe)
-			}
-		})
-	}
-}
-
-func getWatchedResources(tpe string, tt ConfigInput, s *FakeDiscoveryServer, proxy *model.Proxy) *model.WatchedResource {
-	switch tpe {
-	case v3.SecretType:
-		watchedResources := []string{}
-		for i := 0; i < tt.Services; i++ {
-			watchedResources = append(watchedResources, fmt.Sprintf("kubernetes://default/sds-credential-%d", i))
-		}
-		return &model.WatchedResource{ResourceNames: watchedResources}
-	case v3.RouteType:
-		l := s.Discovery.ConfigGenerator.BuildListeners(proxy, s.PushContext())
-		routeNames := xdstest.ExtractRoutesFromListeners(l)
-		return &model.WatchedResource{ResourceNames: routeNames}
-	}
-	return nil
-}
-
 // Setup test builds a mock test environment. Note: push context is not initialized, to be able to benchmark separately
 // most should just call setupAndInitializeTest
 func setupTest(t testing.TB, config ConfigInput) (*FakeDiscoveryServer, *model.Proxy) {
@@ -363,36 +359,29 @@ func setupTest(t testing.TB, config ConfigInput) (*FakeDiscoveryServer, *model.P
 			Labels: map[string]string{
 				"istio.io/benchmark": "true",
 			},
-			ClusterID:    "Kubernetes",
-			IstioVersion: "1.13.0",
+			IstioVersion: "1.11.0",
 		},
-		ConfigNamespace:  "default",
-		VerifiedIdentity: &spiffe.Identity{Namespace: "default"},
+		ConfigNamespace: "default",
 	}
 	proxy.IstioVersion = model.ParseIstioVersion(proxy.Metadata.IstioVersion)
 
-	configs, k8sConfig := getConfigsWithCache(t, config)
+	configs := getConfigsWithCache(t, config)
 	s := NewFakeDiscoveryServer(t, FakeOptions{
-		Configs:                configs,
-		KubernetesObjectString: k8sConfig,
+		Configs: configs,
 		// Allow debounce to avoid overwhelming with writes
-		DebounceTime:               time.Millisecond * 10,
-		DisableSecretAuthorization: true,
+		DebounceTime: time.Millisecond * 10,
 	})
 
 	return s, proxy
 }
 
-var (
-	configCache    = map[ConfigInput][]config.Config{}
-	k8sConfigCache = map[ConfigInput]string{}
-)
+var configCache = map[ConfigInput][]config.Config{}
 
-func getConfigsWithCache(t testing.TB, input ConfigInput) ([]config.Config, string) {
+func getConfigsWithCache(t testing.TB, input ConfigInput) []config.Config {
 	// Config setup is slow for large tests. Cache this and return from Cache.
 	// This improves even running a single test, as go will run the full test (including setup) at least twice.
 	if cached, f := configCache[input]; f {
-		return cached, k8sConfigCache[input]
+		return cached
 	}
 	configName := input.ConfigName
 	if configName == "" {
@@ -406,7 +395,7 @@ func getConfigsWithCache(t testing.TB, input ConfigInput) ([]config.Config, stri
 	extra := path.Join("testdata", "benchmarks", configName+".extra.yaml")
 	inputYAML := buf.String()
 	if _, err := os.Stat(extra); err == nil {
-		bdata, err := os.ReadFile(extra)
+		bdata, err := ioutil.ReadFile(extra)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -418,8 +407,7 @@ func getConfigsWithCache(t testing.TB, input ConfigInput) ([]config.Config, stri
 	if err != nil {
 		t.Fatalf("failed to read config: %v", err)
 	}
-	scrt, count := parseSecrets(inputYAML)
-	if len(badKinds) != count {
+	if len(badKinds) != 0 {
 		t.Fatalf("Got unknown resources: %v", badKinds)
 	}
 	// setup default namespace if not defined
@@ -430,20 +418,7 @@ func getConfigsWithCache(t testing.TB, input ConfigInput) ([]config.Config, stri
 		configs[i] = c
 	}
 	configCache[input] = configs
-	k8sConfigCache[input] = scrt
-	return configs, scrt
-}
-
-func parseSecrets(inputs string) (string, int) {
-	matches := 0
-	sb := strings.Builder{}
-	for _, text := range strings.Split(inputs, "\n---") {
-		if strings.Contains(text, "kind: Secret") {
-			sb.WriteString(text + "\n---\n")
-			matches++
-		}
-	}
-	return sb.String(), matches
+	return configs
 }
 
 func setupAndInitializeTest(t testing.TB, config ConfigInput) (*FakeDiscoveryServer, *model.Proxy) {
@@ -470,7 +445,7 @@ func logDebug(b *testing.B, m model.Resources) {
 
 	if debugGeneration.Get() {
 		for i, r := range m {
-			s, err := protomarshal.MarshalIndent(r, "  ")
+			s, err := (&jsonpb.Marshaler{Indent: "  "}).MarshalToString(r)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -515,46 +490,4 @@ func createEndpoints(numEndpoints, numServices, numNetworks int) []config.Config
 		})
 	}
 	return result
-}
-
-func BenchmarkPushRequest(b *testing.B) {
-	// allTriggers contains all triggers, so we can pick one at random.
-	// It is not a big issue if it falls out of sync, as we are just trying to generate test data
-	allTriggers := []model.TriggerReason{
-		model.EndpointUpdate,
-		model.ConfigUpdate,
-		model.ServiceUpdate,
-		model.ProxyUpdate,
-		model.GlobalUpdate,
-		model.UnknownTrigger,
-		model.DebugTrigger,
-		model.SecretTrigger,
-		model.NetworksTrigger,
-		model.ProxyRequest,
-		model.NamespaceUpdate,
-	}
-	// Number of (simulated) proxies
-	proxies := 500
-	// Number of (simulated) pushes merged
-	pushesMerged := 10
-	// Number of configs per push
-	configs := 1
-
-	for n := 0; n < b.N; n++ {
-		var req *model.PushRequest
-		for i := 0; i < pushesMerged; i++ {
-			trigger := allTriggers[i%len(allTriggers)]
-			nreq := &model.PushRequest{
-				ConfigsUpdated: map[model.ConfigKey]struct{}{},
-				Reason:         []model.TriggerReason{trigger},
-			}
-			for c := 0; c < configs; c++ {
-				nreq.ConfigsUpdated[model.ConfigKey{Kind: gvk.ServiceEntry, Name: fmt.Sprintf("%d", c), Namespace: "default"}] = struct{}{}
-			}
-			req = req.Merge(nreq)
-		}
-		for p := 0; p < proxies; p++ {
-			recordPushTriggers(req.Reason...)
-		}
-	}
 }

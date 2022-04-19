@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
+	"go.uber.org/atomic"
 
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry"
@@ -34,30 +35,16 @@ import (
 // The aggregate controller does not implement serviceregistry.Instance since it may be comprised of various
 // providers and clusters.
 var (
-	_ model.ServiceDiscovery    = &Controller{}
-	_ model.AggregateController = &Controller{}
+	_ model.ServiceDiscovery = &Controller{}
+	_ model.Controller       = &Controller{}
 )
 
 // Controller aggregates data across different registries and monitors for changes
 type Controller struct {
-	meshHolder mesh.Holder
-
-	// The lock is used to protect the registries and controller's running status.
+	registries []serviceregistry.Instance
 	storeLock  sync.RWMutex
-	registries []*registryEntry
-	// indicates whether the controller has run.
-	// if true, all the registries added later should be run manually.
-	running bool
-
-	handlers          model.ControllerHandlers
-	handlersByCluster map[cluster.ID]*model.ControllerHandlers
-	model.NetworkGatewaysHandler
-}
-
-type registryEntry struct {
-	serviceregistry.Instance
-	// stop if not nil is the per-registry stop chan. If null, the server stop chan should be used to Run the registry.
-	stop <-chan struct{}
+	meshHolder mesh.Holder
+	running    *atomic.Bool
 }
 
 type Options struct {
@@ -67,57 +54,18 @@ type Options struct {
 // NewController creates a new Aggregate controller
 func NewController(opt Options) *Controller {
 	return &Controller{
-		registries:        make([]*registryEntry, 0),
-		meshHolder:        opt.MeshHolder,
-		running:           false,
-		handlersByCluster: map[cluster.ID]*model.ControllerHandlers{},
+		registries: make([]serviceregistry.Instance, 0),
+		meshHolder: opt.MeshHolder,
+		running:    atomic.NewBool(false),
 	}
 }
 
-func (c *Controller) addRegistry(registry serviceregistry.Instance, stop <-chan struct{}) {
-	c.registries = append(c.registries, &registryEntry{Instance: registry, stop: stop})
-
-	// Observe the registry for events.
-	registry.AppendNetworkGatewayHandler(c.NotifyGatewayHandlers)
-	registry.AppendServiceHandler(c.handlers.NotifyServiceHandlers)
-	registry.AppendServiceHandler(func(service *model.Service, event model.Event) {
-		for _, handlers := range c.getClusterHandlers() {
-			handlers.NotifyServiceHandlers(service, event)
-		}
-	})
-}
-
-func (c *Controller) getClusterHandlers() []*model.ControllerHandlers {
-	c.storeLock.Lock()
-	defer c.storeLock.Unlock()
-	out := make([]*model.ControllerHandlers, 0, len(c.handlersByCluster))
-	for _, handlers := range c.handlersByCluster {
-		out = append(out, handlers)
-	}
-	return out
-}
-
-// AddRegistry adds registries into the aggregated controller.
-// If the aggregated controller is already Running, the given registry will never be started.
+// AddRegistry adds registries into the aggregated controller
 func (c *Controller) AddRegistry(registry serviceregistry.Instance) {
 	c.storeLock.Lock()
 	defer c.storeLock.Unlock()
-	c.addRegistry(registry, nil)
-}
 
-// AddRegistryAndRun adds registries into the aggregated controller and makes sure it is Run.
-// If the aggregated controller is running, the given registry is Run immediately.
-// Otherwise, the given registry is Run when the aggregate controller is Run, using the given stop.
-func (c *Controller) AddRegistryAndRun(registry serviceregistry.Instance, stop <-chan struct{}) {
-	if stop == nil {
-		log.Warnf("nil stop channel passed to AddRegistryAndRun for registry %s/%s", registry.Provider(), registry.Cluster())
-	}
-	c.storeLock.Lock()
-	defer c.storeLock.Unlock()
-	c.addRegistry(registry, stop)
-	if c.running {
-		go registry.Run(stop)
-	}
+	c.registries = append(c.registries, registry)
 }
 
 // DeleteRegistry deletes specified registry from the aggregated controller
@@ -131,12 +79,11 @@ func (c *Controller) DeleteRegistry(clusterID cluster.ID, providerID provider.ID
 	}
 	index, ok := c.getRegistryIndex(clusterID, providerID)
 	if !ok {
-		log.Warnf("Registry %s/%s is not found in the registries list, nothing to delete", providerID, clusterID)
+		log.Warnf("Registry %s is not found in the registries list, nothing to delete", clusterID)
 		return
 	}
-	c.registries[index] = nil
 	c.registries = append(c.registries[:index], c.registries[index+1:]...)
-	log.Infof("%s registry for the cluster %s has been deleted.", providerID, clusterID)
+	log.Infof("Registry for the cluster %s has been deleted.", clusterID)
 }
 
 // GetRegistries returns a copy of all registries
@@ -187,12 +134,12 @@ func (c *Controller) Services() ([]*model.Service, error) {
 					// The first cluster will be listed first, so the services in the primary cluster
 					// will be used for default settings. If a service appears in multiple clusters,
 					// the order is less clear.
-					smap[s.Hostname] = s
-					services = append(services, s)
+					sp = s
+					smap[s.Hostname] = sp
+					services = append(services, sp)
 				} else {
 					// If it is seen second time, that means it is from a different cluster, update cluster VIPs.
-					// Note: mutating the service of underlying registry here, should have no effect.
-					mergeService(sp, s, r)
+					mergeService(sp, s, r.Cluster())
 				}
 			}
 		}
@@ -201,33 +148,38 @@ func (c *Controller) Services() ([]*model.Service, error) {
 }
 
 // GetService retrieves a service by hostname if exists
-func (c *Controller) GetService(hostname host.Name) *model.Service {
+func (c *Controller) GetService(hostname host.Name) (*model.Service, error) {
+	var errs error
 	var out *model.Service
 	for _, r := range c.GetRegistries() {
-		service := r.GetService(hostname)
+		service, err := r.GetService(hostname)
+		if err != nil {
+			errs = multierror.Append(errs, err)
+			continue
+		}
 		if service == nil {
 			continue
 		}
 		if r.Provider() != provider.Kubernetes {
-			return service
+			return service, nil
 		}
 		if out == nil {
 			out = service.DeepCopy()
 		} else {
 			// If we are seeing the service for the second time, it means it is available in multiple clusters.
-			mergeService(out, service, r)
+			mergeService(out, service, r.Cluster())
 		}
 	}
-	return out
+	return out, errs
 }
 
-func mergeService(dst, src *model.Service, srcRegistry serviceregistry.Instance) {
-	// Prefer the k8s HostVIPs where possible
-	clusterID := srcRegistry.Cluster()
-	if srcRegistry.Provider() == provider.Kubernetes || len(dst.ClusterVIPs.GetAddressesFor(clusterID)) == 0 {
-		newAddresses := src.ClusterVIPs.GetAddressesFor(clusterID)
-		dst.ClusterVIPs.SetAddressesFor(clusterID, newAddresses)
+func mergeService(dst, src *model.Service, srcCluster cluster.ID) {
+	dst.Mutex.Lock()
+	if dst.ClusterVIPs == nil {
+		dst.ClusterVIPs = make(map[cluster.ID]string)
 	}
+	dst.ClusterVIPs[srcCluster] = src.Address
+	dst.Mutex.Unlock()
 }
 
 // NetworkGateways merges the service-based cross-network gateways from each registry.
@@ -237,14 +189,6 @@ func (c *Controller) NetworkGateways() []model.NetworkGateway {
 		gws = append(gws, r.NetworkGateways()...)
 	}
 	return gws
-}
-
-func (c *Controller) MCSServices() []model.MCSServiceInfo {
-	var out []model.MCSServiceInfo
-	for _, r := range c.GetRegistries() {
-		out = append(out, r.MCSServices()...)
-	}
-	return out
 }
 
 // InstancesByPort retrieves instances for a service on a given port that match
@@ -323,20 +267,18 @@ func (c *Controller) GetProxyWorkloadLabels(proxy *model.Proxy) labels.Collectio
 
 // Run starts all the controllers
 func (c *Controller) Run(stop <-chan struct{}) {
-	c.storeLock.Lock()
-	for _, r := range c.registries {
-		// prefer the per-registry stop channel
-		registryStop := stop
-		if s := r.stop; s != nil {
-			registryStop = s
-		}
-		go r.Run(registryStop)
+	for _, r := range c.GetRegistries() {
+		go r.Run(stop)
 	}
-	c.running = true
-	c.storeLock.Unlock()
-
+	c.running.Store(true)
 	<-stop
 	log.Info("Registry Aggregator terminated")
+}
+
+// Running returns true after Run has been called. If already running, registries passed to AddRegistry
+// should be started outside of this aggregate controller.
+func (c *Controller) Running() bool {
+	return c.running.Load()
 }
 
 // HasSynced returns true when all registries have synced
@@ -350,40 +292,17 @@ func (c *Controller) HasSynced() bool {
 	return true
 }
 
+// AppendServiceHandler implements a service catalog operation
 func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) {
-	c.handlers.AppendServiceHandler(f)
+	for _, r := range c.GetRegistries() {
+		r.AppendServiceHandler(f)
+	}
 }
 
 func (c *Controller) AppendWorkloadHandler(f func(*model.WorkloadInstance, model.Event)) {
-	c.handlers.AppendWorkloadHandler(f)
-}
-
-func (c *Controller) AppendServiceHandlerForCluster(id cluster.ID, f func(*model.Service, model.Event)) {
-	c.storeLock.Lock()
-	defer c.storeLock.Unlock()
-	handler, ok := c.handlersByCluster[id]
-	if !ok {
-		c.handlersByCluster[id] = &model.ControllerHandlers{}
-		handler = c.handlersByCluster[id]
+	for _, r := range c.GetRegistries() {
+		r.AppendWorkloadHandler(f)
 	}
-	handler.AppendServiceHandler(f)
-}
-
-func (c *Controller) AppendWorkloadHandlerForCluster(id cluster.ID, f func(*model.WorkloadInstance, model.Event)) {
-	c.storeLock.Lock()
-	defer c.storeLock.Unlock()
-	handler, ok := c.handlersByCluster[id]
-	if !ok {
-		c.handlersByCluster[id] = &model.ControllerHandlers{}
-		handler = c.handlersByCluster[id]
-	}
-	handler.AppendWorkloadHandler(f)
-}
-
-func (c *Controller) UnRegisterHandlersForCluster(id cluster.ID) {
-	c.storeLock.Lock()
-	defer c.storeLock.Unlock()
-	delete(c.handlersByCluster, id)
 }
 
 // GetIstioServiceAccounts implements model.ServiceAccounts operation.
@@ -408,11 +327,11 @@ func (c *Controller) GetIstioServiceAccounts(svc *model.Service, ports []int) []
 	for k := range out {
 		result = append(result, k)
 	}
-	tds := make([]string, 0)
+	tds := []string{}
 	if c.meshHolder != nil {
-		m := c.meshHolder.Mesh()
-		if m != nil {
-			tds = m.TrustDomainAliases
+		mesh := c.meshHolder.Mesh()
+		if mesh != nil {
+			tds = mesh.TrustDomainAliases
 		}
 	}
 	expanded := spiffe.ExpandWithTrustDomains(result, tds)

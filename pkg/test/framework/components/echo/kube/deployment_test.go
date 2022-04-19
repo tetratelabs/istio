@@ -152,27 +152,6 @@ func TestDeploymentYAML(t *testing.T) {
 				},
 			},
 			revVerMap: resource.RevVerMap{
-				"rev-a": resource.IstioVersion("1.9.0"),
-				"rev-b": resource.IstioVersion("1.10.0"),
-			},
-			compatibility: true,
-		},
-		{
-			name:         "multiple-istio-versions-no-proxy",
-			wantFilePath: "testdata/multiple-istio-versions-no-proxy.yaml",
-			config: echo.Config{
-				Service: "foo",
-				Version: "bar",
-				Ports: []echo.Port{
-					{
-						Name:         "http",
-						Protocol:     protocol.HTTP,
-						InstancePort: 8090,
-						ServicePort:  8090,
-					},
-				},
-			},
-			revVerMap: resource.RevVerMap{
 				"rev-a": resource.IstioVersion("1.8.2"),
 				"rev-b": resource.IstioVersion("1.9.0"),
 			},
@@ -208,14 +187,14 @@ func TestDeploymentYAML(t *testing.T) {
 				t.Errorf("failed to generate deployment %v", err)
 			}
 			gotBytes := []byte(serviceYAML + "---" + deploymentYAML)
-			wantedBytes := testutil.ReadGoldenFile(t, gotBytes, tc.wantFilePath)
+			wantedBytes := testutil.ReadGoldenFile(gotBytes, tc.wantFilePath, t)
 
 			wantBytes := testutil.StripVersion(wantedBytes)
 			gotBytes = testutil.StripVersion(gotBytes)
 
-			testutil.RefreshGoldenFile(t, gotBytes, tc.wantFilePath)
+			testutil.RefreshGoldenFile(gotBytes, tc.wantFilePath, t)
 
-			testutil.CompareBytes(t, gotBytes, wantBytes, tc.wantFilePath)
+			testutil.CompareBytes(gotBytes, wantBytes, tc.wantFilePath, t)
 		})
 	}
 }

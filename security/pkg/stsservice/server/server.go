@@ -22,7 +22,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
-	"time"
 
 	"istio.io/istio/pkg/security"
 	"istio.io/istio/security/pkg/stsservice"
@@ -82,10 +81,8 @@ func NewServer(config Config, tokenManager security.TokenManager) (*Server, erro
 	mux.HandleFunc(TokenPath, s.ServeStsRequests)
 	mux.HandleFunc(StsStatusPath, s.DumpStsStatus)
 	s.stsServer = &http.Server{
-		Addr:        fmt.Sprintf("%s:%d", config.LocalHostAddr, config.LocalPort),
-		Handler:     mux,
-		IdleTimeout: 90 * time.Second, // matches http.DefaultTransport keep-alive timeout
-		ReadTimeout: 30 * time.Second,
+		Addr:    fmt.Sprintf("%s:%d", config.LocalHostAddr, config.LocalPort),
+		Handler: mux,
 	}
 	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", config.LocalHostAddr, config.LocalPort))
 	if err != nil {

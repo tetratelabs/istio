@@ -16,7 +16,7 @@ package main
 
 import (
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -65,8 +65,8 @@ func checkIfReady(client *http.Client, url string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	_, err = io.ReadAll(resp.Body)
+	defer func() { _ = resp.Body.Close() }()
+	_, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}

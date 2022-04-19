@@ -100,6 +100,10 @@ func DNSLookupFamily(value DNSLookupFamilyValue) Instance {
 	return newOption("dns_lookup_family", value)
 }
 
+func ProxyViaAgent(value bool) Instance {
+	return newOption("proxy_via_agent", value)
+}
+
 func OutlierLogPath(value string) Instance {
 	return newOptionOrSkipIfZero("outlier_log_path", value)
 }
@@ -222,14 +226,6 @@ func STSPort(value int) Instance {
 
 func GCPProjectID(value string) Instance {
 	return newOption("gcp_project_id", value)
-}
-
-func GCPProjectNumber(value string) Instance {
-	return newOption("gcp_project_number", value)
-}
-
-func Metadata(meta *model.BootstrapNodeMetadata) Instance {
-	return newOption("metadata", meta)
 }
 
 func STSEnabled(value bool) Instance {

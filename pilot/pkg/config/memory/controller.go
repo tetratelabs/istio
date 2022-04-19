@@ -26,18 +26,16 @@ import (
 	"istio.io/istio/pkg/config/schema/collection"
 )
 
-// Controller is an implementation of ConfigStoreCache.
-type Controller struct {
+type controller struct {
 	monitor     Monitor
 	configStore model.ConfigStore
-	hasSynced   func() bool
 }
 
-// NewController return an implementation of ConfigStoreCache
+// NewController return an implementation of model.ConfigStoreCache
 // This is a client-side monitor that dispatches events as the changes are being
 // made on the client.
-func NewController(cs model.ConfigStore) *Controller {
-	out := &Controller{
+func NewController(cs model.ConfigStore) model.ConfigStoreCache {
+	out := &controller{
 		configStore: cs,
 		monitor:     NewMonitor(cs),
 	}
@@ -45,50 +43,40 @@ func NewController(cs model.ConfigStore) *Controller {
 }
 
 // NewSyncController return an implementation of model.ConfigStoreCache which processes events synchronously
-func NewSyncController(cs model.ConfigStore) *Controller {
-	out := &Controller{
+func NewSyncController(cs model.ConfigStore) model.ConfigStoreCache {
+	out := &controller{
 		configStore: cs,
 		monitor:     NewSyncMonitor(cs),
 	}
-
 	return out
 }
 
-func (c *Controller) RegisterHasSyncedHandler(cb func() bool) {
-	c.hasSynced = cb
-}
-
-func (c *Controller) RegisterEventHandler(kind config.GroupVersionKind, f model.EventHandler) {
+func (c *controller) RegisterEventHandler(kind config.GroupVersionKind, f model.EventHandler) {
 	c.monitor.AppendEventHandler(kind, f)
 }
 
-func (c *Controller) SetWatchErrorHandler(handler func(r *cache.Reflector, err error)) error {
+func (c *controller) SetWatchErrorHandler(handler func(r *cache.Reflector, err error)) error {
 	return nil
 }
 
-// HasSynced return whether store has synced
-// It can be controlled externally (such as by the data source),
-// otherwise it'll always consider synced.
-func (c *Controller) HasSynced() bool {
-	if c.hasSynced != nil {
-		return c.hasSynced()
-	}
+// Memory implementation is always synchronized with cache
+func (c *controller) HasSynced() bool {
 	return true
 }
 
-func (c *Controller) Run(stop <-chan struct{}) {
+func (c *controller) Run(stop <-chan struct{}) {
 	c.monitor.Run(stop)
 }
 
-func (c *Controller) Schemas() collection.Schemas {
+func (c *controller) Schemas() collection.Schemas {
 	return c.configStore.Schemas()
 }
 
-func (c *Controller) Get(kind config.GroupVersionKind, key, namespace string) *config.Config {
+func (c *controller) Get(kind config.GroupVersionKind, key, namespace string) *config.Config {
 	return c.configStore.Get(kind, key, namespace)
 }
 
-func (c *Controller) Create(config config.Config) (revision string, err error) {
+func (c *controller) Create(config config.Config) (revision string, err error) {
 	if revision, err = c.configStore.Create(config); err == nil {
 		c.monitor.ScheduleProcessEvent(ConfigEvent{
 			config: config,
@@ -98,7 +86,7 @@ func (c *Controller) Create(config config.Config) (revision string, err error) {
 	return
 }
 
-func (c *Controller) Update(config config.Config) (newRevision string, err error) {
+func (c *controller) Update(config config.Config) (newRevision string, err error) {
 	oldconfig := c.configStore.Get(config.GroupVersionKind, config.Name, config.Namespace)
 	if newRevision, err = c.configStore.Update(config); err == nil {
 		c.monitor.ScheduleProcessEvent(ConfigEvent{
@@ -110,7 +98,7 @@ func (c *Controller) Update(config config.Config) (newRevision string, err error
 	return
 }
 
-func (c *Controller) UpdateStatus(config config.Config) (newRevision string, err error) {
+func (c *controller) UpdateStatus(config config.Config) (newRevision string, err error) {
 	oldconfig := c.configStore.Get(config.GroupVersionKind, config.Name, config.Namespace)
 	if newRevision, err = c.configStore.UpdateStatus(config); err == nil {
 		c.monitor.ScheduleProcessEvent(ConfigEvent{
@@ -122,7 +110,7 @@ func (c *Controller) UpdateStatus(config config.Config) (newRevision string, err
 	return
 }
 
-func (c *Controller) Patch(orig config.Config, patchFn config.PatchFunc) (newRevision string, err error) {
+func (c *controller) Patch(orig config.Config, patchFn config.PatchFunc) (newRevision string, err error) {
 	cfg, typ := patchFn(orig.DeepCopy())
 	switch typ {
 	case types.MergePatchType:
@@ -140,7 +128,7 @@ func (c *Controller) Patch(orig config.Config, patchFn config.PatchFunc) (newRev
 	return
 }
 
-func (c *Controller) Delete(kind config.GroupVersionKind, key, namespace string, resourceVersion *string) (err error) {
+func (c *controller) Delete(kind config.GroupVersionKind, key, namespace string, resourceVersion *string) (err error) {
 	if config := c.Get(kind, key, namespace); config != nil {
 		if err = c.configStore.Delete(kind, key, namespace, resourceVersion); err == nil {
 			c.monitor.ScheduleProcessEvent(ConfigEvent{
@@ -153,6 +141,6 @@ func (c *Controller) Delete(kind config.GroupVersionKind, key, namespace string,
 	return errors.New("Delete failure: config" + key + "does not exist")
 }
 
-func (c *Controller) List(kind config.GroupVersionKind, namespace string) ([]config.Config, error) {
+func (c *controller) List(kind config.GroupVersionKind, namespace string) ([]config.Config, error) {
 	return c.configStore.List(kind, namespace)
 }

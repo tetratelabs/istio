@@ -16,12 +16,12 @@ package envoyfilter
 
 import (
 	"fmt"
-	"os"
+	"io/ioutil"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	udpa "github.com/cncf/xds/go/udpa/type/v1"
+	udpa "github.com/cncf/udpa/go/udpa/type/v1"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	fault "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/fault/v3"
@@ -29,16 +29,15 @@ import (
 	redis_proxy "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/redis_proxy/v3"
 	tcp_proxy "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
-	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	gogojsonpb "github.com/gogo/protobuf/jsonpb"
+	wellknown "github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/gogo/protobuf/types"
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/proto"
+	structpb "github.com/golang/protobuf/ptypes/struct"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/google/go-cmp/cmp"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
@@ -53,7 +52,6 @@ import (
 	"istio.io/istio/pkg/config/schema/gvk"
 	istio_proto "istio.io/istio/pkg/proto"
 	"istio.io/istio/pkg/test/env"
-	"istio.io/istio/pkg/util/protomarshal"
 )
 
 var testMesh = meshconfig.MeshConfig{
@@ -83,14 +81,14 @@ func buildEnvoyFilterConfigStore(configPatches []*networking.EnvoyFilter_EnvoyCo
 
 func buildPatchStruct(config string) *types.Struct {
 	val := &types.Struct{}
-	_ = gogojsonpb.Unmarshal(strings.NewReader(config), val)
+	_ = jsonpb.Unmarshal(strings.NewReader(config), val)
 	return val
 }
 
 // nolint: unparam
 func buildGolangPatchStruct(config string) *structpb.Struct {
 	val := &structpb.Struct{}
-	_ = protomarshal.Unmarshal([]byte(config), val)
+	_ = jsonpb.Unmarshal(strings.NewReader(config), val)
 	return val
 }
 
@@ -880,7 +878,7 @@ func TestApplyListenerPatches(t *testing.T) {
 			FilterChains: []*listener.FilterChain{
 				{
 					FilterChainMatch: &listener.FilterChainMatch{
-						DestinationPort: &wrapperspb.UInt32Value{
+						DestinationPort: &wrappers.UInt32Value{
 							Value: 80,
 						},
 					},
@@ -905,7 +903,7 @@ func TestApplyListenerPatches(t *testing.T) {
 			FilterChains: []*listener.FilterChain{
 				{
 					FilterChainMatch: &listener.FilterChainMatch{
-						DestinationPort: &wrapperspb.UInt32Value{
+						DestinationPort: &wrappers.UInt32Value{
 							Value: 80,
 						},
 					},
@@ -1093,7 +1091,7 @@ func TestApplyListenerPatches(t *testing.T) {
 			FilterChains: []*listener.FilterChain{
 				{
 					FilterChainMatch: &listener.FilterChainMatch{
-						DestinationPort: &wrapperspb.UInt32Value{
+						DestinationPort: &wrappers.UInt32Value{
 							Value: 80,
 						},
 					},
@@ -1118,7 +1116,7 @@ func TestApplyListenerPatches(t *testing.T) {
 			FilterChains: []*listener.FilterChain{
 				{
 					FilterChainMatch: &listener.FilterChainMatch{
-						DestinationPort: &wrapperspb.UInt32Value{
+						DestinationPort: &wrappers.UInt32Value{
 							Value: 80,
 						},
 					},
@@ -1432,7 +1430,7 @@ func TestApplyListenerPatches(t *testing.T) {
 				},
 				{
 					FilterChainMatch: &listener.FilterChainMatch{
-						DestinationPort: &wrapperspb.UInt32Value{
+						DestinationPort: &wrappers.UInt32Value{
 							Value: 80,
 						},
 					},
@@ -1463,7 +1461,7 @@ func TestApplyListenerPatches(t *testing.T) {
 				},
 				{
 					FilterChainMatch: &listener.FilterChainMatch{
-						DestinationPort: &wrapperspb.UInt32Value{
+						DestinationPort: &wrappers.UInt32Value{
 							Value: 6380,
 						},
 					},
@@ -1541,7 +1539,7 @@ func TestApplyListenerPatches(t *testing.T) {
 				},
 				{
 					FilterChainMatch: &listener.FilterChainMatch{
-						DestinationPort: &wrapperspb.UInt32Value{
+						DestinationPort: &wrappers.UInt32Value{
 							Value: 80,
 						},
 					},
@@ -1589,7 +1587,7 @@ func TestApplyListenerPatches(t *testing.T) {
 				},
 				{
 					FilterChainMatch: &listener.FilterChainMatch{
-						DestinationPort: &wrapperspb.UInt32Value{
+						DestinationPort: &wrappers.UInt32Value{
 							Value: 6380,
 						},
 					},
@@ -1739,7 +1737,7 @@ func TestApplyListenerPatches(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ApplyListenerPatches(tt.args.patchContext, tt.args.push.EnvoyFilters(tt.args.proxy),
+			got := ApplyListenerPatches(tt.args.patchContext, tt.args.proxy, tt.args.push, tt.args.push.EnvoyFilters(tt.args.proxy),
 				tt.args.listeners, tt.args.skipAdds)
 			if diff := cmp.Diff(tt.want, got, protocmp.Transform()); diff != "" {
 				t.Errorf("ApplyListenerPatches(): %s mismatch (-want +got):\n%s", tt.name, diff)
@@ -1786,7 +1784,7 @@ func BenchmarkTelemetryV2Filters(b *testing.B) {
 		},
 	}
 
-	file, err := os.ReadFile(filepath.Join(env.IstioSrc, "manifests/charts/istio-control/istio-discovery/files/gen-istio.yaml"))
+	file, err := ioutil.ReadFile(filepath.Join(env.IstioSrc, "manifests/charts/istio-control/istio-discovery/files/gen-istio.yaml"))
 	if err != nil {
 		b.Fatalf("failed to read telemetry v2 Envoy Filters")
 	}
@@ -1826,7 +1824,7 @@ func BenchmarkTelemetryV2Filters(b *testing.B) {
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		copied := proto.Clone(l)
-		got = ApplyListenerPatches(networking.EnvoyFilter_SIDECAR_OUTBOUND, push.EnvoyFilters(sidecarProxy),
+		got = ApplyListenerPatches(networking.EnvoyFilter_SIDECAR_OUTBOUND, sidecarProxy, push, push.EnvoyFilters(sidecarProxy),
 			[]*listener.Listener{copied.(*listener.Listener)}, false)
 	}
 	_ = got

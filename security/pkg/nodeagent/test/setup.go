@@ -18,12 +18,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	ghc "google.golang.org/grpc/health/grpc_health_v1"
 
 	"istio.io/istio/pkg/security"
@@ -75,7 +75,7 @@ func (e *Env) TearDown() {
 }
 
 func getDataFromFile(filePath string, t *testing.T) []byte {
-	data, err := os.ReadFile(filePath)
+	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		t.Fatalf("failed to read %q", filePath)
 	}
@@ -117,6 +117,7 @@ func SetupTest(t *testing.T, testID uint16) *Env {
 	// Set up test environment for Proxy
 	proxySetup := envoy.NewTestSetup(testID, t)
 	proxySetup.EnvoyTemplate = string(getDataFromFile(istioEnv.IstioSrc+"/security/pkg/nodeagent/test/testdata/bootstrap.yaml", t))
+	proxySetup.EnvoyParams = []string{"--bootstrap-version", "3"}
 	env.ProxySetup = proxySetup
 	env.OutboundListenerPort = int(proxySetup.Ports().ClientProxyPort)
 	env.InboundListenerPort = int(proxySetup.Ports().ServerProxyPort)
@@ -166,7 +167,7 @@ func (e *Env) StartSDSServer(t *testing.T) {
 		CAEndpoint:      fmt.Sprintf("127.0.0.1:%d", e.ProxySetup.Ports().ExtraPort),
 	}
 
-	caClient, err := citadel.NewCitadelClient(serverOptions, nil)
+	caClient, err := citadel.NewCitadelClient(serverOptions, false, nil)
 	if err != nil {
 		t.Fatalf("failed to create CA client: %+v", err)
 	}
@@ -198,7 +199,7 @@ func (e *Env) cacheOptions(t *testing.T) security.Options {
 
 // waitForCAReady makes health check requests to gRPC healthcheck service at CA server.
 func (e *Env) waitForCAReady(t *testing.T) {
-	conn, err := grpc.Dial(e.CAServer.URL, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(e.CAServer.URL, grpc.WithInsecure())
 	if err != nil {
 		t.Fatalf("failed on connecting CA server %s: %v", e.CAServer.URL, err)
 	}

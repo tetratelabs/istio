@@ -16,24 +16,22 @@ package status
 
 import (
 	"context"
-	"strconv"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	"istio.io/api/meta/v1alpha1"
-	"istio.io/istio/pkg/config"
 )
 
 // Task to be performed.
 type Task func(entry cacheEntry)
+
+type ResourceStatus interface{}
 
 // WorkerQueue implements an expandable goroutine pool which executes at most one concurrent routine per target
 // resource.  Multiple calls to Push() will not schedule multiple executions per target resource, but will ensure that
 // the single execution uses the latest value.
 type WorkerQueue interface {
 	// Push a task.
-	Push(target Resource, controller *Controller, context interface{})
+	Push(target Resource, progress ResourceStatus)
 	// Run the loop until a signal on the context
 	Run(ctx context.Context)
 	// Delete a task
@@ -43,8 +41,8 @@ type WorkerQueue interface {
 type cacheEntry struct {
 	// the cacheVale represents the latest version of the resource, including ResourceVersion
 	cacheResource Resource
-	// the perControllerStatus represents the latest version of the ResourceStatus
-	perControllerStatus map[*Controller]interface{}
+	// the cacheStatus represents the latest version of the ResourceStatus
+	cacheStatus ResourceStatus
 }
 
 type lockResource struct {
@@ -72,17 +70,15 @@ type WorkQueue struct {
 	OnPush func()
 }
 
-func (wq *WorkQueue) Push(target Resource, ctl *Controller, progress interface{}) {
+func (wq *WorkQueue) Push(target Resource, progress ResourceStatus) {
 	wq.lock.Lock()
 	key := convert(target)
-	if item, inqueue := wq.cache[key]; inqueue {
-		item.perControllerStatus[ctl] = progress
-		wq.cache[key] = item
-	} else {
-		wq.cache[key] = cacheEntry{
-			cacheResource:       target,
-			perControllerStatus: map[*Controller]interface{}{ctl: progress},
-		}
+	_, inqueue := wq.cache[key]
+	wq.cache[key] = cacheEntry{
+		cacheResource: target,
+		cacheStatus:   progress,
+	}
+	if !inqueue {
 		wq.tasks = append(wq.tasks, key)
 	}
 	wq.lock.Unlock()
@@ -92,7 +88,7 @@ func (wq *WorkQueue) Push(target Resource, ctl *Controller, progress interface{}
 }
 
 // Pop returns the first item in the queue not in exclusion, along with it's latest progress
-func (wq *WorkQueue) Pop(exclusion map[lockResource]struct{}) (target Resource, progress map[*Controller]interface{}) {
+func (wq *WorkQueue) Pop(exclusion map[lockResource]struct{}) (target Resource, progress ResourceStatus) {
 	wq.lock.Lock()
 	defer wq.lock.Unlock()
 	for i := 0; i < len(wq.tasks); i++ {
@@ -103,7 +99,7 @@ func (wq *WorkQueue) Pop(exclusion map[lockResource]struct{}) (target Resource, 
 			if !ok {
 				return Resource{}, nil
 			}
-			return t.cacheResource, t.perControllerStatus
+			return t.cacheResource, t.cacheStatus
 		}
 	}
 	return Resource{}, nil
@@ -126,9 +122,7 @@ type WorkerPool struct {
 	// indicates the queue is closing
 	closing bool
 	// the function which will be run for each task in queue
-	write func(*config.Config, interface{})
-	// the function to retrieve the initial status
-	get func(Resource) *config.Config
+	work func(Resource, ResourceStatus)
 	// current worker routine count
 	workerCount uint
 	// maximum worker routine count
@@ -137,10 +131,16 @@ type WorkerPool struct {
 	lock             sync.Mutex
 }
 
-func NewWorkerPool(write func(*config.Config, interface{}), get func(Resource) *config.Config, maxWorkers uint) WorkerQueue {
+func NewProgressWorkerPool(work func(Resource, Progress), maxWorkers uint) WorkerQueue {
+	untypedWork := func(r Resource, s ResourceStatus) {
+		work(r, s.(Progress))
+	}
+	return NewWorkerPool(untypedWork, maxWorkers)
+}
+
+func NewWorkerPool(work func(Resource, ResourceStatus), maxWorkers uint) WorkerQueue {
 	return &WorkerPool{
-		write:            write,
-		get:              get,
+		work:             work,
 		maxWorkers:       maxWorkers,
 		currentlyWorking: make(map[lockResource]struct{}),
 		q: WorkQueue{
@@ -155,8 +155,8 @@ func (wp *WorkerPool) Delete(target Resource) {
 	wp.q.Delete(target)
 }
 
-func (wp *WorkerPool) Push(target Resource, controller *Controller, context interface{}) {
-	wp.q.Push(target, controller, context)
+func (wp *WorkerPool) Push(target Resource, progress ResourceStatus) {
+	wp.q.Push(target, progress)
 	wp.maybeAddWorker()
 }
 
@@ -188,11 +188,11 @@ func (wp *WorkerPool) maybeAddWorker() {
 				return
 			}
 
-			target, perControllerWork := wp.q.Pop(wp.currentlyWorking)
+			target, c := wp.q.Pop(wp.currentlyWorking)
 
 			if target == (Resource{}) {
 				// continue or return?
-				// could have been deleted, or could be no items in queue not currently worked on.  need a way to differentiate.
+				// could have been deleted, or could be no items in queueu not currently worked on.  need a way to differentiate.
 				wp.lock.Unlock()
 				continue
 			}
@@ -200,42 +200,11 @@ func (wp *WorkerPool) maybeAddWorker() {
 			wp.currentlyWorking[convert(target)] = struct{}{}
 			wp.lock.Unlock()
 			// work should be done without holding the lock
-			cfg := wp.get(target)
-			if cfg != nil {
-				// Check that generation matches
-				if strconv.FormatInt(cfg.Generation, 10) == target.Generation {
-					x, err := GetOGProvider(cfg.Status)
-					if err == nil {
-						// Not all controllers user generation, so we can ignore errors
-						x.SetObservedGeneration(cfg.Generation)
-					}
-					for c, i := range perControllerWork {
-						// TODO: this does not guarantee controller order.  perhaps it should?
-						x = c.fn(x, i)
-					}
-					wp.write(cfg, x)
-				}
-			}
+			wp.work(target, c)
+
 			wp.lock.Lock()
 			delete(wp.currentlyWorking, convert(target))
 			wp.lock.Unlock()
 		}
 	}()
-}
-
-type GenerationProvider interface {
-	SetObservedGeneration(int64)
-	Unwrap() interface{}
-}
-
-type IstioGenerationProvider struct {
-	*v1alpha1.IstioStatus
-}
-
-func (i *IstioGenerationProvider) SetObservedGeneration(in int64) {
-	i.ObservedGeneration = in
-}
-
-func (i *IstioGenerationProvider) Unwrap() interface{} {
-	return i.IstioStatus
 }

@@ -20,6 +20,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"path"
@@ -52,7 +53,6 @@ import (
 	"istio.io/istio/pkg/test/util/retry"
 	"istio.io/istio/security/pkg/credentialfetcher/plugin"
 	camock "istio.io/istio/security/pkg/nodeagent/caclient/providers/mock"
-	"istio.io/istio/security/pkg/nodeagent/cafile"
 	"istio.io/istio/security/pkg/nodeagent/test/mock"
 	pkiutil "istio.io/istio/security/pkg/pki/util"
 	"istio.io/istio/tests/util/leak"
@@ -141,7 +141,7 @@ func TestAgent(t *testing.T) {
 		dir := mktemp()
 		copyCerts(t, dir)
 
-		cfg := security.SdsCertificateConfig{
+		cfg := model.SdsCertificateConfig{
 			CertificatePath:   filepath.Join(dir, "cert-chain.pem"),
 			PrivateKeyPath:    filepath.Join(dir, "key.pem"),
 			CaCertificatePath: filepath.Join(dir, "root-cert.pem"),
@@ -151,70 +151,11 @@ func TestAgent(t *testing.T) {
 			a.XdsAuthenticator.Set("", preProvisionID)
 			// Ensure we don't try to connect to CA
 			a.CaAuthenticator.Set("", "")
-			a.Security.CertChainFilePath = cfg.CertificatePath
-			a.Security.KeyFilePath = cfg.PrivateKeyPath
-			a.Security.RootCertFilePath = cfg.CaCertificatePath
 			a.ProxyConfig.ProxyMetadata = map[string]string{}
 			a.ProxyConfig.ProxyMetadata[MetadataClientCertChain] = filepath.Join(dir, "cert-chain.pem")
 			a.ProxyConfig.ProxyMetadata[MetadataClientCertKey] = filepath.Join(dir, "key.pem")
 			a.ProxyConfig.ProxyMetadata[MetadataClientRootCert] = filepath.Join(dir, "root-cert.pem")
 			a.Security.FileMountedCerts = true
-			return a
-		}).Check(t, cfg.GetRootResourceName(), cfg.GetResourceName())
-	})
-	t.Run("File mounted certs with bogus token path", func(t *testing.T) {
-		// User sets FileMountedCerts and a bogus token path.
-		// They also need to set ISTIO_META_TLS_CLIENT* to specify the file paths.
-		// CA communication is disabled. mTLS is used for authentication with Istiod.
-		dir := mktemp()
-		copyCerts(t, dir)
-
-		cfg := security.SdsCertificateConfig{
-			CertificatePath:   filepath.Join(dir, "cert-chain.pem"),
-			PrivateKeyPath:    filepath.Join(dir, "key.pem"),
-			CaCertificatePath: filepath.Join(dir, "root-cert.pem"),
-		}
-		Setup(t, func(a AgentTest) AgentTest {
-			// Ensure we use the mTLS certs for XDS
-			a.XdsAuthenticator.Set("", preProvisionID)
-			// Ensure we don't try to connect to CA
-			a.CaAuthenticator.Set("", "")
-			a.Security.CertChainFilePath = cfg.CertificatePath
-			a.Security.KeyFilePath = cfg.PrivateKeyPath
-			a.Security.RootCertFilePath = cfg.CaCertificatePath
-			a.Security.JWTPath = "bogus"
-			a.ProxyConfig.ProxyMetadata = map[string]string{}
-			a.ProxyConfig.ProxyMetadata[MetadataClientCertChain] = filepath.Join(dir, "cert-chain.pem")
-			a.ProxyConfig.ProxyMetadata[MetadataClientCertKey] = filepath.Join(dir, "key.pem")
-			a.ProxyConfig.ProxyMetadata[MetadataClientRootCert] = filepath.Join(dir, "root-cert.pem")
-			a.Security.FileMountedCerts = true
-			return a
-		}).Check(t, cfg.GetRootResourceName(), cfg.GetResourceName())
-	})
-	t.Run("OS CA Certs are able to be accessed", func(t *testing.T) {
-		// Try loading an OS CA Cert from OS CA Certs file paths.
-		dir := mktemp()
-		copyCertsWithOSRootCA(t, dir)
-
-		osRootPath := security.GetOSRootFilePath()
-		caRootCert := filepath.Base(osRootPath)
-
-		cfg := security.SdsCertificateConfig{
-			CertificatePath:   filepath.Join(dir, "cert-chain.pem"),
-			PrivateKeyPath:    filepath.Join(dir, "key.pem"),
-			CaCertificatePath: filepath.Join(dir, caRootCert),
-		}
-		Setup(t, func(a AgentTest) AgentTest {
-			// Ensure we use the mTLS certs for XDS
-			a.XdsAuthenticator.Set("", preProvisionID)
-			// Ensure we don't try to connect to CA
-			a.CaAuthenticator.Set("", "")
-			a.ProxyConfig.ProxyMetadata = map[string]string{}
-			a.ProxyConfig.ProxyMetadata[MetadataClientCertChain] = filepath.Join(dir, "cert-chain.pem")
-			a.ProxyConfig.ProxyMetadata[MetadataClientCertKey] = filepath.Join(dir, "key.pem")
-			a.ProxyConfig.ProxyMetadata[MetadataClientRootCert] = filepath.Join(dir, caRootCert)
-			a.Security.FileMountedCerts = true
-			a.Security.CARootPath = cafile.CACertFilePath
 			return a
 		}).Check(t, cfg.GetRootResourceName(), cfg.GetResourceName())
 	})
@@ -230,32 +171,6 @@ func TestAgent(t *testing.T) {
 			a.XdsAuthenticator.Set("fake", "")
 			// Ensure we don't try to connect to CA
 			a.CaAuthenticator.Set("", "")
-			a.Security.CertChainFilePath = security.DefaultCertChainFilePath
-			a.Security.KeyFilePath = security.DefaultKeyFilePath
-			a.Security.RootCertFilePath = security.DefaultRootCertFilePath
-			return a
-		}).Check(t, security.WorkloadKeyCertResourceName, security.RootCertReqResourceName)
-	})
-	t.Run("GKE workload certificates", func(t *testing.T) {
-		dir := mktemp()
-		dir = filepath.Join(dir, "./var/run/secrets/workload-spiffe-credentials")
-		// The cert and key names of GKE workload certificates differ from
-		// the default file mounted cert and key names.
-		copyGkeWorkloadCerts(t, dir)
-		cfg := security.SdsCertificateConfig{
-			CertificatePath:   filepath.Join(dir, "certificates.pem"),
-			PrivateKeyPath:    filepath.Join(dir, "private_key.pem"),
-			CaCertificatePath: filepath.Join(dir, "ca_certificates.pem"),
-		}
-		Setup(t, func(a AgentTest) AgentTest {
-			// Ensure we use the token
-			a.XdsAuthenticator.Set("fake", "")
-			// Ensure we don't try to connect to CA
-			a.CaAuthenticator.Set("", "")
-			a.Security.CertChainFilePath = cfg.CertificatePath
-			a.Security.KeyFilePath = cfg.PrivateKeyPath
-			a.Security.RootCertFilePath = cfg.CaCertificatePath
-			a.Security.FileMountedCerts = true
 			return a
 		}).Check(t, security.WorkloadKeyCertResourceName, security.RootCertReqResourceName)
 	})
@@ -487,7 +402,7 @@ func TestAgent(t *testing.T) {
 		}
 		got = []byte(strings.ReplaceAll(string(got), a.agent.cfg.XdsUdsPath, "etc/istio/XDS"))
 
-		testutil.CompareContent(t, got, filepath.Join(env.IstioSrc, "pkg/istio-agent/testdata/grpc-bootstrap.json"))
+		testutil.CompareContent(got, filepath.Join(env.IstioSrc, "pkg/istio-agent/testdata/grpc-bootstrap.json"), t)
 	})
 }
 
@@ -524,8 +439,7 @@ func Setup(t *testing.T, opts ...func(a AgentTest) AgentTest) *AgentTest {
 		ServiceAccount:    "sa",
 		// Signing in 2048 bit RSA is extremely slow when running with -race enabled, sometimes taking 5s+ in
 		// our CI, causing flakes. We use ECC as the default to speed this up.
-		ECCSigAlg:  string(pkiutil.EcdsaSigAlg),
-		CARootPath: cafile.CACertFilePath,
+		ECCSigAlg: string(pkiutil.EcdsaSigAlg),
 	}
 	proxy := &model.Proxy{
 		ID:          "pod1.fake-namespace",
@@ -537,6 +451,7 @@ func Setup(t *testing.T, opts ...func(a AgentTest) AgentTest) *AgentTest {
 	resp.ProxyConfig.DiscoveryAddress = setupDiscovery(t, resp.XdsAuthenticator, ca.KeyCertBundle.GetRootCertPem())
 	rootCert := filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/root-cert.pem")
 	resp.AgentConfig = AgentOptions{
+		ProxyXDSViaAgent:      true,
 		ProxyXDSDebugViaAgent: true,
 		CARootCerts:           rootCert,
 		XDSRootCerts:          rootCert,
@@ -621,54 +536,15 @@ func copyCerts(t *testing.T, dir string) {
 	}
 }
 
-func copyGkeWorkloadCerts(t *testing.T, dir string) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := file.Copy(filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/cert-chain.pem"), dir, "certificates.pem"); err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Copy(filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/key.pem"), dir, "private_key.pem"); err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Copy(filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/root-cert.pem"), dir, "ca_certificates.pem"); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func copyCertsWithOSRootCA(t *testing.T, dir string) {
-	caRootPath := security.GetOSRootFilePath()
-	if caRootPath == "" {
-		t.Fatal("OS CA Root Cert could not be found.")
-	}
-	caRootCert := filepath.Base(caRootPath)
-	if caRootCert == "" {
-		t.Fatal("OS CA Root Cert couldn't be found.")
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Copy(filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/cert-chain.pem"), dir, "cert-chain.pem"); err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Copy(filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/key.pem"), dir, "key.pem"); err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Copy(filepath.Join(caRootPath), dir, caRootCert); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func expectFileChanged(t *testing.T, files ...string) {
 	t.Helper()
 	initials := [][]byte{}
 	for _, f := range files {
-		initials = append(initials, testutil.ReadFile(t, f))
+		initials = append(initials, testutil.ReadFile(f, t))
 	}
 	retry.UntilSuccessOrFail(t, func() error {
 		for i, f := range files {
-			now, err := os.ReadFile(f)
+			now, err := ioutil.ReadFile(f)
 			if err != nil {
 				return err
 			}
@@ -684,12 +560,12 @@ func expectFileUnchanged(t *testing.T, files ...string) {
 	t.Helper()
 	initials := [][]byte{}
 	for _, f := range files {
-		initials = append(initials, testutil.ReadFile(t, f))
+		initials = append(initials, testutil.ReadFile(f, t))
 	}
 	for attempt := 0; attempt < 10; attempt++ {
 		time.Sleep(time.Millisecond * 10)
 		for i, f := range files {
-			now := testutil.ReadFile(t, f)
+			now := testutil.ReadFile(f, t)
 			if !reflect.DeepEqual(initials[i], now) {
 				t.Fatalf("file is changed!")
 			}
@@ -700,7 +576,7 @@ func expectFileUnchanged(t *testing.T, files ...string) {
 func filenames(t *testing.T, dir string) []string {
 	t.Helper()
 	res := []string{}
-	contents, err := os.ReadDir(dir)
+	contents, err := ioutil.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -738,8 +614,8 @@ func setupCa(t *testing.T, auth *security.FakeAuthenticator) *mock.CAServer {
 	t.Helper()
 	opt := tlsOptions(t)
 	s, err := mock.NewCAServerWithKeyCert(0,
-		testutil.ReadFile(t, filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/ca-key.pem")),
-		testutil.ReadFile(t, filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/ca-cert.pem")),
+		testutil.ReadFile(filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/ca-key.pem"), t),
+		testutil.ReadFile(filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/ca-cert.pem"), t),
 		opt)
 	if err != nil {
 		t.Fatal(err)
@@ -761,7 +637,7 @@ func tlsOptions(t *testing.T, extraRoots ...[]byte) grpc.ServerOption {
 	}
 	peerCertVerifier := spiffe.NewPeerCertVerifier()
 	if err := peerCertVerifier.AddMappingFromPEM("cluster.local",
-		testutil.ReadFile(t, filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/root-cert.pem"))); err != nil {
+		testutil.ReadFile(filepath.Join(env.IstioSrc, "./tests/testdata/certs/pilot/root-cert.pem"), t)); err != nil {
 		t.Fatal(err)
 	}
 	for _, r := range extraRoots {

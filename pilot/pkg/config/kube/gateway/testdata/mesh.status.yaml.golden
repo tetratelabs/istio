@@ -1,4 +1,4 @@
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: GatewayClass
 metadata:
   creationTimestamp: null
@@ -9,11 +9,11 @@ status:
   conditions:
   - lastTransitionTime: fake
     message: Handled by Istio controller
-    reason: Accepted
+    reason: Handled
     status: "True"
-    type: Accepted
+    type: Admitted
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: Gateway
 metadata:
   creationTimestamp: null
@@ -36,8 +36,7 @@ status:
     status: "True"
     type: Scheduled
   listeners:
-  - attachedRoutes: 1
-    conditions:
+  - conditions:
     - lastTransitionTime: fake
       message: No errors found
       reason: ListenerReady
@@ -58,12 +57,11 @@ status:
       reason: ListenerReady
       status: "True"
       type: ResolvedRefs
-    name: default
-    supportedKinds:
-    - group: gateway.networking.k8s.io
-      kind: HTTPRoute
+    hostname: '*.example.com'
+    port: 80
+    protocol: HTTP
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: HTTPRoute
 metadata:
   creationTimestamp: null
@@ -71,19 +69,19 @@ metadata:
   namespace: default
 spec: null
 status:
-  parents:
+  gateways:
   - conditions:
     - lastTransitionTime: fake
       message: Route was valid
       reason: RouteAdmitted
       status: "True"
-      type: Accepted
-    controllerName: istio.io/gateway-controller
-    parentRef:
-      kind: Mesh
-      name: istio
+      type: Admitted
+    gatewayRef:
+      controller: istio.io/gateway-controller
+      name: mesh
+      namespace: default
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: HTTPRoute
 metadata:
   creationTimestamp: null
@@ -91,65 +89,25 @@ metadata:
   namespace: default
 spec: null
 status:
-  parents:
+  gateways:
   - conditions:
     - lastTransitionTime: fake
       message: Route was valid
       reason: RouteAdmitted
       status: "True"
-      type: Accepted
-    controllerName: istio.io/gateway-controller
-    parentRef:
-      kind: Mesh
-      name: istio
-  - conditions:
-    - lastTransitionTime: fake
-      message: Route was valid
-      reason: RouteAdmitted
-      status: "True"
-      type: Accepted
-    controllerName: istio.io/gateway-controller
-    parentRef:
+      type: Admitted
+    gatewayRef:
+      controller: istio.io/gateway-controller
       name: gateway
       namespace: istio-system
----
-apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: HTTPRoute
-metadata:
-  creationTimestamp: null
-  name: no-hostname
-  namespace: default
-spec: null
-status:
-  parents:
   - conditions:
     - lastTransitionTime: fake
-      message: mesh requires hostname to be set
-      reason: InvalidParentReference
-      status: "False"
-      type: Accepted
-    controllerName: istio.io/gateway-controller
-    parentRef:
-      kind: Mesh
-      name: istio
----
-apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: TLSRoute
-metadata:
-  creationTimestamp: null
-  name: echo
-  namespace: default
-spec: null
-status:
-  parents:
-  - conditions:
-    - lastTransitionTime: fake
-      message: mesh requires hostname to be set
-      reason: InvalidParentReference
-      status: "False"
-      type: Accepted
-    controllerName: istio.io/gateway-controller
-    parentRef:
-      kind: Mesh
-      name: istio
+      message: Route was valid
+      reason: RouteAdmitted
+      status: "True"
+      type: Admitted
+    gatewayRef:
+      controller: istio.io/gateway-controller
+      name: mesh
+      namespace: default
 ---

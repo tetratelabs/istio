@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"istio.io/istio/pkg/test/csrctrl/signer"
-	"istio.io/istio/security/pkg/k8s/chiron"
 	"istio.io/istio/security/pkg/pki/util"
 	"istio.io/pkg/log"
 )
@@ -34,12 +33,11 @@ import (
 // CertificateSigningRequestSigningReconciler reconciles a CertificateSigningRequest object
 type CertificateSigningRequestSigningReconciler struct {
 	client.Client
-	SignerRoot     string
-	CtrlCertTTL    time.Duration
-	Scheme         *runtime.Scheme
-	SignerNames    []string
-	Signers        map[string]*signer.Signer
-	appendRootCert bool
+	SignerRoot  string
+	CtrlCertTTL time.Duration
+	Scheme      *runtime.Scheme
+	SignerNames []string
+	Signers     map[string]*signer.Signer
 }
 
 // +kubebuilder:rbac:groups=certificates.k8s.io,resources=certificatesigningrequests,verbs=get;list;watch
@@ -78,15 +76,7 @@ func (r *CertificateSigningRequestSigningReconciler) Reconcile(_ context.Context
 		if signer, ok = r.Signers[csr.Spec.SignerName]; !ok {
 			return ctrl.Result{}, fmt.Errorf("error no signer can sign this csr: %v", err)
 		}
-		requestedLifeTime := signer.CertTTL
-		requestedDuration, ok := csr.Annotations[chiron.RequestLifeTimeAnnotationForCertManager]
-		if ok {
-			duration, err := time.ParseDuration(requestedDuration)
-			if err == nil {
-				requestedLifeTime = duration
-			}
-		}
-		cert, err := signer.Sign(x509cr, csr.Spec.Usages, requestedLifeTime, r.appendRootCert)
+		cert, err := signer.Sign(x509cr, csr.Spec.Usages)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("error auto signing csr: %v", err)
 		}

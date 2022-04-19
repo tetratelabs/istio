@@ -1,6 +1,4 @@
-//go:build integ
 // +build integ
-
 // Copyright Istio Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,7 +17,7 @@ package policy
 
 import (
 	"errors"
-	"os"
+	"io/ioutil"
 	"path/filepath"
 	"testing"
 	"time"
@@ -145,24 +143,24 @@ func testSetup(ctx resource.Context) (err error) {
 		return
 	}
 
-	yamlContentCM, err := os.ReadFile("testdata/rate-limit-configmap.yaml")
+	yamlContentCM, err := ioutil.ReadFile("testdata/rate-limit-configmap.yaml")
 	if err != nil {
 		return
 	}
 
-	err = ctx.ConfigIstio().ApplyYAML(ratelimitNs.Name(),
+	err = ctx.Config().ApplyYAML(ratelimitNs.Name(),
 		string(yamlContentCM),
 	)
 	if err != nil {
 		return
 	}
 
-	yamlContent, err := os.ReadFile(filepath.Join(env.IstioSrc, "samples/ratelimit/rate-limit-service.yaml"))
+	yamlContent, err := ioutil.ReadFile(filepath.Join(env.IstioSrc, "samples/ratelimit/rate-limit-service.yaml"))
 	if err != nil {
 		return
 	}
 
-	err = ctx.ConfigIstio().ApplyYAML(ratelimitNs.Name(),
+	err = ctx.Config().ApplyYAML(ratelimitNs.Name(),
 		string(yamlContent),
 	)
 	if err != nil {
@@ -183,7 +181,7 @@ func testSetup(ctx resource.Context) (err error) {
 }
 
 func setupEnvoyFilter(ctx framework.TestContext, file string) func() {
-	content, err := os.ReadFile(file)
+	content, err := ioutil.ReadFile(file)
 	if err != nil {
 		ctx.Fatal(err)
 	}
@@ -196,12 +194,12 @@ func setupEnvoyFilter(ctx framework.TestContext, file string) func() {
 		ctx.Fatal(err)
 	}
 
-	err = ctx.ConfigIstio().ApplyYAML(ist.Settings().SystemNamespace, con)
+	err = ctx.Config().ApplyYAML(ist.Settings().SystemNamespace, con)
 	if err != nil {
 		ctx.Fatal(err)
 	}
 	return func() {
-		err = ctx.ConfigIstio().DeleteYAML(ist.Settings().SystemNamespace, con)
+		err = ctx.Config().DeleteYAML(ist.Settings().SystemNamespace, con)
 		if err != nil {
 			ctx.Fatal(err)
 		}

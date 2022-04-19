@@ -15,7 +15,7 @@
 ###########################################################################
 # Ingress resource (gateway)
 ##########################################################################
-apiVersion: networking.k8s.io/v1
+apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
   name: gateway
@@ -26,38 +26,23 @@ spec:
   - http:
       paths:
       - path: /productpage
-        pathType: Exact
         backend:
-          service:
-            name: productpage
-            port:
-              number: 9080
-      - path: /static/
-        pathType: Prefix
+          serviceName: productpage
+          servicePort: 9080
+      - path: /static/*
         backend:
-          service:
-            name: productpage
-            port:
-              number: 9080
+          serviceName: productpage
+          servicePort: 9080
       - path: /login
-        pathType: Exact
         backend:
-          service:
-            name: productpage
-            port:
-              number: 9080
+          serviceName: productpage
+          servicePort: 9080
       - path: /logout
-        pathType: Exact
         backend:
-          service:
-            name: productpage
-            port:
-              number: 9080
-      - path: /api/v1/products
-        pathType: Prefix
+          serviceName: productpage
+          servicePort: 9080
+      - path: /api/v1/products.*
         backend:
-          service:
-            name: productpage
-            port:
-              number: 9080
+          serviceName: productpage
+          servicePort: 9080
 ---

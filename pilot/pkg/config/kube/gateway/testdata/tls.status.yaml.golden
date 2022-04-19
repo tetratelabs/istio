@@ -1,4 +1,4 @@
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: GatewayClass
 metadata:
   creationTimestamp: null
@@ -9,11 +9,11 @@ status:
   conditions:
   - lastTransitionTime: fake
     message: Handled by Istio controller
-    reason: Accepted
+    reason: Handled
     status: "True"
-    type: Accepted
+    type: Admitted
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: Gateway
 metadata:
   creationTimestamp: null
@@ -36,8 +36,7 @@ status:
     status: "True"
     type: Scheduled
   listeners:
-  - attachedRoutes: 2
-    conditions:
+  - conditions:
     - lastTransitionTime: fake
       message: No errors found
       reason: ListenerReady
@@ -58,12 +57,9 @@ status:
       reason: ListenerReady
       status: "True"
       type: ResolvedRefs
-    name: passthrough
-    supportedKinds:
-    - group: gateway.networking.k8s.io
-      kind: TLSRoute
-  - attachedRoutes: 1
-    conditions:
+    port: 34000
+    protocol: TLS
+  - conditions:
     - lastTransitionTime: fake
       message: No errors found
       reason: ListenerReady
@@ -84,12 +80,11 @@ status:
       reason: ListenerReady
       status: "True"
       type: ResolvedRefs
-    name: terminate
-    supportedKinds:
-    - group: gateway.networking.k8s.io
-      kind: HTTPRoute
+    hostname: domain.example
+    port: 34000
+    protocol: HTTPS
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: HTTPRoute
 metadata:
   creationTimestamp: null
@@ -97,19 +92,19 @@ metadata:
   namespace: default
 spec: null
 status:
-  parents:
+  gateways:
   - conditions:
     - lastTransitionTime: fake
       message: Route was valid
       reason: RouteAdmitted
       status: "True"
-      type: Accepted
-    controllerName: istio.io/gateway-controller
-    parentRef:
+      type: Admitted
+    gatewayRef:
+      controller: istio.io/gateway-controller
       name: gateway
       namespace: istio-system
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: TLSRoute
 metadata:
   creationTimestamp: null
@@ -117,19 +112,19 @@ metadata:
   namespace: default
 spec: null
 status:
-  parents:
+  gateways:
   - conditions:
     - lastTransitionTime: fake
       message: Route was valid
       reason: RouteAdmitted
       status: "True"
-      type: Accepted
-    controllerName: istio.io/gateway-controller
-    parentRef:
+      type: Admitted
+    gatewayRef:
+      controller: istio.io/gateway-controller
       name: gateway
       namespace: istio-system
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: networking.x-k8s.io/v1alpha1
 kind: TLSRoute
 metadata:
   creationTimestamp: null
@@ -137,15 +132,15 @@ metadata:
   namespace: default
 spec: null
 status:
-  parents:
+  gateways:
   - conditions:
     - lastTransitionTime: fake
       message: Route was valid
       reason: RouteAdmitted
       status: "True"
-      type: Accepted
-    controllerName: istio.io/gateway-controller
-    parentRef:
+      type: Admitted
+    gatewayRef:
+      controller: istio.io/gateway-controller
       name: gateway
       namespace: istio-system
 ---

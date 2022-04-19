@@ -17,9 +17,12 @@ package install
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync/atomic"
+
+	"github.com/pkg/errors"
 
 	"istio.io/istio/cni/pkg/config"
 	"istio.io/istio/cni/pkg/constants"
@@ -46,54 +49,37 @@ func NewInstaller(cfg *config.InstallConfig, isReady *atomic.Value) *Installer {
 	}
 }
 
-func (in *Installer) install(ctx context.Context) (err error) {
-	if err = copyBinaries(
-		in.cfg.CNIBinSourceDir, in.cfg.CNIBinTargetDirs,
-		in.cfg.UpdateCNIBinaries, in.cfg.SkipCNIBinaries); err != nil {
-		cniInstalls.With(resultLabel.Value(resultCopyBinariesFailure)).Increment()
-		return
-	}
-
-	if in.saToken, err = readServiceAccountToken(); err != nil {
-		cniInstalls.With(resultLabel.Value(resultReadSAFailure)).Increment()
-		return
-	}
-
-	if in.kubeconfigFilepath, err = createKubeconfigFile(in.cfg, in.saToken); err != nil {
-		cniInstalls.With(resultLabel.Value(resultCreateKubeConfigFailure)).Increment()
-		return
-	}
-
-	if in.cniConfigFilepath, err = createCNIConfigFile(ctx, in.cfg, in.saToken); err != nil {
-		cniInstalls.With(resultLabel.Value(resultCreateCNIConfigFailure)).Increment()
-		return
-	}
-
-	return
-}
-
 // Run starts the installation process, verifies the configuration, then sleeps.
 // If an invalid configuration is detected, the installation process will restart to restore a valid state.
 func (in *Installer) Run(ctx context.Context) (err error) {
-	if err = in.install(ctx); err != nil {
-		return
-	}
-
-	installLog.Info("Installation succeed, start watching for re-installation.")
 	for {
-		if err = sleepCheckInstall(ctx, in.cfg, in.cniConfigFilepath, in.isReady); err != nil {
+		if err = copyBinaries(
+			in.cfg.CNIBinSourceDir, in.cfg.CNIBinTargetDirs,
+			in.cfg.UpdateCNIBinaries, in.cfg.SkipCNIBinaries); err != nil {
+			cniInstalls.With(resultLabel.Value(resultCopyBinariesFailure)).Increment()
 			return
 		}
 
-		installLog.Info("Detect changes to the CNI configuration and binaries, attempt reinstalling...")
-		if in.cfg.CNIEnableReinstall {
-			if err = in.install(ctx); err != nil {
-				return
-			}
-			installLog.Info("CNI configuration and binaries reinstalled.")
-		} else {
-			installLog.Info("Skip reinstalling CNI configuration and binaries.")
+		if in.saToken, err = readServiceAccountToken(); err != nil {
+			cniInstalls.With(resultLabel.Value(resultReadSAFailure)).Increment()
+			return
 		}
+
+		if in.kubeconfigFilepath, err = createKubeconfigFile(in.cfg, in.saToken); err != nil {
+			cniInstalls.With(resultLabel.Value(resultCreateKubeConfigFailure)).Increment()
+			return
+		}
+
+		if in.cniConfigFilepath, err = createCNIConfigFile(ctx, in.cfg, in.saToken); err != nil {
+			cniInstalls.With(resultLabel.Value(resultCreateCNIConfigFailure)).Increment()
+			return
+		}
+
+		if err = sleepCheckInstall(ctx, in.cfg, in.cniConfigFilepath, in.isReady); err != nil {
+			return
+		}
+		// Invalid config; pod set to "NotReady"
+		installLog.Info("Restarting...")
 	}
 }
 
@@ -112,12 +98,12 @@ func (in *Installer) Cleanup() error {
 			// Find Istio CNI and remove from plugin list
 			plugins, err := util.GetPlugins(cniConfigMap)
 			if err != nil {
-				return fmt.Errorf("%s: %w", in.cniConfigFilepath, err)
+				return errors.Wrap(err, in.cniConfigFilepath)
 			}
 			for i, rawPlugin := range plugins {
 				plugin, err := util.GetPlugin(rawPlugin)
 				if err != nil {
-					return fmt.Errorf("%s: %w", in.cniConfigFilepath, err)
+					return errors.Wrap(err, in.cniConfigFilepath)
 				}
 				if plugin["type"] == "istio-cni" {
 					cniConfigMap["plugins"] = append(plugins[:i], plugins[i+1:]...)
@@ -164,7 +150,7 @@ func readServiceAccountToken() (string, error) {
 		return "", fmt.Errorf("service account token file %s does not exist. Is this not running within a pod?", saToken)
 	}
 
-	token, err := os.ReadFile(saToken)
+	token, err := ioutil.ReadFile(saToken)
 	if err != nil {
 		return "", err
 	}
@@ -178,7 +164,7 @@ func readServiceAccountToken() (string, error) {
 func sleepCheckInstall(ctx context.Context, cfg *config.InstallConfig, cniConfigFilepath string, isReady *atomic.Value) error {
 	// Create file watcher before checking for installation
 	// so that no file modifications are missed while and after checking
-	watcher, fileModified, errChan, err := util.CreateFileWatcher(append(cfg.CNIBinTargetDirs, cfg.MountedCNINetDir)...)
+	watcher, fileModified, errChan, err := util.CreateFileWatcher(cfg.MountedCNINetDir)
 	if err != nil {
 		return err
 	}
@@ -205,8 +191,10 @@ func sleepCheckInstall(ctx context.Context, cfg *config.InstallConfig, cniConfig
 			// Valid configuration; set isReady to true and wait for modifications before checking again
 			SetReady(isReady)
 			cniInstalls.With(resultLabel.Value(resultSuccess)).Increment()
-			// Pod set to "NotReady" before termination
-			return util.WaitForFileMod(ctx, fileModified, errChan)
+			if err = util.WaitForFileMod(ctx, fileModified, errChan); err != nil {
+				// Pod set to "NotReady" before termination
+				return err
+			}
 		}
 	}
 }
@@ -240,12 +228,12 @@ func checkInstall(cfg *config.InstallConfig, cniConfigFilepath string) error {
 		}
 		plugins, err := util.GetPlugins(cniConfigMap)
 		if err != nil {
-			return fmt.Errorf("%s: %w", cniConfigFilepath, err)
+			return errors.Wrap(err, cniConfigFilepath)
 		}
 		for _, rawPlugin := range plugins {
 			plugin, err := util.GetPlugin(rawPlugin)
 			if err != nil {
-				return fmt.Errorf("%s: %w", cniConfigFilepath, err)
+				return errors.Wrap(err, cniConfigFilepath)
 			}
 			if plugin["type"] == "istio-cni" {
 				return nil

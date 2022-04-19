@@ -17,21 +17,14 @@ package pilot
 import (
 	"bytes"
 	"encoding/json"
-	"os"
+	"io/ioutil"
 	"testing"
 
-	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	xdsapi "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	status "github.com/envoyproxy/go-control-plane/envoy/service/status/v3"
 	"github.com/google/uuid"
-	any "google.golang.org/protobuf/types/known/anypb"
+	"github.com/stretchr/testify/assert"
 
-	networkingutil "istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/xds"
-	v3 "istio.io/istio/pilot/pkg/xds/v3"
-	"istio.io/istio/pkg/test/util/assert"
 	"istio.io/istio/tests/util"
-	istioversion "istio.io/pkg/version"
 )
 
 var preDefinedNonce = newNonce()
@@ -91,7 +84,7 @@ func TestStatusWriter_PrintAll(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
-			want, _ := os.ReadFile(tt.want)
+			want, _ := ioutil.ReadFile(tt.want)
 			if err := util.Compare(got.Bytes(), want); err != nil {
 				t.Errorf(err.Error())
 			}
@@ -160,7 +153,7 @@ func TestStatusWriter_PrintSingle(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
-			want, _ := os.ReadFile(tt.want)
+			want, _ := ioutil.ReadFile(tt.want)
 			if err := util.Compare(got.Bytes(), want); err != nil {
 				t.Errorf(err.Error())
 			}
@@ -171,7 +164,6 @@ func TestStatusWriter_PrintSingle(t *testing.T) {
 func statusInput1() []xds.SyncStatus {
 	return []xds.SyncStatus{
 		{
-			ClusterID:     "cluster1",
 			ProxyID:       "proxy1",
 			IstioVersion:  "1.1",
 			ClusterSent:   preDefinedNonce,
@@ -187,7 +179,6 @@ func statusInput1() []xds.SyncStatus {
 func statusInput2() []xds.SyncStatus {
 	return []xds.SyncStatus{
 		{
-			ClusterID:     "cluster2",
 			ProxyID:       "proxy2",
 			IstioVersion:  "1.1",
 			ClusterSent:   preDefinedNonce,
@@ -205,7 +196,6 @@ func statusInput2() []xds.SyncStatus {
 func statusInput3() []xds.SyncStatus {
 	return []xds.SyncStatus{
 		{
-			ClusterID:     "cluster3",
 			ProxyID:       "proxy3",
 			IstioVersion:  "1.1",
 			ClusterSent:   preDefinedNonce,
@@ -222,7 +212,6 @@ func statusInput3() []xds.SyncStatus {
 func statusInputProxyVersion() []xds.SyncStatus {
 	return []xds.SyncStatus{
 		{
-			ClusterID:     "cluster2",
 			ProxyID:       "proxy2",
 			ProxyVersion:  "1.1",
 			ClusterSent:   preDefinedNonce,
@@ -233,154 +222,6 @@ func statusInputProxyVersion() []xds.SyncStatus {
 			EndpointAcked: newNonce(),
 			RouteSent:     preDefinedNonce,
 			RouteAcked:    preDefinedNonce,
-		},
-	}
-}
-
-func TestXdsStatusWriter_PrintAll(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   map[string]*xdsapi.DiscoveryResponse
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "prints multiple istiod inputs to buffer in alphabetical order by pod name",
-			input: map[string]*xdsapi.DiscoveryResponse{
-				"istiod1": xdsResponseInput("istiod1", []clientConfigInput{
-					{
-						proxyID:       "proxy1",
-						cdsSyncStatus: status.ConfigStatus_STALE,
-						ldsSyncStatus: status.ConfigStatus_SYNCED,
-						rdsSyncStatus: status.ConfigStatus_NOT_SENT,
-						edsSyncStatus: status.ConfigStatus_SYNCED,
-					},
-				}),
-				"istiod2": xdsResponseInput("istiod2", []clientConfigInput{
-					{
-						proxyID:       "proxy2",
-						cdsSyncStatus: status.ConfigStatus_STALE,
-						ldsSyncStatus: status.ConfigStatus_SYNCED,
-						rdsSyncStatus: status.ConfigStatus_SYNCED,
-						edsSyncStatus: status.ConfigStatus_STALE,
-					},
-				}),
-				"istiod3": xdsResponseInput("istiod3", []clientConfigInput{
-					{
-						proxyID:       "proxy3",
-						cdsSyncStatus: status.ConfigStatus_UNKNOWN,
-						ldsSyncStatus: status.ConfigStatus_ERROR,
-						rdsSyncStatus: status.ConfigStatus_NOT_SENT,
-						edsSyncStatus: status.ConfigStatus_STALE,
-					},
-				}),
-			},
-			want: "testdata/multiXdsStatusMultiPilot.txt",
-		},
-		{
-			name: "prints single istiod input to buffer in alphabetical order by pod name",
-			input: map[string]*xdsapi.DiscoveryResponse{
-				"istiod1": xdsResponseInput("istiod1", []clientConfigInput{
-					{
-						proxyID:       "proxy1",
-						cdsSyncStatus: status.ConfigStatus_STALE,
-						ldsSyncStatus: status.ConfigStatus_SYNCED,
-						rdsSyncStatus: status.ConfigStatus_NOT_SENT,
-						edsSyncStatus: status.ConfigStatus_SYNCED,
-					},
-					{
-						proxyID:       "proxy2",
-						cdsSyncStatus: status.ConfigStatus_STALE,
-						ldsSyncStatus: status.ConfigStatus_SYNCED,
-						rdsSyncStatus: status.ConfigStatus_SYNCED,
-						edsSyncStatus: status.ConfigStatus_STALE,
-					},
-				}),
-			},
-			want: "testdata/multiXdsStatusSinglePilot.txt",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := &bytes.Buffer{}
-			sw := XdsStatusWriter{Writer: got}
-			input := map[string]*xdsapi.DiscoveryResponse{}
-			for key, ss := range tt.input {
-				input[key] = ss
-			}
-
-			err := sw.PrintAll(input)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-			want, _ := os.ReadFile(tt.want)
-			if err := util.Compare(got.Bytes(), want); err != nil {
-				t.Errorf(err.Error())
-			}
-		})
-	}
-}
-
-const clientConfigType = "type.googleapis.com/envoy.service.status.v3.ClientConfig"
-
-type clientConfigInput struct {
-	proxyID string
-
-	cdsSyncStatus status.ConfigStatus
-	ldsSyncStatus status.ConfigStatus
-	rdsSyncStatus status.ConfigStatus
-	edsSyncStatus status.ConfigStatus
-}
-
-func newXdsClientConfig(config clientConfigInput) *status.ClientConfig {
-	return &status.ClientConfig{
-		Node: &envoycorev3.Node{
-			Id: config.proxyID,
-		},
-		GenericXdsConfigs: []*status.ClientConfig_GenericXdsConfig{
-			{
-				TypeUrl:      v3.ClusterType,
-				ConfigStatus: config.cdsSyncStatus,
-			},
-			{
-				TypeUrl:      v3.ListenerType,
-				ConfigStatus: config.ldsSyncStatus,
-			},
-			{
-				TypeUrl:      v3.RouteType,
-				ConfigStatus: config.rdsSyncStatus,
-			},
-			{
-				TypeUrl:      v3.EndpointType,
-				ConfigStatus: config.edsSyncStatus,
-			},
-		},
-	}
-}
-
-func xdsResponseInput(istiodID string, configInputs []clientConfigInput) *xdsapi.DiscoveryResponse {
-	icp := &xds.IstioControlPlaneInstance{
-		Component: "istiod",
-		ID:        istiodID,
-		Info: istioversion.BuildInfo{
-			Version: "1.1",
-		},
-	}
-	identifier, _ := json.Marshal(icp)
-
-	resources := make([]*any.Any, 0)
-	for _, input := range configInputs {
-		resources = append(resources, networkingutil.MessageToAny(newXdsClientConfig(input)))
-	}
-
-	return &xdsapi.DiscoveryResponse{
-		VersionInfo: "1.1",
-		TypeUrl:     clientConfigType,
-		Resources:   resources,
-		ControlPlane: &envoycorev3.ControlPlane{
-			Identifier: string(identifier),
 		},
 	}
 }
