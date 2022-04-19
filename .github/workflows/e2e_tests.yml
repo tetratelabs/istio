@@ -260,7 +260,7 @@ jobs:
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-          ISTIO_ENVOY_RELEASE_URL: https://storage.googleapis.com/${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz
+          ISTIO_ENVOY_RELEASE_URL: https://storage.googleapis.com/getistio-build/proxy-arm/envoy-alpha-9811a71997bb0852c27aa1da61260c3e3145a638.tar.gz
 
   create-test-images-amd64:
     name: create-test-images-amd64
