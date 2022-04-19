@@ -72,12 +72,14 @@ ${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/examp
 # in case of release we build the istioctl too which we don't need in case of testing.
 echo "TEST flag is '${TEST:-}'"
 
+
+echo "Getting into release builder"
+cd release-builder
+
 if [[ "$(uname -m)" = "aarch64" ]]; then
     sed -i 's/linux_amd64/linux_arm64/' pkg/model/model.go
 fi
 
-echo "Getting into release builder"
-cd release-builder
 echo "Copying istio directory"
 cp -r ../istio .
 # export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
