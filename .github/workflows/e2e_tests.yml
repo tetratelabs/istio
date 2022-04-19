@@ -182,7 +182,7 @@ jobs:
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
           BUILD_WITH_CONTAINER: 1
-          IMG: gcr.io/tetrate-istio-arm/build-tools-proxy:release-${{ steps.get_minor_ver.outputs.RELEASE_VERSION }}-tid
+          IMG: gcr.io/gke-istio-test-psb/build-tools-proxy:release-1.11-latest
         run: make push_release
 
       - name: Put CentOS binary
