@@ -255,8 +255,10 @@ jobs:
 
       - name: build and push images
         run: |
-          SHA=$(git rev-parse --verify HEAD)
-          echo $SHA
+          df -Th
+          du -hs $RUNNER_WORKSPACE
+          docker system df
+          docker images --format "{{.ID}}\t{{.Size}}\t{{.Repository}}" | sort -k 2 -h 
           bash ./tetrateci/create_istio_release.sh             
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}-arm64
