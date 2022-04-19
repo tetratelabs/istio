@@ -254,9 +254,10 @@ jobs:
           TAG: ${{ steps.get_tag.outputs.TAG }}
 
       - name: build and push images
-        run: SHA=$(git rev-parse --verify HEAD)
-             echo $SHA
-             bash ./tetrateci/create_istio_release.sh             
+        run: |
+          SHA=$(git rev-parse --verify HEAD)
+          echo $SHA
+          bash ./tetrateci/create_istio_release.sh             
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}-arm64
           TEST: "true"
