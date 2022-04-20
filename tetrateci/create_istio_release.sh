@@ -19,12 +19,13 @@ fi
 
 # BOM is needed for generating bill of materials, required by Istio since 1.13, https://github.com/istio/release-builder/pull/893
 go install sigs.k8s.io/bom/cmd/bom@v0.2.2
-cp /home/runner/go/bin/bom /usr/local/bin/
+sudo cp ~/go/bin/bom /usr/local/bin/
 
 sudo gem install fpm
 sudo apt-get install go-bindata -y
 export BRANCH=release-${REL_BRANCH_VER}
 cd ..
+rm -rf release-builder
 git clone https://github.com/istio/release-builder --branch ${BRANCH}
 
 
@@ -53,6 +54,13 @@ if [[ ${TAG} =~ "fips" ]]; then
     export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
 fi
 
+if [[ "$(uname -m)" = "aarch64" ]]; then
+    sed -i 's/gcr\.io\/istio-release/gcr\.io\/tetrate-istio-arm/' $(find ${BASEDIR} | grep Dockerfile)
+    sed -i 's/gcr\.io\/tetrate-istio-arm\/iptables@sha256:[0-9a-f]*/gcr\.io\/istio-release\/iptables@sha256:8efeb55ddf08f2f513d303b8f0ff42c9f08f355de2f4124e641d209d11a6af91/' ${BASEDIR}/pilot/docker/Dockerfile.proxyv2
+    export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-arm
+    export BASE_VERSION=1602e34d9524a2a312907aab276bcd7100da52df # 1.12
+fi
+
 # HACK : default manifest from release builder is modified
 echo "Generating the manifests"
 # we are generating the different yamls for both the archive & docker image builds which are saved to release-builder folder
@@ -66,6 +74,11 @@ echo "TEST flag is '${TEST:-}'"
 
 echo "Getting into release builder"
 cd release-builder
+
+if [[ "$(uname -m)" = "aarch64" ]]; then
+    sed -i 's/linux_amd64/linux_arm64/' pkg/model/model.go
+fi
+
 echo "Copying istio directory"
 cp -r ../istio .
 # export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
@@ -81,7 +94,8 @@ if [[ ${TAG} =~ "fips" ]]; then
   sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
 fi
 # Build Docker Images
-mkdir /tmp/istio-release
+sudo rm -rf /tmp/istio-release
+mkdir -p /tmp/istio-release/out
 go run main.go build --manifest manifest.docker.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
 
@@ -104,6 +118,13 @@ fi
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 echo "Cleaning up the istio source artificats...."
 sudo rm -rf /tmp/istio-release/sources/
+
+if [[ "$(uname -m)" = "x86_64" ]]; then
+    export TAG="${TAG%-amd64}"
+    ${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/example/manifest.yaml ${BASEDIR}/../release-builder/
+else
+    exit 0
+fi
 
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
