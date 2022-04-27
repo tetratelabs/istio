@@ -1,0 +1,38 @@
+name: Build tools docker
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Ref [a branch or a tag, e.g. release/1.13]
+        required: true
+
+jobs:
+  build_tools_docker_arm64:
+    name: build tools docker
+    runs-on: ["self-hosted", "arm64"]
+    env:
+      HUB: gcr.io/tetrate-istio-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          repository: "istio/tools"
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker
+
+      - name: Build images
+        run: |
+          cd docker/build-tools
+          ./build-and-push.sh
+        shell: bash
