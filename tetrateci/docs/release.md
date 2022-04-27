@@ -13,14 +13,14 @@ This workflow will create docker images for various istio components, istioctl b
 
 ## Create a Release using make_release workflow.
 
-This workflow needs to be run after e2e workflow i.e after created test docker image and running them through integration test-suite on aws and eks environment.Once the e2e test result is fine, this workflow can create the images and artifacts for istio build and push them to cloud-smith repository.
+This workflow needs to be run after e2e workflow i.e after created test docker image and running them through integration test-suite on aws and eks environment. Once the e2e test result is fine, this workflow can create the images and artifacts for istio build and push them to cloud-smith repository.
 
-1. Create a tag in x.xx.x-tetrate-v0 or x.xx.x-tetratefips-v0  on respective release branch     depending on the requirement, the later will generate fips build of istio.
+1. Create a tag in x.xx.x-tetrate-v0 or x.xx.x-tetratefips-v0  on respective release branch depending on the requirement, the later will generate fips build of istio.
 
-2. This workflows has 2 Jobs, first one creats a fips compliant proxy depending on the tag eg(x.xx.x-tetratefips-vx), if tag does not contain fips, this job is skipped and the second job                     release-builder-run will create the build.
+2. This workflows has 2 Jobs, first one creats a fips compliant proxy depending on the tag eg(x.xx.x-tetratefips-vx), if tag does not contain fips, this job is skipped and the second job, release-builder-run, will create the build.
 
 3. (Optional) login to cloud-smith and check if the binaries and docker images are available.
-    docker images are store in tetrate/getistio-containers repo and artifacts are saved in etrate/getistio repo.
+    docker images are stored in tetrate/getistio-containers repo and artifacts are saved in tetrate/getistio repo.
 
  ## Publish the build to TID website https://istio.tetratelabs.io/
 
@@ -69,5 +69,5 @@ This workflow needs to be run after e2e workflow i.e after created test docker i
     },
 ```
 
- 3. Push the changes to remote branch, which will trigger CI which takes care of  docs build and run unit and e2e tests for new release and push to the website.
+ 3. Push the changes to remote branch, which will trigger CI which takes care of the docs build and run unit and e2e tests for new release and push to the website.
 
