@@ -14,11 +14,11 @@ if $(grep -q "1.10" <<< $TAG); then
     export GOLANG_VERSION=1.16.9
 fi
 
-if $(grep -q "1.11" <<< $TAG || grep -q "1.12" <<< $TAG); then
+if $(grep -q "1.11" <<< $TAG); then
     export GOLANG_VERSION=1.17.6
 fi
 
-if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.13" ]]; then
+if $(grep -q "1.12" <<< $TAG) || [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.13" ]]; then
     export GOLANG_VERSION=1.17.8
 fi
 
