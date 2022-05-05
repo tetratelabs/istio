@@ -21,7 +21,7 @@ echo "Applying patches...."
 # Apply the same patches that were applies when building test images
 "${SCRIPTDIR}/apply_e2e_build_patches.sh"
 
-git apply "${SCRIPTDIR}/patches/common/increase-dashboard-timeout.1.11.patch"
+git apply "${SCRIPTDIR}/patches/common/increase-dashboard-timeout.1.10.patch"
 
 if [[ "${CLUSTER}" == "gke" ]]; then
   echo "Generating operator config for GKE"
@@ -37,7 +37,7 @@ fi
 
 if [[ "${CLUSTER}" == "eks" ]]; then
   echo "Applying Ingress patch for EKS...."
-  git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.11.patch"
+  git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.10.patch"
 fi
 
 PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/...")
