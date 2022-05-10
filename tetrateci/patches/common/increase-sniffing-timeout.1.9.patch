@@ -1,0 +1,13 @@
+diff --git a/tests/integration/pilot/common/routing.go b/tests/integration/pilot/common/routing.go
+index 06048f21a8..ff517f1c05 100644
+--- a/tests/integration/pilot/common/routing.go
++++ b/tests/integration/pilot/common/routing.go
+@@ -848,7 +848,7 @@ func protocolSniffingCases() []TrafficTestCase {
+ 			opts: echo.CallOptions{
+ 				PortName: call.port,
+ 				Scheme:   call.scheme,
+-				Timeout:  time.Second * 5,
++				Timeout:  time.Second * 30,
+ 			},
+ 			validate: func(src echo.Instance, dst echo.Instances) echo.Validator {
+ 				if call.scheme == scheme.TCP {
