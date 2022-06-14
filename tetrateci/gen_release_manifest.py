@@ -27,7 +27,6 @@ with open(source_yaml, "r") as file :
     manifest["version"] = tag
     manifest["dependencies"]["istio"] = {"localpath" : "./istio"}
     manifest["dependencies"]["client-go"]["branch"] = branch
-    manifest["dependencies"]["gogo-genproto"]["branch"] = branch
     manifest["dependencies"]["tools"]["branch"] = branch
     manifest["dependencies"]["envoy"]["git"] = "https://github.com/istio/envoy"
     manifest['outputs'] = ["docker"]
