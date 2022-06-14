@@ -22,7 +22,7 @@ if $(grep -q "1.12" <<< $TAG) || [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "
     export GOLANG_VERSION=1.17.8
 fi
 
-if $(grep -q "1.14" <<< $TAG); then
+if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.14" ]]; then
     export GOLANG_VERSION=1.18.2
 fi
 
