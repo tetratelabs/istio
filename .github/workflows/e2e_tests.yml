@@ -76,6 +76,7 @@ jobs:
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
           sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
+          sed  's/0c985dc38b4112574ca19a629458072838c94cd981170a3750bae498d5cedfee/34351c03331c65819a71687c1e06edf20d0e8f3a8bb078c995079500b12dda74/g' WORKSPACE
           cat scripts/release-binary.sh
 
       - name: Add FIPS flag
