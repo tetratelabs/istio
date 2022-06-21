@@ -93,7 +93,7 @@ for pkg in $PACKAGES; do
   find /tmp -mindepth 1 -maxdepth 1 -type d -name '*istio*' -exec sudo rm -f -- {} \;
 done
 
-echo "Testing Done"
+echo " Testing Done "
 
 if [[ ${#FAILED_PACKAGES[@]} -gt 0 ]]; then
   echo ""
