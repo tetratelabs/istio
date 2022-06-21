@@ -78,7 +78,7 @@ jobs:
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
           cat WORKSPACE
-          sed  's/0c985dc38b4112574ca19a629458072838c94cd981170a3750bae498d5cedfee/34351c03331c65819a71687c1e06edf20d0e8f3a8bb078c995079500b12dda74/g' WORKSPACE
+          sed -i 's/0c985dc38b4112574ca19a629458072838c94cd981170a3750bae498d5cedfee/34351c03331c65819a71687c1e06edf20d0e8f3a8bb078c995079500b12dda74/g' WORKSPACE
           cat WORKSPACE
 
       - name: Add FIPS flag
