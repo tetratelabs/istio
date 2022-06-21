@@ -53,7 +53,7 @@ for pkg in $PACKAGES; do
     -test.v \
     -timeout 2h \
     -tags=integ \
-    "${pkg}" \
+    istio.io/istio/tests/integration/security/ecc_signature_algorithm \
     --istio.test.select=-postsubmit,-flaky \
     ${SKIP_TEST_FLAGS[@]+"${SKIP_TEST_FLAGS[@]}"} \
     --istio.test.ci \
@@ -67,7 +67,7 @@ for pkg in $PACKAGES; do
     -test.v \
     -timeout 2h \
     -tags=integ \
-    "${pkg}" \
+    istio.io/istio/tests/integration/security/ecc_signature_algorithm \
     --istio.test.select=-postsubmit,-flaky \
     ${SKIP_TEST_FLAGS[@]+"${SKIP_TEST_FLAGS[@]}"} \
     --istio.test.ci \
