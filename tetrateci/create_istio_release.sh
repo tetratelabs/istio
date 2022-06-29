@@ -19,7 +19,7 @@ fi
 
 # BOM is needed for generating bill of materials, required by Istio since 1.13, https://github.com/istio/release-builder/pull/893
 go install sigs.k8s.io/bom/cmd/bom@v0.2.2
-cp /home/runner/go/bin/bom /usr/local/bin/
+sudo find $HOME/go/bin -name bom -exec cp "{}" /usr/local/bin \;
 
 sudo gem install fpm
 sudo apt-get install go-bindata -y
