@@ -79,6 +79,9 @@ if [[ ${TAG} =~ "fips" ]]; then
   text="if [[ "\${GOARCH}" == "amd64" ]]; then export CGO_ENABLED=1; else export CGO_ENABLED=0; fi"
   sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
 fi
+
+#install rpm-build package
+sudo apt-get install rpm -y
 # Build Docker Images
 mkdir /tmp/istio-release
 go run main.go build --manifest manifest.docker.yaml
