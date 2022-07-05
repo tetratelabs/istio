@@ -84,7 +84,7 @@ fi
 #install rpm-build package
 sudo apt-get install rpm -y
 # Build Docker Images
-mkdir /tmp/istio-release
+rm -rf /tmp/istio-release && mkdir /tmp/istio-release
 go run main.go build --manifest manifest.docker.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
 
