@@ -165,10 +165,6 @@ jobs:
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-      
-      - name: remove release-builder directory
-        run: rm -rf release-builder
-        if: always()
         
   eks-e2e-test:
     name: eks-e2e-test

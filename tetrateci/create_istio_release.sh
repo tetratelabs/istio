@@ -25,6 +25,7 @@ sudo gem install fpm
 sudo apt-get install go-bindata -y
 export BRANCH=release-${REL_BRANCH_VER}
 cd ..
+rm -rf release-builder
 git clone https://github.com/istio/release-builder --branch ${BRANCH}
 
 
