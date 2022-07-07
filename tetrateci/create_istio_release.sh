@@ -125,6 +125,7 @@ if [[ -z ${TEST:-} ]]; then
     go run main.go build --manifest manifest.archive.yaml
 
     python3 -m pip install --upgrade cloudsmith-cli --user
+    export PATH=$PATH:/home/runner/.local/bin
 
     PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
     for package in $PACKAGES; do
