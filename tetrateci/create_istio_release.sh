@@ -18,7 +18,7 @@ fi
 ## Set up release-builder
 
 # BOM is needed for generating bill of materials, required by Istio since 1.13, https://github.com/istio/release-builder/pull/893
-go install sigs.k8s.io/bom/cmd/bom@v0.2.2
+go install sigs.k8s.io/bom/cmd/bom@v0.3.0
 sudo cp /home/runner/go/bin/bom /usr/local/bin/
 
 sudo gem install fpm
