@@ -18,7 +18,6 @@
 // The fuzzers can be moved to other files without anything
 // breaking on the OSS-fuzz side.
 
-// nolint: golint
 package fuzz
 
 import (
@@ -143,7 +142,7 @@ func FuzzNewControlplane(data []byte) int {
 		return 0
 	}
 	inTranslator.ComponentMaps[name.PilotComponentName] = cm
-	_, _ = controlplane.NewIstioControlPlane(inInstallSpec, inTranslator)
+	_, _ = controlplane.NewIstioControlPlane(inInstallSpec, inTranslator, nil)
 	return 1
 }
 

@@ -35,11 +35,9 @@ import (
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	istionetworking "istio.io/istio/pilot/pkg/networking"
-	"istio.io/istio/pilot/pkg/networking/core/v1alpha3/extension"
 	istio_route "istio.io/istio/pilot/pkg/networking/core/v1alpha3/route"
-	"istio.io/istio/pilot/pkg/networking/plugin"
+	"istio.io/istio/pilot/pkg/networking/telemetry"
 	"istio.io/istio/pilot/pkg/networking/util"
-	"istio.io/istio/pilot/pkg/util/sets"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/gateway"
 	"istio.io/istio/pkg/config/host"
@@ -47,6 +45,7 @@ import (
 	"istio.io/istio/pkg/config/security"
 	"istio.io/istio/pkg/proto"
 	"istio.io/istio/pkg/util/istiomultierror"
+	"istio.io/istio/pkg/util/sets"
 	"istio.io/pkg/log"
 )
 
@@ -73,7 +72,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(builder *ListenerBui
 		// Skip ports we cannot bind to. Note that MergeGateways will already translate Service port to
 		// targetPort, which handles the common case of exposing ports like 80 and 443 but listening on
 		// higher numbered ports.
-		if builder.node.Metadata.UnprivilegedPod != "" && port.Number < 1024 {
+		if builder.node.IsUnprivileged() && port.Number < 1024 {
 			log.Warnf("buildGatewayListeners: skipping privileged gateway port %d for node %s as it is an unprivileged pod",
 				port.Number, builder.node.ID)
 			continue
@@ -144,16 +143,12 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(builder *ListenerBui
 				mutable = mopts.mutable
 			}
 
-			pluginParams := &plugin.InputParams{
-				Node: builder.node,
-				Push: builder.push,
-			}
-			for _, p := range configgen.Plugins {
-				if err := p.OnOutboundListener(pluginParams, &mutable.MutableObjects); err != nil {
-					log.Warn("generateListenerAndFilterChains: failed to build listener for gateway: ", err.Error())
+			for cnum := range mutable.FilterChains {
+				if mutable.FilterChains[cnum].ListenerProtocol == istionetworking.ListenerProtocolTCP {
+					mutable.FilterChains[cnum].TCP = append(mutable.FilterChains[cnum].TCP, builder.authzCustomBuilder.BuildTCP()...)
+					mutable.FilterChains[cnum].TCP = append(mutable.FilterChains[cnum].TCP, builder.authzBuilder.BuildTCP()...)
 				}
 			}
-			extension.AddWasmPluginsToMutableObjects(&mutable.MutableObjects, builder.push.WasmPlugins(builder.node))
 		}
 	}
 	listeners := make([]*listener.Listener, 0)
@@ -163,7 +158,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(builder *ListenerBui
 			ml.mutable.Listener.GetName(), len(ml.mutable.Listener.GetFilterChains()))
 
 		// Filters are serialized one time into an opaque struct once we have the complete list.
-		if err := ml.mutable.build(*ml.opts); err != nil {
+		if err := ml.mutable.build(builder, *ml.opts); err != nil {
 			errs = multierror.Append(errs, fmt.Errorf("gateway omitting listener %q due to: %v", ml.mutable.Listener.Name, err.Error()))
 			continue
 		}
@@ -220,8 +215,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayTCPBasedFilterChains(
 				tcpFilterChainOpts = append(tcpFilterChainOpts, configgen.createGatewayHTTPFilterChainOpts(builder.node, server.Port, server,
 					routeName, proxyConfig, istionetworking.TransportProtocolTCP))
 				newFilterChains = append(newFilterChains, istionetworking.FilterChain{
-					ListenerProtocol:   istionetworking.ListenerProtocolHTTP,
-					IstioMutualGateway: server.Tls.Mode == networking.ServerTLSSettings_ISTIO_MUTUAL,
+					ListenerProtocol: istionetworking.ListenerProtocolHTTP,
 				})
 			} else {
 				// This is the case of TCP or PASSTHROUGH.
@@ -263,9 +257,8 @@ func (configgen *ConfigGeneratorImpl) buildGatewayHTTP3FilterChains(
 			// Make sure that this is set to HTTP so that JWT and Authorization
 			// filters that are applied to HTTPS are also applied to this chain.
 			// Not doing so is a security hole as would allow bypassing auth.
-			ListenerProtocol:   istionetworking.ListenerProtocolHTTP,
-			TransportProtocol:  istionetworking.TransportProtocolQUIC,
-			IstioMutualGateway: server.Tls.Mode == networking.ServerTLSSettings_ISTIO_MUTUAL,
+			ListenerProtocol:  istionetworking.ListenerProtocolHTTP,
+			TransportProtocol: istionetworking.TransportProtocolQUIC,
 		})
 	}
 	opts.filterChainOpts = quicFilterChainOpts
@@ -365,7 +358,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayHTTPRouteConfig(node *model.Pr
 		var exists bool
 
 		if virtualServices, exists = gatewayVirtualServices[gatewayName]; !exists {
-			virtualServices = push.VirtualServicesForGateway(node, gatewayName)
+			virtualServices = push.VirtualServicesForGateway(node.ConfigNamespace, gatewayName)
 			gatewayVirtualServices[gatewayName] = virtualServices
 		}
 
@@ -575,7 +568,8 @@ func (configgen *ConfigGeneratorImpl) createGatewayHTTPFilterChainOpts(node *mod
 				rds:               routeName,
 				useRemoteAddress:  true,
 				connectionManager: buildGatewayConnectionManager(proxyConfig, node, false /* http3SupportEnabled */),
-				addGRPCWebFilter:  serverProto == protocol.GRPCWeb,
+				protocol:          serverProto,
+				class:             istionetworking.ListenerClassGateway,
 			},
 		}
 	}
@@ -589,14 +583,15 @@ func (configgen *ConfigGeneratorImpl) createGatewayHTTPFilterChainOpts(node *mod
 		// and that no two non-HTTPS servers can be on same port or share port names.
 		// Validation is done per gateway and also during merging
 		sniHosts:   node.MergedGateway.TLSServerInfo[server].SNIHosts,
-		tlsContext: buildGatewayListenerTLSContext(server, node, transportProtocol, configgen),
+		tlsContext: buildGatewayListenerTLSContext(server, node, transportProtocol),
 		httpOpts: &httpListenerOpts{
 			rds:               routeName,
 			useRemoteAddress:  true,
 			connectionManager: buildGatewayConnectionManager(proxyConfig, node, http3Enabled),
-			addGRPCWebFilter:  serverProto == protocol.GRPCWeb,
+			protocol:          serverProto,
 			statPrefix:        server.Name,
 			http3Only:         http3Enabled,
+			class:             istionetworking.ListenerClassGateway,
 		},
 	}
 }
@@ -616,7 +611,7 @@ func buildGatewayConnectionManager(proxyConfig *meshconfig.ProxyConfig, node *mo
 		}
 	}
 
-	var stripPortMode *hcm.HttpConnectionManager_StripAnyHostPort = nil
+	var stripPortMode *hcm.HttpConnectionManager_StripAnyHostPort
 	if features.StripHostPort {
 		stripPortMode = &hcm.HttpConnectionManager_StripAnyHostPort{StripAnyHostPort: true}
 	}
@@ -656,14 +651,14 @@ func buildGatewayConnectionManager(proxyConfig *meshconfig.ProxyConfig, node *mo
 //
 // Note that ISTIO_MUTUAL TLS mode and ingressSds should not be used simultaneously on the same ingress gateway.
 func buildGatewayListenerTLSContext(
-	server *networking.Server, proxy *model.Proxy, transportProtocol istionetworking.TransportProtocol, configgen *ConfigGeneratorImpl) *tls.DownstreamTlsContext {
+	server *networking.Server, proxy *model.Proxy, transportProtocol istionetworking.TransportProtocol) *tls.DownstreamTlsContext {
 	// Server.TLS cannot be nil or passthrough. But as a safety guard, return nil
 	if server.Tls == nil || gateway.IsPassThroughServer(server) {
 		return nil // We don't need to setup TLS context for passthrough mode
 	}
 
 	server.Tls.CipherSuites = filteredGatewayCipherSuites(server)
-	return configgen.BuildListenerTLSContext(server.Tls, proxy, transportProtocol)
+	return BuildListenerTLSContext(server.Tls, proxy, transportProtocol)
 }
 
 func convertTLSProtocol(in networking.ServerTLSSettings_TLSProtocol) tls.TlsParameters_TlsProtocol {
@@ -702,7 +697,7 @@ func (configgen *ConfigGeneratorImpl) createGatewayTCPFilterChainOpts(
 			return []*filterChainOpts{
 				{
 					sniHosts:       node.MergedGateway.TLSServerInfo[server].SNIHosts,
-					tlsContext:     buildGatewayListenerTLSContext(server, node, istionetworking.TransportProtocolTCP, configgen),
+					tlsContext:     buildGatewayListenerTLSContext(server, node, istionetworking.TransportProtocolTCP),
 					networkFilters: filters,
 				},
 			}
@@ -730,7 +725,7 @@ func buildGatewayNetworkFiltersFromTCPRoutes(node *model.Proxy, push *model.Push
 		gatewayServerHosts[host.Name(hostname)] = true
 	}
 
-	virtualServices := push.VirtualServicesForGateway(node, gateway)
+	virtualServices := push.VirtualServicesForGateway(node.ConfigNamespace, gateway)
 	if len(virtualServices) == 0 {
 		log.Warnf("no virtual service bound to gateway: %v", gateway)
 	}
@@ -791,7 +786,7 @@ func buildGatewayNetworkFiltersFromTLSRoutes(node *model.Proxy, push *model.Push
 	} else {
 		tlsSniHosts := map[string]struct{}{} // sni host -> exists
 
-		virtualServices := push.VirtualServicesForGateway(node, gatewayName)
+		virtualServices := push.VirtualServicesForGateway(node.ConfigNamespace, gatewayName)
 		for _, v := range virtualServices {
 			vsvc := v.Spec.(*networking.VirtualService)
 			// We have two cases here:
@@ -843,7 +838,7 @@ func buildGatewayNetworkFiltersFromTLSRoutes(node *model.Proxy, push *model.Push
 // To handle this, we generate a filter chain per upstream cluster
 func builtAutoPassthroughFilterChains(push *model.PushContext, proxy *model.Proxy, hosts []string) []*filterChainOpts {
 	filterChains := make([]*filterChainOpts, 0)
-	for _, service := range push.Services(proxy) {
+	for _, service := range proxy.SidecarScope.Services() {
 		if service.MeshExternal {
 			continue
 		}
@@ -864,10 +859,10 @@ func builtAutoPassthroughFilterChains(push *model.PushContext, proxy *model.Prox
 			clusterName := model.BuildDNSSrvSubsetKey(model.TrafficDirectionOutbound, "", service.Hostname, port.Port)
 			statPrefix := clusterName
 			if len(push.Mesh.OutboundClusterStatName) != 0 {
-				statPrefix = util.BuildStatPrefix(push.Mesh.OutboundClusterStatName, string(service.Hostname), "", port, &service.Attributes)
+				statPrefix = telemetry.BuildStatPrefix(push.Mesh.OutboundClusterStatName, string(service.Hostname), "", port, &service.Attributes)
 			}
-			destRule := push.DestinationRule(proxy, service)
-			destinationRule := CastDestinationRule(destRule)
+			destinationRule := CastDestinationRule(proxy.SidecarScope.DestinationRule(
+				model.TrafficDirectionOutbound, proxy, service.Hostname))
 
 			// First, we build the standard cluster. We match on the SNI matching the cluster name
 			// (per the spec of AUTO_PASSTHROUGH), as well as all possible Istio mTLS ALPNs. This,
@@ -888,7 +883,7 @@ func builtAutoPassthroughFilterChains(push *model.PushContext, proxy *model.Prox
 				subsetStatPrefix := subsetClusterName
 				// If stat name is configured, build the stat prefix from configured pattern.
 				if len(push.Mesh.OutboundClusterStatName) != 0 {
-					subsetStatPrefix = util.BuildStatPrefix(push.Mesh.OutboundClusterStatName, string(service.Hostname), subset.Name, port, &service.Attributes)
+					subsetStatPrefix = telemetry.BuildStatPrefix(push.Mesh.OutboundClusterStatName, string(service.Hostname), subset.Name, port, &service.Attributes)
 				}
 				filterChains = append(filterChains, &filterChainOpts{
 					sniHosts:       []string{subsetClusterName},
@@ -1006,7 +1001,7 @@ func buildGatewayVirtualHostDomains(hostname string, port int) []string {
 func filteredGatewayCipherSuites(server *networking.Server) []string {
 	suites := server.Tls.CipherSuites
 	ret := make([]string, 0, len(suites))
-	validCiphers := sets.NewSet()
+	validCiphers := sets.New()
 	for _, s := range suites {
 		if security.IsValidCipherSuite(s) {
 			if !validCiphers.Contains(s) {

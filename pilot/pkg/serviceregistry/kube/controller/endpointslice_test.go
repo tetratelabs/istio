@@ -27,7 +27,6 @@ import (
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry/kube"
 	"istio.io/istio/pkg/config/host"
-	"istio.io/istio/pkg/config/labels"
 )
 
 func TestGetLocalityFromTopology(t *testing.T) {
@@ -114,12 +113,12 @@ func TestEndpointSliceFromMCSShouldBeIgnored(t *testing.T) {
 	createEndpoints(t, controller, svcName, ns, portNames, svc1Ips, nil, map[string]string{
 		mcs.LabelServiceName: svcName,
 	})
-	if ev := fx.WaitForDuration("eds", 2*time.Second); ev != nil {
+	if ev := fx.WaitForDuration("eds", 200*time.Millisecond); ev != nil {
 		t.Fatalf("Received unexpected EDS event")
 	}
 
 	// Ensure that getting by port returns no ServiceInstances.
-	instances := controller.InstancesByPort(svc, svc.Ports[0].Port, labels.Collection{})
+	instances := controller.InstancesByPort(svc, svc.Ports[0].Port, nil)
 	if len(instances) != 0 {
 		t.Fatalf("should be 0 instances: len(instances) = %v", len(instances))
 	}

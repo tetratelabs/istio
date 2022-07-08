@@ -86,6 +86,27 @@ spec:
                 type: string
               verificationKey:
                 type: string
+              vmConfig:
+                description: Configuration for a Wasm VM.
+                properties:
+                  env:
+                    description: Specifies environment variables to be injected to
+                      this VM.
+                    items:
+                      properties:
+                        name:
+                          type: string
+                        value:
+                          description: Value for the environment variable.
+                          type: string
+                        valueFrom:
+                          enum:
+                          - INLINE
+                          - HOST
+                          type: string
+                      type: object
+                    type: array
+                type: object
             type: object
           status:
             type: object
@@ -362,10 +383,15 @@ spec:
                               type: object
                             simple:
                               enum:
-                              - ROUND_ROBIN
+                              - UNSPECIFIED
                               - LEAST_CONN
                               - RANDOM
                               - PASSTHROUGH
+                              - ROUND_ROBIN
+                              - LEAST_REQUEST
+                              type: string
+                            warmupDurationSecs:
+                              description: Represents the warmup duration of Service.
                               type: string
                           type: object
                         outlierDetection:
@@ -609,10 +635,16 @@ spec:
                                     type: object
                                   simple:
                                     enum:
-                                    - ROUND_ROBIN
+                                    - UNSPECIFIED
                                     - LEAST_CONN
                                     - RANDOM
                                     - PASSTHROUGH
+                                    - ROUND_ROBIN
+                                    - LEAST_REQUEST
+                                    type: string
+                                  warmupDurationSecs:
+                                    description: Represents the warmup duration of
+                                      Service.
                                     type: string
                                 type: object
                               outlierDetection:
@@ -723,6 +755,21 @@ spec:
                               items:
                                 type: string
                               type: array
+                          type: object
+                        tunnel:
+                          properties:
+                            protocol:
+                              description: Specifies which protocol to use for tunneling
+                                the downstream connection.
+                              type: string
+                            targetHost:
+                              description: Specifies a host to which the downstream
+                                connection is tunneled.
+                              type: string
+                            targetPort:
+                              description: Specifies a port to which the downstream
+                                connection is tunneled.
+                              type: integer
                           type: object
                       type: object
                   type: object
@@ -923,10 +970,15 @@ spec:
                         type: object
                       simple:
                         enum:
-                        - ROUND_ROBIN
+                        - UNSPECIFIED
                         - LEAST_CONN
                         - RANDOM
                         - PASSTHROUGH
+                        - ROUND_ROBIN
+                        - LEAST_REQUEST
+                        type: string
+                      warmupDurationSecs:
+                        description: Represents the warmup duration of Service.
                         type: string
                     type: object
                   outlierDetection:
@@ -1165,10 +1217,15 @@ spec:
                               type: object
                             simple:
                               enum:
-                              - ROUND_ROBIN
+                              - UNSPECIFIED
                               - LEAST_CONN
                               - RANDOM
                               - PASSTHROUGH
+                              - ROUND_ROBIN
+                              - LEAST_REQUEST
+                              type: string
+                            warmupDurationSecs:
+                              description: Represents the warmup duration of Service.
                               type: string
                           type: object
                         outlierDetection:
@@ -1278,6 +1335,28 @@ spec:
                         items:
                           type: string
                         type: array
+                    type: object
+                  tunnel:
+                    properties:
+                      protocol:
+                        description: Specifies which protocol to use for tunneling
+                          the downstream connection.
+                        type: string
+                      targetHost:
+                        description: Specifies a host to which the downstream connection
+                          is tunneled.
+                        type: string
+                      targetPort:
+                        description: Specifies a port to which the downstream connection
+                          is tunneled.
+                        type: integer
+                    type: object
+                type: object
+              workloadSelector:
+                properties:
+                  matchLabels:
+                    additionalProperties:
+                      type: string
                     type: object
                 type: object
             type: object
@@ -1529,10 +1608,15 @@ spec:
                               type: object
                             simple:
                               enum:
-                              - ROUND_ROBIN
+                              - UNSPECIFIED
                               - LEAST_CONN
                               - RANDOM
                               - PASSTHROUGH
+                              - ROUND_ROBIN
+                              - LEAST_REQUEST
+                              type: string
+                            warmupDurationSecs:
+                              description: Represents the warmup duration of Service.
                               type: string
                           type: object
                         outlierDetection:
@@ -1776,10 +1860,16 @@ spec:
                                     type: object
                                   simple:
                                     enum:
-                                    - ROUND_ROBIN
+                                    - UNSPECIFIED
                                     - LEAST_CONN
                                     - RANDOM
                                     - PASSTHROUGH
+                                    - ROUND_ROBIN
+                                    - LEAST_REQUEST
+                                    type: string
+                                  warmupDurationSecs:
+                                    description: Represents the warmup duration of
+                                      Service.
                                     type: string
                                 type: object
                               outlierDetection:
@@ -1890,6 +1980,21 @@ spec:
                               items:
                                 type: string
                               type: array
+                          type: object
+                        tunnel:
+                          properties:
+                            protocol:
+                              description: Specifies which protocol to use for tunneling
+                                the downstream connection.
+                              type: string
+                            targetHost:
+                              description: Specifies a host to which the downstream
+                                connection is tunneled.
+                              type: string
+                            targetPort:
+                              description: Specifies a port to which the downstream
+                                connection is tunneled.
+                              type: integer
                           type: object
                       type: object
                   type: object
@@ -2090,10 +2195,15 @@ spec:
                         type: object
                       simple:
                         enum:
-                        - ROUND_ROBIN
+                        - UNSPECIFIED
                         - LEAST_CONN
                         - RANDOM
                         - PASSTHROUGH
+                        - ROUND_ROBIN
+                        - LEAST_REQUEST
+                        type: string
+                      warmupDurationSecs:
+                        description: Represents the warmup duration of Service.
                         type: string
                     type: object
                   outlierDetection:
@@ -2332,10 +2442,15 @@ spec:
                               type: object
                             simple:
                               enum:
-                              - ROUND_ROBIN
+                              - UNSPECIFIED
                               - LEAST_CONN
                               - RANDOM
                               - PASSTHROUGH
+                              - ROUND_ROBIN
+                              - LEAST_REQUEST
+                              type: string
+                            warmupDurationSecs:
+                              description: Represents the warmup duration of Service.
                               type: string
                           type: object
                         outlierDetection:
@@ -2445,6 +2560,28 @@ spec:
                         items:
                           type: string
                         type: array
+                    type: object
+                  tunnel:
+                    properties:
+                      protocol:
+                        description: Specifies which protocol to use for tunneling
+                          the downstream connection.
+                        type: string
+                      targetHost:
+                        description: Specifies a host to which the downstream connection
+                          is tunneled.
+                        type: string
+                      targetPort:
+                        description: Specifies a port to which the downstream connection
+                          is tunneled.
+                        type: integer
+                    type: object
+                type: object
+              workloadSelector:
+                properties:
+                  matchLabels:
+                    additionalProperties:
+                      type: string
                     type: object
                 type: object
             type: object
@@ -6106,6 +6243,17 @@ spec:
                             should be logged.
                           type: string
                       type: object
+                    match:
+                      description: Allows tailoring of logging behavior to specific
+                        conditions.
+                      properties:
+                        mode:
+                          enum:
+                          - CLIENT_AND_SERVER
+                          - CLIENT
+                          - SERVER
+                          type: string
+                      type: object
                     providers:
                       description: Optional.
                       items:
@@ -6163,8 +6311,6 @@ spec:
                                 - GRPC_RESPONSE_MESSAGES
                                 type: string
                               mode:
-                                description: 'Controls which mode of metrics generation
-                                  is selected: CLIENT and/or SERVER.'
                                 enum:
                                 - CLIENT_AND_SERVER
                                 - CLIENT
@@ -6244,8 +6390,6 @@ spec:
                                 type: string
                             type: object
                           header:
-                            description: RequestHeader adds the value of an header
-                              from the request to each span.
                             properties:
                               defaultValue:
                                 description: Optional.
@@ -6270,6 +6414,16 @@ spec:
                       description: Controls span reporting.
                       nullable: true
                       type: boolean
+                    match:
+                      description: Allows tailoring of behavior to specific conditions.
+                      properties:
+                        mode:
+                          enum:
+                          - CLIENT_AND_SERVER
+                          - CLIENT
+                          - SERVER
+                          type: string
+                      type: object
                     providers:
                       description: Optional.
                       items:

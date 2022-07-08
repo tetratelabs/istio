@@ -32,7 +32,6 @@ import (
 	"istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pilot/pkg/config/aggregate"
 	"istio.io/istio/pilot/pkg/config/file"
-	"istio.io/istio/pilot/pkg/config/kube/arbitraryclient"
 	"istio.io/istio/pilot/pkg/config/kube/crdclient"
 	"istio.io/istio/pilot/pkg/config/memory"
 	"istio.io/istio/pilot/pkg/model"
@@ -47,6 +46,7 @@ import (
 	"istio.io/istio/pkg/config/schema/collection"
 	"istio.io/istio/pkg/config/schema/collections"
 	kubelib "istio.io/istio/pkg/kube"
+	"istio.io/istio/pkg/util/sets"
 )
 
 // IstiodAnalyzer handles local analysis of k8s event sources, both live and file-based
@@ -54,7 +54,7 @@ type IstiodAnalyzer struct {
 	// internalStore stores synthetic configs for analysis (mesh config, etc)
 	internalStore model.ConfigStore
 	// stores contains all the (non file) config sources to analyze
-	stores []model.ConfigStoreCache
+	stores []model.ConfigStoreController
 	// fileSource contains all file bases sources
 	fileSource *file.KubeSource
 
@@ -62,7 +62,7 @@ type IstiodAnalyzer struct {
 	namespace      resource.Namespace
 	istioNamespace resource.Namespace
 
-	initializedStore model.ConfigStoreCache
+	initializedStore model.ConfigStoreController
 
 	// List of code and resource suppressions to exclude messages on
 	suppressions []AnalysisSuppression
@@ -107,7 +107,7 @@ func NewIstiodAnalyzer(analyzer *analysis.CombinedAnalyzer, namespace,
 
 	mcfg := mesh.DefaultMeshConfig()
 	sa := &IstiodAnalyzer{
-		meshCfg:            &mcfg,
+		meshCfg:            mcfg,
 		meshNetworks:       mesh.DefaultMeshNetworks(),
 		analyzer:           analyzer,
 		namespace:          namespace,
@@ -268,8 +268,7 @@ func (sa *IstiodAnalyzer) AddRunningKubeSource(c kubelib.Client) {
 func (sa *IstiodAnalyzer) AddRunningKubeSourceWithRevision(c kubelib.Client, revision string) {
 	// TODO: are either of these string constants intended to vary?
 	// This gets us only istio/ ones
-	store, err := crdclient.NewForSchemas(context.Background(), c, revision,
-		"cluster.local", sa.kubeResources.Intersect(collections.PilotGatewayAPI))
+	store, err := crdclient.NewForSchemas(c, revision, "cluster.local", sa.kubeResources)
 	// RunAndWait must be called after NewForSchema so that the informers are all created and started.
 	if err != nil {
 		scope.Analysis.Errorf("error adding kube crdclient: %v", err)
@@ -285,24 +284,7 @@ func (sa *IstiodAnalyzer) AddRunningKubeSourceWithRevision(c kubelib.Client, rev
 		scope.Analysis.Errorf("error setting up error handling for kube crdclient: %v", err)
 		return
 	}
-
-	store, err = arbitraryclient.NewForSchemas(context.Background(), c, revision,
-		"cluster.local", sa.kubeResources.Remove(collections.PilotGatewayAPI.All()...))
-	if err != nil {
-		scope.Analysis.Errorf("error adding kube arbitraryclient: %v", err)
-		return
-	}
-	err = store.SetWatchErrorHandler(func(r *cache.Reflector, err error) {
-		// failed resources will never be synced, which causes the process to hang indefinitely.
-		// better to fail fast, and get a good idea for the failure.
-		scope.Analysis.Errorf("Failed to watch arbitrary resource for analysis: %s", err)
-	})
-	if err != nil {
-		scope.Analysis.Errorf("error setting up error handling for kube arbitraryclient: %v", err)
-		return
-	}
 	sa.clientsToRun = append(sa.clientsToRun, c)
-	sa.stores = append(sa.stores, store)
 
 	// Since we're using a running k8s source, try to get meshconfig and meshnetworks from the configmap.
 	if err := sa.addRunningKubeIstioConfigMapSource(c); err != nil {
@@ -320,7 +302,7 @@ func (sa *IstiodAnalyzer) AddRunningKubeSourceWithRevision(c kubelib.Client, rev
 // AddSource adds a source based on user supplied configstore to the current IstiodAnalyzer
 // Assumes that the source has same or subset of resource types that this analyzer is configured with.
 // This can be used by external users who import the analyzer as a module within their own controllers.
-func (sa *IstiodAnalyzer) AddSource(src model.ConfigStoreCache) {
+func (sa *IstiodAnalyzer) AddSource(src model.ConfigStoreController) {
 	sa.stores = append(sa.stores, src)
 }
 
@@ -410,9 +392,9 @@ type CollectionReporterFn func(collection.Name)
 
 // copied from processing/snapshotter/analyzingdistributor.go
 func filterMessages(messages diag.Messages, namespaces map[resource.Namespace]struct{}, suppressions []AnalysisSuppression) diag.Messages {
-	nsNames := make(map[string]struct{})
+	nsNames := sets.New()
 	for k := range namespaces {
-		nsNames[k.String()] = struct{}{}
+		nsNames.Insert(k.String())
 	}
 
 	var msgs diag.Messages
@@ -423,7 +405,7 @@ FilterMessages:
 		// namespace). Also kept are cluster-level resources where the namespace is
 		// the empty string. If no such limit is specified, keep them all.
 		if len(namespaces) > 0 && m.Resource != nil && m.Resource.Origin.Namespace() != "" {
-			if _, ok := nsNames[m.Resource.Origin.Namespace().String()]; !ok {
+			if !nsNames.Contains(m.Resource.Origin.Namespace().String()) {
 				continue FilterMessages
 			}
 		}

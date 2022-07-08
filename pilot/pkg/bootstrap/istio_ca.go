@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -266,21 +265,6 @@ func (s *Server) loadRemoteCACerts(caOpts *caOptions, dir string) error {
 	return nil
 }
 
-// isValidCACertsFile As we are watching entire directory, but interested
-// in only 'ca-key.pem', 'ca-cert.pem', 'root-cert.pem' and 'cert-chain.pem'.
-// Events on other files are ignored.
-func isValidCACertsFile(path string) bool {
-	_, file := filepath.Split(path)
-
-	for _, name := range []string{ca.CACertFile, ca.CAPrivateKeyFile, ca.RootCertFile, ca.CertChainFile} {
-		if file == name {
-			return true
-		}
-	}
-
-	return false
-}
-
 // handleEvent handles the events on cacerts related files.
 // If create/write(modified) event occurs, then it verifies that
 // newly introduced cacerts are intermediate CA which is generated
@@ -338,8 +322,7 @@ func (s *Server) handleCACertsFileWatch() {
 			}
 
 			if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
-				valid := isValidCACertsFile(event.Name)
-				if valid && timerC == nil {
+				if timerC == nil {
 					timerC = time.After(100 * time.Millisecond)
 				}
 			}
@@ -477,10 +460,19 @@ func (s *Server) createIstioRA(client kubelib.Client,
 	caCertFile := path.Join(ra.DefaultExtCACertDir, constants.CACertNamespaceConfigMapDataName)
 	certSignerDomain := opts.CertSignerDomain
 	_, err := os.Stat(caCertFile)
-	if err != nil && certSignerDomain == "" {
-		caCertFile = defaultCACertPath
-	} else {
-		caCertFile = ""
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("failed to get file info: %v", err)
+		}
+
+		// File does not exist.
+		if certSignerDomain == "" {
+			log.Infof("CA cert file %q not found, using %q.", caCertFile, defaultCACertPath)
+			caCertFile = defaultCACertPath
+		} else {
+			log.Infof("CA cert file %q not found - ignoring.", caCertFile)
+			caCertFile = ""
+		}
 	}
 	raOpts := &ra.IstioRAOptions{
 		ExternalCAType:   opts.ExternalCAType,

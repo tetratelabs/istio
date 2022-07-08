@@ -28,6 +28,7 @@ import (
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
 	"istio.io/istio/pkg/config/host"
 	dnsProto "istio.io/istio/pkg/dns/proto"
+	"istio.io/istio/pkg/util/sets"
 	istiolog "istio.io/pkg/log"
 )
 
@@ -187,30 +188,37 @@ func (h *LocalDNSServer) UpdateLookupTable(nt *dnsProto.NameTable) {
 		name6:    map[string][]dns.RR{},
 		cname:    map[string][]dns.RR{},
 	}
+	h.BuildAlternateHosts(nt, lookupTable.buildDNSAnswers)
+	h.lookupTable.Store(lookupTable)
+	h.nameTable.Store(nt)
+	log.Debugf("updated lookup table with %d hosts", len(lookupTable.allHosts))
+}
+
+// BuildAlternateHosts builds alternate hosts for Kubernetes services in the name table and
+// calls the passed in function with the built alternate hosts.
+func (h *LocalDNSServer) BuildAlternateHosts(nt *dnsProto.NameTable,
+	apply func(map[string]struct{}, []net.IP, []net.IP, []string)) {
 	for hostname, ni := range nt.Table {
 		// Given a host
 		// if its a non-k8s host, store the host+. as the key with the pre-computed DNS RR records
 		// if its a k8s host, store all variants (i.e. shortname+., shortname+namespace+., fqdn+., etc.)
 		// shortname+. is only for hosts in current namespace
-		var altHosts map[string]struct{}
+		var altHosts sets.Set
 		if ni.Registry == string(provider.Kubernetes) {
 			altHosts = generateAltHosts(hostname, ni, h.proxyNamespace, h.proxyDomain, h.proxyDomainParts)
 		} else {
 			if !strings.HasSuffix(hostname, ".") {
 				hostname += "."
 			}
-			altHosts = map[string]struct{}{hostname: {}}
+			altHosts = sets.New(hostname)
 		}
 		ipv4, ipv6 := separateIPtypes(ni.Ips)
 		if len(ipv6) == 0 && len(ipv4) == 0 {
 			// malformed ips
 			continue
 		}
-		lookupTable.buildDNSAnswers(altHosts, ipv4, ipv6, h.searchNamespaces)
+		apply(altHosts, ipv4, ipv6, h.searchNamespaces)
 	}
-	h.lookupTable.Store(lookupTable)
-	h.nameTable.Store(nt)
-	log.Debugf("updated lookup table with %d hosts", len(lookupTable.allHosts))
 }
 
 // upstrem sends the requeset to the upstream server, with associated logs and metrics
@@ -281,7 +289,9 @@ func (h *LocalDNSServer) ServeDNS(proxy *dnsProxy, w dns.ResponseWriter, req *dn
 		// Randomize the responses; this ensures for things like headless services we can do DNS-LB
 		// This matches standard kube-dns behavior. We only do this for cached responses as the
 		// upstream DNS server would already round robin if desired.
-		roundRobinResponse(response)
+		if len(answers) > 0 {
+			roundRobinResponse(response)
+		}
 		log.Debugf("response for hostname %q (found=true): %v", hostname, response)
 	} else {
 		response = h.upstream(proxy, req, hostname)
@@ -382,9 +392,8 @@ func (h *LocalDNSServer) queryUpstream(upstreamClient *dns.Client, req *dns.Msg,
 		if err == nil {
 			response = cResponse
 			break
-		} else {
-			scope.Infof("upstream failure: %v", err)
 		}
+		scope.Infof("upstream failure: %v", err)
 	}
 	if response == nil {
 		failures.Increment()
@@ -412,28 +421,29 @@ func separateIPtypes(ips []string) (ipv4, ipv6 []net.IP) {
 }
 
 func generateAltHosts(hostname string, nameinfo *dnsProto.NameTable_NameInfo, proxyNamespace, proxyDomain string,
-	proxyDomainParts []string) map[string]struct{} {
-	out := make(map[string]struct{})
-	out[hostname+"."] = struct{}{}
+	proxyDomainParts []string,
+) sets.Set {
+	out := sets.New()
+	out.Insert(hostname + ".")
 	// do not generate alt hostnames if the service is in a different domain (i.e. cluster) than the proxy
 	// as we have no way to resolve conflicts on name.namespace entries across clusters of different domains
 	if proxyDomain == "" || !strings.HasSuffix(hostname, proxyDomain) {
 		return out
 	}
-	out[nameinfo.Shortname+"."+nameinfo.Namespace+"."] = struct{}{}
+	out.Insert(nameinfo.Shortname + "." + nameinfo.Namespace + ".")
 	if proxyNamespace == nameinfo.Namespace {
-		out[nameinfo.Shortname+"."] = struct{}{}
+		out.Insert(nameinfo.Shortname + ".")
 	}
 	// Do we need to generate entries for name.namespace.svc, name.namespace.svc.cluster, etc. ?
 	// If these are not that frequently used, then not doing so here will save some space and time
 	// as some people have very long proxy domains with multiple dots
 	// For now, we will generate just one more domain (which is usually the .svc piece).
-	out[nameinfo.Shortname+"."+nameinfo.Namespace+"."+proxyDomainParts[0]+"."] = struct{}{}
+	out.Insert(nameinfo.Shortname + "." + nameinfo.Namespace + "." + proxyDomainParts[0] + ".")
 
 	// Add any additional alt hostnames.
 	// nolint: staticcheck
 	for _, altHost := range nameinfo.AltHosts {
-		out[altHost+"."] = struct{}{}
+		out.Insert(altHost + ".")
 	}
 	return out
 }
@@ -477,6 +487,7 @@ func (table *LookupTable) lookupHost(qtype uint16, hostname string) ([]dns.RR, b
 		hostname = cn[0].(*dns.CNAME).Target
 	}
 	var ipAnswers []dns.RR
+	var wcAnswers []dns.RR
 	switch qtype {
 	case dns.TypeA:
 		ipAnswers = table.name4[hostname]
@@ -491,7 +502,9 @@ func (table *LookupTable) lookupHost(qtype uint16, hostname string) ([]dns.RR, b
 		// For wildcard hosts, set the host that is being queried for.
 		if wildcard {
 			for _, answer := range ipAnswers {
-				answer.Header().Name = string(question)
+				copied := dns.Copy(answer)
+				copied.Header().Name = string(question)
+				wcAnswers = append(wcAnswers, copied)
 			}
 		}
 		// We will return a chained response. In a chained response, the first entry is the cname record,
@@ -500,7 +513,11 @@ func (table *LookupTable) lookupHost(qtype uint16, hostname string) ([]dns.RR, b
 		// big DNS response (presumably assuming that a recursive DNS query should do the deed, resolve
 		// cname et al and return the composite response).
 		out = append(out, cn...)
-		out = append(out, ipAnswers...)
+		if wildcard {
+			out = append(out, wcAnswers...)
+		} else {
+			out = append(out, ipAnswers...)
+		}
 	}
 	return out, hostFound
 }

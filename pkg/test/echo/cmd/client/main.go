@@ -38,23 +38,24 @@ import (
 )
 
 var (
-	count           int
-	timeout         time.Duration
-	qps             int
-	uds             string
-	headers         []string
-	msg             string
-	expect          string
-	expectSet       bool
-	method          string
-	http2           bool
-	http3           bool
-	alpn            []string
-	serverName      string
-	serverFirst     bool
-	followRedirects bool
-	clientCert      string
-	clientKey       string
+	count              int
+	timeout            time.Duration
+	qps                int
+	uds                string
+	headers            []string
+	msg                string
+	expect             string
+	expectSet          bool
+	method             string
+	http2              bool
+	http3              bool
+	insecureSkipVerify bool
+	alpn               []string
+	serverName         string
+	serverFirst        bool
+	followRedirects    bool
+	clientCert         string
+	clientKey          string
 
 	caFile string
 
@@ -86,7 +87,7 @@ where the network configuration doesn't support gRPC to the source pod.'
 				UDS:     uds,
 			})
 			if err != nil {
-				log.Fatalf("Failed to create forwarder: %v", err)
+				log.Fatalf("Failed to create forwarder: %v", err) // nolint: revive
 				os.Exit(-1)
 			}
 
@@ -96,7 +97,7 @@ where the network configuration doesn't support gRPC to the source pod.'
 			}()
 			response, err := f.Run(context.Background())
 			if err != nil {
-				log.Fatalf("Error %s\n", err)
+				log.Fatalf("Error %s\n", err) // nolint: revive
 				os.Exit(-1)
 			}
 
@@ -135,6 +136,8 @@ func init() {
 		"send http requests as HTTP2 with prior knowledge")
 	rootCmd.PersistentFlags().BoolVar(&http3, "http3", false,
 		"send http requests as HTTP 3")
+	rootCmd.PersistentFlags().BoolVarP(&insecureSkipVerify, "insecure-skip-verify", "k", insecureSkipVerify,
+		"do not verify TLS")
 	rootCmd.PersistentFlags().BoolVar(&serverFirst, "server-first", false,
 		"Treat as a server first protocol; do not send request until magic string is received")
 	rootCmd.PersistentFlags().BoolVarP(&followRedirects, "follow-redirects", "L", false,
@@ -163,17 +166,18 @@ func defaultScheme(u string) string {
 
 func getRequest(url string) (*proto.ForwardEchoRequest, error) {
 	request := &proto.ForwardEchoRequest{
-		Url:             defaultScheme(url),
-		TimeoutMicros:   common.DurationToMicros(timeout),
-		Count:           int32(count),
-		Qps:             int32(qps),
-		Message:         msg,
-		Http2:           http2,
-		Http3:           http3,
-		ServerFirst:     serverFirst,
-		FollowRedirects: followRedirects,
-		Method:          method,
-		ServerName:      serverName,
+		Url:                defaultScheme(url),
+		TimeoutMicros:      common.DurationToMicros(timeout),
+		Count:              int32(count),
+		Qps:                int32(qps),
+		Message:            msg,
+		Http2:              http2,
+		Http3:              http3,
+		ServerFirst:        serverFirst,
+		FollowRedirects:    followRedirects,
+		Method:             method,
+		ServerName:         serverName,
+		InsecureSkipVerify: insecureSkipVerify,
 	}
 
 	if expectSet {

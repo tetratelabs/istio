@@ -22,6 +22,7 @@ import (
 
 	"istio.io/api/label"
 	networking "istio.io/api/networking/v1alpha3"
+	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
 	labelutil "istio.io/istio/pilot/pkg/serviceregistry/util/label"
@@ -35,6 +36,7 @@ import (
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/network"
 	"istio.io/istio/pkg/spiffe"
+	"istio.io/istio/pkg/test"
 )
 
 var (
@@ -489,6 +491,14 @@ func makeService(hostname host.Name, configNamespace, address string, ports map[
 		},
 	}
 
+	if external && features.CanonicalServiceForMeshExternalServiceEntry {
+		if svc.Attributes.Labels == nil {
+			svc.Attributes.Labels = make(map[string]string)
+		}
+		svc.Attributes.Labels["service.istio.io/canonical-name"] = configNamespace
+		svc.Attributes.Labels["service.istio.io/canonical-revision"] = "latest"
+	}
+
 	svcPorts := make(model.PortList, 0, len(ports))
 	for name, port := range ports {
 		svcPort := &model.Port{
@@ -561,6 +571,14 @@ func makeInstance(cfg *config.Config, address string, port int,
 }
 
 func TestConvertService(t *testing.T) {
+	testConvertServiceBody(t)
+	test.SetBoolForTest(t, &features.CanonicalServiceForMeshExternalServiceEntry, true)
+	testConvertServiceBody(t)
+}
+
+func testConvertServiceBody(t *testing.T) {
+	t.Helper()
+
 	serviceTests := []struct {
 		externalSvc *config.Config
 		services    []*model.Service
@@ -781,7 +799,7 @@ func TestConvertInstances(t *testing.T) {
 
 	for _, tt := range serviceInstanceTests {
 		t.Run(strings.Join(tt.externalSvc.Spec.(*networking.ServiceEntry).Hosts, "_"), func(t *testing.T) {
-			s := &ServiceEntryStore{}
+			s := &Controller{}
 			instances := s.convertServiceEntryToInstances(*tt.externalSvc, nil)
 			sortServiceInstances(instances)
 			sortServiceInstances(tt.out)
@@ -864,7 +882,7 @@ func TestConvertWorkloadEntryToServiceInstances(t *testing.T) {
 	for _, tt := range serviceInstanceTests {
 		t.Run(tt.name, func(t *testing.T) {
 			services := convertServices(*tt.se)
-			s := &ServiceEntryStore{}
+			s := &Controller{}
 			instances := s.convertWorkloadEntryToServiceInstances(tt.wle, services, tt.se.Spec.(*networking.ServiceEntry), &configKey{}, tt.clusterID)
 			sortServiceInstances(instances)
 			sortServiceInstances(tt.out)
@@ -886,55 +904,6 @@ func TestConvertWorkloadEntryToServiceInstances(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestConvertWorkloadInstanceToServiceInstance(t *testing.T) {
-	t.Run("External only: the port name of the workloadEntry and serviceEntry does match, "+
-		"serviceEntry's targetPort not equal workloadEntry's, use workloadEntry port to override", func(t *testing.T) {
-		services := []*model.Service{
-			makeService("workload.namespace.svc.cluster.local", "httpNone", constants.UnspecifiedIP,
-				map[string]int{"http-number": 80, "http2-number": 8080}, true, model.Passthrough),
-		}
-		workloadEntry := &model.WorkloadInstance{
-			Namespace: "namespace",
-			Kind:      model.WorkloadEntryKind,
-			Endpoint: &model.IstioEndpoint{
-				Labels: map[string]string{
-					"app": "foo",
-				},
-				Address:        "1.1.1.1",
-				ServiceAccount: "spiffe://cluster.local/ns/namespace/sa/scooby",
-				TLSMode:        "istio",
-				Namespace:      "namespace",
-				Locality: model.Locality{
-					ClusterID: cluster.ID("cluster"),
-				},
-			},
-			PortMap: map[string]uint32{
-				"http": 8082,
-			},
-		}
-		serviceEntry := networking.ServiceEntry{
-			Hosts: []string{"service.namespace.svc.cluster.local"},
-			Ports: []*networking.Port{
-				{
-					Name:     "http",
-					Number:   8080,
-					Protocol: "HTTP",
-				},
-			},
-			WorkloadSelector: &networking.WorkloadSelector{
-				Labels: map[string]string{
-					"app": "foo",
-				},
-			},
-			Resolution: networking.ServiceEntry_STATIC,
-		}
-		instance := convertWorkloadInstanceToServiceInstance(workloadEntry, services, &serviceEntry)
-		if err := compare(t, instance[0].Endpoint.EndpointPort, workloadEntry.PortMap["http"]); err != nil {
-			t.Errorf("%v", err)
-		}
-	})
 }
 
 func TestConvertWorkloadEntryToWorkloadInstance(t *testing.T) {
@@ -1249,7 +1218,7 @@ func TestConvertWorkloadEntryToWorkloadInstance(t *testing.T) {
 
 	for _, tt := range workloadInstanceTests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &ServiceEntryStore{getNetworkIDCb: tt.getNetworkIDCb}
+			s := &Controller{networkIDCallback: tt.getNetworkIDCb}
 			instance := s.convertWorkloadEntryToWorkloadInstance(tt.wle, cluster.ID(clusterID))
 			if err := compare(t, instance, tt.out); err != nil {
 				t.Fatal(err)

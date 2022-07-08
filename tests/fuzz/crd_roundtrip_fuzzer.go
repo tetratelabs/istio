@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// nolint: golint
 package fuzz
 
 import (
@@ -27,6 +26,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"google.golang.org/protobuf/testing/protocmp"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -79,7 +80,6 @@ func FuzzCRDRoundtrip(data []byte) int {
 		panic(fmt.Sprintf("%q is not a TypeMeta and cannot be tested - add it to nonRoundTrippableInternalTypes: %v\n", kgvk, err))
 	}
 	f := fuzz.NewConsumer(data[1:])
-	f.AllowUnexportedFields()
 	err = f.GenerateStruct(object)
 	if err != nil {
 		return 0
@@ -136,8 +136,8 @@ func roundTrip(codec runtime.Codec, object runtime.Object) {
 
 	// ensure that the object produced from decoding the encoded data is equal
 	// to the original object
-	if diff := cmp.Diff(obj2, obj3); diff != "" {
-		panic("These should not be different")
+	if diff := cmp.Diff(obj2, obj3, protocmp.Transform(), cmpopts.EquateNaNs()); diff != "" {
+		panic("These should not be different: " + diff)
 	}
 }
 

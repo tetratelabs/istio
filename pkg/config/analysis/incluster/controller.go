@@ -23,7 +23,8 @@ import (
 
 	v1alpha12 "istio.io/api/analysis/v1alpha1"
 	"istio.io/api/meta/v1alpha1"
-	"istio.io/istio/pilot/pkg/config/kube/arbitraryclient"
+	"istio.io/istio/pilot/pkg/config/kube/crdclient"
+	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/status"
 	"istio.io/istio/pkg/config/analysis/analyzers"
@@ -43,14 +44,13 @@ type Controller struct {
 	statusctl *status.Controller
 }
 
-func NewController(stop <-chan struct{}, rwConfigStore model.ConfigStoreCache,
+func NewController(stop <-chan struct{}, rwConfigStore model.ConfigStoreController,
 	kubeClient kube.Client, namespace string, statusManager *status.Manager, domainSuffix string) (*Controller, error) {
 	ia := local.NewIstiodAnalyzer(analyzers.AllCombined(),
 		"", resource.Namespace(namespace), func(name collection.Name) {}, true)
 	ia.AddSource(rwConfigStore)
-	ctx := status.NewIstioContext(stop)
-	// Filter out configs watched by rwConfigStore
-	store, err := arbitraryclient.NewForSchemas(ctx, kubeClient, "default",
+	// Filter out configs watched by rwConfigStore so we don't watch multiple times
+	store, err := crdclient.NewForSchemas(kubeClient, "default",
 		domainSuffix, collections.All.Remove(rwConfigStore.Schemas().All()...))
 	if err != nil {
 		return nil, fmt.Errorf("unable to load common types for analysis, releasing lease: %v", err)
@@ -75,7 +75,7 @@ func NewController(stop <-chan struct{}, rwConfigStore model.ConfigStoreCache,
 
 // Run is blocking
 func (c *Controller) Run(stop <-chan struct{}) {
-	t := time.NewTicker(10 * time.Second)
+	t := time.NewTicker(features.AnalysisInterval)
 	oldmsgs := diag.Messages{}
 	for {
 		select {

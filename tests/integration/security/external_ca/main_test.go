@@ -23,7 +23,8 @@ import (
 	csrctrl "istio.io/istio/pkg/test/csrctrl/controllers"
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/echo"
-	"istio.io/istio/pkg/test/framework/components/echo/echoboot"
+	"istio.io/istio/pkg/test/framework/components/echo/deployment"
+	"istio.io/istio/pkg/test/framework/components/echo/match"
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/framework/label"
@@ -59,7 +60,7 @@ func SetupApps(ctx resource.Context, apps *EchoDeployments) error {
 		return err
 	}
 
-	builder := echoboot.NewBuilder(ctx)
+	builder := deployment.New(ctx)
 	builder.
 		WithClusters(ctx.Clusters()...).
 		WithConfig(util.EchoConfig(ASvc, apps.Namespace, false, nil)).
@@ -69,8 +70,8 @@ func SetupApps(ctx resource.Context, apps *EchoDeployments) error {
 	if err != nil {
 		return err
 	}
-	apps.A = echos.Match(echo.Service(ASvc))
-	apps.B = echos.Match(echo.Service(BSvc))
+	apps.A = match.ServiceName(echo.NamespacedName{Name: ASvc, Namespace: apps.Namespace}).GetMatches(echos)
+	apps.B = match.ServiceName(echo.NamespacedName{Name: BSvc, Namespace: apps.Namespace}).GetMatches(echos)
 	return nil
 }
 

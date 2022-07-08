@@ -46,7 +46,6 @@ import (
 	istiogrpc "istio.io/istio/pilot/pkg/grpc"
 	"istio.io/istio/pilot/pkg/keycertbundle"
 	"istio.io/istio/pilot/pkg/model"
-	"istio.io/istio/pilot/pkg/networking/plugin"
 	"istio.io/istio/pilot/pkg/server"
 	"istio.io/istio/pilot/pkg/serviceregistry/aggregate"
 	kubecontroller "istio.io/istio/pilot/pkg/serviceregistry/kube/controller"
@@ -80,14 +79,6 @@ import (
 	"istio.io/pkg/version"
 )
 
-// DefaultPlugins is the default list of plugins to enable, when no plugin(s)
-// is specified through the command line
-var DefaultPlugins = []string{
-	plugin.AuthzCustom,
-	plugin.Authn,
-	plugin.Authz,
-}
-
 const (
 	// debounce file watcher events to minimize noise in logs
 	watchDebounceDelay = 100 * time.Millisecond
@@ -120,9 +111,9 @@ type Server struct {
 
 	multiclusterController *multicluster.Controller
 
-	configController  model.ConfigStoreCache
-	ConfigStores      []model.ConfigStoreCache
-	serviceEntryStore *serviceentry.ServiceEntryStore
+	configController       model.ConfigStoreController
+	ConfigStores           []model.ConfigStoreController
+	serviceEntryController *serviceentry.Controller
 
 	httpServer       *http.Server // debug, monitoring and readiness Server.
 	httpsServer      *http.Server // webhooks HTTPS Server.
@@ -168,9 +159,6 @@ type Server struct {
 	istiodCertBundleWatcher *keycertbundle.Watcher
 	server                  server.Instance
 
-	// requiredTerminations keeps track of components that should block server exit
-	// if they are not stopped. This allows important cleanup tasks to be completed.
-	// Note: this is still best effort; a process can die at any time.
 	readinessProbes map[string]readinessProbe
 
 	// duration used for graceful shutdown.
@@ -185,7 +173,7 @@ type Server struct {
 	statusReporter *distribution.Reporter
 	statusManager  *status.Manager
 	// RWConfigStore is the configstore which allows updates, particularly for status.
-	RWConfigStore model.ConfigStoreCache
+	RWConfigStore model.ConfigStoreController
 }
 
 // NewServer creates a new Server instance based on the provided arguments.
@@ -220,7 +208,7 @@ func NewServer(args *PilotArgs, initFuncs ...func(*Server)) (*Server, error) {
 	}
 	// Initialize workload Trust Bundle before XDS Server
 	e.TrustBundle = s.workloadTrustBundle
-	s.XDSServer = xds.NewDiscoveryServer(e, args.Plugins, args.PodName, args.Namespace, args.RegistryOptions.KubeOptions.ClusterAliases)
+	s.XDSServer = xds.NewDiscoveryServer(e, args.PodName, args.RegistryOptions.KubeOptions.ClusterAliases)
 
 	prometheus.EnableHandlingTimeHistogram()
 
@@ -301,7 +289,7 @@ func NewServer(args *PilotArgs, initFuncs ...func(*Server)) (*Server, error) {
 
 	whc := func() map[string]string {
 		if wh != nil {
-			return wh.Config.Templates
+			return wh.Config.RawTemplates
 		}
 		return map[string]string{}
 	}
@@ -369,13 +357,13 @@ func initOIDC(args *PilotArgs, trustDomain string) (security.Authenticator, erro
 	// JWTRule is from the JWT_RULE environment variable.
 	// An example of json string for JWTRule is:
 	// `{"issuer": "foo", "jwks_uri": "baz", "audiences": ["aud1", "aud2"]}`.
-	jwtRule := v1beta1.JWTRule{}
-	err := json.Unmarshal([]byte(args.JwtRule), &jwtRule)
+	jwtRule := &v1beta1.JWTRule{}
+	err := json.Unmarshal([]byte(args.JwtRule), jwtRule)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JWT rule: %v", err)
 	}
 	log.Infof("Istiod authenticating using JWTRule: %v", jwtRule)
-	jwtAuthn, err := authenticate.NewJwtAuthenticator(&jwtRule, trustDomain)
+	jwtAuthn, err := authenticate.NewJwtAuthenticator(jwtRule, trustDomain)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create the JWT authenticator: %v", err)
 	}
@@ -522,7 +510,7 @@ func (s *Server) initSDSServer() {
 		log.Warnf("skipping Kubernetes credential reader; PILOT_ENABLE_XDS_IDENTITY_CHECK must be set to true for this feature.")
 	} else {
 		creds := kubecredentials.NewMulticluster(s.clusterID)
-		creds.AddEventHandler(func(name string, namespace string) {
+		creds.AddSecretHandler(func(name string, namespace string) {
 			s.XDSServer.ConfigUpdate(&model.PushRequest{
 				Full: false,
 				ConfigsUpdated: map[model.ConfigKey]struct{}{
@@ -535,8 +523,11 @@ func (s *Server) initSDSServer() {
 				Reason: []model.TriggerReason{model.SecretTrigger},
 			})
 		})
-		s.XDSServer.Generators[v3.SecretType] = xds.NewSecretGen(creds, s.XDSServer.Cache, s.clusterID)
+		s.XDSServer.Generators[v3.SecretType] = xds.NewSecretGen(creds, s.XDSServer.Cache, s.clusterID, s.environment.Mesh())
 		s.multiclusterController.AddHandler(creds)
+		if ecdsGen, found := s.XDSServer.Generators[v3.ExtensionConfigurationType]; found {
+			ecdsGen.(*xds.EcdsGenerator).SetCredController(creds)
+		}
 	}
 }
 
@@ -642,7 +633,7 @@ func (s *Server) initIstiodAdminServer(args *PilotArgs, whc func() map[string]st
 	return nil
 }
 
-// initDiscoveryService intializes discovery server on plain text port.
+// initDiscoveryService initializes discovery server on plain text port.
 func (s *Server) initDiscoveryService(args *PilotArgs) {
 	log.Infof("starting discovery service")
 	// Implement EnvoyXdsServer grace shutdown
@@ -954,9 +945,12 @@ func (s *Server) initIstiodCerts(args *PilotArgs, host string) error {
 	// Append custom hostname if there is any
 	customHost := features.IstiodServiceCustomHost
 	s.dnsNames = []string{host}
-	if customHost != "" && customHost != host {
-		log.Infof("Adding custom hostname %s", customHost)
-		s.dnsNames = append(s.dnsNames, customHost)
+	cHosts := strings.Split(customHost, ",")
+	for _, cHost := range cHosts {
+		if cHost != "" && cHost != host {
+			log.Infof("Adding custom hostname %s", cHost)
+			s.dnsNames = append(s.dnsNames, cHost)
+		}
 	}
 
 	// The first is the recommended one, also used by Apiserver for webhooks.
@@ -970,10 +964,15 @@ func (s *Server) initIstiodCerts(args *PilotArgs, host string) error {
 
 	for _, altName := range knownHosts {
 		name := fmt.Sprintf("%v.%v.svc", altName, args.Namespace)
-		if name == host || name == customHost {
-			continue
+		exist := false
+		for _, cHost := range cHosts {
+			if name == host || name == cHost {
+				exist = true
+			}
 		}
-		s.dnsNames = append(s.dnsNames, name)
+		if !exist {
+			s.dnsNames = append(s.dnsNames, name)
+		}
 	}
 
 	if hasCustomTLSCerts(args.ServerOptions.TLSOptions) {

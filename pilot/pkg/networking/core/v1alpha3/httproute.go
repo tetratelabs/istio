@@ -22,21 +22,22 @@ import (
 
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	protobuf "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/core/v1alpha3/envoyfilter"
 	istio_route "istio.io/istio/pilot/pkg/networking/core/v1alpha3/route"
+	"istio.io/istio/pilot/pkg/networking/telemetry"
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
-	"istio.io/istio/pilot/pkg/util/sets"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/proto"
+	"istio.io/istio/pkg/util/sets"
 )
 
 const (
@@ -50,7 +51,7 @@ func (configgen *ConfigGeneratorImpl) BuildHTTPRoutes(
 	req *model.PushRequest,
 	routeNames []string,
 ) ([]*discovery.Resource, model.XdsLogDetails) {
-	routeConfigurations := make([]*discovery.Resource, 0)
+	var routeConfigurations model.Resources
 
 	efw := req.Push.EnvoyFilters(node)
 	hit, miss := 0, 0
@@ -100,25 +101,23 @@ func (configgen *ConfigGeneratorImpl) BuildHTTPRoutes(
 
 // buildSidecarInboundHTTPRouteConfig builds the route config with a single wildcard virtual host on the inbound path
 // TODO: trace decorators, inbound timeouts
-func (configgen *ConfigGeneratorImpl) buildSidecarInboundHTTPRouteConfig(
-	node *model.Proxy, push *model.PushContext, instance *model.ServiceInstance, clusterName string,
-) *route.RouteConfiguration {
-	traceOperation := util.TraceOperation(string(instance.Service.Hostname), instance.ServicePort.Port)
-	defaultRoute := istio_route.BuildDefaultHTTPInboundRoute(clusterName, traceOperation)
+func buildSidecarInboundHTTPRouteConfig(lb *ListenerBuilder, cc inboundChainConfig) *route.RouteConfiguration {
+	traceOperation := telemetry.TraceOperation(string(cc.telemetryMetadata.InstanceHostname), int(cc.port.Port))
+	defaultRoute := istio_route.BuildDefaultHTTPInboundRoute(cc.clusterName, traceOperation)
 
 	inboundVHost := &route.VirtualHost{
-		Name:    inboundVirtualHostPrefix + strconv.Itoa(instance.ServicePort.Port), // Format: "inbound|http|%d"
+		Name:    inboundVirtualHostPrefix + strconv.Itoa(int(cc.port.Port)), // Format: "inbound|http|%d"
 		Domains: []string{"*"},
 		Routes:  []*route.Route{defaultRoute},
 	}
 
 	r := &route.RouteConfiguration{
-		Name:             clusterName,
+		Name:             cc.clusterName,
 		VirtualHosts:     []*route.VirtualHost{inboundVHost},
 		ValidateClusters: proto.BoolFalse,
 	}
-	efw := push.EnvoyFilters(node)
-	r = envoyfilter.ApplyRouteConfigurationPatches(networking.EnvoyFilter_SIDECAR_INBOUND, node, efw, r)
+	efw := lb.push.EnvoyFilters(lb.node)
+	r = envoyfilter.ApplyRouteConfigurationPatches(networking.EnvoyFilter_SIDECAR_INBOUND, lb.node, efw, r)
 	return r
 }
 
@@ -177,7 +176,7 @@ func (configgen *ConfigGeneratorImpl) buildSidecarOutboundHTTPRouteConfig(
 		if resource != nil {
 			return resource, true
 		}
-		if useSniffing && listenerPort > 0 {
+		if listenerPort > 0 {
 			// only cache for tcp ports and not for uds
 			vHostCache[listenerPort] = virtualHosts
 		}
@@ -193,9 +192,7 @@ func (configgen *ConfigGeneratorImpl) buildSidecarOutboundHTTPRouteConfig(
 	util.SortVirtualHosts(virtualHosts)
 
 	if !useSniffing {
-		// virtualhost envoyfilter can mutate this sharing config.
-		catchAll := protobuf.Clone(node.CatchAllVirtualHost).(*route.VirtualHost)
-		virtualHosts = append(virtualHosts, catchAll)
+		virtualHosts = append(virtualHosts, buildCatchAllVirtualHost(node))
 	}
 
 	out := &route.RouteConfiguration{
@@ -294,13 +291,11 @@ func BuildSidecarOutboundVirtualHosts(node *model.Proxy, push *model.PushContext
 	}
 
 	servicesByName := make(map[host.Name]*model.Service)
-	hostsByNamespace := make(map[string][]host.Name)
 	for _, svc := range services {
 		if listenerPort == 0 {
 			// Take all ports when listen port is 0 (http_proxy or uds)
 			// Expect virtualServices to resolve to right port
 			servicesByName[svc.Hostname] = svc
-			hostsByNamespace[svc.Attributes.Namespace] = append(hostsByNamespace[svc.Attributes.Namespace], svc.Hostname)
 		} else if svcPort, exists := svc.Ports.GetByPort(listenerPort); exists {
 			servicesByName[svc.Hostname] = &model.Service{
 				Hostname:       svc.Hostname,
@@ -313,7 +308,6 @@ func BuildSidecarOutboundVirtualHosts(node *model.Proxy, push *model.PushContext
 					ServiceRegistry: svc.Attributes.ServiceRegistry,
 				},
 			}
-			hostsByNamespace[svc.Attributes.Namespace] = append(hostsByNamespace[svc.Attributes.Namespace], svc.Hostname)
 		}
 	}
 
@@ -409,7 +403,7 @@ func BuildSidecarOutboundVirtualHosts(node *model.Proxy, push *model.PushContext
 	for _, virtualHostWrapper := range virtualHostWrappers {
 		for _, svc := range virtualHostWrapper.Services {
 			name := util.DomainName(string(svc.Hostname), virtualHostWrapper.Port)
-			knownFQDN.Insert(name, string(svc.Hostname))
+			knownFQDN.InsertAll(name, string(svc.Hostname))
 		}
 	}
 
@@ -539,18 +533,8 @@ func generateVirtualHostDomains(service *model.Service, port int, node *model.Pr
 // - Given foo.local.campus.net on proxy domain "" or proxy domain example.com, this
 // function returns nil
 func GenerateAltVirtualHosts(hostname string, port int, proxyDomain string) []string {
-	// If the dns/proxy domain contains `.svc`, only services following the <ns>.svc.<suffix>
-	// naming convention and that share a suffix with the domain should be expanded.
 	if strings.Contains(proxyDomain, ".svc.") {
-
-		if strings.HasSuffix(hostname, removeSvcNamespace(proxyDomain)) {
-			return generateAltVirtualHostsForKubernetesService(hostname, port, proxyDomain)
-		}
-
-		// Hostname is not a kube service.  It is not safe to expand the
-		// hostname as non-fully-qualified names could conflict with expansion of other kube service
-		// hostnames
-		return nil
+		return generateAltVirtualHostsForKubernetesService(hostname, port, proxyDomain)
 	}
 
 	var vhosts []string
@@ -686,11 +670,62 @@ func getUniqueAndSharedDNSDomain(fqdnHostname, proxyDomain string) (partsUnique 
 	return
 }
 
-// Simply removes everything before .svc, if present
-func removeSvcNamespace(domain string) string {
-	if idx := strings.Index(domain, ".svc."); idx > 0 {
-		return domain[idx:]
+func buildCatchAllVirtualHost(node *model.Proxy) *route.VirtualHost {
+	if util.IsAllowAnyOutbound(node) {
+		egressCluster := util.PassthroughCluster
+		notimeout := durationpb.New(0)
+
+		// no need to check for nil value as the previous if check has checked
+		if node.SidecarScope.OutboundTrafficPolicy.EgressProxy != nil {
+			// user has provided an explicit destination for all the unknown traffic.
+			// build a cluster out of this destination
+			egressCluster = istio_route.GetDestinationCluster(node.SidecarScope.OutboundTrafficPolicy.EgressProxy,
+				nil, 0)
+		}
+
+		routeAction := &route.RouteAction{
+			ClusterSpecifier: &route.RouteAction_Cluster{Cluster: egressCluster},
+			// Disable timeout instead of assuming some defaults.
+			Timeout: notimeout,
+			// Use deprecated value for now as the replacement MaxStreamDuration has some regressions.
+			// nolint: staticcheck
+			MaxGrpcTimeout: notimeout,
+		}
+
+		return &route.VirtualHost{
+			Name:    util.Passthrough,
+			Domains: []string{"*"},
+			Routes: []*route.Route{
+				{
+					Name: util.Passthrough,
+					Match: &route.RouteMatch{
+						PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
+					},
+					Action: &route.Route_Route{
+						Route: routeAction,
+					},
+				},
+			},
+			IncludeRequestAttemptCount: true,
+		}
 	}
 
-	return domain
+	return &route.VirtualHost{
+		Name:    util.BlackHole,
+		Domains: []string{"*"},
+		Routes: []*route.Route{
+			{
+				Name: util.BlackHole,
+				Match: &route.RouteMatch{
+					PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
+				},
+				Action: &route.Route_DirectResponse{
+					DirectResponse: &route.DirectResponseAction{
+						Status: 502,
+					},
+				},
+			},
+		},
+		IncludeRequestAttemptCount: true,
+	}
 }

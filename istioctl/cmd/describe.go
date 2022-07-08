@@ -287,7 +287,7 @@ func printDestinationRule(writer io.Writer, dr *clientnetworking.DestinationRule
 }
 
 // httpRouteMatchSvc returns true if it matches and a slice of facts about the match
-func httpRouteMatchSvc(vs clientnetworking.VirtualService, route *v1alpha3.HTTPRoute, svc v1.Service, matchingSubsets []string, nonmatchingSubsets []string, dr *clientnetworking.DestinationRule) (bool, []string) { // nolint: lll
+func httpRouteMatchSvc(vs *clientnetworking.VirtualService, route *v1alpha3.HTTPRoute, svc v1.Service, matchingSubsets []string, nonmatchingSubsets []string, dr *clientnetworking.DestinationRule) (bool, []string) { // nolint: lll
 	svcHost := extendFQDN(fmt.Sprintf("%s.%s", svc.ObjectMeta.Name, svc.ObjectMeta.Namespace))
 	facts := []string{}
 	mismatchNotes := []string{}
@@ -349,7 +349,7 @@ func httpRouteMatchSvc(vs clientnetworking.VirtualService, route *v1alpha3.HTTPR
 	return match, facts
 }
 
-func tcpRouteMatchSvc(vs clientnetworking.VirtualService, route *v1alpha3.TCPRoute, svc v1.Service) (bool, []string) {
+func tcpRouteMatchSvc(vs *clientnetworking.VirtualService, route *v1alpha3.TCPRoute, svc v1.Service) (bool, []string) {
 	match := false
 	facts := []string{}
 	svcHost := extendFQDN(fmt.Sprintf("%s.%s", svc.ObjectMeta.Name, svc.ObjectMeta.Namespace))
@@ -555,7 +555,7 @@ func (v *myProtoValue) keyAsStruct(key string) *myProtoValue {
 	return &myProtoValue{v.GetStructValue().Fields[key]}
 }
 
-// asMyProtoValue wraps a gogo Struct so we may use it with keyAsStruct and keyAsString
+// asMyProtoValue wraps a protobuf Struct so we may use it with keyAsStruct and keyAsString
 func asMyProtoValue(s *structpb.Struct) *myProtoValue {
 	return &myProtoValue{
 		&structpb.Value{
@@ -804,7 +804,7 @@ func getIstioDestinationRulePathForSvc(cd *configdump.Wrapper, svc v1.Service, p
 
 // TODO simplify this by showing for each matching Destination the negation of the previous HttpMatchRequest
 // and showing the non-matching Destinations.  (The current code is ad-hoc, and usually shows most of that information.)
-func printVirtualService(writer io.Writer, vs clientnetworking.VirtualService, svc v1.Service, matchingSubsets []string, nonmatchingSubsets []string, dr *clientnetworking.DestinationRule) { // nolint: lll
+func printVirtualService(writer io.Writer, vs *clientnetworking.VirtualService, svc v1.Service, matchingSubsets []string, nonmatchingSubsets []string, dr *clientnetworking.DestinationRule) { // nolint: lll
 	fmt.Fprintf(writer, "VirtualService: %s\n", kname(vs.ObjectMeta))
 
 	// There is no point in checking that 'port' uses HTTP (for HTTP route matches)
@@ -947,7 +947,7 @@ func printIngressInfo(writer io.Writer, matchingServices []v1.Service, podsLabel
 					}
 
 					printIngressService(writer, &ingressSvcs.Items[0], &pod, ipIngress)
-					printVirtualService(writer, *vs, svc, matchingSubsets, nonmatchingSubsets, dr)
+					printVirtualService(writer, vs, svc, matchingSubsets, nonmatchingSubsets, dr)
 				} else {
 					fmt.Fprintf(writer,
 						"WARNING: Proxy is stale; it references to non-existent virtual service %s.%s\n",
@@ -1178,7 +1178,7 @@ func describePodServices(writer io.Writer, kubeClient kube.ExtendedClient, confi
 						// If there is more than one port, prefix each DR by the port it applies to
 						fmt.Fprintf(writer, "%d ", port.Port)
 					}
-					printVirtualService(writer, *vs, svc, matchingSubsets, nonmatchingSubsets, dr)
+					printVirtualService(writer, vs, svc, matchingSubsets, nonmatchingSubsets, dr)
 				} else {
 					fmt.Fprintf(writer,
 						"WARNING: Proxy is stale; it references to non-existent virtual service %s.%s\n",
@@ -1237,7 +1237,7 @@ func describePeerAuthentication(writer io.Writer, kubeClient kube.ExtendedClient
 	var cfgs []*config.Config
 	for _, pa := range allPAs {
 		pa := pa
-		cfg := crdclient.TranslateObject(&pa, config.GroupVersionKind(pa.GroupVersionKind()), "")
+		cfg := crdclient.TranslateObject(pa, config.GroupVersionKind(pa.GroupVersionKind()), "")
 		cfgs = append(cfgs, &cfg)
 	}
 
@@ -1295,10 +1295,10 @@ func printConfigs(writer io.Writer, configs []*config.Config) {
 }
 
 func printPeerAuthentication(writer io.Writer, pa *v1beta1.PeerAuthentication) {
-	fmt.Fprintf(writer, "Effectve PeerAuthentication:\n")
-	fmt.Fprintf(writer, "   Workload mTLS: %s\n", pa.Mtls.Mode.String())
+	fmt.Fprintf(writer, "Effective PeerAuthentication:\n")
+	fmt.Fprintf(writer, "   Workload mTLS mode: %s\n", pa.Mtls.Mode.String())
 	if len(pa.PortLevelMtls) != 0 {
-		fmt.Fprintf(writer, "   Port Level mTLS:\n")
+		fmt.Fprintf(writer, "   Port Level mTLS mode:\n")
 		for port, mode := range pa.PortLevelMtls {
 			fmt.Fprintf(writer, "      %d: %s\n", port, mode.Mode.String())
 		}

@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/protobuf/testing/protocmp"
 
 	"istio.io/istio/pkg/test"
@@ -26,12 +27,12 @@ import (
 // Equal
 func Equal(t test.Failer, a, b interface{}, context ...string) {
 	t.Helper()
-	if !cmp.Equal(a, b, protocmp.Transform()) {
+	if !cmp.Equal(a, b, protocmp.Transform(), cmpopts.EquateEmpty()) {
 		cs := ""
 		if len(context) > 0 {
 			cs = " " + strings.Join(context, ", ") + ":"
 		}
-		t.Fatal("found diff:%s %v", cs, cmp.Diff(a, b, protocmp.Transform()))
+		t.Fatalf("found diff:%s %v", cs, cmp.Diff(a, b, protocmp.Transform()))
 	}
 }
 

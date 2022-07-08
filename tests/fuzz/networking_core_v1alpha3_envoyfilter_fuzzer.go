@@ -15,18 +15,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// nolint: golint
 package envoyfilter
 
 import (
+	fuzz "github.com/AdaLogics/go-fuzz-headers"
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry/memory"
 	"istio.io/istio/pkg/config/host"
-
-	fuzz "github.com/AdaLogics/go-fuzz-headers"
 )
 
 func InternalFuzzApplyClusterMerge(data []byte) int {
@@ -54,10 +53,13 @@ func InternalFuzzApplyClusterMerge(data []byte) int {
 	if err != nil {
 		return 0
 	}
+	if !proxyValid(proxy) {
+		return 0
+	}
 
 	// crete mesh config
-	testMesh := meshconfig.MeshConfig{}
-	err = f.GenerateStruct(&testMesh)
+	testMesh := &meshconfig.MeshConfig{}
+	err = f.GenerateStruct(testMesh)
 	if err != nil {
 		return 0
 	}
@@ -74,7 +76,7 @@ func InternalFuzzApplyClusterMerge(data []byte) int {
 		return 0
 	}
 
-	serviceDiscovery := memory.NewServiceDiscovery(nil)
+	serviceDiscovery := memory.NewServiceDiscovery()
 	env := newTestEnvironment(serviceDiscovery, testMesh, buildEnvoyFilterConfigStore(configPatches))
 	push := model.NewPushContext()
 	push.InitContext(env, nil, nil)

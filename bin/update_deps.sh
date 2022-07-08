@@ -16,7 +16,7 @@
 
 set -e
 
-UPDATE_BRANCH=${UPDATE_BRANCH:-"master"}
+UPDATE_BRANCH=${UPDATE_BRANCH:-"release-1.14"}
 
 SCRIPTPATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ROOTDIR=$(dirname "${SCRIPTPATH}")
@@ -40,7 +40,6 @@ make update-common
 export GO111MODULE=on
 go get -u "istio.io/api@${UPDATE_BRANCH}"
 go get -u "istio.io/client-go@${UPDATE_BRANCH}"
-go get -u "istio.io/gogo-genproto@${UPDATE_BRANCH}"
 go get -u "istio.io/pkg@${UPDATE_BRANCH}"
 go mod tidy
 

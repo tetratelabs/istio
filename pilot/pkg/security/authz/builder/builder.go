@@ -28,11 +28,9 @@ import (
 
 	"istio.io/api/annotation"
 	"istio.io/istio/pilot/pkg/model"
-	"istio.io/istio/pilot/pkg/networking/plugin"
 	"istio.io/istio/pilot/pkg/networking/util"
 	authzmodel "istio.io/istio/pilot/pkg/security/authz/model"
 	"istio.io/istio/pilot/pkg/security/trustdomain"
-	"istio.io/istio/pkg/config/labels"
 )
 
 var rbacPolicyMatchNever = &rbacpb.Policy{
@@ -63,25 +61,21 @@ type Builder struct {
 	denyPolicies  []model.AuthorizationPolicy
 	allowPolicies []model.AuthorizationPolicy
 	auditPolicies []model.AuthorizationPolicy
-
-	isIstioVersionGE112 bool
 }
 
 // New returns a new builder for the given workload with the authorization policy.
 // Returns nil if none of the authorization policies are enabled for the workload.
-func New(trustDomainBundle trustdomain.Bundle, in *plugin.InputParams, option Option) *Builder {
-	policies := in.Push.AuthzPolicies.ListAuthorizationPolicies(in.Node.ConfigNamespace, labels.Collection{in.Node.Metadata.Labels})
+func New(trustDomainBundle trustdomain.Bundle, push *model.PushContext, policies model.AuthorizationPoliciesResult, option Option) *Builder {
 	if option.IsCustomBuilder {
 		option.Logger.AppendDebugf("found %d CUSTOM actions", len(policies.Custom))
 		if len(policies.Custom) == 0 {
 			return nil
 		}
 		return &Builder{
-			customPolicies:      policies.Custom,
-			extensions:          processExtensionProvider(in),
-			trustDomainBundle:   trustDomainBundle,
-			option:              option,
-			isIstioVersionGE112: util.IsIstioVersionGE112(in.Node.IstioVersion),
+			customPolicies:    policies.Custom,
+			extensions:        processExtensionProvider(push),
+			trustDomainBundle: trustDomainBundle,
+			option:            option,
 		}
 	}
 
@@ -90,12 +84,11 @@ func New(trustDomainBundle trustdomain.Bundle, in *plugin.InputParams, option Op
 		return nil
 	}
 	return &Builder{
-		denyPolicies:        policies.Deny,
-		allowPolicies:       policies.Allow,
-		auditPolicies:       policies.Audit,
-		trustDomainBundle:   trustDomainBundle,
-		option:              option,
-		isIstioVersionGE112: util.IsIstioVersionGE112(in.Node.IstioVersion),
+		denyPolicies:      policies.Deny,
+		allowPolicies:     policies.Allow,
+		auditPolicies:     policies.Audit,
+		trustDomainBundle: trustDomainBundle,
+		option:            option,
 	}
 }
 
@@ -219,7 +212,7 @@ func (b Builder) build(policies []model.AuthorizationPolicy, action rbacpb.RBAC_
 				b.option.Logger.AppendError(fmt.Errorf("skipped nil rule %s", name))
 				continue
 			}
-			m, err := authzmodel.New(rule, b.isIstioVersionGE112)
+			m, err := authzmodel.New(rule)
 			if err != nil {
 				b.option.Logger.AppendError(multierror.Prefix(err, fmt.Sprintf("skipped invalid rule %s:", name)))
 				continue

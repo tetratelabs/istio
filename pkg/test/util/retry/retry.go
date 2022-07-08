@@ -39,7 +39,7 @@ const (
 var defaultConfig = config{
 	timeout:  DefaultTimeout,
 	delay:    DefaultDelay,
-	delayMax: DefaultDelay,
+	delayMax: DefaultDelay * 16,
 	converge: DefaultConverge,
 }
 
@@ -72,7 +72,7 @@ func Delay(delay time.Duration) Option {
 func BackoffDelay(delay time.Duration) Option {
 	return func(cfg *config) {
 		cfg.delay = delay
-		// Currently, hardcode to 4 backoffs. We can make it configurable if needed
+		// Currently, hardcode to 16 backoffs. We can make it configurable if needed
 		cfg.delayMax = delay * 16
 	}
 }
@@ -185,9 +185,8 @@ func UntilComplete(fn RetriableFunc, options ...Option) (interface{}, error) {
 
 			// Skip delay if we have a success
 			continue
-		} else {
-			successes = 0
 		}
+		successes = 0
 		if err != nil {
 			scope.Debugf("encountered an error on attempt %d: %v", attempts, err)
 			lasterr = err
@@ -206,6 +205,5 @@ func UntilComplete(fn RetriableFunc, options ...Option) (interface{}, error) {
 				delay = cfg.delayMax
 			}
 		}
-
 	}
 }

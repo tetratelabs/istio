@@ -27,12 +27,23 @@ import (
 	networking "istio.io/istio/pilot/pkg/networking/core/v1alpha3"
 	"istio.io/istio/pilot/pkg/networking/core/v1alpha3/loadbalancer"
 	"istio.io/istio/pilot/pkg/networking/util"
-	"istio.io/istio/pilot/pkg/util/sets"
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
 	"istio.io/istio/pkg/config"
-	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/config/schema/gvk"
+	"istio.io/istio/pkg/util/sets"
+)
+
+// PushType is an enumeration that decides what type push we should do when we get EDS update.
+type PushType int
+
+const (
+	// NoPush does not push any thing.
+	NoPush PushType = iota
+	// IncrementalPush just pushes endpoints.
+	IncrementalPush
+	// FullPush triggers full push - typically used for new services.
+	FullPush
 )
 
 // UpdateServiceShards will list the endpoints and create the shards.
@@ -48,7 +59,7 @@ func (s *DiscoveryServer) UpdateServiceShards(push *model.PushContext) error {
 	}
 	// Each registry acts as a shard - we don't want to combine them because some
 	// may individually update their endpoints incrementally
-	for _, svc := range push.Services(nil) {
+	for _, svc := range push.GetAllServices() {
 		for _, registry := range registries {
 			// skip the service in case this svc does not belong to the registry.
 			if svc.Attributes.ServiceRegistry != registry.Provider() {
@@ -61,7 +72,7 @@ func (s *DiscoveryServer) UpdateServiceShards(push *model.PushContext) error {
 				}
 
 				// This loses track of grouping (shards)
-				for _, inst := range registry.InstancesByPort(svc, port.Port, labels.Collection{}) {
+				for _, inst := range registry.InstancesByPort(svc, port.Port, nil) {
 					endpoints = append(endpoints, inst.Endpoint)
 				}
 			}
@@ -75,11 +86,11 @@ func (s *DiscoveryServer) UpdateServiceShards(push *model.PushContext) error {
 
 // SvcUpdate is a callback from service discovery when service info changes.
 func (s *DiscoveryServer) SvcUpdate(shard model.ShardKey, hostname string, namespace string, event model.Event) {
-	// When a service deleted, we should cleanup the endpoint shards and also remove keys from EndpointShardsByService to
+	// When a service deleted, we should cleanup the endpoint shards and also remove keys from EndpointIndex to
 	// prevent memory leaks.
 	if event == model.EventDelete {
 		inboundServiceDeletes.Increment()
-		s.deleteService(shard, hostname, namespace)
+		s.EndpointIndex.DeleteServiceShard(shard, hostname, namespace, false)
 	} else {
 		inboundServiceUpdates.Increment()
 	}
@@ -94,17 +105,19 @@ func (s *DiscoveryServer) EDSUpdate(shard model.ShardKey, serviceName string, na
 	istioEndpoints []*model.IstioEndpoint) {
 	inboundEDSUpdates.Increment()
 	// Update the endpoint shards
-	fp := s.edsCacheUpdate(shard, serviceName, namespace, istioEndpoints)
-	// Trigger a push
-	s.ConfigUpdate(&model.PushRequest{
-		Full: fp,
-		ConfigsUpdated: map[model.ConfigKey]struct{}{{
-			Kind:      gvk.ServiceEntry,
-			Name:      serviceName,
-			Namespace: namespace,
-		}: {}},
-		Reason: []model.TriggerReason{model.EndpointUpdate},
-	})
+	pushType := s.edsCacheUpdate(shard, serviceName, namespace, istioEndpoints)
+	if pushType == IncrementalPush || pushType == FullPush {
+		// Trigger a push
+		s.ConfigUpdate(&model.PushRequest{
+			Full: pushType == FullPush,
+			ConfigsUpdated: map[model.ConfigKey]struct{}{{
+				Kind:      gvk.ServiceEntry,
+				Name:      serviceName,
+				Namespace: namespace,
+			}: {}},
+			Reason: []model.TriggerReason{model.EndpointUpdate},
+		})
+	}
 }
 
 // EDSCacheUpdate computes destination address membership across all clusters and networks.
@@ -122,32 +135,94 @@ func (s *DiscoveryServer) EDSCacheUpdate(shard model.ShardKey, serviceName strin
 }
 
 // edsCacheUpdate updates EndpointShards data by clusterID, hostname, IstioEndpoints.
-// It also tracks the changes to ServiceAccounts. It returns whether a full push
-// is needed or incremental push is sufficient.
-func (s *DiscoveryServer) edsCacheUpdate(shard model.ShardKey, hostname string, namespace string, istioEndpoints []*model.IstioEndpoint) bool {
+// It also tracks the changes to ServiceAccounts. It returns whether endpoints need to be pushed and
+// it also returns if they need to be pushed whether a full push is needed or incremental push is sufficient.
+func (s *DiscoveryServer) edsCacheUpdate(shard model.ShardKey, hostname string, namespace string,
+	istioEndpoints []*model.IstioEndpoint) PushType {
 	if len(istioEndpoints) == 0 {
 		// Should delete the service EndpointShards when endpoints become zero to prevent memory leak,
-		// but we should not delete the keys from EndpointShardsByService map - that will trigger
+		// but we should not delete the keys from EndpointIndex map - that will trigger
 		// unnecessary full push which can become a real problem if a pod is in crashloop and thus endpoints
 		// flip flopping between 1 and 0.
-		s.deleteEndpointShards(shard, hostname, namespace)
+		s.EndpointIndex.DeleteServiceShard(shard, hostname, namespace, true)
 		log.Infof("Incremental push, service %s at shard %v has no endpoints", hostname, shard)
-		return false
+		return IncrementalPush
 	}
 
-	fullPush := false
+	pushType := IncrementalPush
 	// Find endpoint shard for this service, if it is available - otherwise create a new one.
-	ep, created := s.getOrCreateEndpointShard(hostname, namespace)
+	ep, created := s.EndpointIndex.GetOrCreateEndpointShard(hostname, namespace)
 	// If we create a new endpoint shard, that means we have not seen the service earlier. We should do a full push.
 	if created {
 		log.Infof("Full push, new service %s/%s", namespace, hostname)
-		fullPush = true
+		pushType = FullPush
 	}
 
-	ep.mutex.Lock()
-	ep.Shards[shard] = istioEndpoints
+	ep.Lock()
+	defer ep.Unlock()
+	newIstioEndpoints := istioEndpoints
+	if features.SendUnhealthyEndpoints {
+		oldIstioEndpoints := ep.Shards[shard]
+		newIstioEndpoints = make([]*model.IstioEndpoint, 0, len(istioEndpoints))
+
+		// Check if new Endpoints are ready to be pushed. This check
+		// will ensure that if a new pod comes with a non ready endpoint,
+		// we do not unnecessarily push that config to Envoy.
+		// Please note that address is not a unique key. So this may not accurately
+		// identify based on health status and push too many times - which is ok since its an optimization.
+		emap := make(map[string]*model.IstioEndpoint, len(oldIstioEndpoints))
+		nmap := make(map[string]*model.IstioEndpoint, len(newIstioEndpoints))
+		// Add new endpoints only if they are ever ready once to shards
+		// so that full push does not send them from shards.
+		for _, oie := range oldIstioEndpoints {
+			emap[oie.Address] = oie
+		}
+		for _, nie := range istioEndpoints {
+			nmap[nie.Address] = nie
+		}
+		needPush := false
+		for _, nie := range istioEndpoints {
+			if oie, exists := emap[nie.Address]; exists {
+				// If endpoint exists already, we should push if it's health status changes.
+				if oie.HealthStatus != nie.HealthStatus {
+					needPush = true
+				}
+				newIstioEndpoints = append(newIstioEndpoints, nie)
+			} else if nie.HealthStatus == model.Healthy {
+				// If the endpoint does not exist in shards that means it is a
+				// new endpoint. Only send if it is healthy to avoid pushing endpoints
+				// that are not ready to start with.
+				needPush = true
+				newIstioEndpoints = append(newIstioEndpoints, nie)
+			}
+		}
+		// Next, check for endpoints that were in old but no longer exist. If there are any, there is a
+		// removal so we need to push an update.
+		for _, oie := range oldIstioEndpoints {
+			if _, f := nmap[oie.Address]; !f {
+				needPush = true
+			}
+		}
+
+		if pushType != FullPush && !needPush {
+			log.Debugf("No push, either old endpoint health status did not change or new endpoint came with unhealthy status, %v", hostname)
+			pushType = NoPush
+		}
+
+	}
+
+	ep.Shards[shard] = newIstioEndpoints
+
 	// Check if ServiceAccounts have changed. We should do a full push if they have changed.
 	saUpdated := s.UpdateServiceAccount(ep, hostname)
+
+	// For existing endpoints, we need to do full push if service accounts change.
+	if saUpdated && pushType != FullPush {
+		// Avoid extra logging if already a full push
+		log.Infof("Full push, service accounts changed, %v", hostname)
+		pushType = FullPush
+	}
+
 	// Clear the cache here. While it would likely be cleared later when we trigger a push, a race
 	// condition is introduced where an XDS response may be generated before the update, but not
 	// completed until after a response after the update. Essentially, we transition from v0 -> v1 ->
@@ -160,115 +235,17 @@ func (s *DiscoveryServer) edsCacheUpdate(shard model.ShardKey, hostname string, 
 		Name:      hostname,
 		Namespace: namespace,
 	}: {}})
-	ep.mutex.Unlock()
 
-	// For existing endpoints, we need to do full push if service accounts change.
-	if saUpdated {
-		log.Infof("Full push, service accounts changed, %v", hostname)
-		fullPush = true
-	}
-	return fullPush
+	return pushType
 }
 
 func (s *DiscoveryServer) RemoveShard(shardKey model.ShardKey) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	for svc, shardsByNamespace := range s.EndpointShardsByService {
-		for ns := range shardsByNamespace {
-			s.deleteServiceInner(shardKey, svc, ns)
-		}
-	}
-	s.Cache.ClearAll()
-}
-
-func (s *DiscoveryServer) getOrCreateEndpointShard(serviceName, namespace string) (*EndpointShards, bool) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	if _, exists := s.EndpointShardsByService[serviceName]; !exists {
-		s.EndpointShardsByService[serviceName] = map[string]*EndpointShards{}
-	}
-	if ep, exists := s.EndpointShardsByService[serviceName][namespace]; exists {
-		return ep, false
-	}
-	// This endpoint is for a service that was not previously loaded.
-	ep := &EndpointShards{
-		Shards:          map[model.ShardKey][]*model.IstioEndpoint{},
-		ServiceAccounts: sets.Set{},
-	}
-	s.EndpointShardsByService[serviceName][namespace] = ep
-	// Clear the cache here to avoid race in cache writes (see edsCacheUpdate for details).
-	s.Cache.Clear(map[model.ConfigKey]struct{}{{
-		Kind:      gvk.ServiceEntry,
-		Name:      serviceName,
-		Namespace: namespace,
-	}: {}})
-	return ep, true
-}
-
-// deleteEndpointShards deletes matching endpoint shards from EndpointShardsByService map. This is called when
-// endpoints are deleted.
-func (s *DiscoveryServer) deleteEndpointShards(shard model.ShardKey, serviceName, namespace string) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if s.EndpointShardsByService[serviceName] != nil &&
-		s.EndpointShardsByService[serviceName][namespace] != nil {
-		epShards := s.EndpointShardsByService[serviceName][namespace]
-		epShards.mutex.Lock()
-		delete(epShards.Shards, shard)
-		epShards.ServiceAccounts = sets.Set{}
-		for _, shard := range epShards.Shards {
-			for _, ep := range shard {
-				if ep.ServiceAccount != "" {
-					epShards.ServiceAccounts.Insert(ep.ServiceAccount)
-				}
-			}
-		}
-		// Clear the cache here to avoid race in cache writes (see edsCacheUpdate for details).
-		s.Cache.Clear(map[model.ConfigKey]struct{}{{
-			Kind:      gvk.ServiceEntry,
-			Name:      serviceName,
-			Namespace: namespace,
-		}: {}})
-		epShards.mutex.Unlock()
-	}
-}
-
-// deleteService deletes all service related references from EndpointShardsByService. This is called
-// when a service is deleted.
-func (s *DiscoveryServer) deleteService(shard model.ShardKey, serviceName, namespace string) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	s.deleteServiceInner(shard, serviceName, namespace)
-}
-
-func (s *DiscoveryServer) deleteServiceInner(shard model.ShardKey, serviceName, namespace string) {
-	if s.EndpointShardsByService[serviceName] != nil &&
-		s.EndpointShardsByService[serviceName][namespace] != nil {
-		epShards := s.EndpointShardsByService[serviceName][namespace]
-		epShards.mutex.Lock()
-		delete(epShards.Shards, shard)
-		shardsLen := len(epShards.Shards)
-		s.UpdateServiceAccount(epShards, serviceName)
-		// Clear the cache here to avoid race in cache writes (see edsCacheUpdate for details).
-		s.Cache.Clear(map[model.ConfigKey]struct{}{{
-			Kind:      gvk.ServiceEntry,
-			Name:      serviceName,
-			Namespace: namespace,
-		}: {}})
-		epShards.mutex.Unlock()
-		if shardsLen == 0 {
-			delete(s.EndpointShardsByService[serviceName], namespace)
-		}
-		if len(s.EndpointShardsByService[serviceName]) == 0 {
-			delete(s.EndpointShardsByService, serviceName)
-		}
-	}
+	s.EndpointIndex.DeleteShard(shardKey)
 }
 
 // UpdateServiceAccount updates the service endpoints' sa when service/endpoint event happens.
 // Note: it is not concurrent safe.
-func (s *DiscoveryServer) UpdateServiceAccount(shards *EndpointShards, serviceName string) bool {
+func (s *DiscoveryServer) UpdateServiceAccount(shards *model.EndpointShards, serviceName string) bool {
 	oldServiceAccount := shards.ServiceAccounts
 	serviceAccounts := sets.Set{}
 	for _, epShards := range shards.Shards {
@@ -318,9 +295,7 @@ func (s *DiscoveryServer) llbEndpointAndOptionsForCluster(b EndpointBuilder) ([]
 		return nil, nil
 	}
 
-	s.mutex.RLock()
-	epShards, f := s.EndpointShardsByService[string(b.hostname)][b.service.Attributes.Namespace]
-	s.mutex.RUnlock()
+	epShards, f := s.EndpointIndex.ShardsForService(string(b.hostname), b.service.Attributes.Namespace)
 	if !f {
 		// Shouldn't happen here
 		log.Debugf("can not find the endpointShards for cluster %s", b.clusterName)
@@ -388,6 +363,7 @@ var skippedEdsConfigs = map[config.GroupVersionKind]struct{}{
 	gvk.Secret:                {},
 	gvk.Telemetry:             {},
 	gvk.WasmPlugin:            {},
+	gvk.ProxyConfig:           {},
 }
 
 func edsNeedsPush(updates model.XdsUpdates) bool {
@@ -403,12 +379,11 @@ func edsNeedsPush(updates model.XdsUpdates) bool {
 	return false
 }
 
-func (eds *EdsGenerator) Generate(proxy *model.Proxy, push *model.PushContext, w *model.WatchedResource,
-	req *model.PushRequest) (model.Resources, model.XdsLogDetails, error) {
+func (eds *EdsGenerator) Generate(proxy *model.Proxy, w *model.WatchedResource, req *model.PushRequest) (model.Resources, model.XdsLogDetails, error) {
 	if !edsNeedsPush(req.ConfigsUpdated) {
 		return nil, model.DefaultXdsLogDetails, nil
 	}
-	resources, logDetails := eds.buildEndpoints(proxy, push, req, w)
+	resources, logDetails := eds.buildEndpoints(proxy, req, w)
 	return resources, logDetails, nil
 }
 
@@ -464,31 +439,33 @@ func buildEmptyClusterLoadAssignment(clusterName string) *endpoint.ClusterLoadAs
 	}
 }
 
-func (eds *EdsGenerator) GenerateDeltas(proxy *model.Proxy, push *model.PushContext, req *model.PushRequest,
+func (eds *EdsGenerator) GenerateDeltas(proxy *model.Proxy, req *model.PushRequest,
 	w *model.WatchedResource) (model.Resources, model.DeletedResources, model.XdsLogDetails, bool, error) {
 	if !edsNeedsPush(req.ConfigsUpdated) {
 		return nil, nil, model.DefaultXdsLogDetails, false, nil
 	}
 	if !shouldUseDeltaEds(req) {
-		resources, logDetails := eds.buildEndpoints(proxy, push, req, w)
+		resources, logDetails := eds.buildEndpoints(proxy, req, w)
 		return resources, nil, logDetails, false, nil
 	}
 
-	resources, removed, logs := eds.buildDeltaEndpoints(proxy, push, req, w)
+	resources, removed, logs := eds.buildDeltaEndpoints(proxy, req, w)
 	return resources, removed, logs, true, nil
 }
-
-// deltaConfigTypes are used to detect changes and trigger delta calculations. When config updates has ONLY entries
-// in this map, then delta calculation is triggered.
-var deltaConfigTypes = sets.NewSet(gvk.ServiceEntry.Kind)
 
 func shouldUseDeltaEds(req *model.PushRequest) bool {
 	if !req.Full {
 		return false
 	}
+	return onlyEndpointsChanged(req)
+}
+
+// onlyEndpointsChanged checks if a request contains *only* endpoints updates. This allows us to perform more efficient pushes
+// where we only update the endpoints that did change.
+func onlyEndpointsChanged(req *model.PushRequest) bool {
 	if len(req.ConfigsUpdated) > 0 {
 		for k := range req.ConfigsUpdated {
-			if !deltaConfigTypes.Contains(k.Kind.Kind) {
+			if k.Kind != gvk.ServiceEntry {
 				return false
 			}
 		}
@@ -498,14 +475,19 @@ func shouldUseDeltaEds(req *model.PushRequest) bool {
 }
 
 func (eds *EdsGenerator) buildEndpoints(proxy *model.Proxy,
-	push *model.PushContext,
 	req *model.PushRequest,
 	w *model.WatchedResource) (model.Resources, model.XdsLogDetails) {
 	var edsUpdatedServices map[string]struct{}
-	if !req.Full {
+	// canSendPartialFullPushes determines if we can send a partial push (ie a subset of known CLAs).
+	// This is safe when only Services has changed, as this implies that only the CLAs for the
+	// associated Service changed. Note when a multi-network Service changes it triggers a push with
+	// ConfigsUpdated=ALL, so in this case we would not enable a partial push.
+	// Despite this code existing on the SotW code path, sending these partial pushes is still allowed;
+	// see https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol#grouping-resources-into-responses
+	if !req.Full || (features.PartialFullPushes && onlyEndpointsChanged(req)) {
 		edsUpdatedServices = model.ConfigNamesOfKind(req.ConfigsUpdated, gvk.ServiceEntry)
 	}
-	resources := make(model.Resources, 0)
+	var resources model.Resources
 	empty := 0
 	cached := 0
 	regenerated := 0
@@ -518,7 +500,7 @@ func (eds *EdsGenerator) buildEndpoints(proxy *model.Proxy,
 				continue
 			}
 		}
-		builder := NewEndpointBuilder(clusterName, proxy, push)
+		builder := NewEndpointBuilder(clusterName, proxy, req.Push)
 		if marshalledEndpoint, f := eds.Server.Cache.Get(builder); f && !features.EnableUnsafeAssertions {
 			// We skip cache if assertions are enabled, so that the cache will assert our eviction logic is correct
 			resources = append(resources, marshalledEndpoint)
@@ -549,7 +531,6 @@ func (eds *EdsGenerator) buildEndpoints(proxy *model.Proxy,
 
 // TODO(@hzxuzhonghu): merge with buildEndpoints
 func (eds *EdsGenerator) buildDeltaEndpoints(proxy *model.Proxy,
-	push *model.PushContext,
 	req *model.PushRequest,
 	w *model.WatchedResource) (model.Resources, []string, model.XdsLogDetails) {
 	edsUpdatedServices := model.ConfigNamesOfKind(req.ConfigsUpdated, gvk.ServiceEntry)
@@ -566,19 +547,20 @@ func (eds *EdsGenerator) buildDeltaEndpoints(proxy *model.Proxy,
 			continue
 		}
 
-		builder := NewEndpointBuilder(clusterName, proxy, push)
+		builder := NewEndpointBuilder(clusterName, proxy, req.Push)
+		// if a service is not found, it means the cluster is removed
+		if builder.service == nil {
+			removed = append(removed, clusterName)
+			continue
+		}
 		if marshalledEndpoint, f := eds.Server.Cache.Get(builder); f && !features.EnableUnsafeAssertions {
 			// We skip cache if assertions are enabled, so that the cache will assert our eviction logic is correct
 			resources = append(resources, marshalledEndpoint)
 			cached++
 		} else {
-			// if a service is not found, it means the cluster is removed
-			if builder.service == nil {
-				removed = append(removed, clusterName)
-				continue
-			}
 			l := eds.Server.generateEndpoints(builder)
 			if l == nil {
+				removed = append(removed, clusterName)
 				continue
 			}
 			regenerated++

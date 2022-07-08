@@ -18,8 +18,6 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/hashicorp/go-multierror"
-
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry"
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
@@ -162,21 +160,15 @@ func (c *Controller) getRegistryIndex(clusterID cluster.ID, provider provider.ID
 }
 
 // Services lists services from all platforms
-func (c *Controller) Services() ([]*model.Service, error) {
+func (c *Controller) Services() []*model.Service {
 	// smap is a map of hostname (string) to service index, used to identify services that
 	// are installed in multiple clusters.
 	smap := make(map[host.Name]int)
 	index := 0
 	services := make([]*model.Service, 0)
-	var errs error
 	// Locking Registries list while walking it to prevent inconsistent results
 	for _, r := range c.GetRegistries() {
-		svcs, err := r.Services()
-		if err != nil {
-			errs = multierror.Append(errs, err)
-			continue
-		}
-
+		svcs := r.Services()
 		if r.Provider() != provider.Kubernetes {
 			index += len(svcs)
 			services = append(services, svcs...)
@@ -205,7 +197,7 @@ func (c *Controller) Services() ([]*model.Service, error) {
 			}
 		}
 	}
-	return services, errs
+	return services
 }
 
 // GetService retrieves a service by hostname if exists
@@ -257,7 +249,7 @@ func (c *Controller) MCSServices() []model.MCSServiceInfo {
 
 // InstancesByPort retrieves instances for a service on a given port that match
 // any of the supplied labels. All instances match an empty label list.
-func (c *Controller) InstancesByPort(svc *model.Service, port int, labels labels.Collection) []*model.ServiceInstance {
+func (c *Controller) InstancesByPort(svc *model.Service, port int, labels labels.Instance) []*model.ServiceInstance {
 	var instances []*model.ServiceInstance
 	for _, r := range c.GetRegistries() {
 		instances = append(instances, r.InstancesByPort(svc, port, labels)...)
@@ -304,29 +296,26 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) []*model.Servic
 	return out
 }
 
-func (c *Controller) GetProxyWorkloadLabels(proxy *model.Proxy) labels.Collection {
-	var out labels.Collection
+func (c *Controller) GetProxyWorkloadLabels(proxy *model.Proxy) labels.Instance {
 	clusterID := nodeClusterID(proxy)
 	for _, r := range c.GetRegistries() {
 		// If proxy clusterID unset, we may find incorrect workload label.
 		// This can not happen in k8s env.
 		if clusterID == "" {
-			wlLabels := r.GetProxyWorkloadLabels(proxy)
-			if len(wlLabels) > 0 {
-				out = append(out, wlLabels...)
-				break
+			lbls := r.GetProxyWorkloadLabels(proxy)
+			if lbls != nil {
+				return lbls
 			}
 		} else if clusterID == r.Cluster() {
 			// find proxy in the specified cluster
-			wlLabels := r.GetProxyWorkloadLabels(proxy)
-			if len(wlLabels) > 0 {
-				out = append(out, wlLabels...)
+			lbls := r.GetProxyWorkloadLabels(proxy)
+			if lbls != nil {
+				return lbls
 			}
-			break
 		}
 	}
 
-	return out
+	return nil
 }
 
 // Run starts all the controllers
@@ -363,7 +352,9 @@ func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) {
 }
 
 func (c *Controller) AppendWorkloadHandler(f func(*model.WorkloadInstance, model.Event)) {
-	c.handlers.AppendWorkloadHandler(f)
+	// Currently, it is not used.
+	// Note: take care when you want to enable it, it will register the handlers to all registries
+	// c.handlers.AppendWorkloadHandler(f)
 }
 
 func (c *Controller) AppendServiceHandlerForCluster(id cluster.ID, f func(*model.Service, model.Event)) {

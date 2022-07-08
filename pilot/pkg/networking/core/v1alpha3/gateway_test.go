@@ -34,15 +34,16 @@ import (
 	"istio.io/istio/pilot/pkg/features"
 	pilot_model "istio.io/istio/pilot/pkg/model"
 	istionetworking "istio.io/istio/pilot/pkg/networking"
-	"istio.io/istio/pilot/pkg/networking/plugin"
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/security/model"
 	"istio.io/istio/pilot/test/xdstest"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/host"
+	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/config/visibility"
 	"istio.io/istio/pkg/proto"
+	"istio.io/istio/pkg/test"
 )
 
 func TestBuildGatewayListenerTlsContext(t *testing.T) {
@@ -56,6 +57,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "mesh SDS enabled, tls mode ISTIO_MUTUAL",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode: networking.ServerTLSSettings_ISTIO_MUTUAL,
 				},
@@ -121,6 +125,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "tls mode ISTIO_MUTUAL, with credentialName",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:           networking.ServerTLSSettings_ISTIO_MUTUAL,
 					CredentialName: "ignored",
@@ -186,6 +193,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "no credential name no key no cert tls SIMPLE",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode: networking.ServerTLSSettings_SIMPLE,
 				},
@@ -224,6 +234,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "credential name no key no cert tls SIMPLE",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:           networking.ServerTLSSettings_SIMPLE,
 					CredentialName: "ingress-sds-resource-name",
@@ -247,6 +260,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "credential name subject alternative name no key no cert tls SIMPLE",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:            networking.ServerTLSSettings_SIMPLE,
 					CredentialName:  "ingress-sds-resource-name",
@@ -275,6 +291,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "no credential name key and cert tls SIMPLE",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:              networking.ServerTLSSettings_SIMPLE,
 					ServerCertificate: "server-cert.crt",
@@ -314,6 +333,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "no credential name key and cert tls MUTUAL",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:              networking.ServerTLSSettings_MUTUAL,
 					ServerCertificate: "server-cert.crt",
@@ -379,6 +401,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "no credential name key and cert subject alt names tls MUTUAL",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:              networking.ServerTLSSettings_MUTUAL,
 					ServerCertificate: "server-cert.crt",
@@ -449,6 +474,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "credential name subject alternative name key and cert tls MUTUAL",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:              networking.ServerTLSSettings_MUTUAL,
 					CredentialName:    "ingress-sds-resource-name",
@@ -487,6 +515,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "credential name verify spki key and cert tls MUTUAL",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:                  networking.ServerTLSSettings_MUTUAL,
 					CredentialName:        "ingress-sds-resource-name",
@@ -523,6 +554,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "credential name verify hash key and cert tls MUTUAL",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:                  networking.ServerTLSSettings_MUTUAL,
 					CredentialName:        "ingress-sds-resource-name",
@@ -557,6 +591,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "no credential name key and cert tls PASSTHROUGH",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:              networking.ServerTLSSettings_PASSTHROUGH,
 					ServerCertificate: "server-cert.crt",
@@ -569,6 +606,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "Downstream TLS settings for QUIC transport",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:           networking.ServerTLSSettings_SIMPLE,
 					CredentialName: "httpbin-cred",
@@ -592,6 +632,9 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			name: "duplicated cipher suites with tls SIMPLE",
 			server: &networking.Server{
 				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.HTTPS),
+				},
 				Tls: &networking.ServerTLSSettings{
 					Mode:              networking.ServerTLSSettings_SIMPLE,
 					ServerCertificate: "server-cert.crt",
@@ -631,14 +674,39 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 				RequireClientCertificate: proto.BoolFalse,
 			},
 		},
+		{
+			// tcp server is simple tls, no istio-peer-exchange in the alpns
+			name: "tcp server, tls SIMPLE",
+			server: &networking.Server{
+				Hosts: []string{"httpbin.example.com", "bookinfo.example.com"},
+				Port: &networking.Port{
+					Protocol: string(protocol.TLS),
+				},
+				Tls: &networking.ServerTLSSettings{
+					Mode:           networking.ServerTLSSettings_SIMPLE,
+					CredentialName: "ingress-sds-resource-name",
+				},
+			},
+			result: &auth.DownstreamTlsContext{
+				CommonTlsContext: &auth.CommonTlsContext{
+					AlpnProtocols: util.ALPNHttp,
+					TlsCertificateSdsSecretConfigs: []*auth.SdsSecretConfig{
+						{
+							Name:      "kubernetes://ingress-sds-resource-name",
+							SdsConfig: model.SDSAdsConfig,
+						},
+					},
+				},
+				RequireClientCertificate: proto.BoolFalse,
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			cgi := NewConfigGenerator([]plugin.Plugin{}, &pilot_model.DisabledCache{})
 			ret := buildGatewayListenerTLSContext(tc.server, &pilot_model.Proxy{
 				Metadata: &pilot_model.NodeMetadata{},
-			}, tc.transportProtocol, cgi)
+			}, tc.transportProtocol)
 			if diff := cmp.Diff(tc.result, ret, protocmp.Transform()); diff != "" {
 				t.Errorf("got diff: %v", diff)
 			}
@@ -663,7 +731,9 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 				Metadata: &pilot_model.NodeMetadata{HTTP10: "1"},
 			},
 			server: &networking.Server{
-				Port: &networking.Port{},
+				Port: &networking.Port{
+					Protocol: protocol.HTTP.String(),
+				},
 			},
 			routeName:   "some-route",
 			proxyConfig: nil,
@@ -688,6 +758,8 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 						},
 						StripPortMode: stripPortMode,
 					},
+					class:    istionetworking.ListenerClassGateway,
+					protocol: protocol.HTTP,
 				},
 			},
 		},
@@ -709,7 +781,7 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 				sniHosts: []string{"example.org"},
 				tlsContext: &auth.DownstreamTlsContext{
 					CommonTlsContext: &auth.CommonTlsContext{
-						AlpnProtocols: []string{"h2", "http/1.1"},
+						AlpnProtocols: util.ALPNHttp,
 						TlsCertificateSdsSecretConfigs: []*auth.SdsSecretConfig{
 							{
 								Name: "default",
@@ -778,6 +850,8 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 						HttpProtocolOptions: &core.Http1ProtocolOptions{},
 						StripPortMode:       stripPortMode,
 					},
+					class:    istionetworking.ListenerClassGateway,
+					protocol: protocol.HTTPS,
 				},
 			},
 		},
@@ -799,7 +873,7 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 				sniHosts: []string{"example.org", "test.org"},
 				tlsContext: &auth.DownstreamTlsContext{
 					CommonTlsContext: &auth.CommonTlsContext{
-						AlpnProtocols: []string{"h2", "http/1.1"},
+						AlpnProtocols: util.ALPNHttp,
 						TlsCertificateSdsSecretConfigs: []*auth.SdsSecretConfig{
 							{
 								Name: "default",
@@ -868,6 +942,8 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 						HttpProtocolOptions: &core.Http1ProtocolOptions{},
 						StripPortMode:       stripPortMode,
 					},
+					class:    istionetworking.ListenerClassGateway,
+					protocol: protocol.HTTPS,
 				},
 			},
 		},
@@ -889,7 +965,7 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 				sniHosts: []string{"*.example.org", "example.org"},
 				tlsContext: &auth.DownstreamTlsContext{
 					CommonTlsContext: &auth.CommonTlsContext{
-						AlpnProtocols: []string{"h2", "http/1.1"},
+						AlpnProtocols: util.ALPNHttp,
 						TlsCertificateSdsSecretConfigs: []*auth.SdsSecretConfig{
 							{
 								Name: "default",
@@ -958,6 +1034,8 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 						HttpProtocolOptions: &core.Http1ProtocolOptions{},
 						StripPortMode:       stripPortMode,
 					},
+					class:    istionetworking.ListenerClassGateway,
+					protocol: protocol.HTTPS,
 				},
 			},
 		},
@@ -965,7 +1043,9 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 			name: "Topology HTTP Protocol",
 			node: &pilot_model.Proxy{Metadata: &pilot_model.NodeMetadata{}},
 			server: &networking.Server{
-				Port: &networking.Port{},
+				Port: &networking.Port{
+					Protocol: protocol.HTTP.String(),
+				},
 			},
 			routeName: "some-route",
 			proxyConfig: &meshconfig.ProxyConfig{
@@ -993,6 +1073,8 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 						HttpProtocolOptions: &core.Http1ProtocolOptions{},
 						StripPortMode:       stripPortMode,
 					},
+					class:    istionetworking.ListenerClassGateway,
+					protocol: protocol.HTTP,
 				},
 			},
 		},
@@ -1019,7 +1101,7 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 				sniHosts: []string{"example.org"},
 				tlsContext: &auth.DownstreamTlsContext{
 					CommonTlsContext: &auth.CommonTlsContext{
-						AlpnProtocols: []string{"h2", "http/1.1"},
+						AlpnProtocols: util.ALPNHttp,
 						TlsCertificateSdsSecretConfigs: []*auth.SdsSecretConfig{
 							{
 								Name: "default",
@@ -1088,6 +1170,8 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 						HttpProtocolOptions: &core.Http1ProtocolOptions{},
 						StripPortMode:       stripPortMode,
 					},
+					class:    istionetworking.ListenerClassGateway,
+					protocol: protocol.HTTPS,
 				},
 			},
 		},
@@ -1116,7 +1200,7 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 				tlsContext: &auth.DownstreamTlsContext{
 					RequireClientCertificate: proto.BoolTrue,
 					CommonTlsContext: &auth.CommonTlsContext{
-						AlpnProtocols: []string{"h2", "http/1.1"},
+						AlpnProtocols: util.ALPNHttp,
 						TlsCertificateSdsSecretConfigs: []*auth.SdsSecretConfig{
 							{
 								Name: "default",
@@ -1185,6 +1269,8 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 						StripPortMode:       stripPortMode,
 					},
 					statPrefix: "server1",
+					class:      istionetworking.ListenerClassGateway,
+					protocol:   protocol.HTTPS,
 				},
 			},
 		},
@@ -1266,6 +1352,8 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 					},
 					useRemoteAddress: true,
 					statPrefix:       "server1",
+					class:            istionetworking.ListenerClassGateway,
+					protocol:         protocol.HTTPS,
 				},
 			},
 		},
@@ -1273,7 +1361,7 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			cgi := NewConfigGenerator([]plugin.Plugin{}, &pilot_model.DisabledCache{})
+			cgi := NewConfigGenerator(&pilot_model.DisabledCache{})
 			tc.node.MergedGateway = &pilot_model.MergedGateway{TLSServerInfo: map[*networking.Server]*pilot_model.TLSServerInfo{
 				tc.server: {SNIHosts: pilot_model.GetSNIHostsForServer(tc.server)},
 			}}
@@ -1283,7 +1371,7 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 				t.Errorf("got diff in tls context: %v", diff)
 			}
 			if !reflect.DeepEqual(tc.result.httpOpts, ret.httpOpts) {
-				t.Errorf("expecting httpopts:\n %+v \nbut got:\n %+v", tc.result.httpOpts.connectionManager, ret.httpOpts.connectionManager)
+				t.Errorf("expecting httpopts:\n %+v \nbut got:\n %+v", tc.result.httpOpts, ret.httpOpts)
 			}
 			if !reflect.DeepEqual(tc.result.sniHosts, ret.sniHosts) {
 				t.Errorf("expecting snihosts %+v but got %+v", tc.result.sniHosts, ret.sniHosts)
@@ -1740,15 +1828,10 @@ func TestGatewayHTTPRouteConfig(t *testing.T) {
 		},
 	}
 
-	StripHostPort := []bool{false, true}
-	oldValue := features.StripHostPort
-	t.Cleanup(func() {
-		features.StripHostPort = oldValue
-	})
-	for _, value := range StripHostPort {
-		features.StripHostPort = value
+	for _, value := range []bool{false, true} {
 		for _, tt := range cases {
 			t.Run(tt.name, func(t *testing.T) {
+				test.SetBoolForTest(t, &features.StripHostPort, value)
 				cfgs := tt.gateways
 				cfgs = append(cfgs, tt.virtualServices...)
 				cg := NewConfigGenTest(t, TestOptions{
@@ -1873,6 +1956,31 @@ func TestBuildGatewayListeners(t *testing.T) {
 			},
 			nil,
 			[]string{"0.0.0.0_8080"},
+		},
+		{
+			"privileged port on privileged pod when empty env var is set",
+			&pilot_model.Proxy{
+				Metadata: &pilot_model.NodeMetadata{
+					UnprivilegedPod: "",
+				},
+			},
+			[]config.Config{
+				{
+					Meta: config.Meta{Name: uuid.NewString(), Namespace: uuid.NewString(), GroupVersionKind: gvk.Gateway},
+					Spec: &networking.Gateway{
+						Servers: []*networking.Server{
+							{
+								Port: &networking.Port{Name: "http", Number: 80, Protocol: "HTTP"},
+							},
+							{
+								Port: &networking.Port{Name: "http", Number: 8080, Protocol: "HTTP"},
+							},
+						},
+					},
+				},
+			},
+			nil,
+			[]string{"0.0.0.0_80", "0.0.0.0_8080"},
 		},
 		{
 			"privileged port on privileged pod",
@@ -2120,7 +2228,7 @@ func TestBuildGatewayListeners(t *testing.T) {
 				proxy.Metadata = &proxyGatewayMetadata
 			}
 
-			builder := cg.ConfigGen.buildGatewayListeners(&ListenerBuilder{node: proxy, push: cg.PushContext()})
+			builder := cg.ConfigGen.buildGatewayListeners(NewListenerBuilder(proxy, cg.PushContext()))
 			listeners := xdstest.ExtractListenerNames(builder.gatewayListeners)
 			sort.Strings(listeners)
 			sort.Strings(tt.expectedListeners)

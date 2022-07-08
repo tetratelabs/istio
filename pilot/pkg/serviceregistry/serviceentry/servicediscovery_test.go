@@ -40,7 +40,7 @@ import (
 	"istio.io/istio/pkg/test/util/retry"
 )
 
-func createConfigs(configs []*config.Config, store model.IstioConfigStore, t testing.TB) {
+func createConfigs(configs []*config.Config, store model.ConfigStore, t testing.TB) {
 	t.Helper()
 	for _, cfg := range configs {
 		_, err := store.Create(*cfg)
@@ -55,14 +55,14 @@ func createConfigs(configs []*config.Config, store model.IstioConfigStore, t tes
 	}
 }
 
-func callInstanceHandlers(instances []*model.WorkloadInstance, sd *ServiceEntryStore, ev model.Event, t testing.TB) {
+func callInstanceHandlers(instances []*model.WorkloadInstance, sd *Controller, ev model.Event, t testing.TB) {
 	t.Helper()
 	for _, instance := range instances {
 		sd.WorkloadInstanceHandler(instance, ev)
 	}
 }
 
-func deleteConfigs(configs []*config.Config, store model.IstioConfigStore, t testing.TB) {
+func deleteConfigs(configs []*config.Config, store model.ConfigStore, t testing.TB) {
 	t.Helper()
 	for _, cfg := range configs {
 		err := store.Delete(cfg.GroupVersionKind, cfg.Name, cfg.Namespace, nil)
@@ -137,13 +137,13 @@ func waitForEvent(t testing.TB, ch chan Event) Event {
 	}
 }
 
-func initServiceDiscovery() (model.IstioConfigStore, *ServiceEntryStore, chan Event, func()) {
-	return initServiceDiscoveryWithOpts()
+func initServiceDiscovery() (model.ConfigStore, *Controller, chan Event, func()) {
+	return initServiceDiscoveryWithOpts(false)
 }
 
 // initServiceDiscoveryWithoutEvents initializes a test setup with no events. This avoids excessive attempts to push
 // EDS updates to a full queue
-func initServiceDiscoveryWithoutEvents(t test.Failer) (model.IstioConfigStore, *ServiceEntryStore) {
+func initServiceDiscoveryWithoutEvents(t test.Failer) (model.ConfigStore, *Controller) {
 	store := memory.Make(collections.Pilot)
 	configController := memory.NewController(store)
 
@@ -165,14 +165,14 @@ func initServiceDiscoveryWithoutEvents(t test.Failer) (model.IstioConfigStore, *
 	}()
 
 	istioStore := model.MakeIstioStore(configController)
-	serviceController := NewServiceDiscovery(configController, istioStore, xdsUpdater)
+	serviceController := NewController(configController, istioStore, xdsUpdater)
 	t.Cleanup(func() {
 		close(stop)
 	})
 	return istioStore, serviceController
 }
 
-func initServiceDiscoveryWithOpts(opts ...ServiceDiscoveryOption) (model.IstioConfigStore, *ServiceEntryStore, chan Event, func()) {
+func initServiceDiscoveryWithOpts(workloadOnly bool, opts ...Option) (model.ConfigStore, *Controller, chan Event, func()) {
 	store := memory.Make(collections.Pilot)
 	configController := memory.NewController(store)
 
@@ -185,9 +185,14 @@ func initServiceDiscoveryWithOpts(opts ...ServiceDiscoveryOption) (model.IstioCo
 	}
 
 	istioStore := model.MakeIstioStore(configController)
-	serviceController := NewServiceDiscovery(configController, istioStore, xdsUpdater, opts...)
-	go serviceController.Run(stop)
-	return istioStore, serviceController, eventch, func() {
+	var controller *Controller
+	if !workloadOnly {
+		controller = NewController(configController, istioStore, xdsUpdater, opts...)
+	} else {
+		controller = NewWorkloadEntryController(configController, istioStore, xdsUpdater, opts...)
+	}
+	go controller.Run(stop)
+	return istioStore, controller, eventch, func() {
 		close(stop)
 	}
 }
@@ -221,10 +226,7 @@ func TestServiceDiscoveryServices(t *testing.T) {
 		namespace: tcpStatic.Namespace,
 	})
 
-	services, err := sd.Services()
-	if err != nil {
-		t.Errorf("Services() encountered unexpected error: %v", err)
-	}
+	services := sd.Services()
 	sortServices(services)
 	sortServices(expectedServices)
 	if err := compare(t, services, expectedServices); err != nil {
@@ -402,7 +404,7 @@ func TestServiceDiscoveryServiceUpdate(t *testing.T) {
 	})
 
 	t.Run("delete entry", func(t *testing.T) {
-		// Delete the additional SE, expect it to get removed
+		// Delete the additional SE in same namespace , expect it to get removed
 		deleteConfigs([]*config.Config{httpStaticOverlayUpdated}, store, t)
 		expectServiceInstances(t, sd, httpStatic, 0, baseInstances)
 		// Check the other namespace is untouched
@@ -411,10 +413,28 @@ func TestServiceDiscoveryServiceUpdate(t *testing.T) {
 			makeInstance(httpStaticOverlayUpdatedNs, "7.7.7.7", 4567, httpStaticOverlayUpdatedNs.Spec.(*networking.ServiceEntry).Ports[0], map[string]string{"namespace": "bar"}, PlainText),
 		}
 		expectServiceInstances(t, sd, httpStaticOverlayUpdatedNs, 0, instances)
-		// svc update is only triggered on deletion. Also expect a full push as the service has changed
+		// svcUpdate is not triggered since `httpStatic` is there and has instances, so we should
+		// not delete the endpoints shards of "*.google.com". We xpect a full push as the service has changed.
 		expectEvents(t, events,
-			Event{kind: "svcupdate", host: "*.google.com", namespace: httpStaticOverlay.Namespace},
-			Event{kind: "xds", pushReq: &model.PushRequest{ConfigsUpdated: map[model.ConfigKey]struct{}{{Kind: gvk.ServiceEntry, Name: "*.google.com", Namespace: httpStaticOverlayUpdated.Namespace}: {}}}})
+			Event{kind: "xds", pushReq: &model.PushRequest{ConfigsUpdated: map[model.ConfigKey]struct{}{{Kind: gvk.ServiceEntry, Name: "*.google.com", Namespace: httpStaticOverlayUpdated.Namespace}: {}}}},
+		)
+
+		// delete httpStatic, no "*.google.com" service exists now.
+		deleteConfigs([]*config.Config{httpStatic}, store, t)
+		// svcUpdate is triggered since "*.google.com" in same namespace is deleted and
+		// we need to delete endpoint shards. We expect a full push as the service has changed.
+		expectEvents(t, events,
+			Event{kind: "svcupdate", host: "*.google.com", namespace: httpStatic.Namespace},
+			Event{kind: "xds", pushReq: &model.PushRequest{ConfigsUpdated: map[model.ConfigKey]struct{}{{Kind: gvk.ServiceEntry, Name: "*.google.com", Namespace: httpStaticOverlayUpdated.Namespace}: {}}}},
+		)
+
+		// add back httpStatic
+		createConfigs([]*config.Config{httpStatic}, store, t)
+		instances = baseInstances
+		expectServiceInstances(t, sd, httpStatic, 0, instances)
+		expectEvents(t, events,
+			Event{kind: "svcupdate", host: "*.google.com", namespace: httpStatic.Namespace},
+			Event{kind: "xds", pushReq: &model.PushRequest{ConfigsUpdated: map[model.ConfigKey]struct{}{{Kind: gvk.ServiceEntry, Name: httpStatic.Spec.(*networking.ServiceEntry).Hosts[0], Namespace: httpStatic.Namespace}: {}}}})
 
 		// Add back the ServiceEntry, expect these instances to get added
 		createConfigs([]*config.Config{httpStaticOverlayUpdated}, store, t)
@@ -465,7 +485,7 @@ func TestServiceDiscoveryServiceUpdate(t *testing.T) {
 	})
 
 	t.Run("change dns endpoints", func(t *testing.T) {
-		// Setup the expected instances for `httpStatic`. This will be added/removed from as we add various configs
+		// Setup the expected instances for DNS. This will be added/removed from as we add various configs
 		instances1 := []*model.ServiceInstance{
 			makeInstance(tcpDNS, "lon.google.com", 444, tcpDNS.Spec.(*networking.ServiceEntry).Ports[0],
 				nil, MTLS),
@@ -1029,7 +1049,7 @@ func TestServiceDiscoveryWorkloadInstance(t *testing.T) {
 	})
 }
 
-func expectProxyInstances(t testing.TB, sd *ServiceEntryStore, expected []*model.ServiceInstance, ip string) {
+func expectProxyInstances(t testing.TB, sd *Controller, expected []*model.ServiceInstance, ip string) {
 	t.Helper()
 	// The system is eventually consistent, so add some retries
 	retry.UntilSuccessOrFail(t, func() error {
@@ -1084,7 +1104,7 @@ func expectEvents(t testing.TB, ch chan Event, events ...Event) {
 	}
 }
 
-func expectServiceInstances(t testing.TB, sd *ServiceEntryStore, cfg *config.Config, port int, expected ...[]*model.ServiceInstance) {
+func expectServiceInstances(t testing.TB, sd *Controller, cfg *config.Config, port int, expected ...[]*model.ServiceInstance) {
 	t.Helper()
 	svcs := convertServices(*cfg)
 	if len(svcs) != len(expected) {
@@ -1248,9 +1268,9 @@ func TestServicesDiff(t *testing.T) {
 	}
 
 	cases := []struct {
-		name string
-		a    *config.Config
-		b    *config.Config
+		name    string
+		current *config.Config
+		new     *config.Config
 
 		added     []host.Name
 		deleted   []host.Name
@@ -1259,14 +1279,14 @@ func TestServicesDiff(t *testing.T) {
 	}{
 		{
 			name:      "same config",
-			a:         updatedHTTPDNS,
-			b:         updatedHTTPDNS,
+			current:   updatedHTTPDNS,
+			new:       updatedHTTPDNS,
 			unchanged: stringsToHosts(updatedHTTPDNS.Spec.(*networking.ServiceEntry).Hosts),
 		},
 		{
-			name: "different config",
-			a:    updatedHTTPDNS,
-			b: func() *config.Config {
+			name:    "same config with different name",
+			current: updatedHTTPDNS,
+			new: func() *config.Config {
 				c := updatedHTTPDNS.DeepCopy()
 				c.Name = "httpDNS1"
 				return &c
@@ -1274,9 +1294,9 @@ func TestServicesDiff(t *testing.T) {
 			unchanged: stringsToHosts(updatedHTTPDNS.Spec.(*networking.ServiceEntry).Hosts),
 		},
 		{
-			name: "different resolution",
-			a:    updatedHTTPDNS,
-			b: func() *config.Config {
+			name:    "different resolution",
+			current: updatedHTTPDNS,
+			new: func() *config.Config {
 				c := updatedHTTPDNS.DeepCopy()
 				c.Spec.(*networking.ServiceEntry).Resolution = networking.ServiceEntry_NONE
 				return &c
@@ -1284,9 +1304,9 @@ func TestServicesDiff(t *testing.T) {
 			updated: stringsToHosts(updatedHTTPDNS.Spec.(*networking.ServiceEntry).Hosts),
 		},
 		{
-			name: "config modified with added/deleted host",
-			a:    updatedHTTPDNS,
-			b: func() *config.Config {
+			name:    "config modified with added/deleted host",
+			current: updatedHTTPDNS,
+			new: func() *config.Config {
 				c := updatedHTTPDNS.DeepCopy()
 				se := c.Spec.(*networking.ServiceEntry)
 				se.Hosts = []string{"*.google.com", "host.com"}
@@ -1298,14 +1318,14 @@ func TestServicesDiff(t *testing.T) {
 		},
 		{
 			name:    "config modified with additional port",
-			a:       updatedHTTPDNS,
-			b:       updatedHTTPDNSPort,
+			current: updatedHTTPDNS,
+			new:     updatedHTTPDNSPort,
 			updated: stringsToHosts(updatedHTTPDNS.Spec.(*networking.ServiceEntry).Hosts),
 		},
 		{
 			name:      "same config with additional endpoint",
-			a:         updatedHTTPDNS,
-			b:         updatedEndpoint,
+			current:   updatedHTTPDNS,
+			new:       updatedEndpoint,
 			unchanged: stringsToHosts(updatedHTTPDNS.Spec.(*networking.ServiceEntry).Hosts),
 		},
 	}
@@ -1322,9 +1342,12 @@ func TestServicesDiff(t *testing.T) {
 	}
 
 	for _, tt := range cases {
+		if tt.name != "same config with additional endpoint" {
+			continue
+		}
 		t.Run(tt.name, func(t *testing.T) {
-			as := convertServices(*tt.a)
-			bs := convertServices(*tt.b)
+			as := convertServices(*tt.current)
+			bs := convertServices(*tt.new)
 			added, deleted, updated, unchanged := servicesDiff(as, bs)
 			for i, item := range []struct {
 				hostnames []host.Name
@@ -1463,10 +1486,11 @@ func Test_autoAllocateIP_conditions(t *testing.T) {
 			},
 			wantServices: []*model.Service{
 				{
-					Hostname:             "foo.com",
-					Resolution:           model.ClientSideLB,
-					DefaultAddress:       "0.0.0.0",
-					AutoAllocatedAddress: "240.240.0.1",
+					Hostname:                 "foo.com",
+					Resolution:               model.ClientSideLB,
+					DefaultAddress:           "0.0.0.0",
+					AutoAllocatedIPv4Address: "240.240.0.1",
+					AutoAllocatedIPv6Address: "2001:2::f0f0:1",
 				},
 			},
 		},
@@ -1481,18 +1505,25 @@ func Test_autoAllocateIP_conditions(t *testing.T) {
 			},
 			wantServices: []*model.Service{
 				{
-					Hostname:             "foo.com",
-					Resolution:           model.DNSLB,
-					DefaultAddress:       "0.0.0.0",
-					AutoAllocatedAddress: "240.240.0.1",
+					Hostname:                 "foo.com",
+					Resolution:               model.DNSLB,
+					DefaultAddress:           "0.0.0.0",
+					AutoAllocatedIPv4Address: "240.240.0.1",
+					AutoAllocatedIPv6Address: "2001:2::f0f0:1",
 				},
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := autoAllocateIPs(tt.inServices); !reflect.DeepEqual(got, tt.wantServices) {
-				t.Errorf("autoAllocateIPs() = %v, want %v", got, tt.wantServices)
+			got := autoAllocateIPs(tt.inServices)
+			if got[0].AutoAllocatedIPv4Address != tt.wantServices[0].AutoAllocatedIPv4Address {
+				t.Errorf("autoAllocateIPs() AutoAllocatedIPv4Address = %v, want %v",
+					got[0].AutoAllocatedIPv4Address, tt.wantServices[0].AutoAllocatedIPv4Address)
+			}
+			if got[0].AutoAllocatedIPv6Address != tt.wantServices[0].AutoAllocatedIPv6Address {
+				t.Errorf("autoAllocateIPs() AutoAllocatedIPv4Address = %v, want %v",
+					got[0].AutoAllocatedIPv6Address, tt.wantServices[0].AutoAllocatedIPv6Address)
 			}
 		})
 	}
@@ -1527,30 +1558,27 @@ func Test_autoAllocateIP_values(t *testing.T) {
 		"240.240.2.255": true,
 	}
 	expectedLastIP := "240.240.2.4"
-	if gotServices[len(gotServices)-1].AutoAllocatedAddress != expectedLastIP {
-		t.Errorf("expected last IP address to be %s, got %s", expectedLastIP, gotServices[len(gotServices)-1].AutoAllocatedAddress)
+	if gotServices[len(gotServices)-1].AutoAllocatedIPv4Address != expectedLastIP {
+		t.Errorf("expected last IP address to be %s, got %s", expectedLastIP, gotServices[len(gotServices)-1].AutoAllocatedIPv4Address)
 	}
 
 	gotIPMap := make(map[string]bool)
 	for _, svc := range gotServices {
-		if svc.AutoAllocatedAddress == "" || doNotWant[svc.AutoAllocatedAddress] {
-			t.Errorf("unexpected value for auto allocated IP address %s", svc.AutoAllocatedAddress)
+		if svc.AutoAllocatedIPv4Address == "" || doNotWant[svc.AutoAllocatedIPv4Address] {
+			t.Errorf("unexpected value for auto allocated IP address %s", svc.AutoAllocatedIPv4Address)
 		}
-		if gotIPMap[svc.AutoAllocatedAddress] {
-			t.Errorf("multiple allocations of same IP address to different services: %s", svc.AutoAllocatedAddress)
+		if gotIPMap[svc.AutoAllocatedIPv4Address] {
+			t.Errorf("multiple allocations of same IP address to different services: %s", svc.AutoAllocatedIPv4Address)
 		}
-		gotIPMap[svc.AutoAllocatedAddress] = true
+		gotIPMap[svc.AutoAllocatedIPv4Address] = true
 	}
 }
 
 func TestWorkloadEntryOnlyMode(t *testing.T) {
-	store, registry, _, cleanup := initServiceDiscoveryWithOpts(DisableServiceEntryProcessing())
+	store, registry, _, cleanup := initServiceDiscoveryWithOpts(true)
 	defer cleanup()
 	createConfigs([]*config.Config{httpStatic}, store, t)
-	svcs, err := registry.Services()
-	if err != nil {
-		t.Fatal(err)
-	}
+	svcs := registry.Services()
 	if len(svcs) > 0 {
 		t.Fatalf("expected 0 services, got %d", len(svcs))
 	}
@@ -1562,6 +1590,9 @@ func TestWorkloadEntryOnlyMode(t *testing.T) {
 
 func BenchmarkServiceEntryHandler(b *testing.B) {
 	_, sd := initServiceDiscoveryWithoutEvents(b)
+	stopCh := make(chan struct{})
+	go sd.Run(stopCh)
+	defer close(stopCh)
 	for i := 0; i < b.N; i++ {
 		sd.serviceEntryHandler(config.Config{}, *httpDNS, model.EventAdd)
 		sd.serviceEntryHandler(config.Config{}, *httpDNSRR, model.EventAdd)
@@ -1577,6 +1608,9 @@ func BenchmarkServiceEntryHandler(b *testing.B) {
 
 func BenchmarkWorkloadInstanceHandler(b *testing.B) {
 	store, sd := initServiceDiscoveryWithoutEvents(b)
+	stopCh := make(chan struct{})
+	go sd.Run(stopCh)
+	defer close(stopCh)
 	// Add just the ServiceEntry with selector. We should see no instances
 	createConfigs([]*config.Config{selector, dnsSelector}, store, b)
 
@@ -1646,6 +1680,9 @@ func BenchmarkWorkloadEntryHandler(b *testing.B) {
 		})
 
 	store, sd := initServiceDiscoveryWithoutEvents(b)
+	stopCh := make(chan struct{})
+	go sd.Run(stopCh)
+	defer close(stopCh)
 	// Add just the ServiceEntry with selector. We should see no instances
 	createConfigs([]*config.Config{selector}, store, b)
 

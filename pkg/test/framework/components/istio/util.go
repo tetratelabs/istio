@@ -32,7 +32,7 @@ import (
 	"istio.io/istio/pkg/test/framework/resource"
 	"istio.io/istio/pkg/test/scopes"
 	"istio.io/istio/pkg/test/util/retry"
-	"istio.io/istio/pkg/util/gogoprotomarshal"
+	"istio.io/istio/pkg/util/protomarshal"
 )
 
 const (
@@ -63,7 +63,7 @@ spec:
 func waitForValidationWebhook(ctx resource.Context, cluster cluster.Cluster, cfg Config) error {
 	dummyValidationVirtualService := fmt.Sprintf(dummyValidationVirtualServiceTemplate, cfg.SystemNamespace)
 	defer func() {
-		e := ctx.ConfigKube(cluster).DeleteYAML("", dummyValidationVirtualService)
+		e := ctx.ConfigKube(cluster).YAML("", dummyValidationVirtualService).Delete()
 		if e != nil {
 			scopes.Framework.Warnf("error deleting dummy virtual service for waiting the validation webhook: %v", e)
 		}
@@ -71,7 +71,7 @@ func waitForValidationWebhook(ctx resource.Context, cluster cluster.Cluster, cfg
 
 	scopes.Framework.Info("Creating dummy virtual service to check for validation webhook readiness")
 	return retry.UntilSuccess(func() error {
-		err := ctx.ConfigKube(cluster).ApplyYAML("", dummyValidationVirtualService)
+		err := ctx.ConfigKube(cluster).YAML("", dummyValidationVirtualService).Apply()
 		if err == nil {
 			return nil
 		}
@@ -177,7 +177,7 @@ func (i *operatorComponent) isExternalControlPlane() bool {
 	return false
 }
 
-func PatchMeshConfig(t framework.TestContext, ns string, clusters cluster.Clusters, patch string) {
+func PatchMeshConfig(t resource.Context, ns string, clusters cluster.Clusters, patch string) error {
 	errG := multierror.Group{}
 	origCfg := map[string]string{}
 	mu := sync.RWMutex{}
@@ -201,13 +201,13 @@ func PatchMeshConfig(t framework.TestContext, ns string, clusters cluster.Cluste
 			origCfg[c.Name()] = cm.Data["mesh"]
 			mu.Unlock()
 			mc := &meshconfig.MeshConfig{}
-			if err := gogoprotomarshal.ApplyYAML(mcYaml, mc); err != nil {
+			if err := protomarshal.ApplyYAML(mcYaml, mc); err != nil {
 				return err
 			}
-			if err := gogoprotomarshal.ApplyYAML(patch, mc); err != nil {
+			if err := protomarshal.ApplyYAML(patch, mc); err != nil {
 				return err
 			}
-			cm.Data["mesh"], err = gogoprotomarshal.ToYAML(mc)
+			cm.Data["mesh"], err = protomarshal.ToYAML(mc)
 			if err != nil {
 				return err
 			}
@@ -240,7 +240,12 @@ func PatchMeshConfig(t framework.TestContext, ns string, clusters cluster.Cluste
 			scopes.Framework.Errorf("failed cleaning up cluster-local config: %v", err)
 		}
 	})
-	if err := errG.Wait().ErrorOrNil(); err != nil {
+	return errG.Wait().ErrorOrNil()
+}
+
+func PatchMeshConfigOrFail(t framework.TestContext, ns string, clusters cluster.Clusters, patch string) {
+	t.Helper()
+	if err := PatchMeshConfig(t, ns, clusters, patch); err != nil {
 		t.Fatal(err)
 	}
 }

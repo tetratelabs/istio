@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"sigs.k8s.io/yaml"
 
 	"istio.io/api/operator/v1alpha1"
 	"istio.io/istio/operator/pkg/apis/istio"
@@ -82,7 +83,7 @@ var (
 	// Ideally this would also contain Istio CRDs, but there is a race condition here - we cannot watch
 	// a type that does not yet exist.
 	watchedResources = []schema.GroupVersionKind{
-		{Group: "autoscaling", Version: "v2beta1", Kind: name.HPAStr},
+		{Group: "autoscaling", Version: "v2beta2", Kind: name.HPAStr},
 		{Group: "policy", Version: "v1beta1", Kind: name.PDBStr},
 		{Group: "apps", Version: "v1", Kind: name.DeploymentStr},
 		{Group: "apps", Version: "v1", Kind: name.DaemonSetStr},
@@ -313,10 +314,11 @@ func (r *ReconcileIstioOperator) Reconcile(_ context.Context, request reconcile.
 	}
 
 	scope.Info("Updating IstioOperator")
-	if _, ok := iopMerged.Spec.Values["global"]; !ok {
-		iopMerged.Spec.Values["global"] = make(map[string]interface{})
+	val := iopMerged.Spec.Values.AsMap()
+	if _, ok := val["global"]; !ok {
+		val["global"] = make(map[string]interface{})
 	}
-	globalValues := iopMerged.Spec.Values["global"].(map[string]interface{})
+	globalValues := val["global"].(map[string]interface{})
 	scope.Info("Detecting third-party JWT support")
 	var jwtPolicy util.JWTPolicy
 	if jwtPolicy, err = util.DetectSupportedJWTPolicy(r.kubeClient); err != nil {
@@ -386,11 +388,12 @@ func mergeIOPSWithProfile(iop *iopv1alpha1.IstioOperator) (*v1alpha1.IstioOperat
 		}
 	}
 
-	overlayYAML, err := util.MarshalWithJSONPB(iop)
+	overlayYAMLB, err := yaml.Marshal(iop)
 	if err != nil {
 		metrics.CountCRMergeFail(metrics.IOPFormatError)
 		return nil, err
 	}
+	overlayYAML := string(overlayYAMLB)
 	t := translate.NewReverseTranslator()
 	overlayYAML, err = t.TranslateK8SfromValueToIOP(overlayYAML)
 	if err != nil {

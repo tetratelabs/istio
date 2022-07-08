@@ -37,6 +37,7 @@ import (
 	"istio.io/istio/pilot/pkg/serviceregistry/kube"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/kube/mcs"
+	"istio.io/istio/pkg/test"
 	"istio.io/istio/pkg/test/util/retry"
 )
 
@@ -60,8 +61,7 @@ var (
 func TestServiceNotImported(t *testing.T) {
 	for _, mode := range []EndpointMode{EndpointsOnly, EndpointSliceOnly} {
 		t.Run(mode.String(), func(t *testing.T) {
-			c, ic, cleanup := newTestServiceImportCache(mode)
-			defer cleanup()
+			c, ic := newTestServiceImportCache(t, mode)
 
 			ic.createKubeService(t, c)
 
@@ -74,8 +74,7 @@ func TestServiceNotImported(t *testing.T) {
 func TestServiceImportedAfterCreated(t *testing.T) {
 	for _, mode := range []EndpointMode{EndpointsOnly, EndpointSliceOnly} {
 		t.Run(mode.String(), func(t *testing.T) {
-			c, ic, cleanup := newTestServiceImportCache(mode)
-			defer cleanup()
+			c, ic := newTestServiceImportCache(t, mode)
 
 			ic.createKubeService(t, c)
 			ic.createServiceImport(t, mcsapi.ClusterSetIP, serviceImportVIPs)
@@ -89,8 +88,7 @@ func TestServiceImportedAfterCreated(t *testing.T) {
 func TestServiceCreatedAfterImported(t *testing.T) {
 	for _, mode := range []EndpointMode{EndpointsOnly, EndpointSliceOnly} {
 		t.Run(mode.String(), func(t *testing.T) {
-			c, ic, cleanup := newTestServiceImportCache(mode)
-			defer cleanup()
+			c, ic := newTestServiceImportCache(t, mode)
 
 			ic.createServiceImport(t, mcsapi.ClusterSetIP, serviceImportVIPs)
 			ic.createKubeService(t, c)
@@ -104,8 +102,7 @@ func TestServiceCreatedAfterImported(t *testing.T) {
 func TestUpdateImportedService(t *testing.T) {
 	for _, mode := range []EndpointMode{EndpointsOnly, EndpointSliceOnly} {
 		t.Run(mode.String(), func(t *testing.T) {
-			c, ic, cleanup := newTestServiceImportCache(mode)
-			defer cleanup()
+			c, ic := newTestServiceImportCache(t, mode)
 
 			ic.createKubeService(t, c)
 			ic.createServiceImport(t, mcsapi.ClusterSetIP, serviceImportVIPs)
@@ -121,8 +118,7 @@ func TestHeadlessServiceImported(t *testing.T) {
 	for _, mode := range []EndpointMode{EndpointsOnly, EndpointSliceOnly} {
 		t.Run(mode.String(), func(t *testing.T) {
 			// Create and run the controller.
-			c, ic, cleanup := newTestServiceImportCache(mode)
-			defer cleanup()
+			c, ic := newTestServiceImportCache(t, mode)
 
 			ic.createKubeService(t, c)
 			ic.createServiceImport(t, mcsapi.Headless, nil)
@@ -137,15 +133,29 @@ func TestDeleteImportedService(t *testing.T) {
 	for _, mode := range []EndpointMode{EndpointsOnly, EndpointSliceOnly} {
 		t.Run(mode.String(), func(t *testing.T) {
 			// Create and run the controller.
-			c, ic, cleanup := newTestServiceImportCache(mode)
-			defer cleanup()
+			c1, ic := newTestServiceImportCache(t, mode)
 
-			ic.createKubeService(t, c)
+			// Create and run another controller.
+			c2, _ := NewFakeControllerWithOptions(FakeControllerOptions{
+				Stop:      c1.stop,
+				ClusterID: "test-cluster2",
+				Mode:      mode,
+			})
+			go c2.Run(c2.stop)
+			cache.WaitForCacheSync(c2.stop, c2.HasSynced)
+
+			c1.opts.MeshServiceController.AddRegistryAndRun(c2, c2.stop)
+
+			ic.createKubeService(t, c1)
 			ic.createServiceImport(t, mcsapi.ClusterSetIP, serviceImportVIPs)
 			ic.checkServiceInstances(t)
 
+			// create the same service in cluster2
+			createService(c2, serviceImportName, serviceImportNamespace, map[string]string{},
+				[]int32{8080}, map[string]string{"app": "prod-app"}, t)
+
 			// Delete the k8s service and verify that all internal services are removed.
-			ic.deleteKubeService(t)
+			ic.deleteKubeService(t, c2)
 		})
 	}
 }
@@ -154,8 +164,7 @@ func TestUnimportService(t *testing.T) {
 	for _, mode := range []EndpointMode{EndpointsOnly, EndpointSliceOnly} {
 		t.Run(mode.String(), func(t *testing.T) {
 			// Create and run the controller.
-			c, ic, cleanup := newTestServiceImportCache(mode)
-			defer cleanup()
+			c, ic := newTestServiceImportCache(t, mode)
 
 			ic.createKubeService(t, c)
 			ic.createServiceImport(t, mcsapi.ClusterSetIP, serviceImportVIPs)
@@ -170,8 +179,7 @@ func TestAddServiceImportVIPs(t *testing.T) {
 	for _, mode := range []EndpointMode{EndpointsOnly, EndpointSliceOnly} {
 		t.Run(mode.String(), func(t *testing.T) {
 			// Create and run the controller.
-			c, ic, cleanup := newTestServiceImportCache(mode)
-			defer cleanup()
+			c, ic := newTestServiceImportCache(t, mode)
 
 			ic.createKubeService(t, c)
 			ic.createServiceImport(t, mcsapi.ClusterSetIP, nil)
@@ -186,8 +194,7 @@ func TestUpdateServiceImportVIPs(t *testing.T) {
 	for _, mode := range []EndpointMode{EndpointsOnly, EndpointSliceOnly} {
 		t.Run(mode.String(), func(t *testing.T) {
 			// Create and run the controller.
-			c, ic, cleanup := newTestServiceImportCache(mode)
-			defer cleanup()
+			c, ic := newTestServiceImportCache(t, mode)
 
 			ic.createKubeService(t, c)
 			ic.createServiceImport(t, mcsapi.ClusterSetIP, serviceImportVIPs)
@@ -199,14 +206,12 @@ func TestUpdateServiceImportVIPs(t *testing.T) {
 	}
 }
 
-func newTestServiceImportCache(mode EndpointMode) (c *FakeController, ic *serviceImportCacheImpl, cleanup func()) {
+func newTestServiceImportCache(t test.Failer, mode EndpointMode) (c *FakeController, ic *serviceImportCacheImpl) {
 	stopCh := make(chan struct{})
-	prevEnableMCSHost := features.EnableMCSHost
-	features.EnableMCSHost = true
-	cleanup = func() {
+	test.SetBoolForTest(t, &features.EnableMCSHost, true)
+	t.Cleanup(func() {
 		close(stopCh)
-		features.EnableMCSHost = prevEnableMCSHost
-	}
+	})
 
 	c, _ = NewFakeControllerWithOptions(FakeControllerOptions{
 		Stop:      stopCh,
@@ -310,9 +315,13 @@ func (ic *serviceImportCacheImpl) updateKubeService(t *testing.T) {
 	}, serviceImportTimeout)
 }
 
-func (ic *serviceImportCacheImpl) deleteKubeService(t *testing.T) {
+func (ic *serviceImportCacheImpl) deleteKubeService(t *testing.T, anotherCluster *FakeController) {
 	t.Helper()
 
+	if err := anotherCluster.client.CoreV1().Services(serviceImportNamespace).Delete(context.TODO(), serviceImportName, kubeMeta.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// Wait for the resources to be processed by the controller.
 	if err := ic.client.CoreV1().Services(serviceImportNamespace).Delete(context.TODO(), serviceImportName, kubeMeta.DeleteOptions{}); err != nil {
 		t.Fatal(err)
 	}

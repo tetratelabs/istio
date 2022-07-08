@@ -28,10 +28,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd/api"
 
 	"istio.io/istio/pilot/pkg/features"
-	"istio.io/istio/pilot/pkg/util/sets"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/kube"
+	"istio.io/istio/pkg/test"
 	"istio.io/istio/pkg/test/util/retry"
+	"istio.io/istio/pkg/util/sets"
 )
 
 const secretNamespace string = "istio-system"
@@ -101,7 +102,7 @@ func Test_SecretController(t *testing.T) {
 	BuildClientsFromConfig = func(kubeConfig []byte) (kube.Client, error) {
 		return kube.NewFakeClient(), nil
 	}
-	features.RemoteClusterTimeout = 10 * time.Nanosecond
+	test.SetDurationForTest(t, &features.RemoteClusterTimeout, 10*time.Nanosecond)
 	clientset := kube.NewFakeClient()
 
 	var (
@@ -226,7 +227,7 @@ func TestSanitizeKubeConfig(t *testing.T) {
 		},
 		{
 			name:      "exec allowlist",
-			allowlist: sets.NewSet("exec"),
+			allowlist: sets.New("exec"),
 			config: api.Config{
 				AuthInfos: map[string]*api.AuthInfo{
 					"default": {

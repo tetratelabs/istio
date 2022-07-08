@@ -136,7 +136,7 @@ func (s *Server) initConfigController(args *PilotArgs) error {
 	s.configController = aggregateConfigController
 
 	// Create the config store.
-	s.environment.IstioConfigStore = model.MakeIstioStore(s.configController)
+	s.environment.ConfigStore = model.MakeIstioStore(s.configController)
 
 	// Defer starting the controller until after the service is created.
 	s.addStartFunc(func(stop <-chan struct{}) error {
@@ -254,7 +254,7 @@ func (s *Server) initConfigSources(args *PilotArgs) (err error) {
 			if err != nil {
 				return fmt.Errorf("failed to dial XDS %s %v", configSource.Address, err)
 			}
-			store := memory.MakeSkipValidation(collections.Pilot)
+			store := memory.Make(collections.Pilot)
 			configController := memory.NewController(store)
 			configController.RegisterHasSyncedHandler(xdsMCP.HasSynced)
 			xdsMCP.Store = model.MakeIstioStore(configController)
@@ -342,7 +342,7 @@ func (s *Server) initStatusController(args *PilotArgs, writeStatus bool) {
 	}
 }
 
-func (s *Server) makeKubeConfigController(args *PilotArgs) (model.ConfigStoreCache, error) {
+func (s *Server) makeKubeConfigController(args *PilotArgs) (model.ConfigStoreController, error) {
 	return crdclient.New(s.kubeClient, args.Revision, args.RegistryOptions.KubeOptions.DomainSuffix)
 }
 
