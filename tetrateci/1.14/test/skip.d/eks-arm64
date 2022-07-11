@@ -37,6 +37,7 @@ istio.io/istio/tests/integration/security/sds_tls_origination=TestSimpleTlsOrigi
 istio.io/istio/tests/integration/telemetry/tracing/zipkin/clienttracing=TestClientTracing
 istio.io/istio/tests/integration/telemetry/tracing/zipkin/servertracing=TestProxyTracing
 istio.io/istio/tests/integration/telemetry/stackdriver=*
+istio.io/istio/tests/integration/telemetry/stats/prometheus/customizemetrics=*
 istio.io/istio/tests/integration/telemetry/stackdriver/api=*
 istio.io/istio/tests/integration/telemetry/stackdriver/vm=*
 istio.io/istio/tests/integration/telemetry/tracing/opencensusagent=*
