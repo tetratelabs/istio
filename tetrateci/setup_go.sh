@@ -22,6 +22,10 @@ if $(grep -q "1.12" <<< $TAG) || [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "
     export GOLANG_VERSION=1.17.8
 fi
 
+if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.14" ]]; then
+    export GOLANG_VERSION=1.18.2
+fi
+
 url="https://golang.org/dl/go$GOLANG_VERSION.linux-amd64.tar.gz"
 
 wget -q -O go.tgz "$url"
