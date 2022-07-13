@@ -19,12 +19,13 @@ fi
 
 # BOM is needed for generating bill of materials, required by Istio since 1.13, https://github.com/istio/release-builder/pull/893
 go install sigs.k8s.io/bom/cmd/bom@v0.2.2
-cp /home/runner/go/bin/bom /usr/local/bin/
+sudo cp /home/runner/go/bin/bom /usr/local/bin/
 
 sudo gem install fpm
 sudo apt-get install go-bindata -y
 export BRANCH=release-${REL_BRANCH_VER}
 cd ..
+rm -rf release-builder
 git clone https://github.com/istio/release-builder --branch ${BRANCH}
 
 
@@ -79,8 +80,11 @@ if [[ ${TAG} =~ "fips" ]]; then
   text="if [[ "\${GOARCH}" == "amd64" ]]; then export CGO_ENABLED=1; else export CGO_ENABLED=0; fi"
   sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
 fi
+
+#install rpm-build package
+sudo apt-get install rpm -y
 # Build Docker Images
-mkdir /tmp/istio-release
+rm -rf /tmp/istio-release && mkdir /tmp/istio-release
 go run main.go build --manifest manifest.docker.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
 
@@ -121,6 +125,7 @@ if [[ -z ${TEST:-} ]]; then
     go run main.go build --manifest manifest.archive.yaml
 
     python3 -m pip install --upgrade cloudsmith-cli --user
+    export PATH=$PATH:/home/runner/.local/bin
 
     PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
     for package in $PACKAGES; do
