@@ -82,7 +82,8 @@ func (configgen *ConfigGeneratorImpl) BuildClusters(proxy *model.Proxy, req *mod
 // BuildDeltaClusters generates the deltas (add and delete) for a given proxy. Currently, only service changes are reflected with deltas.
 // Otherwise, we fall back onto generating everything.
 func (configgen *ConfigGeneratorImpl) BuildDeltaClusters(proxy *model.Proxy, updates *model.PushRequest,
-	watched *model.WatchedResource) ([]*discovery.Resource, []string, model.XdsLogDetails, bool) {
+	watched *model.WatchedResource,
+) ([]*discovery.Resource, []string, model.XdsLogDetails, bool) {
 	// if we can't use delta, fall back to generate all
 	if !shouldUseDelta(updates) {
 		cl, lg := configgen.BuildClusters(proxy, updates)
@@ -140,7 +141,8 @@ func (configgen *ConfigGeneratorImpl) BuildDeltaClusters(proxy *model.Proxy, upd
 
 // buildClusters builds clusters for the proxy with the services passed.
 func (configgen *ConfigGeneratorImpl) buildClusters(proxy *model.Proxy, req *model.PushRequest,
-	services []*model.Service) ([]*discovery.Resource, model.XdsLogDetails) {
+	services []*model.Service,
+) ([]*discovery.Resource, model.XdsLogDetails) {
 	clusters := make([]*cluster.Cluster, 0)
 	resources := model.Resources{}
 	envoyFilterPatches := req.Push.EnvoyFilters(proxy)
@@ -241,7 +243,8 @@ func buildClusterKey(service *model.Service, port *model.Port, cb *ClusterBuilde
 
 // buildOutboundClusters generates all outbound (including subsets) clusters for a given proxy.
 func (configgen *ConfigGeneratorImpl) buildOutboundClusters(cb *ClusterBuilder, proxy *model.Proxy, cp clusterPatcher,
-	services []*model.Service) ([]*discovery.Resource, cacheStats) {
+	services []*model.Service,
+) ([]*discovery.Resource, cacheStats) {
 	resources := make([]*discovery.Resource, 0)
 	efKeys := cp.efw.Keys()
 	hit, miss := 0, 0
@@ -343,7 +346,8 @@ func (p clusterPatcher) hasPatches() bool {
 // All SniDnat clusters are internal services in the mesh.
 // TODO enable cache - there is no blockers here, skipped to simplify the original caching implementation
 func (configgen *ConfigGeneratorImpl) buildOutboundSniDnatClusters(proxy *model.Proxy, req *model.PushRequest,
-	cp clusterPatcher) []*cluster.Cluster {
+	cp clusterPatcher,
+) []*cluster.Cluster {
 	clusters := make([]*cluster.Cluster, 0)
 	cb := NewClusterBuilder(proxy, req, nil)
 
@@ -399,7 +403,8 @@ func buildInboundLocalityLbEndpoints(bind string, port uint32) []*endpoint.Local
 }
 
 func (configgen *ConfigGeneratorImpl) buildInboundClusters(cb *ClusterBuilder, proxy *model.Proxy, instances []*model.ServiceInstance,
-	cp clusterPatcher) []*cluster.Cluster {
+	cp clusterPatcher,
+) []*cluster.Cluster {
 	clusters := make([]*cluster.Cluster, 0)
 
 	// The inbound clusters for a node depends on whether the node has a SidecarScope with inbound listeners
@@ -502,7 +507,8 @@ func (configgen *ConfigGeneratorImpl) buildInboundClusters(cb *ClusterBuilder, p
 }
 
 func findOrCreateServiceInstance(instances []*model.ServiceInstance,
-	ingressListener *networking.IstioIngressListener, sidecar string, sidecarns string) *model.ServiceInstance {
+	ingressListener *networking.IstioIngressListener, sidecar string, sidecarns string,
+) *model.ServiceInstance {
 	for _, realInstance := range instances {
 		if realInstance.Endpoint.EndpointPort == ingressListener.Port.Number {
 			// We need to create a copy of the instance, as it is modified later while building clusters/listeners.
@@ -551,7 +557,8 @@ func convertResolution(proxyType model.NodeType, service *model.Service) cluster
 
 // SelectTrafficPolicyComponents returns the components of TrafficPolicy that should be used for given port.
 func selectTrafficPolicyComponents(policy *networking.TrafficPolicy) (
-	*networking.ConnectionPoolSettings, *networking.OutlierDetection, *networking.LoadBalancerSettings, *networking.ClientTLSSettings) {
+	*networking.ConnectionPoolSettings, *networking.OutlierDetection, *networking.LoadBalancerSettings, *networking.ClientTLSSettings,
+) {
 	if policy == nil {
 		return nil, nil, nil, nil
 	}
@@ -695,11 +702,18 @@ func applyOutlierDetection(c *cluster.Cluster, outlier *networking.OutlierDetect
 	// with few pods per service.
 	// To do so, set the healthy_panic_threshold field even if its value is 0 (defaults to 50).
 	// FIXME: we can't distinguish between it being unset or being explicitly set to 0
-	if outlier.MinHealthPercent >= 0 {
+	minHealthPercent := outlier.MinHealthPercent
+	if minHealthPercent >= 0 {
 		if c.CommonLbConfig == nil {
 			c.CommonLbConfig = &cluster.Cluster_CommonLbConfig{}
 		}
-		c.CommonLbConfig.HealthyPanicThreshold = &xdstype.Percent{Value: float64(outlier.MinHealthPercent)} // defaults to 50
+		// When we are sending unhealthy endpoints, we should disble Panic Threshold. Otherwise
+		// Envoy will send traffic to "Unready" pods when the percentage of healthy hosts fall
+		// below minimum health percentage.
+		if features.SendUnhealthyEndpoints {
+			minHealthPercent = 0
+		}
+		c.CommonLbConfig.HealthyPanicThreshold = &xdstype.Percent{Value: float64(minHealthPercent)}
 	}
 }
 
@@ -711,7 +725,16 @@ func defaultLBAlgorithm() cluster.Cluster_LbPolicy {
 }
 
 func applyLoadBalancer(c *cluster.Cluster, lb *networking.LoadBalancerSettings, port *model.Port,
-	locality *core.Locality, proxyLabels map[string]string, meshConfig *meshconfig.MeshConfig) {
+	locality *core.Locality, proxyLabels map[string]string, meshConfig *meshconfig.MeshConfig,
+) {
+	// Disable panic threshold when SendUnhealthyEndpoints is enabled as enabling it "may" send traffic to unready
+	// end points when load balancer is in panic mode.
+	if features.SendUnhealthyEndpoints {
+		if c.CommonLbConfig == nil {
+			c.CommonLbConfig = &cluster.Cluster_CommonLbConfig{}
+		}
+		c.CommonLbConfig.HealthyPanicThreshold = &xdstype.Percent{Value: 0}
+	}
 	localityLbSetting := loadbalancer.GetLocalityLbSetting(meshConfig.GetLocalityLbSetting(), lb.GetLocalityLbSetting())
 	if localityLbSetting != nil {
 		if c.CommonLbConfig == nil {
@@ -724,8 +747,6 @@ func applyLoadBalancer(c *cluster.Cluster, lb *networking.LoadBalancerSettings, 
 	// Use locality lb settings from load balancer settings if present, else use mesh wide locality lb settings
 	applyLocalityLBSetting(locality, proxyLabels, c, localityLbSetting)
 
-	// apply default round robin lb policy
-	c.LbPolicy = defaultLBAlgorithm()
 	if c.GetType() == cluster.Cluster_ORIGINAL_DST {
 		c.LbPolicy = cluster.Cluster_CLUSTER_PROVIDED
 		return
@@ -737,31 +758,38 @@ func applyLoadBalancer(c *cluster.Cluster, lb *networking.LoadBalancerSettings, 
 		return
 	}
 
-	if lb == nil {
-		return
-	}
-
 	// DO not do if else here. since lb.GetSimple returns a enum value (not pointer).
 	switch lb.GetSimple() {
 	// nolint: staticcheck
 	case networking.LoadBalancerSettings_LEAST_CONN, networking.LoadBalancerSettings_LEAST_REQUEST:
-		ApplyLeastRequestLoadBalancer(c, lb)
+		applyLeastRequestLoadBalancer(c, lb)
 	case networking.LoadBalancerSettings_RANDOM:
 		c.LbPolicy = cluster.Cluster_RANDOM
 	case networking.LoadBalancerSettings_ROUND_ROBIN:
-		ApplyRoundRobinLoadBalancer(c, lb)
+		applyRoundRobinLoadBalancer(c, lb)
 	case networking.LoadBalancerSettings_PASSTHROUGH:
 		c.LbPolicy = cluster.Cluster_CLUSTER_PROVIDED
 		c.ClusterDiscoveryType = &cluster.Cluster_Type{Type: cluster.Cluster_ORIGINAL_DST}
 	default:
-		c.LbPolicy = defaultLBAlgorithm()
+		applySimpleDefaultLoadBalancer(c, lb)
 	}
 
 	ApplyRingHashLoadBalancer(c, lb)
 }
 
-// ApplyRoundRobinLoadBalancer will set the LbPolicy and create an LbConfig for ROUND_ROBIN if used in LoadBalancerSettings
-func ApplyRoundRobinLoadBalancer(c *cluster.Cluster, loadbalancer *networking.LoadBalancerSettings) {
+// applySimpleDefaultLoadBalancer will set the DefaultLBPolicy and create an LbConfig if used in LoadBalancerSettings
+func applySimpleDefaultLoadBalancer(c *cluster.Cluster, loadbalancer *networking.LoadBalancerSettings) {
+	c.LbPolicy = defaultLBAlgorithm()
+	switch c.LbPolicy {
+	case cluster.Cluster_ROUND_ROBIN:
+		applyRoundRobinLoadBalancer(c, loadbalancer)
+	case cluster.Cluster_LEAST_REQUEST:
+		applyLeastRequestLoadBalancer(c, loadbalancer)
+	}
+}
+
+// applyRoundRobinLoadBalancer will set the LbPolicy and create an LbConfig for ROUND_ROBIN if used in LoadBalancerSettings
+func applyRoundRobinLoadBalancer(c *cluster.Cluster, loadbalancer *networking.LoadBalancerSettings) {
 	c.LbPolicy = cluster.Cluster_ROUND_ROBIN
 
 	if loadbalancer.GetWarmupDurationSecs() != nil {
@@ -773,8 +801,8 @@ func ApplyRoundRobinLoadBalancer(c *cluster.Cluster, loadbalancer *networking.Lo
 	}
 }
 
-// ApplyLeastRequestLoadBalancer will set the LbPolicy and create an LbConfig for LEAST_REQUEST if used in LoadBalancerSettings
-func ApplyLeastRequestLoadBalancer(c *cluster.Cluster, loadbalancer *networking.LoadBalancerSettings) {
+// applyLeastRequestLoadBalancer will set the LbPolicy and create an LbConfig for LEAST_REQUEST if used in LoadBalancerSettings
+func applyLeastRequestLoadBalancer(c *cluster.Cluster, loadbalancer *networking.LoadBalancerSettings) {
 	c.LbPolicy = cluster.Cluster_LEAST_REQUEST
 
 	if loadbalancer.GetWarmupDurationSecs() != nil {
@@ -816,7 +844,8 @@ func ApplyRingHashLoadBalancer(c *cluster.Cluster, lb *networking.LoadBalancerSe
 }
 
 func applyLocalityLBSetting(locality *core.Locality, proxyLabels map[string]string, cluster *cluster.Cluster,
-	localityLB *networking.LocalityLoadBalancerSetting) {
+	localityLB *networking.LocalityLoadBalancerSetting,
+) {
 	// Failover should only be applied with outlier detection, or traffic will never failover.
 	enabledFailover := cluster.OutlierDetection != nil
 	if cluster.LoadAssignment != nil {
