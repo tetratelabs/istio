@@ -107,7 +107,7 @@ jobs:
 
   create-test-images:
     name: create-test-images
-    runs-on: ["self-hosted", "amd-x64"]
+    runs-on: ["self-hosted", "amd64", "aws"]
     needs: [build_fips_proxy]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
@@ -165,7 +165,7 @@ jobs:
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-        
+
   eks-e2e-test:
     name: eks-e2e-test
     runs-on: ubuntu-latest

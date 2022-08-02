@@ -100,7 +100,7 @@ jobs:
   make_release:
     name: release-builder-run (${{ github.event.inputs.tag }})
     if: ${{ ! failure() }} # Make sure that this job runs even if build == "fips".
-    runs-on: ["self-hosted", "amd-x64"]
+    runs-on: ["self-hosted", "amd64", "aws"]
     needs: [build_fips_proxy]
     env:
       HUB: ${{ secrets.CLOUDSMITH_HUB }}
