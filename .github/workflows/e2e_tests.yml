@@ -178,7 +178,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ["1.21", "1.20", "1.19", "1.18"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+        version: ["1.21", "1.20", "1.19", "1.22"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
 
     steps:
       - name: checkout
@@ -245,13 +245,13 @@ jobs:
       # available versions according to https://cloud.google.com/kubernetes-engine/versioning
       matrix:
         include:
-          - version: "1.22"
+          - version: "1.23"
             channel: "rapid"
-          - version: "1.21"
+          - version: "1.22"
             channel: "regular"
           - version: "1.20"
             channel: "regular"
-          - version: "1.19"
+          - version: "1.21"
             channel: "stable"
     
     steps:
