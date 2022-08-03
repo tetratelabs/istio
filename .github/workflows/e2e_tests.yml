@@ -77,6 +77,7 @@ jobs:
           sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
+          sed -i "s%libc++ -Wno-unused-variable%libc++ -Wno-unused-variable -Wno-unknown-warning-option%g" .bazelrc
 
       - name: Add FIPS flag
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
