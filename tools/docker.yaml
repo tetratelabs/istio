@@ -142,9 +142,9 @@ images:
 - name: app_sidecar_base_debian_10 # latest debian
   dockerfile: pkg/test/echo/docker/Dockerfile.app_sidecar_base
   base: true
-- name: app_sidecar_base_ubuntu_jammy # newest ubuntu
-  dockerfile: pkg/test/echo/docker/Dockerfile.app_sidecar_base
-  base: true
+# - name: app_sidecar_base_ubuntu_jammy # newest ubuntu
+#   dockerfile: pkg/test/echo/docker/Dockerfile.app_sidecar_base
+#   base: true
 - name: app_sidecar_base_ubuntu_xenial # oldest supported ubuntu
   dockerfile: pkg/test/echo/docker/Dockerfile.app_sidecar_base
   base: true
