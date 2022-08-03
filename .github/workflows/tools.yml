@@ -8,7 +8,7 @@ on:
         required: true
 
 jobs:
-  build_tools_docker:
+  build_tools_docker_arm64:
     name: build tools docker
     runs-on: ["self-hosted", "arm64"]
     env:
