@@ -21,6 +21,9 @@
 # ```
 #
 # Indicates that tests for the package `<pkg>` should not be run at all.
+istio.io/istio/tests/integration/security/mtls_first_party_jwt=*
+istio.io/istio/tests/integration/pilot=TestGateway
+istio.io/istio/tests/integration/telemetry/outboundtrafficpolicy=*
 istio.io/istio/tests/integration/pilot/revisioncmd=TestRevisionCommand/list_revisions TestRevisionCommand/describe_valid_revision
 istio.io/istio/tests/integration/telemetry/stackdriver=*
 istio.io/istio/tests/integration/helm/upgrade=*
