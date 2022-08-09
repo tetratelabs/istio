@@ -18,7 +18,7 @@ if $(grep -q "1.11" <<< $TAG); then
     export GOLANG_VERSION=1.17.6
 fi
 
-if $(grep -q "1.12" <<< $TAG) 
+if $(grep -q "1.12" <<< $TAG); then
     export GOLANG_VERSION=1.17.8
 fi
 
