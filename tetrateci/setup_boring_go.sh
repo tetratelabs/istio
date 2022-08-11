@@ -18,13 +18,12 @@ if $(grep -q "1.11" <<< $TAG); then
   export GOLANG_VERSION=1.17.6b7
 fi
 
-
-if $(grep -q "1.12" <<< $TAG)
+if $(grep -q "1.12" <<< $TAG) || [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.13" ]]; then
   export GOLANG_VERSION=1.17.8b7
 fi
 
-if $(grep -q "1.13" <<< $TAG) || [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.14" ]]; then
-  export GOLANG_VERSION=1.18.4b7
+if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.14" ]]; then
+    export GOLANG_VERSION=1.18.4b7
 fi
 
 url="https://go-boringcrypto.storage.googleapis.com/go$GOLANG_VERSION.linux-amd64.tar.gz"
