@@ -28,6 +28,7 @@ istio.io/istio/tests/integration/helm/upgrade=*
 istio.io/istio/tests/integration/security=TestReachability/beta-mtls-off
 istio.io/istio/tests/integration/security/sds_ingress/quic=*
 istio.io/istio/tests/integration/security/mtls_first_party_jwt=*
+istio.io/istio/tests/integration/security/file_mounted_certs=*
 istio.io/istio/tests/integration/security/https_jwt=TestJWTHTTPS/jwt-authn/a/to_b/valid-token-forward-remote-jwks
 istio.io/istio/tests/integration/pilot=TestGateway TestIngress TestDescribe TestTraffic
 istio.io/istio/tests/integration/telemetry/stackdriver=*
