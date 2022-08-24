@@ -9,6 +9,12 @@ env:
   HUB: ${{ secrets.TEST_HUB }}
 
 jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Dump context
+        uses: crazy-max/ghaction-dump-context@v1
   # copied from make_release.yml
   build_fips_proxy:
     # Only run this job when the release type equals "fips".
