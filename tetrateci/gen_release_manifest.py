@@ -27,8 +27,11 @@ with open(source_yaml, "r") as file :
     manifest["version"] = tag
     manifest["dependencies"]["istio"] = {"localpath" : "./istio"}
     manifest["dependencies"]["client-go"]["branch"] = branch
-    manifest["dependencies"]["gogo-genproto"]["branch"] = branch
     manifest["dependencies"]["tools"]["branch"] = branch
+    # genproto has been removed from 1.14
+    # added check for "gogo-genproto" dependenciy if it present then assign branch
+    if "gogo-genproto" in manifest["dependencies"]:
+        manifest["dependencies"]["gogo-genproto"]["branch"] = branch
     manifest["dependencies"]["envoy"]["git"] = "https://github.com/istio/envoy"
     manifest['outputs'] = ["docker"]
     f = open(os.path.join(destination_folder, "manifest.docker.yaml"), 'w')
