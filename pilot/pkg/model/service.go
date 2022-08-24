@@ -519,6 +519,8 @@ type ServiceAttributes struct {
 	Name string
 	// Namespace is "destination.service.namespace" attribute
 	Namespace string
+	// Annotations applied to the service
+	Annotations map[string]string
 	// Labels applied to the service
 	Labels map[string]string
 	// ExportTo defines the visibility of Service in
