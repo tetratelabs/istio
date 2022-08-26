@@ -125,13 +125,6 @@ go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 echo "Cleaning up the istio source artificats...."
 sudo rm -rf /tmp/istio-release/sources/
 
-if [[ "$(uname -m)" = "x86_64" ]]; then
-    export TAG="${TAG%-amd64}"
-    ${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/example/manifest.yaml ${BASEDIR}/../release-builder/
-else
-    exit 0
-fi
-
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
     echo "Building archives..."
