@@ -98,6 +98,13 @@ if [[ ${TAG} =~ "fips" ]]; then
   sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
 fi
 
+if [[ ${TAG} =~ "multiarch" ]]; then
+  if  [[ "$(uname -m)" = "aarch64" ]]; then
+    export TAG="${TAG%-arm64}"
+  else
+    export TAG="${TAG%-amd64}"
+fi
+
 #install rpm-build package
 sudo apt-get install rpm -y
 # Build Docker Images
