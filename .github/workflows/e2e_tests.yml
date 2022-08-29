@@ -106,7 +106,7 @@ jobs:
           gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
 
   build_arm_proxy:
-    # Do not run this job when the release type equals "fips".
+    # Do not run this job when the release type equals "fips"as we do not support fips compliant ARM build yet.
     if: "contains(github.event.ref, 'multiarch')"
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
