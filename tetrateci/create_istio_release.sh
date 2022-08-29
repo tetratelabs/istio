@@ -98,6 +98,14 @@ if [[ ${TAG} =~ "fips" ]]; then
   sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
 fi
 
+if [[ ${TAG} =~ "multiarch" ]]; then
+  if  [[ "$(uname -m)" = "aarch64" ]]; then
+    export TAG="${TAG}-arm64"
+  else
+    export TAG="${TAG}-amd64"
+  fi
+fi
+
 #install rpm-build package
 sudo apt-get install rpm -y
 # Build Docker Images
@@ -124,6 +132,13 @@ fi
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 echo "Cleaning up the istio source artificats...."
 sudo rm -rf /tmp/istio-release/sources/
+
+if [[ "$(uname -m)" = "x86_64" ]]; then
+    export TAG="${TAG%-amd64}"
+    ${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/example/manifest.yaml ${BASEDIR}/../release-builder/
+else
+    exit 0
+fi
 
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
