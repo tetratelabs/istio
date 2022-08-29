@@ -255,7 +255,7 @@ jobs:
       - name: build and push images
         run: bash ./tetrateci/create_istio_release.sh
         env:
-          TAG: ${{ steps.get_tag.outputs.TAG }}-arm64
+          TAG: ${{ steps.get_tag.outputs.TAG }}
           TEST: "true"
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
@@ -311,7 +311,7 @@ jobs:
       - name: build and push images
         run: bash ./tetrateci/create_istio_release.sh
         env:
-          TAG: ${{ steps.get_tag.outputs.TAG }}-amd64
+          TAG: ${{ steps.get_tag.outputs.TAG }}
           TEST: "true"
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
