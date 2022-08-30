@@ -241,7 +241,7 @@ jobs:
         env:
           CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
-          TAG: ${{ github.event.inputs.tag }}-arm64
+          TAG: ${{ github.event.inputs.tag }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
   create-images-amd64:
@@ -288,7 +288,7 @@ jobs:
         env:
           CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
-          TAG: ${{ github.event.inputs.tag }}-amd64
+          TAG: ${{ github.event.inputs.tag }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
   create-multiarch-images:
