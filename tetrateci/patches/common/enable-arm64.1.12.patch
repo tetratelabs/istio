@@ -1,0 +1,24 @@
+diff --git a/manifests/charts/gateways/istio-egress/values.yaml b/manifests/charts/gateways/istio-egress/values.yaml
+index 5562ba5342..0308cbdd8c 100644
+--- a/manifests/charts/gateways/istio-egress/values.yaml
++++ b/manifests/charts/gateways/istio-egress/values.yaml
+@@ -170,6 +170,7 @@ global:
+   #   3 - Most preferred
+   arch:
+     amd64: 2
++    arm64: 2
+     s390x: 2
+     ppc64le: 2
+ 
+diff --git a/manifests/charts/gateways/istio-ingress/values.yaml b/manifests/charts/gateways/istio-ingress/values.yaml
+index 7be1815185..726aad6f0f 100644
+--- a/manifests/charts/gateways/istio-ingress/values.yaml
++++ b/manifests/charts/gateways/istio-ingress/values.yaml
+@@ -183,6 +183,7 @@ global:
+   #   3 - Most preferred
+   arch:
+     amd64: 2
++    arm64: 2
+     s390x: 2
+     ppc64le: 2
+ 

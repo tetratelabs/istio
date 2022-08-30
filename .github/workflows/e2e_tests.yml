@@ -3,7 +3,7 @@ name: e2e-tests
 on:
   push:
     tags:
-      - 'test-*'
+      - "test-*"
 
 env:
   HUB: ${{ secrets.TEST_HUB }}
@@ -33,7 +33,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          repository: 'istio/proxy'
+          repository: "istio/proxy"
           ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
 
       - name: Set up Cloud SDK
@@ -55,8 +55,8 @@ jobs:
 
       - name: Tweak make recipe
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
-        # 1) remove unnecessary dependency on naive "build" target 
-        # 2) remove "-p" flag to not push and build container, 
+        # 1) remove unnecessary dependency on naive "build" target
+        # 2) remove "-p" flag to not push and build container,
         # 3) replace RELEASE_GCS_PATH var with the literal due to docker build.
         # from push_release.
         run: |
@@ -85,9 +85,9 @@ jobs:
       - name: Build and push
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
-          BUILD_WITH_CONTAINER: 1 
+          BUILD_WITH_CONTAINER: 1
         run: make push_release
-      
+
       - name: Put CentOS binary
         # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
         # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
@@ -105,9 +105,165 @@ jobs:
           gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
           gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
 
-  create-test-images:
-    name: create-test-images
-    runs-on: ubuntu-latest
+  build_arm_proxy:
+    # Do not run this job when the release type equals "fips"as we do not support fips compliant ARM build yet.
+    if: "contains(github.event.ref, 'multiarch')"
+    name: build ARM proxy binary
+    timeout-minutes: 1440 # 12 hours
+    runs-on: ["self-hosted", "arm64"]
+    env:
+      RELEASE_GCS_PATH: gs://getistio-build/proxy-arm
+    steps:
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
+
+      - name: Get normalized tag
+        id: get_minor_ver
+        run: |
+          echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g')
+          echo ::set-output name=RELEASE_VERSION::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g' | sed 's/\.[^\.]*$//g')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          repository: "istio/proxy"
+          ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Check if already built
+        id: check_already_built
+        run: |
+          SHA=$(git rev-parse --verify HEAD)
+          SHOULD_BUILD=1
+          if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA} ; then
+            SHOULD_BUILD=0
+          fi
+          echo ::set-output name=should_build::${SHOULD_BUILD}
+
+      - name: Tweak make recipe
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        # 1) remove unnecessary dependency on naive "build" target
+        # 2) remove "-p" flag to not push and build container,
+        # 3) replace RELEASE_GCS_PATH var with the literal due to docker build.
+        # from push_release.
+        run: |
+          ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
+          sed -i "s/\-p//g; s/push_release: build/push_release:/g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
+
+      - name: Tweak release-binary script
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        # 1) Setup in-docker auth against gcloud
+        # 2) Remove unnecessary debug build
+        # 3) Remove unnecessary Wasm build and publish
+        # Note that /work is the mount destination of the current home of make command with BUILD_WITH_CONTAINER=1.
+        run: |
+          echo H4sIAJNQ32EAA+VXbXPaOBD+zq/YczMFCgKcBkjSY6aE0CTTBDIBru31OoxsC9Bgyz5LbkLT/PdbWZhA3m7au364Kx9Col3tap/dZ3fj8ckECJlyBbQq3ZhHSlajRM6IxxxORUXOwHlEkOPCY1dQ223UX7oNVqm8dKhbn3hNsGu1Zr2eI4Q8ajVXKpUet/z6NZDGTtm2oaS/GoAHE56DHHz8COQLWFvXR53B+Lw9PL6x4NMneP78VtIfDc9Hw/HhycVKlkg6ZXi95FLJUKeQCBowIEHRAi5yJQDrarcxbuxYRTho/949HbcvOscta75rvXqViimN3dk9eXZqlF4UgbmzEKyRkEkUhbFiHmgNrpirkpiVIUikAoeB8QZhjPJAGwB2hTmwtSEmqZuDZzBYBD4XcwleKPIKLsN4XsZIGEwS34eIqhlQCRQUC9AXjRepCo3DRHiV1ABj+zBTKpL71SqmeJY4FTcMqlwqHq5+yoTJql1v2jswwfd4TFHuy9TAfJeEkQIuQc0YhImKEgUejzGaEN1p9SyQSPGAf8F4nYT7noQCcfVhGWSI9eWGYsKnrZj5DBNA5CJwQh+o8O7JiqljOWO+786YO0d3kjo+aw0621hpOWLgxxy3MI0O/cJ8zOAkhK1rIzkYnZweYnqOBjfLF481VMWqCabqcGHlSt9tJVPQ+b+5NbisioOTXvviA9q8Xjm4qaow9GUVi9tATqI4vFpYupifCtR7iJkZgOgT871JznuyJT+btfrepO7ayE9X/1Lffpif9+9vUvS+XLN0t1beRpbiV0pSPoGPmoOHgyGSr9UCS4SCIQ1f6RISOQBAUcvC8FM+k2dwRucMJLIjLbKlF0i9cIb1jQJdUwpCkVXbyEmESsBuVGo7UHjPBKd+MUcy553jbuctuifsT7DBNAd9bpL6pn8x7nR7w/5gqVJbvY5AGoBRvlsHFvzSghfWWsEGoWLEeoE95vY+wOhg1BuOxhfd02570G1tXW8e7JOtgi+dcRYo8oTI4o25a1xvXjA45q/SKPO6oX39Ctem0+TPdD+JE6HBeRCVSn7VWiB1grCTpaP1Lpi6SNF9yoXRuGOT+d8JvL0O/LcVQocJ1R9AcxnLVuHXKlNu1cXjUJLsroqBeC7ka2Svkv/qYvMiHvxRATKxi2lxNq3NYK31YDMfZZiGCl24VMEdD0XrISSIuKXAWoTGwxBjIzxtmOgDW6tA49T3w0tsniqcMlSP4RK7tX6sUatY6f3UUY7oDOreoS2lvcRgtACdTWyfg+O27mq6c8TsM4lorMuMfGYxnyzguNs+LOruo9lr15rI29LedtneXtH3oefr4tQ4mZI40D2eiykOH8Eul+4r+SWn/ztDtqRhXHXq/Z924qalYO+V8UEl267pbzzyQpN2ADPWxgfYjca99lnXDDj8YynQZzeE+tGMWtmd83bnbfuou35pc/yZz5Ozfun9X5n4/9DWY3PffLCi0m9rE2+rmCl0+r03J0e4sF60zwYt65H8WN8G+J1LDyD+f4WZSipuwX0Gvf6wuw8+d1xcWZA83gJbD3exrS5AMxpZwgVSCkUpW5Yl/7JuSn678b0lr9/xE+KPy2wy/fvqNmrfBunmnae7yB3lHwyy50x/BMgrsxsgm38C0zLF9+shbe/tlXfXd2xjv9v7rf8hg7DfO/1wb7mC5epQy+bzQ8tfNprv7EODOY8iPenftQdnhjt6NRK3u3jkU4VjKahk47WmVyEzWVN1PXOixPE5/rfyjsoAbyRTLmQO1RUTEvcb2SpIRZWEAEehRxUdsyt3RsWUAVUq5k6i2JQJrLfh2flYP6W1VQjmegzrJYngqEbDZGmYvF99irm/AJDMXDzhEAAA \
+            | base64 -d | gunzip | patch -p1
+
+          CREDENTIAL_FILE_NAME=$(echo ${GOOGLE_APPLICATION_CREDENTIALS} | awk -F/ '{print $NF}')
+          cp scripts/release-binary.sh scripts/release-binary.sh.tmp
+          echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
+          cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
+          sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
+          sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
+          cat scripts/release-binary.sh
+
+      - name: Build and push
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        env:
+          BUILD_WITH_CONTAINER: 1
+          IMG: gcr.io/tetrate-istio-arm/build-tools-proxy:master-latest-arm64
+        run: make push_release
+
+      - name: Put CentOS binary
+        # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
+        # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
+        run: |
+          SHA=$(git rev-parse --verify HEAD)
+          gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
+
+      - name: Put Wasm binary
+        # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
+        env:
+          UPSTREAM_GCSP_PATH: gs://istio-build/proxy
+        run: |
+          SHA=$(git rev-parse --verify HEAD)
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
+          gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
+
+  create-test-images-arm64:
+    name: create-test-images-arm64
+    runs-on: ["self-hosted", "arm64"]
+    env:
+      TARGETARCH: arm64
+      DOCKER_ARCHITECTURES: linux/arm64
+    needs: [build_arm_proxy]
+    # 'if' condition causes this job to run even if some of the dependent jobs
+    # have been skipped, e.g. `build_fips_proxy`.
+    # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
+    if: "contains(github.event.ref, 'multiarch')"
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: Get Registry
+        id: get_registry
+        run: |
+          [[ ${HUB} == *.* ]] && REGISTRY=$(echo ${HUB} | cut -d/ -f1)
+          echo REGISTRY=${REGISTRY}
+          echo REGISTRY=${REGISTRY} >> $GITHUB_ENV
+
+      - name: docker-login-non-docker
+        uses: docker/login-action@v1
+        if: ${{ env.REGISTRY != null }}
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.TEST_HUB_USER }}
+          password: ${{ secrets.TEST_HUB_PASS }}
+
+      - name: docker-login-docker
+        uses: docker/login-action@v1
+        if: ${{ env.REGISTRY == null }}
+        with:
+          username: ${{ secrets.TEST_HUB_USER }}
+          password: ${{ secrets.TEST_HUB_PASS }}
+
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
+        shell: bash
+
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - name: build and push images
+        run: bash ./tetrateci/create_istio_release.sh
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+          TEST: "true"
+          # if the tag contains fips we are doing a fips build
+          BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+
+  create-test-images-amd64:
+    name: create-test-images-amd64
+    runs-on: ["self-hosted", "amd64", "aws"]
     needs: [build_fips_proxy]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
@@ -152,11 +308,6 @@ jobs:
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
 
-      - name: apply patches required in the context of e2e tests
-        run: tetrateci/apply_e2e_build_patches.sh
-        env:
-          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-
       - name: build and push images
         run: bash ./tetrateci/create_istio_release.sh
         env:
@@ -166,19 +317,75 @@ jobs:
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
-  eks-e2e-test:
-    name: eks-e2e-test
+  create-multiarch-images:
+    name: create-multiarch-images
     runs-on: ubuntu-latest
-    needs: [create-test-images]
+    needs: [create-test-images-amd64, create-test-images-arm64]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: ${{ !cancelled() && !failure() }}
+    if: "contains(github.event.ref, 'multiarch')"
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: Get Registry
+        id: get_registry
+        run: |
+          [[ ${HUB} == *.* ]] && REGISTRY=$(echo ${HUB} | cut -d/ -f1)
+          echo REGISTRY=${REGISTRY}
+          echo REGISTRY=${REGISTRY} >> $GITHUB_ENV
+
+      - name: docker-login-non-docker
+        uses: docker/login-action@v1
+        if: ${{ env.REGISTRY != null }}
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.TEST_HUB_USER }}
+          password: ${{ secrets.TEST_HUB_PASS }}
+
+      - name: docker-login-docker
+        uses: docker/login-action@v1
+        if: ${{ env.REGISTRY == null }}
+        with:
+          username: ${{ secrets.TEST_HUB_USER }}
+          password: ${{ secrets.TEST_HUB_PASS }}
+
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
+        shell: bash
+
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - name: build and push images
+        run: bash ./tetrateci/create_multiarch_images.sh
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+          TEST: "true"
+          # if the tag contains fips we are doing a fips build
+          BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+
+  eks-e2e-arm64-test:
+    name: eks-e2e-arm64-test
+    runs-on: ubuntu-latest
+    needs: [create-multiarch-images]
+    # 'if' condition causes this job to run even if some of the dependent jobs
+    # have been skipped, e.g. `build_fips_proxy`.
+    # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
+    if: "contains(github.event.ref, 'multiarch')"
 
     strategy:
       fail-fast: false
       matrix:
-        version: ["1.21", "1.20", "1.19", "1.18"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+        version: ["1.21", "1.20", "1.19"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
 
     steps:
       - name: checkout
@@ -215,6 +422,72 @@ jobs:
         env:
           K8S_VERSION: ${{ matrix.version }}
           ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          TEST_ARCH: arm64
+
+      - name: integration-tests
+        run: bash ./tetrateci/test_${ISTIO_MINOR_VER}.sh
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          CLUSTER: eks-arm64
+          K8S_VERSION: ${{ matrix.version }}
+
+      - name: eks-cluster-delete
+        if: always()
+        run: bash ./tetrateci/cleanup_eks_cluster.sh
+        env:
+          K8S_VERSION: ${{ matrix.version }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          TEST_ARCH: arm64
+
+  eks-e2e-test:
+    name: eks-e2e-test
+    runs-on: ubuntu-latest
+    needs: [create-multiarch-images]
+    # 'if' condition causes this job to run even if some of the dependent jobs
+    # have been skipped, e.g. `build_fips_proxy`.
+    # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
+    if: ${{ !cancelled() && !failure() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["1.21", "1.20", "1.19", "1.20"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: aws-config
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION  }}
+
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
+        shell: bash
+
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}-go-
+      - name: eks-cluster-create
+        run: bash ./tetrateci/create_eks_cluster.sh
+        env:
+          K8S_VERSION: ${{ matrix.version }}
+          ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: integration-tests
         run: bash ./tetrateci/test_${ISTIO_MINOR_VER}.sh
@@ -230,11 +503,11 @@ jobs:
         env:
           K8S_VERSION: ${{ matrix.version }}
           ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-  
+
   gke-e2e-test:
     name: gke-e2e-test
     runs-on: ubuntu-latest
-    needs: [create-test-images]
+    needs: [create-multiarch-images]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
@@ -245,15 +518,15 @@ jobs:
       # available versions according to https://cloud.google.com/kubernetes-engine/versioning
       matrix:
         include:
-          - version: "1.22"
+          - version: "1.23"
             channel: "rapid"
+          - version: "1.22"
+            channel: "regular"
           - version: "1.21"
             channel: "regular"
           - version: "1.20"
-            channel: "regular"
-          - version: "1.19"
             channel: "stable"
-    
+
     steps:
       - name: checkout
         uses: actions/checkout@v2
@@ -311,7 +584,7 @@ jobs:
     if: false
     name: aks-e2e-test
     runs-on: ubuntu-latest
-    needs: [create-test-images]
+    needs: [create-multiarch-images]
 
     strategy:
       fail-fast: false
@@ -372,7 +645,7 @@ jobs:
   eksd-e2e-test:
     name: eksd-e2e-test
     runs-on: ubuntu-latest
-    needs: [create-test-images, eks-e2e-test]
+    needs: [create-multiarch-images, eks-e2e-test]
 
     strategy:
       fail-fast: false
@@ -433,13 +706,13 @@ jobs:
           ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           AWS_REGION: ${{ secrets.AWS_REGION  }}
-    
+
   create-new-tag:
     name: create-new-tag
     runs-on: ubuntu-latest
     # since aks tests are disabled
     # needs: [eks-e2e-test, gke-e2e-test, aks-e2e-test]
-    needs: [eksd-e2e-test, gke-e2e-test]
+    needs: [eks-e2e-arm64-test, eksd-e2e-test, gke-e2e-test]
 
     steps:
       - name: Checkout code
@@ -454,9 +727,9 @@ jobs:
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.get_tag.outputs.TAG }}
-          release_name: Tetrate Istio 
+          release_name: Tetrate Istio
           draft: false
           prerelease: false
