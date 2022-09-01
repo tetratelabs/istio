@@ -22,8 +22,12 @@ if $(grep -q "1.12" <<< $TAG) || [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "
     export GOLANG_VERSION=1.17.8
 fi
 
-if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.14" ]]; then
+if $(grep -q "1.14" <<< $TAG); then
     export GOLANG_VERSION=1.18.4
+fi
+
+if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.15" ]]; then
+    export GOLANG_VERSION=1.19
 fi
 
 url="https://golang.org/dl/go$GOLANG_VERSION.linux-$(dpkg --print-architecture).tar.gz"
