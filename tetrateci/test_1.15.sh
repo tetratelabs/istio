@@ -38,6 +38,11 @@ fi
 #  git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.13.patch"
 #fi
 
+go test -tags=integ -v   ./tests/integration/pilot/revisioncmd   --log_output_level=tf:debug  --istio.test.hub=${HUB} --istio.test.tag=${TAG} --timeout 40m
+go test -tags=integ -v   ./tests/integration/security/ca_custom_root   --log_output_level=tf:debug --istio.test.hub=${HUB}  --istio.test.tag=${TAG} --timeout 40m
+go test -tags=integ -v   ./tests/integration/telemetry/outboundtrafficpolicy   --log_output_level=tf:debug  --istio.test.hub=${HUB}  --istio.test.tag=${TAG} --timeout 40m
+
+
 PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/...")
 
 echo "Starting Testing"
