@@ -452,7 +452,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ["1.21", "1.24", "1.23", "1.22"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+        version: ["1.21", "1.20", "1.23", "1.22"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
 
     steps:
       - name: checkout
@@ -463,7 +463,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ca-central-1
+          aws-region: ${{ secrets.AWS_REGION  }}
 
       - name: Get the tag
         id: get_tag
