@@ -479,6 +479,7 @@ spec:
 			// LoadBalancer may not be supported and the command doesn't have NodePort fallback logic that the tests do
 			cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
 		}
+		cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
 		if rev := getIstioRevision(cfg.Namespace); len(rev) > 0 {
 			cmd = append(cmd, "--revision", rev)
 		}
