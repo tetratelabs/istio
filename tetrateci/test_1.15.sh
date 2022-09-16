@@ -38,9 +38,6 @@ fi
 #  git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.13.patch"
 #fi
 
-go test -tags=integ -v   ./tests/integration/pilot/revisioncmd   --log_output_level=tf:debug  --istio.test.hub=${HUB} --istio.test.tag=${TAG} --timeout 40m
-go test -tags=integ -v   ./tests/integration/security/ca_custom_root   --log_output_level=tf:debug --istio.test.hub=${HUB}  --istio.test.tag=${TAG} --timeout 40m
-go test -tags=integ -v   ./tests/integration/telemetry/outboundtrafficpolicy   --log_output_level=tf:debug  --istio.test.hub=${HUB}  --istio.test.tag=${TAG} --timeout 40m
 
 
 PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/...")
@@ -79,6 +76,7 @@ for pkg in $PACKAGES; do
     --istio.test.tag=${TAG}-distroless \
     --istio.test.pullpolicy=IfNotPresent \
     --istio.test.retries=1 \
+    --log_output_level=tf:debug \
     ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
     && \
   go test \
@@ -91,6 +89,7 @@ for pkg in $PACKAGES; do
     --istio.test.ci \
     --istio.test.pullpolicy=IfNotPresent \
     --istio.test.retries=1 \
+    --log_output_level=tf:debug \
     ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
     || \
     { FAILED_PACKAGES+=( "${pkg}" ) && echo "Test Failed: ${pkg}" ; }
