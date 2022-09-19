@@ -22,8 +22,8 @@ fi
 ## Set up release-builder
 
 # BOM is needed for generating bill of materials, required by Istio since 1.13, https://github.com/istio/release-builder/pull/893
-go install sigs.k8s.io/bom/cmd/bom@v0.2.2
-sudo cp /home/runner/go/bin/bom /usr/local/bin/
+#go install sigs.k8s.io/bom/cmd/bom@v0.2.2
+#sudo cp /home/runner/go/bin/bom /usr/local/bin/
 
 sudo gem install fpm
 sudo apt-get install go-bindata -y
@@ -65,7 +65,14 @@ if [[ "$(uname -m)" = "aarch64" ]]; then
     
 fi
 
-
+# Generalizing TAG variable exporting option to incorporate ARM build.We need amd64 and arm64 suffix in docker images to create multi-arch images.Not needed for tetrate and tetratefips build.
+if [[ ${TAG} =~ "multiarch" ]]; then
+  if  [[ "$(uname -m)" = "aarch64" ]]; then
+    export TAG="${TAG}-arm64"
+  else
+    export TAG="${TAG}-amd64"
+  fi
+fi
 
 
 # HACK : default manifest from release builder is modified
@@ -99,15 +106,6 @@ if [[ ${TAG} =~ "fips" ]]; then
   if ! grep -q 'CGO_ENABLED=${CGO_ENABLED:-0}' istio/common/scripts/gobuild.sh;then exit 1;fi
   text="if [[ "\${GOARCH}" == "amd64" ]]; then export CGO_ENABLED=1; else export CGO_ENABLED=0; fi"
   sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
-fi
-
-# Generalizing TAG variable exporting option to incorporate ARM build.We need amd64 and arm64 suffix in docker images to create multi-arch images.Not needed for tetrate and tetratefips build.
-if [[ ${TAG} =~ "multiarch" ]]; then
-  if  [[ "$(uname -m)" = "aarch64" ]]; then
-    export TAG="${TAG}-arm64"
-  else
-    export TAG="${TAG}-amd64"
-  fi
 fi
 
 #install rpm-build package
