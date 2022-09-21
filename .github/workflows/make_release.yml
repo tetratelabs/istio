@@ -99,7 +99,7 @@ jobs:
 
   build_arm_proxy:
     # Do not run this job when the release type equals "fips".
-    if: "contains(github.event.ref, 'multiarch')"
+    if: contains(github.event.inputs.tag, 'multiarch')
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
     runs-on: ["self-hosted", "arm64"]
@@ -201,7 +201,7 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: "contains(github.event.ref, 'multiarch')"
+    if: contains(github.event.inputs.tag, 'multiarch')
 
     steps:
       - name: Checkout to choosen tag
@@ -298,7 +298,7 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: "contains(github.event.ref, 'multiarch')"
+    if: contains(github.event.inputs.tag, 'multiarch')
     env:
       HUB: ${{ secrets.CLOUDSMITH_HUB }}
     steps:
