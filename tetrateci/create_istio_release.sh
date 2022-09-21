@@ -65,9 +65,9 @@ if [[ "$(uname -m)" = "aarch64" ]]; then
     
 fi
 
-if [[ "$(uname -m)" = "x86_64" ]]; then
-    export BASE_VERSION=1.13-2022-05-26T19-03-02 
-fi
+#if [[ "$(uname -m)" = "x86_64" ]]; then
+#    export BASE_VERSION=1.13-2022-05-26T19-03-02 
+#fi
 
 # Generalizing TAG variable exporting option to incorporate ARM build.We need amd64 and arm64 suffix in docker images to create multi-arch images.Not needed for tetrate and tetratefips build.
 if [[ ${TAG} =~ "multiarch" ]]; then
