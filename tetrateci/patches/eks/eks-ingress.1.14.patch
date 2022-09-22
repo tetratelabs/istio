@@ -1,9 +1,9 @@
 diff --git a/pkg/test/framework/components/echo/kube/deployment.go b/pkg/test/framework/components/echo/kube/deployment.go
-index 374551f30b..f151c4f608 100644
+index d369f095cd..1ac7e6ae66 100644
 --- a/pkg/test/framework/components/echo/kube/deployment.go
 +++ b/pkg/test/framework/components/echo/kube/deployment.go
-@@ -814,6 +814,7 @@ spec:
- 			// LoadBalancer may not be supported and the command doesn't have NodePort fallback logic that the tests do
+@@ -793,6 +793,7 @@ spec:
+ 			// LoadBalancer may not be suppported and the command doesn't have NodePort fallback logic that the tests do
  			cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
  		}
 +		cmd = append(cmd, "--ingressIP", istiodAddr.IP.String())
@@ -11,7 +11,7 @@ index 374551f30b..f151c4f608 100644
  			log.Warnf("failed fetching labels for %s; assuming no-revision (can cause failures): %v", cfg.Namespace.Name(), err)
  		} else if rev := nsLabels[label.IoIstioRev.Name]; rev != "" {
 diff --git a/pkg/test/framework/components/istio/util.go b/pkg/test/framework/components/istio/util.go
-index b411e61230..ee5a0d42e4 100644
+index bee2ce22d7..fa36e65035 100644
 --- a/pkg/test/framework/components/istio/util.go
 +++ b/pkg/test/framework/components/istio/util.go
 @@ -97,6 +97,7 @@ func (i *operatorComponent) RemoteDiscoveryAddressFor(cluster cluster.Cluster) (
@@ -41,10 +41,10 @@ index b411e61230..ee5a0d42e4 100644
  		return net.TCPAddr{IP: net.ParseIP(ingr.IP), Port: port}, true, nil
  	}
 diff --git a/tests/integration/pilot/ingress_test.go b/tests/integration/pilot/ingress_test.go
-index f4638b9a3c..78e5ba3701 100644
+index 2453b16fd3..2cbe717afc 100644
 --- a/tests/integration/pilot/ingress_test.go
 +++ b/tests/integration/pilot/ingress_test.go
-@@ -601,6 +601,14 @@ spec:
+@@ -529,6 +529,14 @@ spec:
  					if hostIsIP {
  						got = ing.Status.LoadBalancer.Ingress[0].IP
  					}
