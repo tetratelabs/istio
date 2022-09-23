@@ -44,7 +44,7 @@ fi
     -test.v \
     -timeout 30m \
     -tags=integ \
-    /tests/integration/pilot \
+    /home/runner/actions-runner/work/istio/istio/tests/integration/pilot \
     --istio.test.select=-postsubmit,-flaky \
     --istio.test.ci \
     --istio.test.hub=${HUB} \
