@@ -27,7 +27,7 @@ if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.14" ]]; then
 fi
 
 if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.15" ]]; then
-    export GOLANG_VERSION=1.19.1b7
+    export GOLANG_VERSION=1.18.6b7
 fi
 
 url="https://go-boringcrypto.storage.googleapis.com/go$GOLANG_VERSION.linux-amd64.tar.gz"
