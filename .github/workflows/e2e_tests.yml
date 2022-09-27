@@ -442,7 +442,7 @@ jobs:
 
   eks-e2e-test:
     name: eks-e2e-test
-    runs-on: ubuntu-latest
+    runs-on: ["self-hosted", "amd64", "aws"]
     needs: [create-multiarch-images]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
