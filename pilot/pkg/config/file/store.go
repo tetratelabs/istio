@@ -112,6 +112,10 @@ func (s *KubeSource) SetWatchErrorHandler(f func(r *cache.Reflector, err error))
 	panic("implement me")
 }
 
+func (s *KubeSource) HasStarted() bool {
+	return true
+}
+
 func (s *KubeSource) HasSynced() bool {
 	return true
 }
@@ -449,7 +453,7 @@ func extractResourceChunksFromListYamlChunk(chunk []byte) ([]resourceYamlChunk, 
 			break
 		}
 	}
-	if itemsInd >= len(yamlNode.Content) && yamlNode.Content[itemsInd].Kind != yamlv3.SequenceNode {
+	if itemsInd >= len(yamlNode.Content) || yamlNode.Content[itemsInd].Kind != yamlv3.SequenceNode {
 		return nil, fmt.Errorf("failed parsing yamlChunk: malformed items field")
 	}
 	for _, n := range yamlNode.Content[itemsInd].Content {
