@@ -30,7 +30,7 @@ fi
 if [[ "${TARGET_ARCH}" == "amd64" ]]; then
 	ISTIO_ENVOY_ARCH_SUFFIX=""
 else
-	ISTIO_ENVOY_ARCH_SUFFIX="-${TARGET_ARCH}"
+	ISTIO_ENVOY_ARCH_SUFFIX=""
 fi
 
 # Populate the git version for istio/proxy (i.e. Envoy)
