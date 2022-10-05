@@ -114,6 +114,7 @@ jobs:
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-arm
       ARCH_SUFFIX: arm64
+      BUILD_ENVOY_BINARY_ONLY: 1
     steps:
       - name: Get the tag
         id: get_tag
