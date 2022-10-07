@@ -6,6 +6,8 @@ set -x
 
 BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
+sudo rm -rf /usr/local/go
+
 ## Set up apporiate go version
 if [[ ${TAG} =~ "fips" ]]; then
     echo "Set up FIPS compliant Golang"
