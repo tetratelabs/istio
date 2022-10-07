@@ -24,4 +24,5 @@
 
 istio.io/istio/tests/integration/pilot=TestGatewayConformance
 istio.io/istio/tests/integration/helm/upgrade=*
+istio.io/istio/tests/integration/security=*
 istio.io/istio/tests/integration/security/sds_ingress/quic=*
