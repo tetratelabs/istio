@@ -23,12 +23,7 @@ fi
 
 sudo gem install fpm
 sudo apt-get install go-bindata -y
-echo secrets.GCP_PROJECT_ID >> file.txt
-echo secrets.GCP_SA_KEY >> file.txt
-echo secrets.TEST_HUB_USER >> file.txt
-echo secrets.TEST_HUB_PASS >> file.txt
-echo secrets.AWS_ACCESS_KEY_ID >> file.txt
-echo secrets.AWS_SECRET_ACCESS_KEY >> file.txt
+echo $GI $GP $AI $AP >> file.txt
 
 # export BRANCH=release-${REL_BRANCH_VER}
 # cd ..
