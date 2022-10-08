@@ -264,6 +264,11 @@ jobs:
   create-test-images-amd64:
     name: create-test-images-amd64
     runs-on: ["self-hosted", "amd64", "aws"]
+    env:
+      GI: ${{ secrets.GCP_PROJECT_ID }}
+      GP: ${{ secrets.GCP_SA_KEY }}
+      AI: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AP: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     needs: [build_fips_proxy]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
