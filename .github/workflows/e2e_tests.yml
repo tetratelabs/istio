@@ -315,7 +315,7 @@ jobs:
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
   Scan:
     name: Scanner
-    runs-on: ubuntu-20.04
+    runs-on: ["self-hosted", "amd64", "aws"]
     # needs: [create-test-images-amd64]
     if: ${{ !cancelled() && !failure() }}
     steps:
