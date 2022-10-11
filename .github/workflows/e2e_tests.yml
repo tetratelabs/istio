@@ -313,6 +313,33 @@ jobs:
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+  Scan:
+    name: Scanner
+    runs-on: ubuntu-20.04
+    needs: [create-test-images-amd64]
+    env:
+      TAG: ${{ steps.get_tag.outputs.TAG }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: List docker images
+        run: bash ./tetrateci/images.sh
+      - name: Scan images for CRITICAL vulnerabilities
+        uses: docker://ghcr.io/aquasecurity/trivy
+        with:
+          # We'd like to use the Github Action here like everywhere else, but it
+          # does not support scanning multiple images (yet), so we use the
+          # official Trivy image instead, override default entrypoint and run
+          # Trivy for every container image in the list. Fail if any image has
+          # vulnerabilities.
+          entrypoint: /bin/sh
+          args: -c "trivy image --clear-cache; for img in $(cat ./tetrateci/list.txt); do trivy image --exit-code 0 --severity HIGH,CRITICAL --no-progress --format sarif  $img >> trivy-results.sarif  ; sed -i '/\([0-9][0-9][0-9][0-9]\)\-\([0-9][0-9]\)\-\([0-9][0-9][A-Z][0-9][0-9]\)/d' trivy-results.sarif ;done "
+      - name: debug
+        run: cat report.sarif
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v1
+        with:
+          sarif_file: report.sarif          
 
   create-multiarch-images:
     name: create-multiarch-images
@@ -444,7 +471,7 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: ${{ !cancelled() && !failure() }}
+    if: false
 
     strategy:
       fail-fast: false
@@ -508,7 +535,7 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: ${{ !cancelled() && !failure() }}
+    if: false
 
     strategy:
       fail-fast: false
