@@ -322,6 +322,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
+        shell: bash
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
       - name: List docker images
         run: bash ./tetrateci/images.sh
       - name: Scan images for CRITICAL vulnerabilities
