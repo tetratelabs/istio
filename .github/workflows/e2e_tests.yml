@@ -317,8 +317,6 @@ jobs:
     name: Scanner
     runs-on: ubuntu-20.04
     needs: [create-test-images-amd64]
-    env:
-      TAG: ${{ steps.get_tag.outputs.TAG }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -333,6 +331,8 @@ jobs:
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
       - name: List docker images
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
         run: bash ./tetrateci/images.sh
       - name: Scan images for CRITICAL vulnerabilities
         uses: docker://ghcr.io/aquasecurity/trivy
