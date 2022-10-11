@@ -265,7 +265,7 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: ${{ !cancelled() && !failure() }}
+    if: false
 
     steps:
       - name: checkout
@@ -316,7 +316,7 @@ jobs:
   Scan:
     name: Scanner
     runs-on: ubuntu-20.04
-    needs: [create-test-images-amd64]
+    # needs: [create-test-images-amd64]
     if: ${{ !cancelled() && !failure() }}
     steps:
       - name: Checkout code
@@ -334,7 +334,7 @@ jobs:
       - name: List docker images
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
-        run: bash ./tetrateci/images.sh
+        run: bash ./tetrateci/images.sh && pwd 
       - name: Scan images for CRITICAL vulnerabilities
         uses: docker://ghcr.io/aquasecurity/trivy
         with:
@@ -344,7 +344,7 @@ jobs:
           # Trivy for every container image in the list. Fail if any image has
           # vulnerabilities.
           entrypoint: /bin/sh
-          args: -c "trivy image --clear-cache; for img in $(cat ./tetrateci/list.txt); do trivy image --exit-code 0 --severity HIGH,CRITICAL --no-progress --format sarif  $img >> trivy-results.sarif  ; sed -i '/\([0-9][0-9][0-9][0-9]\)\-\([0-9][0-9]\)\-\([0-9][0-9][A-Z][0-9][0-9]\)/d' trivy-results.sarif ;done "
+          args: -c "trivy image --clear-cache; for img in $(cat list.txt); do trivy image --exit-code 0 --severity HIGH,CRITICAL --no-progress --format sarif  $img >> trivy-results.sarif  ; sed -i '/\([0-9][0-9][0-9][0-9]\)\-\([0-9][0-9]\)\-\([0-9][0-9][A-Z][0-9][0-9]\)/d' trivy-results.sarif ;done "
       - name: debug
         run: cat report.sarif
       - name: Upload Trivy scan results to GitHub Security tab
