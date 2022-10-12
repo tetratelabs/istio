@@ -19,7 +19,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"text/template"
 	"time"
 
@@ -33,18 +32,18 @@ import (
 	appsinformersv1 "k8s.io/client-go/informers/apps/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
-	gateway "sigs.k8s.io/gateway-api/apis/v1beta1"
-	lister "sigs.k8s.io/gateway-api/pkg/client/listers/apis/v1beta1"
+	gateway "sigs.k8s.io/gateway-api/apis/v1alpha2"
+	gatewaybeta "sigs.k8s.io/gateway-api/apis/v1beta1"
+	lister "sigs.k8s.io/gateway-api/pkg/client/listers/apis/v1alpha2"
 	"sigs.k8s.io/yaml"
 
 	"istio.io/istio/pkg/config"
-	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
 	istiolog "istio.io/pkg/log"
 )
 
-// DeploymentController implements a controller that materializes a Gateway into an in cluster gateway proxy
+// DeploymentControllerV1Alpha2 implements a controller that materializes a Gateway into an in cluster gateway proxy
 // to serve requests from. This is implemented with a Deployment and Service today.
 // The implementation makes a few non-obvious choices - namely using Server Side Apply from go templates
 // and not using controller-runtime.
@@ -67,7 +66,7 @@ import (
 //     do not provide these libraries.
 //   - SSA using standard API types doesn't work well either: https://github.com/kubernetes-sigs/controller-runtime/issues/1669
 //   - This leaves YAML templates, converted to unstructured types and Applied with the dynamic client.
-type DeploymentController struct {
+type DeploymentControllerV1Alpha2 struct {
 	client             kube.Client
 	queue              controllers.Queue
 	templates          *template.Template
@@ -76,27 +75,12 @@ type DeploymentController struct {
 	gatewayClassLister lister.GatewayClassLister
 }
 
-type DeploymentControllerInterface interface {
-	Run(stop <-chan struct{})
-}
-
-// Patcher is a function that abstracts patching logic. This is largely because client-go fakes do not handle patching
-type patcher func(gvr schema.GroupVersionResource, name string, namespace string, data []byte, subresources ...string) error
-
 // NewDeploymentController constructs a DeploymentController and registers required informers.
 // The controller will not start until Run() is called.
-func NewDeploymentController(client kube.Client, version string) DeploymentControllerInterface {
-	log.Infof("gateway deployment controller reading version %v", version)
-	if version == "v1alpha2" {
-		return NewDeploymentControllerV1Alpha2(client)
-	}
-	return NewDeploymentControllerV1beta1(client)
-}
-
-func NewDeploymentControllerV1beta1(client kube.Client) *DeploymentController {
-	gw := client.GatewayAPIInformer().Gateway().V1beta1().Gateways()
-	gwc := client.GatewayAPIInformer().Gateway().V1beta1().GatewayClasses()
-	dc := &DeploymentController{
+func NewDeploymentControllerV1Alpha2(client kube.Client) *DeploymentControllerV1Alpha2 {
+	gw := client.GatewayAPIInformer().Gateway().V1alpha2().Gateways()
+	gwc := client.GatewayAPIInformer().Gateway().V1alpha2().GatewayClasses()
+	dc := &DeploymentControllerV1Alpha2{
 		client:    client,
 		templates: processTemplates(),
 		patcher: func(gvr schema.GroupVersionResource, name string, namespace string, data []byte, subresources ...string) error {
@@ -118,7 +102,7 @@ func NewDeploymentControllerV1beta1(client kube.Client) *DeploymentController {
 	// Set up a handler that will add the parent Gateway object onto the queue.
 	// The queue will only handle Gateway objects; if child resources (Service, etc) are updated we re-add
 	// the Gateway to the queue and reconcile the state of the world.
-	handler := controllers.ObjectHandler(controllers.EnqueueForParentHandler(dc.queue, gvk.KubernetesGateway))
+	handler := controllers.ObjectHandler(controllers.EnqueueForParentHandler(dc.queue, KubernetesGateway))
 
 	// Use the full informer, since we are already fetching all Services for other purposes
 	// If we somehow stop watching Services in the future we can add a label selector like below.
@@ -152,12 +136,12 @@ func NewDeploymentControllerV1beta1(client kube.Client) *DeploymentController {
 	return dc
 }
 
-func (d *DeploymentController) Run(stop <-chan struct{}) {
+func (d *DeploymentControllerV1Alpha2) Run(stop <-chan struct{}) {
 	d.queue.Run(stop)
 }
 
 // Reconcile takes in the name of a Gateway and ensures the cluster is in the desired state
-func (d *DeploymentController) Reconcile(req types.NamespacedName) error {
+func (d *DeploymentControllerV1Alpha2) Reconcile(req types.NamespacedName) error {
 	log := log.WithLabels("gateway", req)
 
 	gw, err := d.gatewayLister.Gateways(req.Namespace).Get(req.Name)
@@ -189,7 +173,7 @@ func (d *DeploymentController) Reconcile(req types.NamespacedName) error {
 	return d.configureIstioGateway(log, *gw)
 }
 
-func (d *DeploymentController) configureIstioGateway(log *istiolog.Scope, gw gateway.Gateway) error {
+func (d *DeploymentControllerV1Alpha2) configureIstioGateway(log *istiolog.Scope, gw gateway.Gateway) error {
 	// If user explicitly sets addresses, we are assuming they are pointing to an existing deployment.
 	// We will not manage it in this case
 	if !IsManaged(&gw.Spec) {
@@ -198,13 +182,13 @@ func (d *DeploymentController) configureIstioGateway(log *istiolog.Scope, gw gat
 	}
 	log.Info("reconciling")
 
-	svc := serviceInput{Gateway: &gw, Ports: extractServicePorts(gw)}
+	svc := serviceInputV1Alpha2{Gateway: &gw, Ports: extractServicePorts(gatewaybeta.Gateway(gw))}
 	if err := d.ApplyTemplate("service.yaml", svc); err != nil {
 		return fmt.Errorf("update service: %v", err)
 	}
 	log.Info("service updated")
 
-	dep := deploymentInput{Gateway: &gw, KubeVersion122: kube.IsAtLeastVersion(d.client, 22)}
+	dep := deploymentInputV1Alpha2{Gateway: &gw, KubeVersion122: kube.IsAtLeastVersion(d.client, 22)}
 	if err := d.ApplyTemplate("deployment.yaml", dep); err != nil {
 		return fmt.Errorf("update deployment: %v", err)
 	}
@@ -212,8 +196,8 @@ func (d *DeploymentController) configureIstioGateway(log *istiolog.Scope, gw gat
 
 	gws := &gateway.Gateway{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       gvk.KubernetesGateway.Kind,
-			APIVersion: gvk.KubernetesGateway.Group + "/" + gvk.KubernetesGateway.Version,
+			Kind:       KubernetesGateway.Kind,
+			APIVersion: KubernetesGateway.Group + "/" + KubernetesGateway.Version,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      gw.Name,
@@ -236,7 +220,7 @@ func (d *DeploymentController) configureIstioGateway(log *istiolog.Scope, gw gat
 }
 
 // ApplyTemplate renders a template with the given input and (server-side) applies the results to the cluster.
-func (d *DeploymentController) ApplyTemplate(template string, input metav1.Object, subresources ...string) error {
+func (d *DeploymentControllerV1Alpha2) ApplyTemplate(template string, input metav1.Object, subresources ...string) error {
 	var buf bytes.Buffer
 	if err := d.templates.ExecuteTemplate(&buf, template, input); err != nil {
 		return err
@@ -261,7 +245,7 @@ func (d *DeploymentController) ApplyTemplate(template string, input metav1.Objec
 }
 
 // ApplyObject renders an object with the given input and (server-side) applies the results to the cluster.
-func (d *DeploymentController) ApplyObject(obj controllers.Object, subresources ...string) error {
+func (d *DeploymentControllerV1Alpha2) ApplyObject(obj controllers.Object, subresources ...string) error {
 	j, err := config.ToJSON(obj)
 	if err != nil {
 		return err
@@ -276,51 +260,14 @@ func (d *DeploymentController) ApplyObject(obj controllers.Object, subresources 
 	return d.patcher(gvr, obj.GetName(), obj.GetNamespace(), j, subresources...)
 }
 
-// Merge maps merges multiple maps. Latter maps take precedence over previous maps on overlapping fields
-func mergeMaps(maps ...map[string]string) map[string]string {
-	if len(maps) == 0 {
-		return nil
-	}
-	res := make(map[string]string, len(maps[0]))
-	for _, m := range maps {
-		for k, v := range m {
-			res[k] = v
-		}
-	}
-	return res
-}
-
-type serviceInput struct {
+type serviceInputV1Alpha2 struct {
 	*gateway.Gateway
 	Ports []corev1.ServicePort
 }
 
-type deploymentInput struct {
+type deploymentInputV1Alpha2 struct {
 	*gateway.Gateway
 	KubeVersion122 bool
 }
 
-func extractServicePorts(gw gateway.Gateway) []corev1.ServicePort {
-	svcPorts := make([]corev1.ServicePort, 0, len(gw.Spec.Listeners)+1)
-	svcPorts = append(svcPorts, corev1.ServicePort{
-		Name: "status-port",
-		Port: int32(15021),
-	})
-	portNums := map[int32]struct{}{}
-	for i, l := range gw.Spec.Listeners {
-		if _, f := portNums[int32(l.Port)]; f {
-			continue
-		}
-		portNums[int32(l.Port)] = struct{}{}
-		name := string(l.Name)
-		if name == "" {
-			// Should not happen since name is required, but in case an invalid resource gets in...
-			name = fmt.Sprintf("%s-%d", strings.ToLower(string(l.Protocol)), i)
-		}
-		svcPorts = append(svcPorts, corev1.ServicePort{
-			Name: name,
-			Port: int32(l.Port),
-		})
-	}
-	return svcPorts
-}
+var KubernetesGateway = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha2", Kind: "Gateway"}

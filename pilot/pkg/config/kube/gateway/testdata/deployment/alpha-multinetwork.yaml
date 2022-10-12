@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    networking.istio.io/service-type: ClusterIP
+  annotations: {}
   labels:
     gateway.istio.io/managed: istio.io-gateway-controller
+    topology.istio.io/network: network-1
   name: default
   namespace: default
   ownerReferences:
@@ -22,15 +22,15 @@ spec:
     protocol: TCP
   selector:
     istio.io/gateway-name: default
-  type: ClusterIP
+  type: LoadBalancer
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    networking.istio.io/service-type: ClusterIP
+  annotations: {}
   labels:
     gateway.istio.io/managed: istio.io-gateway-controller
+    topology.istio.io/network: network-1
   name: default
   namespace: default
   ownerReferences:
@@ -46,13 +46,16 @@ spec:
     metadata:
       annotations:
         inject.istio.io/templates: gateway
-        networking.istio.io/service-type: ClusterIP
       labels:
         istio.io/gateway-name: default
         sidecar.istio.io/inject: "true"
+        topology.istio.io/network: network-1
     spec:
       containers:
-      - image: auto
+      - env:
+        - name: ISTIO_META_REQUESTED_NETWORK_VIEW
+          value: network-1
+        image: auto
         name: istio-proxy
         ports:
         - containerPort: 15021
@@ -82,7 +85,7 @@ spec:
         - name: net.ipv4.ip_unprivileged_port_start
           value: "0"
 ---
-apiVersion: gateway.networking.k8s.io/v1beta1
+apiVersion: gateway.networking.k8s.io/v1alpha2
 kind: Gateway
 metadata:
   creationTimestamp: null
