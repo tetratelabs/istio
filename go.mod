@@ -84,8 +84,8 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	helm.sh/helm/v3 v3.9.4
-	istio.io/api v0.0.0-20220907134937-b47284812feb
-	istio.io/client-go v1.15.1-0.20220907135338-7f6428013c07
+	istio.io/api v0.0.0-20221005164339-97dc20dc0ff3
+	istio.io/client-go v1.15.2-0.20221005164739-2eeb07839129
 	istio.io/pkg v0.0.0-20220907025138-198870de7239
 	k8s.io/api v0.24.2
 	k8s.io/apiextensions-apiserver v0.24.2
@@ -98,10 +98,12 @@ require (
 	k8s.io/kubectl v0.24.2
 	k8s.io/utils v0.0.0-20220210201930-3a6ce19ff2f9
 	sigs.k8s.io/controller-runtime v0.12.2
-	sigs.k8s.io/gateway-api v0.5.1-0.20220815164014-854e2bfc5276
+	sigs.k8s.io/gateway-api v0.5.1-0.20220921185115-ee7a83814203
 	sigs.k8s.io/mcs-api v0.1.0
 	sigs.k8s.io/yaml v1.3.0
 )
+
+replace sigs.k8s.io/gateway-api => github.com/istio/gateway-api v0.0.0-20221006194514-510afb48c902
 
 require github.com/emicklei/go-restful/v3 v3.8.0 // indirect
 
