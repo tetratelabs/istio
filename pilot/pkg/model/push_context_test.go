@@ -17,7 +17,6 @@ package model
 import (
 	"fmt"
 	"reflect"
-	"regexp"
 	"sort"
 	"sync"
 	"testing"
@@ -28,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	. "github.com/onsi/gomega"
 	"go.uber.org/atomic"
+	regexp "rsc.io/xstd/go1.19.2/regexp"
 
 	extensions "istio.io/api/extensions/v1alpha1"
 	meshconfig "istio.io/api/mesh/v1alpha1"
@@ -882,6 +882,19 @@ func TestInitPushContext(t *testing.T) {
 			ExportTo: []string{".", "ns1"},
 		},
 	})
+	_, _ = configStore.Create(config.Config{
+		Meta: config.Meta{
+			Name:             "default",
+			Namespace:        "istio-system",
+			GroupVersionKind: gvk.Sidecar,
+		},
+		Spec: &networking.Sidecar{
+			Egress: []*networking.IstioEgressListener{
+				{Hosts: []string{"test1/*"}},
+			},
+		},
+	})
+
 	store := istioConfigStore{ConfigStore: configStore}
 
 	env.IstioConfigStore = &store
