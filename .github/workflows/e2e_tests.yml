@@ -338,19 +338,12 @@ jobs:
       - name: Scan images for CRITICAL vulnerabilities
         uses: docker://ghcr.io/aquasecurity/trivy
         with:
-          # We'd like to use the Github Action here like everywhere else, but it
-          # does not support scanning multiple images (yet), so we use the
-          # official Trivy image instead, override default entrypoint and run
-          # Trivy for every container image in the list. Fail if any image has
-          # vulnerabilities.
           entrypoint: /bin/sh
-          args: -c "trivy image --clear-cache; for img in $(cat list.txt); do trivy image --exit-code 0 --severity HIGH,CRITICAL --no-progress --format sarif  $img >> trivy-results.sarif  ; sed -i '/\([0-9][0-9][0-9][0-9]\)\-\([0-9][0-9]\)\-\([0-9][0-9][A-Z][0-9][0-9]\)/d' trivy-results.sarif ;done "
-      - name: debug
-        run: cat report.sarif
+          args: -c "trivy image --clear-cache; for img in $(cat list.txt); do trivy image --exit-code 0 --severity HIGH,CRITICAL --no-progress --quiet --format sarif  $img >> $img.sarif ;done "
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v1
         with:
-          sarif_file: report.sarif          
+          sarif_file: getistiotesting         
 
   create-multiarch-images:
     name: create-multiarch-images
