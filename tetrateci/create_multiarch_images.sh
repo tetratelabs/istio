@@ -24,7 +24,7 @@ IMAGE_SUFFIXES=("" "-debug" "-distroless")
 
 for image in "${IMAGES[@]}"; do
   for suffix in "${IMAGE_SUFFIXES[@]}"; do
-    AMD64_IMAGE=$HUB/${image}:${TAG}-amd64${suffix}
+    AMD64_IMAGE=$HUB/${image}:${TAG}-${suffix}
     ARM64_IMAGE=$HUB/${image}:${TAG}-arm64${suffix}
     MULTIARCH_IMAGE=$HUB/${image}:${TAG}${suffix}
 
