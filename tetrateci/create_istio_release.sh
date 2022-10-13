@@ -98,13 +98,13 @@ if [[ ${TAG} =~ "fips" ]]; then
 fi
 
 # Generalizing TAG variable exporting option to incorporate ARM build.We need amd64 and arm64 suffix in docker images to create multi-arch images.Not needed for tetrate and tetratefips build.
-if [[ ${TAG} =~ "multiarch" ]]; then
-  if  [[ "$(uname -m)" = "aarch64" ]]; then
-    export TAG="${TAG}-arm64"
-  else
-    export TAG="${TAG}-amd64"
-  fi
-fi
+# if [[ ${TAG} =~ "multiarch" ]]; then
+#   if  [[ "$(uname -m)" = "aarch64" ]]; then
+#     export TAG="${TAG}-arm64"
+#   else
+#     export TAG="${TAG}-amd64"
+#   fi
+# fi
 
 #install rpm-build package
 sudo apt-get install rpm -y
