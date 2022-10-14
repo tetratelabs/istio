@@ -24,8 +24,8 @@ IMAGE_SUFFIXES=("" "-debug" "-distroless")
 
 for image in "${IMAGES[@]}"; do
   for suffix in "${IMAGE_SUFFIXES[@]}"; do
-    AMD64_IMAGE=$HUB/${image}:${TAG}-${suffix}
-    ARM64_IMAGE=$HUB/${image}:${TAG}-arm64${suffix}
+    AMD64_IMAGE=$HUB/${image}:${TAG}${suffix}
+    ARM64_IMAGE=$HUB/${image}:${TAG}${suffix}-arm64
     MULTIARCH_IMAGE=$HUB/${image}:${TAG}${suffix}
 
     if docker manifest inspect ${AMD64_IMAGE} &> /dev/null && docker manifest inspect ${ARM64_IMAGE} &> /dev/null; then
