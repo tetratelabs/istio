@@ -26,11 +26,15 @@ if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.14" ]]; then
     export GOLANG_VERSION=1.18.2b7
 fi
 
-if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.15" ]]; then
-    export GOLANG_VERSION=1.18.6b7
+if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.14" ]]; then
+    export GOLANG_VERSION=1.18.2b7
 fi
 
-url="https://go-boringcrypto.storage.googleapis.com/go$GOLANG_VERSION.linux-amd64.tar.gz"
+if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.15" ]]; then
+    export GOLANG_VERSION=1.19.2
+fi
+
+url="https://golang.org/dl/go$GOLANG_VERSION.linux-$(dpkg --print-architecture).tar.gz"
 
 wget -q -O go.tgz "$url"
 
