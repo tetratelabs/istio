@@ -112,7 +112,7 @@ jobs:
     timeout-minutes: 1440 # 12 hours
     runs-on: ["self-hosted", "arm64"]
     env:
-      RELEASE_GCS_PATH: gs://getistio-build/proxy-arm
+      RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
     steps:
       - name: Get the tag
         id: get_tag
