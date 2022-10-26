@@ -39,6 +39,7 @@ echo "Deletion complete"
 
 # HACK : This is needed during istio build for istiod to serve version command
 export ISTIO_VERSION=$TAG
+export BASE_VERSION=1.14-2022-10-20T19-02-16
 
 # We are not using a docker container to build the istioctl binary and images, so we make it explicit
 export BUILD_WITH_CONTAINER=0
