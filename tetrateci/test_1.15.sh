@@ -33,12 +33,11 @@ if [[ "${CLUSTER}" == "gke" ]]; then
 
 fi
 
-#if [[ "${CLUSTER}" == "eks" ]]; then
-#  echo "Applying Ingress patch for EKS...."
-#  git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.13.patch"
-#fi
+if [[ "${CLUSTER}" == "eks" ]]; then
+  echo "Applying Ingress patch for EKS...."
+  git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.15.patch"
+fi
 
-#go test -test.v -timeout 2h -tags=integ istio.io/istio/tests/integration/security --istio.test.select=-postsubmit,-flaky  --istio.test.ci --istio.test.hub=${HUB} --istio.test.tag=${TAG}-distroless --istio.test.pullpolicy=IfNotPresent --istio.test.retries=1 && go test -test.v -timeout 2h -tags=integ istio.io/istio/tests/integration/security --istio.test.select=-postsubmit,-flaky  --istio.test.ci --istio.test.hub=${HUB} --istio.test.tag=${TAG} --istio.test.pullpolicy=IfNotPresent
 
 PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/...")
 
