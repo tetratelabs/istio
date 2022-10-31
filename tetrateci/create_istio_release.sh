@@ -112,7 +112,7 @@ fi
 sudo apt-get install rpm -y
 # Build Docker Images
 sudo rm -rf /tmp/istio-release && mkdir /tmp/istio-release
-go run main.go build --manifest manifest.docker.yaml
+GOEXPERIMENT=boringcrypto go run main.go build --manifest manifest.docker.yaml
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
 
 #loading pilot image manually since docker container create command is failing due to unavailbilty of pilot image locally
