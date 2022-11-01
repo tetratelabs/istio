@@ -168,6 +168,6 @@ if [[ -z ${TEST:-} ]]; then
     done
 fi
 echo "Cleaning /tmp/istio...."
-[ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
+# [ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
 
 echo "Done building and pushing the artifacts."
