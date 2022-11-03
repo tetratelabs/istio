@@ -37,6 +37,9 @@ echo "Deleting /usr/share/dotnet, /opt/ghc, /usr/local/share/boost to reclaim sp
 for i in /usr/share/dotnet /opt/ghc /usr/local/share/boost; do echo deleting folder $i; [ -d $i ] && rm -rf "$i" ; done
 echo "Deletion complete"
 
+echo "Cleaning /tmp/istio...."
+[ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
+
 # HACK : This is needed during istio build for istiod to serve version command
 export ISTIO_VERSION=$TAG
 
@@ -168,6 +171,6 @@ if [[ -z ${TEST:-} ]]; then
     done
 fi
 echo "Cleaning /tmp/istio...."
-# [ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
+[ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
 
 echo "Done building and pushing the artifacts."
