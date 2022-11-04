@@ -19,7 +19,7 @@ IMAGE_SUFFIXES=("debug" "distroless")
 
 for image in "${IMAGES[@]}"; do
   for suffix in "${IMAGE_SUFFIXES[@]}"; do
-    echo containers.istio.tetratelabs.coms/${image}:${TAG}-${suffix} >> list.txt
+    echo containers.istio.tetratelabs.com/${image}:${TAG}-${suffix} >> list.txt
     cat list.txt
   done
 done
