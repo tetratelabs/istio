@@ -293,7 +293,7 @@ jobs:
   Scan:
       name: Scanner
       runs-on: ubuntu-20.04
-      needs: [create-test-images-amd64]
+      needs: [create-images-amd64]
       if: ${{ !cancelled() && !failure() }}
       steps:
       - name: Checkout code
