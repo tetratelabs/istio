@@ -26,7 +26,7 @@ istio.io/istio/tests/integration/helm/upgrade=TestRevisionTagsUpgradeFromPreviou
 MinorRelease
 
 istio.io/istio/tests/integration/pilot=TestIngress/status
-istio.io/istio/tests/integration/security/sds_ingress/quic=*
+
 istio.io/istio/tests/integration/telemetry/tracing/zipkin/servertracing=TestProxyTracing
 
 istio.io/istio/tests/integration/telemetry/stackdriver=*
