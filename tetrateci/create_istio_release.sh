@@ -6,7 +6,9 @@ set -x
 
 BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
+#cleaning up golang environment
 sudo rm -rf /usr/local/go
+
 
 ## Set up apporiate go version
 if [[ ${TAG} =~ "fips" ]]; then
@@ -63,7 +65,18 @@ if [[ "$(uname -m)" = "aarch64" ]]; then
     
 fi
 
+if [[ "$(uname -m)" = "x86_64" ]]; then
+    export BASE_VERSION=1.13-2022-05-26T19-03-02 
+fi
 
+# Generalizing TAG variable exporting option to incorporate ARM build.We need amd64 and arm64 suffix in docker images to create multi-arch images.Not needed for tetrate and tetratefips build.
+if [[ ${TAG} =~ "multiarch" ]]; then
+  if  [[ "$(uname -m)" = "aarch64" ]]; then
+    export TAG="${TAG}-arm64"
+  else
+    export TAG="${TAG}-amd64"
+  fi
+fi
 
 
 # HACK : default manifest from release builder is modified
@@ -99,19 +112,6 @@ if [[ ${TAG} =~ "fips" ]]; then
   sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
 fi
 
-if [[ "$(uname -m)" = "x86_64" ]]; then
-    export BASE_VERSION=1.13-2022-05-26T19-03-02 
-fi
-
-# Generalizing TAG variable exporting option to incorporate ARM build.We need amd64 and arm64 suffix in docker images to create multi-arch images.Not needed for tetrate and tetratefips build.
-if [[ ${TAG} =~ "multiarch" ]]; then
-  if  [[ "$(uname -m)" = "aarch64" ]]; then
-    export TAG="${TAG}-arm64"
-  else
-    export TAG="${TAG}-amd64"
-  fi
-fi
-
 #install rpm-build package
 sudo apt-get install rpm -y
 # Build Docker Images
@@ -139,12 +139,12 @@ go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 echo "Cleaning up the istio source artificats...."
 sudo rm -rf /tmp/istio-release/sources/
 
-#if [[ "$(uname -m)" = "x86_64" ]]; then
-#    export TAG="${TAG%-amd64}"
-#    ${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/example/manifest.yaml ${BASEDIR}/../release-builder/
-#else
-#    exit 0
-#fi
+if [[ "$(uname -m)" = "x86_64" ]]; then
+    export TAG="${TAG%-amd64}"
+    ${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/example/manifest.yaml ${BASEDIR}/../release-builder/
+else
+    exit 0
+fi
 
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
@@ -172,6 +172,6 @@ if [[ -z ${TEST:-} ]]; then
     done
 fi
 echo "Cleaning /tmp/istio...."
-[ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
+#[ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
 
 echo "Done building and pushing the artifacts."
