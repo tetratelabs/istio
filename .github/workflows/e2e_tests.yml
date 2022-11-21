@@ -380,8 +380,7 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    # if: ${{ !cancelled() && !failure() }}
-    if : false
+    if: ${{ !cancelled() && !failure() }}
 
     strategy:
       fail-fast: false
@@ -397,7 +396,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION  }}
+          aws-region: us-east-1
 
       - name: Get the tag
         id: get_tag
@@ -448,8 +447,8 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    # if: ${{ !cancelled() && !failure() }}
-    if : false
+    if: ${{ !cancelled() && !failure() }}
+    
 
     strategy:
       fail-fast: false
@@ -465,7 +464,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION  }}
+          aws-region: us-east-1
 
       - name: Get the tag
         id: get_tag

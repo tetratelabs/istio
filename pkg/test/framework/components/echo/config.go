@@ -55,8 +55,8 @@ type VMDistro = string
 const (
 	UbuntuXenial VMDistro = "UbuntuXenial"
 	// UbuntuJammy  VMDistro = "UbuntuJammy"
-	Debian10 VMDistro = "Debian10"
-	Centos7  VMDistro = "Centos7"
+	// Debian10 VMDistro = "Debian10"
+	Centos7 VMDistro = "Centos7"
 	// Rockylinux8  VMDistro = "Centos8"
 
 	DefaultVMDistro = UbuntuXenial
