@@ -6,8 +6,7 @@ ARG BASE_VERSION=latest
 
 # The following section is used as base image if BASE_DISTRIBUTION=debug
 FROM gcr.io/istio-release/base:${BASE_VERSION} as debug
-RUN  sudo apt-get install --only-upgrade perl-base
-
+RUN apt-get update && apt-get upgrade -y
 # The following section is used as base image if BASE_DISTRIBUTION=distroless
 # This image is a custom built debian11 distroless image with multiarchitecture support.
 # It is built on the base distroless image, with iptables binary and libraries added
