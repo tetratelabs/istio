@@ -25,4 +25,6 @@ istio.io/istio/tests/integration/operator=TestPostInstallControlPlaneVerificatio
 istio.io/istio/tests/integration/pilot=TestGatewayConformance
 istio.io/istio/tests/integration/helm/upgrade=*
 istio.io/istio/tests/integration/security/sds_ingress/quic=*
+istio.io/istio/tests/integration/telemetry/stackdriver=*
+istio.io/istio/tests/integration/telemetry/stackdriver/vm=*
 istio.io/istio/tests/integration/telemetry_envoyfilter_nullvm=TestDashboard
