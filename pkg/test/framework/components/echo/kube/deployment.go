@@ -358,30 +358,29 @@ func deploymentParams(ctx resource.Context, cfg echo.Config, settings *resource.
 	}
 
 	params := map[string]any{
-		"ImageHub":                settings.Image.Hub,
-		"ImageTag":                strings.TrimSuffix(settings.Image.Tag, "-distroless"),
-		"ImagePullPolicy":         settings.Image.PullPolicy,
-		"ImagePullSecretName":     imagePullSecretName,
-		"Service":                 cfg.Service,
-		"StatefulSet":             cfg.StatefulSet,
-		"ProxylessGRPC":           cfg.IsProxylessGRPC(),
-		"GRPCMagicPort":           grpcMagicPort,
-		"Locality":                cfg.Locality,
-		"ServiceAccount":          cfg.ServiceAccount,
-		"DisableAutomountSAToken": cfg.DisableAutomountSAToken,
-		"AppContainers":           appContainers,
-		"ContainerPorts":          getContainerPorts(cfg),
-		"Subsets":                 cfg.Subsets,
-		"TLSSettings":             cfg.TLSSettings,
-		"Cluster":                 cfg.Cluster.Name(),
-		"ReadinessTCPPort":        cfg.ReadinessTCPPort,
-		"ReadinessGRPCPort":       cfg.ReadinessGRPCPort,
-		"StartupProbe":            supportStartupProbe,
-		"IncludeExtAuthz":         cfg.IncludeExtAuthz,
-		"Revisions":               settings.Revisions.TemplateMap(),
-		"Compatibility":           settings.Compatibility,
-		"WorkloadClass":           cfg.WorkloadClass(),
-		"OverlayIstioProxy":       canCreateIstioProxy(settings.Revisions.Minimum()),
+		"ImageHub":            settings.Image.Hub,
+		"ImageTag":            strings.TrimSuffix(settings.Image.Tag, "-distroless"),
+		"ImagePullPolicy":     settings.Image.PullPolicy,
+		"ImagePullSecretName": imagePullSecretName,
+		"Service":             cfg.Service,
+		"StatefulSet":         cfg.StatefulSet,
+		"ProxylessGRPC":       cfg.IsProxylessGRPC(),
+		"GRPCMagicPort":       grpcMagicPort,
+		"Locality":            cfg.Locality,
+		"ServiceAccount":      cfg.ServiceAccount,
+		"AppContainers":       appContainers,
+		"ContainerPorts":      getContainerPorts(cfg),
+		"Subsets":             cfg.Subsets,
+		"TLSSettings":         cfg.TLSSettings,
+		"Cluster":             cfg.Cluster.Name(),
+		"ReadinessTCPPort":    cfg.ReadinessTCPPort,
+		"ReadinessGRPCPort":   cfg.ReadinessGRPCPort,
+		"StartupProbe":        supportStartupProbe,
+		"IncludeExtAuthz":     cfg.IncludeExtAuthz,
+		"Revisions":           settings.Revisions.TemplateMap(),
+		"Compatibility":       settings.Compatibility,
+		"WorkloadClass":       cfg.WorkloadClass(),
+		"OverlayIstioProxy":   canCreateIstioProxy(settings.Revisions.Minimum()),
 	}
 
 	vmIstioHost, vmIstioIP := "", ""
@@ -521,6 +520,7 @@ spec:
 		if rev := getIstioRevision(cfg.Namespace); len(rev) > 0 {
 			cmd = append(cmd, "--revision", rev)
 		}
+		cmd = append(cmd, "--ingressIP", istiodAddr.Addr().String())
 		// make sure namespace controller has time to create root-cert ConfigMap
 		if err := retry.UntilSuccess(func() error {
 			stdout, stderr, err := istioCtl.Invoke(cmd)
