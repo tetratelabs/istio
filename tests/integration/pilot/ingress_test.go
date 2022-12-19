@@ -230,8 +230,9 @@ spec:
 						retry.UntilSuccessOrFail(t, func() error {
 							gwc, err := t.Clusters().Kube().Default().GatewayAPI().GatewayV1beta1().GatewayClasses().Get(context.Background(), "istio", metav1.GetOptions{})
 							if err != nil {
-								return err
+                                                           return err
 							}
+
 							if s := kstatus.GetCondition(gwc.Status.Conditions, string(k8s.GatewayClassConditionStatusAccepted)).Status; s != metav1.ConditionTrue {
 								return fmt.Errorf("expected status %q, got %q", metav1.ConditionTrue, s)
 							}
@@ -601,6 +602,12 @@ spec:
 						if hostIsIP {
 							got = ing.Status.LoadBalancer.Ingress[0].IP
 						}
+						if ing.Status.LoadBalancer.Ingress[0].Hostname != "" {
+							ip, _ := net.LookupIP(ing.Status.LoadBalancer.Ingress[0].Hostname)
+							if len(ip) > 0 {
+								got = ip[0].String()
+							}
+						}
 						if got != host {
 							return fmt.Errorf("unexpected ingress status, got %+v want %v", got, host)
 						}
@@ -616,6 +623,12 @@ spec:
 					got := ing.Status.LoadBalancer.Ingress[0].Hostname
 					if hostIsIP {
 						got = ing.Status.LoadBalancer.Ingress[0].IP
+					}
+					if ing.Status.LoadBalancer.Ingress[0].Hostname != "" {
+						ip, _ := net.LookupIP(ing.Status.LoadBalancer.Ingress[0].Hostname)
+						if len(ip) > 0 {
+							got = ip[0].String()
+						}
 					}
 					if got != host {
 						return fmt.Errorf("unexpected ingress status, got %+v want %v", got, host)
