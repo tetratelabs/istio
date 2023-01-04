@@ -39,6 +39,7 @@ echo "Deletion complete"
 
 # HACK : This is needed during istio build for istiod to serve version command
 export ISTIO_VERSION=$TAG
+export BASE_VERSION=1.14-2022-12-08T19-00-42
 
 # We are not using a docker container to build the istioctl binary and images, so we make it explicit
 export BUILD_WITH_CONTAINER=0
@@ -79,6 +80,7 @@ echo "TEST flag is '${TEST:-}'"
 
 echo "Getting into release builder"
 cd release-builder
+
 
 if [[ "$(uname -m)" = "aarch64" ]]; then
     sed -i 's/linux_amd64/linux_arm64/' pkg/model/model.go
