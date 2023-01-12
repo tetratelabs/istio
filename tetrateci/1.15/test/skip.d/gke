@@ -24,6 +24,7 @@
 
 istio.io/istio/tests/integration/pilot=TestGateway TestIngress TestDescribe TestTraffic TestGatewayConformance TestTunnelingOutboundTraffic
 istio.io/istio/tests/integration/pilot/revisioncmd=*
+istio.io/istio/tests/integration/helm=*
 istio.io/istio/tests/integration/helm/upgrade=*
 istio.io/istio/tests/integration/security=TestReachability/beta-mtls-off TestAuthz_EgressGateway TestReachability/global_no_peer_authn/http
 istio.io/istio/tests/integration/security/sds_ingress/quic=*
