@@ -27,11 +27,9 @@ import (
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/hashicorp/go-multierror"
-	appsv1 "k8s.io/api/apps/v1"
 	kubeCore "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 
 	"istio.io/api/label"
@@ -45,6 +43,7 @@ import (
 	"istio.io/istio/pkg/test/framework/components/istioctl"
 	"istio.io/istio/pkg/test/framework/resource"
 	"istio.io/istio/pkg/test/scopes"
+	"istio.io/istio/pkg/test/shell"
 	"istio.io/istio/pkg/test/util/retry"
 	"istio.io/istio/pkg/test/util/tmpl"
 	"istio.io/istio/pkg/util/protomarshal"
@@ -513,9 +512,8 @@ func newDeployment(ctx resource.Context, cfg echo.Config) (*deployment, error) {
 	}, nil
 }
 
-// Restart performs restarts of all the pod of the deployment.
-// This is analogous to `kubectl rollout restart` on the echo deployment and waits for
-// `kubectl rollout status` to complete before returning, but uses direct API calls.
+// Restart performs a `kubectl rollout restart` on the echo deployment and waits for
+// `kubectl rollout status` to complete before returning.
 func (d *deployment) Restart() error {
 	var errs error
 	var deploymentNames []string
@@ -523,55 +521,21 @@ func (d *deployment) Restart() error {
 		// TODO(Monkeyanator) move to common place so doesn't fall out of sync with templates
 		deploymentNames = append(deploymentNames, fmt.Sprintf("%s-%s", d.cfg.Service, s.Version))
 	}
-	curTimestamp := time.Now().Format(time.RFC3339)
 	for _, deploymentName := range deploymentNames {
-		patchOpts := metav1.PatchOptions{}
-		patchData := fmt.Sprintf(`{
-			"spec": {
-				"template": {
-					"metadata": {
-						"annotations": {
-							"kubectl.kubernetes.io/restartedAt": %q
-						}
-					}
-				}
-			}
-		}`, curTimestamp) // e.g., “2006-01-02T15:04:05Z07:00”
-		var err error
-		appsv1Client := d.cfg.Cluster.Kube().AppsV1()
-
+		wlType := "deployment"
 		if d.cfg.IsStatefulSet() {
-			_, err = appsv1Client.StatefulSets(d.cfg.Namespace.Name()).Patch(context.TODO(), deploymentName,
-				types.StrategicMergePatchType, []byte(patchData), patchOpts)
-		} else {
-			_, err = appsv1Client.Deployments(d.cfg.Namespace.Name()).Patch(context.TODO(), deploymentName,
-				types.StrategicMergePatchType, []byte(patchData), patchOpts)
+			wlType = "statefulset"
 		}
-		if err != nil {
-			errs = multierror.Append(errs, fmt.Errorf("failed to rollout restart %v/%v: %v (timestamp:%q)", d.cfg.Namespace.Name(), deploymentName, err, curTimestamp))
+		rolloutCmd := fmt.Sprintf("kubectl rollout restart %s/%s -n %s",
+			wlType, deploymentName, d.cfg.Namespace.Name())
+		if _, err := shell.Execute(true, rolloutCmd); err != nil {
+			errs = multierror.Append(errs, fmt.Errorf("failed to rollout restart %v/%v: %v",
+				d.cfg.Namespace.Name(), deploymentName, err))
 			continue
 		}
-
-		if err := retry.UntilSuccess(func() error {
-			if d.cfg.IsStatefulSet() {
-				sts, err := appsv1Client.StatefulSets(d.cfg.Namespace.Name()).Get(context.TODO(), deploymentName, metav1.GetOptions{})
-				if err != nil {
-					return err
-				}
-				if sts.Spec.Replicas == nil || !statefulsetComplete(sts) {
-					return fmt.Errorf("rollout is not yet done (updated replicas:%v)", sts.Status.UpdatedReplicas)
-				}
-			} else {
-				dep, err := appsv1Client.Deployments(d.cfg.Namespace.Name()).Get(context.TODO(), deploymentName, metav1.GetOptions{})
-				if err != nil {
-					return err
-				}
-				if dep.Spec.Replicas == nil || !deploymentComplete(dep) {
-					return fmt.Errorf("rollout is not yet done (updated replicas: %v)", dep.Status.UpdatedReplicas)
-				}
-			}
-			return nil
-		}, retry.Timeout(60*time.Second), retry.Delay(2*time.Second)); err != nil {
+		waitCmd := fmt.Sprintf("kubectl rollout status %s/%s -n %s",
+			wlType, deploymentName, d.cfg.Namespace.Name())
+		if _, err := shell.Execute(true, waitCmd); err != nil {
 			errs = multierror.Append(errs, fmt.Errorf("failed to wait rollout status for %v/%v: %v",
 				d.cfg.Namespace.Name(), deploymentName, err))
 		}
@@ -656,9 +620,9 @@ func GenerateService(cfg echo.Config) (string, error) {
 
 var VMImages = map[echo.VMDistro]string{
 	echo.UbuntuXenial: "app_sidecar_ubuntu_xenial",
-	echo.UbuntuJammy:  "app_sidecar_ubuntu_jammy",
-	echo.Debian11:     "app_sidecar_debian_11",
-	echo.Centos7:      "app_sidecar_centos_7",
+	// echo.UbuntuJammy:  "app_sidecar_ubuntu_jammy",
+	// echo.Debian10: "app_sidecar_debian_10",
+	echo.Centos7: "app_sidecar_centos_7",
 	// echo.Rockylinux8:  "app_sidecar_rockylinux_8", TODO(https://github.com/istio/istio/issues/38224)
 }
 
@@ -1049,20 +1013,4 @@ func canCreateIstioProxy(version resource.IstioVersion) bool {
 		return true
 	}
 	return false
-}
-
-func statefulsetComplete(statefulset *appsv1.StatefulSet) bool {
-	return statefulset.Status.UpdatedReplicas == *(statefulset.Spec.Replicas) &&
-		statefulset.Status.Replicas == *(statefulset.Spec.Replicas) &&
-		statefulset.Status.AvailableReplicas == *(statefulset.Spec.Replicas) &&
-		statefulset.Status.ReadyReplicas == *(statefulset.Spec.Replicas) &&
-		statefulset.Status.ObservedGeneration >= statefulset.Generation
-}
-
-func deploymentComplete(deployment *appsv1.Deployment) bool {
-	return deployment.Status.UpdatedReplicas == *(deployment.Spec.Replicas) &&
-		deployment.Status.Replicas == *(deployment.Spec.Replicas) &&
-		deployment.Status.AvailableReplicas == *(deployment.Spec.Replicas) &&
-		deployment.Status.ReadyReplicas == *(deployment.Spec.Replicas) &&
-		deployment.Status.ObservedGeneration >= deployment.Generation
 }
