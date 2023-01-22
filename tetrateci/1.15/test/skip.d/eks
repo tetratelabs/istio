@@ -24,7 +24,7 @@
 istio.io/istio/tests/integration/operator=TestController 
 istio.io/istio/tests/integration/pilot=TestGatewayConformance TestIngress/status
 istio.io/istio/tests/integration/helm/upgrade=*
-istio.io/istio/tests/integration/telemetry/stackdriver
-istio.io/istio/tests/integration/telemetry/stackdriver/vm
+istio.io/istio/tests/integration/telemetry/stackdriver=*
+istio.io/istio/tests/integration/telemetry/stackdriver/vm=*
 istio.io/istio/tests/integration/security=TestReachability/global_no_peer_authn TestReachability/migration_no_tls
 istio.io/istio/tests/integration/security/sds_ingress/quic=*
