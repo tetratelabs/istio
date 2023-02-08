@@ -34,7 +34,6 @@ import (
 	"istio.io/api/envoy/extensions/stats"
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	tpb "istio.io/api/telemetry/v1alpha1"
-	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/networking"
 	"istio.io/istio/pilot/pkg/util/protoconv"
 	"istio.io/istio/pkg/config/labels"
@@ -132,8 +131,9 @@ func getTelemetries(env *Environment) (*Telemetries, error) {
 }
 
 type metricsConfig struct {
-	ClientMetrics []metricsOverride
-	ServerMetrics []metricsOverride
+	ClientMetrics     []metricsOverride
+	ServerMetrics     []metricsOverride
+	ReportingInterval *durationpb.Duration
 }
 
 type telemetryFilterConfig struct {
@@ -656,12 +656,15 @@ func mergeMetrics(metrics []*tpb.Metrics, mesh *meshconfig.MeshConfig) map[strin
 
 	parentProviders := mesh.GetDefaultProviders().GetMetrics()
 	disabledAllMetricsProviders := sets.New[string]()
+	reportingIntervals := map[string]*durationpb.Duration{}
 	for _, m := range metrics {
 		providerNames := getProviderNames(m.Providers)
 		// If providers is not set, use parent's
 		if len(providerNames) == 0 {
 			providerNames = parentProviders
 		}
+
+		reportInterval := m.GetReportingInterval()
 		parentProviders = providerNames
 		for _, provider := range providerNames {
 			if !inScopeProviders.Contains(provider) {
@@ -669,6 +672,11 @@ func mergeMetrics(metrics []*tpb.Metrics, mesh *meshconfig.MeshConfig) map[strin
 				// This occurs when a top level provider is later disabled by a lower level
 				continue
 			}
+
+			if reportInterval != nil {
+				reportingIntervals[provider] = reportInterval
+			}
+
 			if _, f := providers[provider]; !f {
 				providers[provider] = map[tpb.WorkloadMode]map[string]metricOverride{
 					tpb.WorkloadMode_CLIENT: {},
@@ -757,12 +765,14 @@ func mergeMetrics(metrics []*tpb.Metrics, mesh *meshconfig.MeshConfig) map[strin
 				default:
 					tmm.ServerMetrics = append(tmm.ServerMetrics, mo)
 				}
+
 				processed[provider] = tmm
 			}
 		}
 
 		// Keep order deterministic
 		tmm := processed[provider]
+		tmm.ReportingInterval = reportingIntervals[provider]
 		sort.Slice(tmm.ServerMetrics, func(i, j int) bool {
 			return tmm.ServerMetrics[i].Name < tmm.ServerMetrics[j].Name
 		})
@@ -816,15 +826,6 @@ func getMatches(match *tpb.MetricSelector) []string {
 	}
 }
 
-func statsRootIDForClass(class networking.ListenerClass) string {
-	switch class {
-	case networking.ListenerClassSidecarInbound:
-		return "stats_inbound"
-	default:
-		return "stats_outbound"
-	}
-}
-
 func buildHTTPTelemetryFilter(class networking.ListenerClass, metricsCfg []telemetryFilterConfig) []*hcm.HttpFilter {
 	res := make([]*hcm.HttpFilter, 0, len(metricsCfg))
 	for _, cfg := range metricsCfg {
@@ -834,32 +835,12 @@ func buildHTTPTelemetryFilter(class networking.ListenerClass, metricsCfg []telem
 				// No logging for prometheus
 				continue
 			}
-			if features.EnableNativeStats {
-				statsCfg := generateStatsConfig(class, cfg, true)
-				f := &hcm.HttpFilter{
-					Name:       xds.StatsFilterName,
-					ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: statsCfg},
-				}
-				res = append(res, f)
-			} else {
-				statsCfg := generateStatsConfig(class, cfg, false)
-				vmConfig := ConstructVMConfig("/etc/istio/extensions/stats-filter.compiled.wasm", "envoy.wasm.stats")
-				root := statsRootIDForClass(class)
-				vmConfig.VmConfig.VmId = root
-
-				wasmConfig := &httpwasm.Wasm{
-					Config: &wasm.PluginConfig{
-						RootId:        root,
-						Vm:            vmConfig,
-						Configuration: statsCfg,
-					},
-				}
-				f := &hcm.HttpFilter{
-					Name:       xds.StatsFilterName,
-					ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: protoconv.MessageToAny(wasmConfig)},
-				}
-				res = append(res, f)
+			statsCfg := generateStatsConfig(class, cfg)
+			f := &hcm.HttpFilter{
+				Name:       xds.StatsFilterName,
+				ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: statsCfg},
 			}
+			res = append(res, f)
 
 		case *meshconfig.MeshConfig_ExtensionProvider_Stackdriver:
 			sdCfg := generateSDConfig(class, cfg)
@@ -892,33 +873,12 @@ func buildTCPTelemetryFilter(class networking.ListenerClass, telemetryConfigs []
 	for _, telemetryCfg := range telemetryConfigs {
 		switch telemetryCfg.Provider.GetProvider().(type) {
 		case *meshconfig.MeshConfig_ExtensionProvider_Prometheus:
-			if features.EnableNativeStats {
-				cfg := generateStatsConfig(class, telemetryCfg, true)
-				f := &listener.Filter{
-					Name:       xds.StatsFilterName,
-					ConfigType: &listener.Filter_TypedConfig{TypedConfig: cfg},
-				}
-				res = append(res, f)
-			} else {
-				cfg := generateStatsConfig(class, telemetryCfg, false)
-				vmConfig := ConstructVMConfig("/etc/istio/extensions/stats-filter.compiled.wasm", "envoy.wasm.stats")
-				root := statsRootIDForClass(class)
-				vmConfig.VmConfig.VmId = "tcp_" + root
-
-				wasmConfig := &wasmfilter.Wasm{
-					Config: &wasm.PluginConfig{
-						RootId:        root,
-						Vm:            vmConfig,
-						Configuration: cfg,
-					},
-				}
-				f := &listener.Filter{
-					Name:       xds.StatsFilterName,
-					ConfigType: &listener.Filter_TypedConfig{TypedConfig: protoconv.MessageToAny(wasmConfig)},
-				}
-				res = append(res, f)
+			cfg := generateStatsConfig(class, telemetryCfg)
+			f := &listener.Filter{
+				Name:       xds.StatsFilterName,
+				ConfigType: &listener.Filter_TypedConfig{TypedConfig: cfg},
 			}
-
+			res = append(res, f)
 		case *meshconfig.MeshConfig_ExtensionProvider_Stackdriver:
 			cfg := generateSDConfig(class, telemetryCfg)
 			vmConfig := ConstructVMConfig("", "envoy.wasm.null.stackdriver")
@@ -1061,9 +1021,10 @@ var metricToPrometheusMetric = map[string]string{
 	"GRPC_RESPONSE_MESSAGES": "response_messages_total",
 }
 
-func generateStatsConfig(class networking.ListenerClass, metricsCfg telemetryFilterConfig, native bool) *anypb.Any {
+func generateStatsConfig(class networking.ListenerClass, metricsCfg telemetryFilterConfig) *anypb.Any {
 	cfg := stats.PluginConfig{
 		DisableHostHeaderFallback: disableHostHeaderFallback(class),
+		TcpReportingDuration:      metricsCfg.ReportingInterval,
 	}
 	for _, override := range metricsCfg.MetricsForClass(class) {
 		metricName, f := metricToPrometheusMetric[override.Name]
@@ -1085,11 +1046,7 @@ func generateStatsConfig(class networking.ListenerClass, metricsCfg telemetryFil
 		}
 		cfg.Metrics = append(cfg.Metrics, mc)
 	}
-	if native {
-		return protoconv.MessageToAny(&cfg)
-	}
-	cfgJSON, _ := protomarshal.MarshalProtoNames(&cfg)
-	return protoconv.MessageToAny(&wrappers.StringValue{Value: string(cfgJSON)})
+	return protoconv.MessageToAny(&cfg)
 }
 
 func disableHostHeaderFallback(class networking.ListenerClass) bool {

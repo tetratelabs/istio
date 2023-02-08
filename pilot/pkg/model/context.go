@@ -28,13 +28,14 @@ import (
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	"github.com/golang/protobuf/jsonpb"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
+	"istio.io/istio/pilot/pkg/credentials"
 	"istio.io/istio/pilot/pkg/features"
 	istionetworking "istio.io/istio/pilot/pkg/networking"
+	"istio.io/istio/pilot/pkg/serviceregistry/util/label"
 	"istio.io/istio/pilot/pkg/trustbundle"
 	networkutil "istio.io/istio/pilot/pkg/util/network"
 	"istio.io/istio/pkg/cluster"
@@ -46,6 +47,7 @@ import (
 	"istio.io/istio/pkg/util/identifier"
 	netutil "istio.io/istio/pkg/util/net"
 	"istio.io/istio/pkg/util/protomarshal"
+	"istio.io/istio/pkg/util/sets"
 	"istio.io/pkg/ledger"
 	"istio.io/pkg/monitoring"
 )
@@ -96,6 +98,8 @@ type Environment struct {
 	TrustBundle *trustbundle.TrustBundle
 
 	clusterLocalServices ClusterLocalProvider
+
+	CredentialsController credentials.MulticlusterController
 
 	GatewayAPIController GatewayController
 
@@ -211,7 +215,7 @@ func ResourcesToAny(r Resources) []*anypb.Any {
 
 // XdsUpdates include information about the subset of updated resources.
 // See for example EDS incremental updates.
-type XdsUpdates = map[ConfigKey]struct{}
+type XdsUpdates = sets.Set[ConfigKey]
 
 // XdsLogDetails contains additional metadata that is captured by Generators and used by xds processors
 // like Ads and Delta to uniformly log.
@@ -459,17 +463,13 @@ func (s *StringBool) UnmarshalJSON(data []byte) error {
 type NodeMetaProxyConfig meshconfig.ProxyConfig
 
 func (s *NodeMetaProxyConfig) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
 	pc := (*meshconfig.ProxyConfig)(s)
-	if err := (&jsonpb.Marshaler{}).Marshal(&buf, pc); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return protomarshal.Marshal(pc)
 }
 
 func (s *NodeMetaProxyConfig) UnmarshalJSON(data []byte) error {
 	pc := (*meshconfig.ProxyConfig)(s)
-	return jsonpb.Unmarshal(bytes.NewReader(data), pc)
+	return protomarshal.UnmarshalAllowUnknown(data, pc)
 }
 
 // Node is a typed version of Envoy node with metadata.
@@ -550,6 +550,9 @@ type NodeMetadata struct {
 
 	// Namespace is the namespace in which the workload instance is running.
 	Namespace string `json:"NAMESPACE,omitempty"`
+
+	// NodeName is the name of the kubernetes node on which the workload instance is running.
+	NodeName string `json:"NODE_NAME,omitempty"`
 
 	// WorkloadName specifies the name of the workload represented by this node.
 	WorkloadName string `json:"WORKLOAD_NAME,omitempty"`
@@ -1147,6 +1150,16 @@ func (node *Proxy) IsVM() bool {
 
 func (node *Proxy) IsProxylessGrpc() bool {
 	return node.Metadata != nil && node.Metadata.Generator == "grpc"
+}
+
+func (node *Proxy) GetNodeName() string {
+	if node.Metadata != nil && len(node.Metadata.NodeName) > 0 {
+		return node.Metadata.NodeName
+	}
+	// fall back to get the node name from labels
+	// this can happen for an "old" proxy with no `Metadata.NodeName` set
+	// TODO: remove this when 1.16 is EOL?
+	return node.Labels[label.LabelHostname]
 }
 
 func (node *Proxy) FuzzValidate() bool {

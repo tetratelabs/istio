@@ -24,6 +24,7 @@ import (
 	grpcstats "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/grpc_stats/v3"
 	grpcweb "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/grpc_web/v3"
 	router "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
+	statefulsession "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/stateful_session/v3"
 	httpwasm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3"
 	httpinspector "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/http_inspector/v3"
 	originaldst "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/original_dst/v3"
@@ -39,6 +40,7 @@ import (
 	alpn "istio.io/api/envoy/config/filter/http/alpn/v2alpha1"
 	"istio.io/api/envoy/config/filter/network/metadata_exchange"
 	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/util/protoconv"
 )
 
@@ -128,6 +130,12 @@ var (
 			}),
 		},
 	}
+	EmptySessionFilter = &hcm.HttpFilter{
+		Name: util.StatefulSessionFilter,
+		ConfigType: &hcm.HttpFilter_TypedConfig{
+			TypedConfig: protoconv.MessageToAny(&statefulsession.StatefulSession{}),
+		},
+	}
 	Alpn = &hcm.HttpFilter{
 		Name: AlpnFilterName,
 		ConfigType: &hcm.HttpFilter_TypedConfig{
@@ -164,6 +172,13 @@ var (
 
 	HTTPMx = buildHTTPMxFilter()
 
+	IstioNetworkAuthenticationFilter = &listener.Filter{
+		Name: "istio_authn",
+		ConfigType: &listener.Filter_TypedConfig{
+			TypedConfig: protoconv.TypedStruct("type.googleapis.com/io.istio.network.authn.Config"),
+		},
+	}
+
 	CaptureTLS = &listener.Filter{
 		Name: "capture_tls",
 		ConfigType: &listener.Filter_TypedConfig{
@@ -184,12 +199,14 @@ var (
 			TypedConfig: protoconv.TypedStruct("type.googleapis.com/istio.telemetry.baggagehandler.v1.Config"),
 		},
 	}
+
 	SetDstAddress = &listener.ListenerFilter{
 		Name: "set_dst_address",
 		ConfigType: &listener.ListenerFilter_TypedConfig{
 			TypedConfig: protoconv.TypedStruct("type.googleapis.com/istio.set_internal_dst_address.v1.Config"),
 		},
 	}
+
 	MetadataToPeerNode = &listener.ListenerFilter{
 		Name:       "envoy.filters.listener.metadata_to_peer_node",
 		ConfigType: &listener.ListenerFilter_TypedConfig{TypedConfig: protoconv.TypedStruct("type.googleapis.com/istio.telemetry.metadatatopeernode.v1.Config")},

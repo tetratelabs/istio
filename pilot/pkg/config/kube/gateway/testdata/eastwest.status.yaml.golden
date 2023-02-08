@@ -8,7 +8,12 @@ spec: null
 status:
   conditions:
   - lastTransitionTime: fake
-    message: 'failed to assign to any requested addresses: hostname "eastwestgateway.istio-system.svc.domain.suffix"
+    message: Resources not yet deployed to the cluster
+    reason: Accepted
+    status: "False"
+    type: Accepted
+  - lastTransitionTime: fake
+    message: 'Failed to assign to any requested addresses: hostname "eastwestgateway-istio.istio-system.svc.domain.suffix"
       not found'
     reason: AddressNotAssigned
     status: "False"
@@ -23,6 +28,11 @@ status:
     conditions:
     - lastTransitionTime: fake
       message: No errors found
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: fake
+      message: No errors found
       reason: NoConflicts
       status: "False"
       type: Conflicted
@@ -31,6 +41,11 @@ status:
       reason: Attached
       status: "False"
       type: Detached
+    - lastTransitionTime: fake
+      message: No errors found
+      reason: Programmed
+      status: "True"
+      type: Programmed
     - lastTransitionTime: fake
       message: No errors found
       reason: Ready
@@ -49,6 +64,11 @@ status:
     conditions:
     - lastTransitionTime: fake
       message: No errors found
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: fake
+      message: No errors found
       reason: NoConflicts
       status: "False"
       type: Conflicted
@@ -57,6 +77,11 @@ status:
       reason: Attached
       status: "False"
       type: Detached
+    - lastTransitionTime: fake
+      message: No errors found
+      reason: Programmed
+      status: "True"
+      type: Programmed
     - lastTransitionTime: fake
       message: No errors found
       reason: Ready
@@ -75,6 +100,11 @@ status:
     conditions:
     - lastTransitionTime: fake
       message: No errors found
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: fake
+      message: No errors found
       reason: NoConflicts
       status: "False"
       type: Conflicted
@@ -83,6 +113,11 @@ status:
       reason: Attached
       status: "False"
       type: Detached
+    - lastTransitionTime: fake
+      message: No errors found
+      reason: Programmed
+      status: "True"
+      type: Programmed
     - lastTransitionTime: fake
       message: No errors found
       reason: Ready

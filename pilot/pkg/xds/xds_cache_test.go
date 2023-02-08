@@ -29,6 +29,7 @@ import (
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/schema/kind"
 	"istio.io/istio/pkg/test/util/retry"
+	"istio.io/istio/pkg/util/sets"
 )
 
 var (
@@ -37,6 +38,8 @@ var (
 )
 
 // TestXdsCacheToken is a regression test to ensure that we do not write
+// nolint: gosec
+// Test only code
 func TestXdsCacheToken(t *testing.T) {
 	c := model.NewXdsCache()
 	n := atomic.NewInt32(0)
@@ -104,7 +107,7 @@ func TestXdsCache(t *testing.T) {
 			t.Fatalf("unexpected result: %v, want %v", got, any2)
 		}
 
-		c.Clear(map[model.ConfigKey]struct{}{{Kind: kind.ServiceEntry, Name: "foo.com"}: {}})
+		c.Clear(sets.New(model.ConfigKey{Kind: kind.ServiceEntry, Name: "foo.com"}))
 		if _, f := c.Get(ep1); f {
 			t.Fatalf("unexpected result, found key when not expected: %v", c.Keys())
 		}
@@ -122,7 +125,7 @@ func TestXdsCache(t *testing.T) {
 		if got, _ := c.Get(ep2); got != any2 {
 			t.Fatalf("unexpected result: %v, want %v", got, any2)
 		}
-		c.Clear(map[model.ConfigKey]struct{}{{Kind: kind.ServiceEntry, Name: "foo.com"}: {}})
+		c.Clear(sets.New(model.ConfigKey{Kind: kind.ServiceEntry, Name: "foo.com"}))
 		if _, f := c.Get(ep1); f {
 			t.Fatalf("unexpected result, found key when not expected: %v", c.Keys())
 		}
@@ -147,14 +150,14 @@ func TestXdsCache(t *testing.T) {
 		if got, _ := c.Get(ep2); got != any2 {
 			t.Fatalf("unexpected result: %v, want %v", got, any2)
 		}
-		c.Clear(map[model.ConfigKey]struct{}{{Kind: kind.DestinationRule, Name: "a", Namespace: "b"}: {}})
+		c.Clear(sets.New(model.ConfigKey{Kind: kind.DestinationRule, Name: "a", Namespace: "b"}))
 		if _, f := c.Get(ep1); f {
 			t.Fatalf("unexpected result, found key when not expected: %v", c.Keys())
 		}
 		if got, _ := c.Get(ep2); got != any2 {
 			t.Fatalf("unexpected result: %v, want %v", got, any2)
 		}
-		c.Clear(map[model.ConfigKey]struct{}{{Kind: kind.DestinationRule, Name: "b", Namespace: "b"}: {}})
+		c.Clear(sets.New(model.ConfigKey{Kind: kind.DestinationRule, Name: "b", Namespace: "b"}))
 		if _, f := c.Get(ep1); f {
 			t.Fatalf("unexpected result, found key when not expected: %v", c.Keys())
 		}
@@ -187,7 +190,7 @@ func TestXdsCache(t *testing.T) {
 		c.Add(ep1, &model.PushRequest{Start: start}, any1)
 		c.Add(ep2, &model.PushRequest{Start: start}, any2)
 
-		c.Clear(map[model.ConfigKey]struct{}{{Kind: kind.PeerAuthentication}: {}})
+		c.Clear(sets.New(model.ConfigKey{Kind: kind.PeerAuthentication}))
 		if len(c.Keys()) != 0 {
 			t.Fatalf("expected no keys, got: %v", c.Keys())
 		}

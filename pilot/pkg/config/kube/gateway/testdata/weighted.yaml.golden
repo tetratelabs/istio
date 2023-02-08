@@ -52,6 +52,7 @@ spec:
   - match:
     - uri:
         prefix: /weighted-100
+    name: default.http.1
     route:
     - destination:
         host: foo-svc.default.svc.domain.suffix
@@ -61,9 +62,13 @@ spec:
         request:
           add:
             foo: bar
+        response:
+          add:
+            response: header
   - match:
     - uri:
         prefix: /get
+    name: default.http.0
     route:
     - destination:
         host: httpbin.default.svc.domain.suffix

@@ -210,6 +210,11 @@ func (s *DiscoveryServer) receiveDelta(con *Connection, identities []string) {
 		}
 		// This should be only set for the first request. The node id may not be set - for example malicious clients.
 		if firstRequest {
+			// probe happens before envoy sends first xDS request
+			if req.TypeUrl == v3.HealthInfoType {
+				log.Warnf("ADS: %q %s send health check probe before normal xDS request", con.peerAddr, con.conID)
+				continue
+			}
 			firstRequest = false
 			if req.Node == nil || req.Node.Id == "" {
 				con.errorChan <- status.New(codes.InvalidArgument, "missing node information").Err()
@@ -240,10 +245,6 @@ func (conn *Connection) sendDelta(res *discovery.DeltaDiscoveryResponse) error {
 	}
 	err := istiogrpc.Send(conn.deltaStream.Context(), sendHandler)
 	if err == nil {
-		sz := 0
-		for _, rc := range res.Resources {
-			sz += len(rc.Resource.Value)
-		}
 		if res.Nonce != "" && !strings.HasPrefix(res.TypeUrl, v3.DebugType) {
 			conn.proxy.Lock()
 			if conn.proxy.WatchedResources[res.TypeUrl] == nil {
@@ -565,7 +566,8 @@ func deltaToSotwRequest(request *discovery.DeltaDiscoveryRequest) *discovery.Dis
 func deltaWatchedResources(existing []string, request *discovery.DeltaDiscoveryRequest) []string {
 	res := sets.New(existing...)
 	res.InsertAll(request.ResourceNamesSubscribe...)
-	// Set only on first request
+	// This is set by Envoy on first request on reconnection so that we are aware of what Envoy knows
+	// and can continue the xDS session properly.
 	for k := range request.InitialResourceVersions {
 		res.Insert(k)
 	}

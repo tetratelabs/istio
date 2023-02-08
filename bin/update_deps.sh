@@ -16,7 +16,7 @@
 
 set -e
 
-UPDATE_BRANCH=${UPDATE_BRANCH:-"release-1.16"}
+UPDATE_BRANCH=${UPDATE_BRANCH:-"release-1.17"}
 
 SCRIPTPATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ROOTDIR=$(dirname "${SCRIPTPATH}")

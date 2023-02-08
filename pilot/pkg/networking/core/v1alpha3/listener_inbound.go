@@ -17,6 +17,7 @@ package v1alpha3
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -155,19 +156,19 @@ type ServiceInstancePort struct {
 
 func (lb *ListenerBuilder) buildInboundHBONEListeners() []*listener.Listener {
 	vhost := &route.VirtualHost{
-		Name:    "connect",
+		Name:    "inbound-hbone-connect",
 		Domains: []string{"*"},
 	}
 	inboundChainConfigs := lb.buildInboundChainConfigs()
 	for _, cc := range inboundChainConfigs {
 		// TODO passthrough
-		p := cc.port.TargetPort
-		name := fmt.Sprintf("inbound-hbone|%d", p)
+		p := strconv.Itoa(int(cc.port.TargetPort))
+		destination := "inbound-hbone" + "|" + p
 		vhost.Routes = append(vhost.Routes, &route.Route{
 			Match: &route.RouteMatch{
 				PathSpecifier: &route.RouteMatch_ConnectMatcher_{ConnectMatcher: &route.RouteMatch_ConnectMatcher{}},
 				Headers: []*route.HeaderMatcher{
-					istiomatcher.HeaderMatcher(":authority", fmt.Sprintf("*:%d", p)),
+					istiomatcher.HeaderMatcher(":authority", "*:"+p),
 				},
 			},
 			Action: &route.Route_Route{Route: &route.RouteAction{
@@ -176,46 +177,24 @@ func (lb *ListenerBuilder) buildInboundHBONEListeners() []*listener.Listener {
 					ConnectConfig: &route.RouteAction_UpgradeConfig_ConnectConfig{},
 				}},
 
-				ClusterSpecifier: &route.RouteAction_Cluster{Cluster: name},
+				ClusterSpecifier: &route.RouteAction_Cluster{Cluster: destination},
 			}},
 		})
 	}
 	l := &listener.Listener{
 		Name:    "inbound-hbone",
-		Address: util.BuildAddress("0.0.0.0", 15008),
+		Address: util.BuildAddress("0.0.0.0", model.HBoneInboundListenPort),
 		FilterChains: []*listener.FilterChain{
 			{
 				TransportSocket: buildDownstreamTLSTransportSocket(lb.authnBuilder.ForHBONE().TCP),
 				Filters: []*listener.Filter{
 					xdsfilters.CaptureTLS,
-					{
-						// TODO: use standard builder
-						Name: "envoy.filters.network.http_connection_manager",
-						ConfigType: &listener.Filter_TypedConfig{
-							TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
-								StatPrefix: "inbound-hbone",
-								RouteSpecifier: &hcm.HttpConnectionManager_RouteConfig{
-									RouteConfig: &route.RouteConfiguration{
-										Name:             "local_route",
-										VirtualHosts:     []*route.VirtualHost{vhost},
-										ValidateClusters: proto.BoolFalse,
-									},
-								},
-								HttpFilters: []*hcm.HttpFilter{xdsfilters.Baggage, xdsfilters.Router},
-								Http2ProtocolOptions: &core.Http2ProtocolOptions{
-									AllowConnect: true,
-								},
-								// TODO: I doubt this is needed
-								UpgradeConfigs: []*hcm.HttpConnectionManager_UpgradeConfig{{
-									UpgradeType: "CONNECT",
-								}},
-							}),
-						},
-					},
+					buildHBONEConnectionManager(vhost),
 				},
 			},
 		},
 	}
+
 	accessLogBuilder.setListenerAccessLog(lb.push, lb.node, l, istionetworking.ListenerClassSidecarInbound)
 
 	var listeners []*listener.Listener
@@ -237,7 +216,7 @@ func (lb *ListenerBuilder) buildInboundHBONEListeners() []*listener.Listener {
 				fcm.TransportProtocol = ""
 			}
 		}
-		name := fmt.Sprintf("inbound-hbone|%d", cc.port.TargetPort)
+		name := "inbound-hbone" + "|" + strconv.Itoa(int(cc.port.TargetPort))
 		l := &listener.Listener{
 			Name:              name,
 			ListenerSpecifier: &listener.Listener_InternalListener{InternalListener: &listener.Listener_InternalListenerConfig{}},
@@ -250,6 +229,31 @@ func (lb *ListenerBuilder) buildInboundHBONEListeners() []*listener.Listener {
 		listeners = append(listeners, l)
 	}
 	return listeners
+}
+
+func buildHBONEConnectionManager(vhost *route.VirtualHost) *listener.Filter {
+	connMgr := &hcm.HttpConnectionManager{}
+	connMgr.StatPrefix = "inbound-hbone"
+
+	connMgr.RouteSpecifier = &hcm.HttpConnectionManager_RouteConfig{
+		RouteConfig: &route.RouteConfiguration{
+			Name:             "local_route",
+			VirtualHosts:     []*route.VirtualHost{vhost},
+			ValidateClusters: proto.BoolFalse,
+		},
+	}
+	connMgr.HttpFilters = []*hcm.HttpFilter{xdsfilters.Baggage, xdsfilters.Router}
+	connMgr.Http2ProtocolOptions = &core.Http2ProtocolOptions{
+		AllowConnect: true,
+	}
+	// TODO: I doubt this is needed
+	connMgr.UpgradeConfigs = []*hcm.HttpConnectionManager_UpgradeConfig{{
+		UpgradeType: "CONNECT",
+	}}
+	return &listener.Filter{
+		Name:       wellknown.HTTPConnectionManager,
+		ConfigType: &listener.Filter_TypedConfig{TypedConfig: protoconv.MessageToAny(connMgr)},
+	}
 }
 
 // buildInboundListeners creates inbound listeners.
@@ -301,14 +305,14 @@ func (lb *ListenerBuilder) buildInboundListeners() []*listener.Listener {
 
 // inboundVirtualListener builds the virtual inbound listener.
 func (lb *ListenerBuilder) inboundVirtualListener(chains []*listener.FilterChain) *listener.Listener {
-	actualWildcards, _ := getWildcardsAndLocalHostForDualStack(lb.node.GetIPMode())
+	actualWildcards, _ := getWildcardsAndLocalHost(lb.node.GetIPMode())
 
 	// Build the "virtual" inbound listener. This will capture all inbound redirected traffic and contains:
 	// * Passthrough filter chains, matching all unmatched traffic. There are a few of these to handle all cases
 	// * Service filter chains. These will either be for each Port exposed by a Service OR Sidecar.Ingress configuration.
 	allChains := buildInboundPassthroughChains(lb)
 	allChains = append(allChains, chains...)
-	l := lb.buildInboundListener(model.VirtualInboundListenerName, actualWildcards, ProxyInboundListenPort, false, allChains)
+	l := lb.buildInboundListener(model.VirtualInboundListenerName, actualWildcards, model.ProxyInboundListenPort, false, allChains)
 	return l
 }
 
@@ -334,7 +338,7 @@ func (lb *ListenerBuilder) buildInboundListener(name string, addresses []string,
 		Address:          address,
 		TrafficDirection: core.TrafficDirection_INBOUND,
 	}
-	if len(addresses) > 1 {
+	if features.EnableDualStack && len(addresses) > 1 {
 		// add extra addresses for the listener
 		l.AdditionalAddresses = util.BuildAdditionalAddresses(addresses[1:], tPort, lb.node)
 	}
@@ -406,9 +410,10 @@ func (lb *ListenerBuilder) getFilterChainsByServicePort(chainsByPort map[uint32]
 			TargetPort: i.Endpoint.EndpointPort,
 			Protocol:   i.ServicePort.Protocol,
 		}
-		actualWildcards, _ := getWildcardsAndLocalHostForDualStack(lb.node.GetIPMode())
+		actualWildcards, _ := getWildcardsAndLocalHost(lb.node.GetIPMode())
 		if enableSidecarServiceInboundListenerMerge && sidecarScope.HasIngressListener() &&
-			ingressPortListSet.Contains(int(port.Port)) {
+			// ingress listener port means the target port, may not equal to service port
+			ingressPortListSet.Contains(int(port.TargetPort)) {
 			// here if port is declared in service and sidecar ingress both, we continue to take the one on sidecar + other service ports
 			// e.g. 1,2, 3 in service and 3,4 in sidecar ingress,
 			// this will still generate listeners for 1,2,3,4 where 3 is picked from sidecar ingress
@@ -749,7 +754,6 @@ func buildInboundPassthroughChains(lb *ListenerBuilder) []*listener.FilterChain 
 	if lb.node.SupportsIPv6() {
 		ipVersions = append(ipVersions, util.InboundPassthroughClusterIpv6)
 	}
-
 	// Setup enough slots for common max size (permissive mode is 5 filter chains). This is not
 	// exact, just best effort optimization
 	filterChains := make([]*listener.FilterChain, 0, 1+5*len(ipVersions))
@@ -794,7 +798,7 @@ func buildInboundBlackhole(lb *ListenerBuilder) *listener.FilterChain {
 	return &listener.FilterChain{
 		Name: model.VirtualInboundBlackholeFilterChainName,
 		FilterChainMatch: &listener.FilterChainMatch{
-			DestinationPort: &wrappers.UInt32Value{Value: ProxyInboundListenPort},
+			DestinationPort: &wrappers.UInt32Value{Value: model.ProxyInboundListenPort},
 		},
 		Filters: filters,
 	}
@@ -841,6 +845,9 @@ func buildSidecarInboundHTTPOpts(lb *ListenerBuilder, cc inboundChainConfig) *ht
 func (lb *ListenerBuilder) buildInboundNetworkFiltersForHTTP(cc inboundChainConfig) []*listener.Filter {
 	var filters []*listener.Filter
 
+	if util.IsIstioVersionGE117(lb.node.IstioVersion) {
+		filters = append(filters, xdsfilters.IstioNetworkAuthenticationFilter)
+	}
 	if cc.hbone {
 		filters = append(filters, xdsfilters.RestoreTLS)
 	} else {
@@ -875,6 +882,9 @@ func (lb *ListenerBuilder) buildInboundNetworkFilters(fcc inboundChainConfig) []
 
 	var filters []*listener.Filter
 
+	if util.IsIstioVersionGE117(lb.node.IstioVersion) {
+		filters = append(filters, xdsfilters.IstioNetworkAuthenticationFilter)
+	}
 	if fcc.hbone {
 		filters = append(filters, xdsfilters.RestoreTLS)
 	} else {

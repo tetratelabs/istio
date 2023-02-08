@@ -176,10 +176,6 @@ collections:
     name: "k8s/gateway_api/v1alpha2/tlsroutes"
     group: "gateway.networking.k8s.io"
 
-  - kind: "ReferencePolicy"
-    name: "k8s/gateway_api/v1alpha2/referencepolicies"
-    group: "gateway.networking.k8s.io"
-
   - kind: "ReferenceGrant"
     name: "k8s/gateway_api/v1alpha2/referencegrants"
     group: "gateway.networking.k8s.io"
@@ -283,7 +279,7 @@ resources:
     - "v1alpha2"
     protoPackage: "sigs.k8s.io/gateway-api/apis/v1beta1"
     proto: "k8s.io.gateway_api.api.v1alpha1.GatewaySpec"
-    validate: "EmptyValidate"
+    validate: "ValidateKubernetesGateway"
     statusProto: "k8s.io.gateway_api.api.v1alpha1.GatewayStatus"
     statusProtoPackage: "sigs.k8s.io/gateway-api/apis/v1beta1"
 
@@ -297,6 +293,15 @@ resources:
     proto: "k8s.io.gateway_api.api.v1alpha1.HTTPRouteSpec"
     statusProto: "k8s.io.gateway_api.api.v1alpha1.HTTPRouteStatus"
     statusProtoPackage: "sigs.k8s.io/gateway-api/apis/v1beta1"
+
+  - kind: "GRPCRoute"
+    plural: "grpcroutes"
+    group: "gateway.networking.k8s.io"
+    version: "v1alpha2"
+    protoPackage: "sigs.k8s.io/gateway-api/apis/v1alpha2"
+    proto: "k8s.io.gateway_api.api.v1alpha1.GRPCRouteSpec"
+    statusProto: "k8s.io.gateway_api.api.v1alpha1.GRPCRouteStatus"
+    statusProtoPackage: "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
   - kind: "TCPRoute"
     plural: "tcproutes"
@@ -316,12 +321,14 @@ resources:
     statusProtoPackage: "sigs.k8s.io/gateway-api/apis/v1alpha2"
     statusProto: "k8s.io.gateway_api.api.v1alpha1.TLSRouteStatus"
 
-  - kind: "ReferencePolicy"
-    plural: "referencepolicies"
+  - kind: "UDPRoute"
+    plural: "udproutes"
     group: "gateway.networking.k8s.io"
     version: "v1alpha2"
     protoPackage: "sigs.k8s.io/gateway-api/apis/v1alpha2"
-    proto: "k8s.io.gateway_api.api.v1alpha1.ReferenceGrantSpec"
+    proto: "k8s.io.gateway_api.api.v1alpha1.UDPRouteSpec"
+    statusProtoPackage: "sigs.k8s.io/gateway-api/apis/v1alpha2"
+    statusProto: "k8s.io.gateway_api.api.v1alpha1.UDORouteStatus"
 
   - kind: "ReferenceGrant"
     plural: "referencegrants"
@@ -407,8 +414,6 @@ resources:
     plural: "envoyfilters"
     group: "networking.istio.io"
     version: "v1alpha3"
-    versionAliases:
-      - "v1beta1"
     proto: "istio.networking.v1alpha3.EnvoyFilter"
     protoPackage: "istio.io/api/networking/v1alpha3"
     description: "describes additional envoy filters to be inserted by Pilot"
@@ -457,6 +462,8 @@ resources:
     plural: "authorizationpolicies"
     group: "security.istio.io"
     version: "v1beta1"
+    versionAliases:
+      - "v1"
     proto: "istio.security.v1beta1.AuthorizationPolicy"
     protoPackage: "istio.io/api/security/v1beta1"
     description: "describes the authorization policy."
@@ -467,6 +474,8 @@ resources:
     plural: "requestauthentications"
     group: "security.istio.io"
     version: "v1beta1"
+    versionAliases:
+      - "v1"
     proto: "istio.security.v1beta1.RequestAuthentication"
     protoPackage: "istio.io/api/security/v1beta1"
     description: "describes the request authentication."
@@ -479,7 +488,6 @@ resources:
     version: "v1beta1"
     proto: "istio.security.v1beta1.PeerAuthentication"
     protoPackage: "istio.io/api/security/v1beta1"
-    validate: "ValidatePeerAuthentication"
     description: "describes the peer authentication."
     statusProto: "istio.meta.v1alpha1.IstioStatus"
     statusProtoPackage: "istio.io/api/meta/v1alpha1"

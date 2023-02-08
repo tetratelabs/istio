@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	kubeCore "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"istio.io/istio/pkg/config/protocol"
@@ -94,7 +94,7 @@ func newInstance(ctx resource.Context, originalCfg echo.Config) (out *instance, 
 	c.clusterIP = s.Spec.ClusterIP
 	c.clusterIPs = s.Spec.ClusterIPs
 	switch c.clusterIP {
-	case kubeCore.ClusterIPNone, "":
+	case corev1.ClusterIPNone, "":
 		if !cfg.Headless {
 			return nil, fmt.Errorf("invalid ClusterIP %s for non-headless service %s/%s",
 				c.clusterIP,
@@ -250,9 +250,11 @@ func (c *instance) UpdateWorkloadLabel(add map[string]string, remove []string) e
 		wl.mutex.Unlock()
 		if pod.Name != "" {
 			return retry.UntilSuccess(func() (err error) {
-				pod, err := wl.Cluster().Kube().CoreV1().Pods(c.NamespaceName()).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+				podName := pod.Name
+				podNamespace := pod.Namespace
+				pod, err := wl.Cluster().Kube().CoreV1().Pods(c.NamespaceName()).Get(context.TODO(), podName, metav1.GetOptions{})
 				if err != nil {
-					return fmt.Errorf("get pod %s/%s failed: %v", pod.Namespace, pod.Name, err)
+					return fmt.Errorf("get pod %s/%s failed: %v", podNamespace, podName, err)
 				}
 				newLabels := make(map[string]string)
 				for k, v := range pod.GetLabels() {

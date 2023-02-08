@@ -113,6 +113,12 @@ var (
 			" to unhealthy/non-ready hosts even if the percentage of healthy hosts fall below minimum health percentage(panic threshold).",
 	).Get())
 
+	EnablePersistentSessionFilter = env.Register(
+		"PILOT_ENABLE_PERSISTENT_SESSION_FILTER",
+		false,
+		"If enabled, Istiod sets up persistent session filter for listeners, if services have 'PILOT_PERSISTENT_SESSION_LABEL' set.",
+	).Get()
+
 	PersistentSessionLabel = env.Register(
 		"PILOT_PERSISTENT_SESSION_LABEL",
 		"istio.io/persistent-session",
@@ -449,7 +455,8 @@ var (
 		"Name of the mutatingwebhookconfiguration to patch, if istioctl is not used.").Get()
 
 	ValidationWebhookConfigName = env.Register("VALIDATION_WEBHOOK_CONFIG_NAME", "istio-istio-system",
-		"Name of the validatingwebhookconfiguration to patch. Empty will skip using cluster admin to patch.").Get()
+		"If not empty, the controller will automatically patch validatingwebhookconfiguration when the CA certificate changes. "+
+			"Only works in kubernetes environment.").Get()
 
 	SpiffeBundleEndpoints = env.Register("SPIFFE_BUNDLE_ENDPOINTS", "",
 		"The SPIFFE bundle trust domain to endpoint mappings. Istiod retrieves the root certificate from each SPIFFE "+
@@ -676,9 +683,9 @@ var (
 
 	SidecarIgnorePort = env.Register("SIDECAR_IGNORE_PORT_IN_HOST_MATCH", true, "If enabled, port will not be used in vhost domain matches.").Get()
 
-	EnableEnhancedResourceScoping = atomic.NewBool(env.Register("ENABLE_ENHANCED_RESOURCE_SCOPING", false,
+	EnableEnhancedResourceScoping = env.Register("ENABLE_ENHANCED_RESOURCE_SCOPING", false,
 		"If enabled, meshConfig.discoverySelectors will limit the CustomResource configurations(like Gateway,VirtualService,DestinationRule,Ingress, etc)"+
-			"that can be processed by pilot. This will also restrict the root-ca certificate distribution.").Get())
+			"that can be processed by pilot. This will also restrict the root-ca certificate distribution.").Get()
 
 	EnableLeaderElection = env.Register("ENABLE_LEADER_ELECTION", true,
 		"If enabled (default), starts a leader election client and gains leadership before executing controllers. "+
@@ -690,11 +697,11 @@ var (
 		"If set, it allows creating inbound listeners for service ports and sidecar ingress listeners ",
 	).Get()
 
-	EnableNativeStats = env.Register(
-		"TELEMETRY_USE_NATIVE_STATS",
-		false,
-		"True if the stats runtime should use the Envoy extension instead of the compiled Wasm extension.",
-	).Get()
+	EnableDualStack = env.RegisterBoolVar("ISTIO_DUAL_STACK", false,
+		"If enabled, pilot will configure clusters/listeners/routes for dual stack capability.").Get()
+
+	EnableOptimizedServicePush = env.RegisterBoolVar("ISTIO_ENABLE_OPTIMIZED_SERVICE_PUSH", true,
+		"If enabled, Istiod will not push changes on arbitraty annotation change.").Get()
 )
 
 // EnableEndpointSliceController returns the value of the feature flag and whether it was actually specified.

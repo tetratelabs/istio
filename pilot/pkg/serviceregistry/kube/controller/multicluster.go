@@ -69,7 +69,6 @@ type Multicluster struct {
 	closing bool
 
 	serviceEntryController *serviceentry.Controller
-	configController       model.ConfigStoreController
 	XDSUpdater             model.XDSUpdater
 
 	m                     sync.Mutex // protects remoteKubeControllers
@@ -91,7 +90,6 @@ func NewMulticluster(
 	secretNamespace string,
 	opts Options,
 	serviceEntryController *serviceentry.Controller,
-	configController model.ConfigStoreController,
 	caBundleWatcher *keycertbundle.Watcher,
 	revision string,
 	startNsController bool,
@@ -103,7 +101,6 @@ func NewMulticluster(
 		serverID:               serverID,
 		opts:                   opts,
 		serviceEntryController: serviceEntryController,
-		configController:       configController,
 		startNsController:      startNsController,
 		caBundleWatcher:        caBundleWatcher,
 		revision:               revision,
@@ -233,7 +230,7 @@ func (m *Multicluster) initializeCluster(cluster *multicluster.Cluster, kubeCont
 		kubeRegistry.AppendWorkloadHandler(m.serviceEntryController.WorkloadInstanceHandler)
 	}
 
-	if configCluster && m.serviceEntryController != nil && features.EnableEnhancedResourceScoping.Load() {
+	if configCluster && m.serviceEntryController != nil && features.EnableEnhancedResourceScoping {
 		kubeRegistry.AppendNamespaceDiscoveryHandlers(m.serviceEntryController.NamespaceDiscoveryHandler)
 	}
 
@@ -253,7 +250,7 @@ func (m *Multicluster) initializeCluster(cluster *multicluster.Cluster, kubeCont
 				kubeController.workloadEntryController.AppendWorkloadHandler(kubeRegistry.WorkloadInstanceHandler)
 				// ServiceEntry selects WorkloadEntry from remote cluster
 				kubeController.workloadEntryController.AppendWorkloadHandler(m.serviceEntryController.WorkloadInstanceHandler)
-				if features.EnableEnhancedResourceScoping.Load() {
+				if features.EnableEnhancedResourceScoping {
 					kubeRegistry.AppendNamespaceDiscoveryHandlers(kubeController.workloadEntryController.NamespaceDiscoveryHandler)
 				}
 				m.opts.MeshServiceController.AddRegistryAndRun(kubeController.workloadEntryController, clusterStopCh)
@@ -266,7 +263,7 @@ func (m *Multicluster) initializeCluster(cluster *multicluster.Cluster, kubeCont
 
 	// namespacecontroller requires discoverySelectors only if EnableEnhancedResourceScoping feature flag is set.
 	discoveryNamespacesFilter := namespace.DiscoveryNamespacesFilter(nil)
-	if features.EnableEnhancedResourceScoping.Load() {
+	if features.EnableEnhancedResourceScoping {
 		discoveryNamespacesFilter = kubeRegistry.opts.DiscoveryNamespacesFilter
 	}
 

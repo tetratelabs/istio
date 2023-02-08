@@ -66,12 +66,6 @@ const (
 	AutoOverTCP
 )
 
-const (
-	// ProxyInboundListenPort is the port on which all inbound traffic to the pod/vm will be captured to
-	// TODO: allow configuration through mesh config
-	ProxyInboundListenPort = 15006
-)
-
 // MutableListener represents a listener that is being built.
 type MutableListener struct {
 	istionetworking.MutableObjects
@@ -139,6 +133,10 @@ func BuildListenerTLSContext(serverTLSSettings *networking.ServerTLSSettings,
 	if serverTLSSettings.Mode == networking.ServerTLSSettings_MUTUAL ||
 		serverTLSSettings.Mode == networking.ServerTLSSettings_ISTIO_MUTUAL {
 		ctx.RequireClientCertificate = proto.BoolTrue
+	}
+	if transportProtocol == istionetworking.TransportProtocolQUIC {
+		// TODO(https://github.com/envoyproxy/envoy/issues/23809) support this in Envoy
+		ctx.RequireClientCertificate = proto.BoolFalse
 	}
 	credentialSocketExist := false
 	if proxy.Metadata != nil && proxy.Metadata.Raw[secconst.CredentialMetaDataName] == "true" {
@@ -272,7 +270,7 @@ func (lb *ListenerBuilder) buildSidecarOutboundListeners(node *model.Proxy,
 ) []*listener.Listener {
 	noneMode := node.GetInterceptionMode() == model.InterceptionNone
 
-	actualWildcards, actualLocalHosts := getWildcardsAndLocalHostForDualStack(node.GetIPMode())
+	actualWildcards, actualLocalHosts := getWildcardsAndLocalHost(node.GetIPMode())
 
 	var tcpListeners, httpListeners []*listener.Listener
 	// For conflict resolution
@@ -531,7 +529,7 @@ func (lb *ListenerBuilder) buildHTTPProxy(node *model.Proxy,
 	}
 
 	// enable HTTP PROXY port if necessary; this will add an RDS route for this port
-	_, actualLocalHosts := getWildcardsAndLocalHostForDualStack(node.GetIPMode())
+	_, actualLocalHosts := getWildcardsAndLocalHost(node.GetIPMode())
 
 	httpOpts := &core.Http1ProtocolOptions{
 		AllowAbsoluteUrl: proto.BoolTrue,
@@ -587,7 +585,7 @@ func buildSidecarOutboundHTTPListenerOptsForPortOrUDS(listenerMapKey *string,
 	// first identify the bind if its not set. Then construct the key
 	// used to lookup the listener in the conflict map.
 	if len(listenerOpts.bind) == 0 { // no user specified bind. Use 0.0.0.0:Port or [::]:Port
-		actualWildcards, _ := getWildcardsAndLocalHostForDualStack(listenerOpts.proxy.GetIPMode())
+		actualWildcards, _ := getWildcardsAndLocalHost(listenerOpts.proxy.GetIPMode())
 		listenerOpts.bind = actualWildcards[0]
 		if len(actualWildcards) > 0 {
 			listenerOpts.extraBind = actualWildcards[1:]
@@ -1240,7 +1238,9 @@ func buildListener(opts buildListenerOpts, trafficDirection core.TrafficDirectio
 			ConnectionBalanceConfig: connectionBalance,
 		}
 		// add extra addresses for the listener
-		res.AdditionalAddresses = util.BuildAdditionalAddresses(opts.extraBind, uint32(opts.port.Port), opts.proxy)
+		if features.EnableDualStack && len(opts.extraBind) > 0 {
+			res.AdditionalAddresses = util.BuildAdditionalAddresses(opts.extraBind, uint32(opts.port.Port), opts.proxy)
+		}
 
 		if opts.proxy.Type != model.Router {
 			res.ListenerFiltersTimeout = opts.push.Mesh.ProtocolDetectionTimeout
@@ -1269,7 +1269,9 @@ func buildListener(opts buildListenerOpts, trafficDirection core.TrafficDirectio
 			EnableReusePort: proto.BoolTrue,
 		}
 		// add extra addresses for the listener
-		res.AdditionalAddresses = util.BuildAdditionalAddresses(opts.extraBind, uint32(opts.port.Port), opts.proxy)
+		if features.EnableDualStack && len(opts.extraBind) > 0 {
+			res.AdditionalAddresses = util.BuildAdditionalAddresses(opts.extraBind, uint32(opts.port.Port), opts.proxy)
+		}
 	}
 
 	accessLogBuilder.setListenerAccessLog(opts.push, opts.proxy, res, opts.class)
@@ -1640,7 +1642,7 @@ const baggageFormat = "k8s.cluster.name=%s,k8s.namespace.name=%s,k8s.%s.name=%s,
 
 // outboundTunnelListener builds a listener that originates an HBONE tunnel. The original dst is passed through
 func outboundTunnelListener(push *model.PushContext, proxy *model.Proxy) *listener.Listener {
-	name := "outbound-tunnel"
+	name := util.OutboundTunnel
 	canonicalName := proxy.Labels[model.IstioCanonicalServiceLabelName]
 	canonicalRevision := proxy.Labels[model.IstioCanonicalServiceRevisionLabelName]
 	p := &tcp.TcpProxy{

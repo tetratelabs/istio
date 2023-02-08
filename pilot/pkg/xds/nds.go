@@ -22,11 +22,12 @@ import (
 	"istio.io/istio/pkg/config/schema/kind"
 )
 
-// NdsGenerator Nds stands for Name Discovery Service. Istio agents send NDS requests to istiod
-// istiod responds with a list of service entries and their associated IPs (including k8s services)
-// The agent then updates its internal DNS based on this data. If DNS capture is enabled in the pod
-// the agent will capture all DNS requests and attempt to resolve locally before forwarding to upstream
-// dns servers/
+// NdsGenerator generates config for Nds i.e. Name Discovery Service. Istio agents
+// send NDS requests to istiod and istiod responds with a list of services and their
+// associated IPs (including service entries).
+// The agent then updates its internal DNS based on this data. If DNS capture is enabled
+// in the pod the agent will capture all DNS requests and attempt to resolve locally before
+// forwarding to upstream dns servers.
 type NdsGenerator struct {
 	Server *DiscoveryServer
 }
@@ -38,6 +39,8 @@ var skippedNdsConfigs = map[kind.Kind]struct{}{
 	kind.Gateway:               {},
 	kind.VirtualService:        {},
 	kind.DestinationRule:       {},
+	kind.Secret:                {},
+	kind.Telemetry:             {},
 	kind.EnvoyFilter:           {},
 	kind.WorkloadEntry:         {},
 	kind.WorkloadGroup:         {},
@@ -45,6 +48,8 @@ var skippedNdsConfigs = map[kind.Kind]struct{}{
 	kind.RequestAuthentication: {},
 	kind.PeerAuthentication:    {},
 	kind.WasmPlugin:            {},
+	kind.ProxyConfig:           {},
+	kind.MeshConfig:            {},
 }
 
 func ndsNeedsPush(req *model.PushRequest) bool {
@@ -52,8 +57,8 @@ func ndsNeedsPush(req *model.PushRequest) bool {
 		return true
 	}
 	if !req.Full {
-		// NDS only handles full push
-		return false
+		// NDS generally handles full push. We only allow partial pushes, when headless endpoints change.
+		return headlessEndpointsUpdated(req)
 	}
 	// If none set, we will always push
 	if len(req.ConfigsUpdated) == 0 {
@@ -61,6 +66,15 @@ func ndsNeedsPush(req *model.PushRequest) bool {
 	}
 	for config := range req.ConfigsUpdated {
 		if _, f := skippedNdsConfigs[config.Kind]; !f {
+			return true
+		}
+	}
+	return false
+}
+
+func headlessEndpointsUpdated(req *model.PushRequest) bool {
+	for _, reason := range req.Reason {
+		if reason == model.HeadlessEndpointUpdate {
 			return true
 		}
 	}

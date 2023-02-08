@@ -73,11 +73,13 @@ func checkProxyDependencies(proxy *model.Proxy, config model.ConfigKey, push *mo
 				return false
 			}
 
-			svc, exist := push.ServiceIndex.HostnameAndNamespace[host.Name(config.Name)][config.Namespace]
-			if exist {
-				if !push.IsServiceVisible(svc, proxy.Metadata.Namespace) {
-					return false
-				}
+			hostname := host.Name(config.Name)
+			// gateways have default sidecar scopes
+			if proxy.SidecarScope.GetService(hostname) == nil &&
+				proxy.PrevSidecarScope.GetService(hostname) == nil {
+				// skip the push when the service is not visible to the gateway,
+				// and the old service is not visible/existent
+				return false
 			}
 		}
 		return true

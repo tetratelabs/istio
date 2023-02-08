@@ -15,15 +15,15 @@
 package configdump
 
 import (
-	"bytes"
 	"reflect"
 	"strings"
 
-	adminapi "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
-	"github.com/golang/protobuf/jsonpb"
+	admin "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
 	legacyproto "github.com/golang/protobuf/proto" // nolint: staticcheck
 	emptypb "github.com/golang/protobuf/ptypes/empty"
 	exprpb "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
+
+	"istio.io/istio/pkg/util/protomarshal"
 )
 
 // nonstrictResolver is an AnyResolver that ignores unknown proto messages
@@ -49,26 +49,18 @@ func (m *nonstrictResolver) Resolve(typeURL string) (legacyproto.Message, error)
 // Wrapper is a wrapper around the Envoy ConfigDump
 // It has extra helper functions for handling any/struct/marshal protobuf pain
 type Wrapper struct {
-	*adminapi.ConfigDump
+	*admin.ConfigDump
 }
 
 // MarshalJSON is a custom marshaller to handle protobuf pain
 func (w *Wrapper) MarshalJSON() ([]byte, error) {
-	buffer := &bytes.Buffer{}
-	err := (&jsonpb.Marshaler{}).Marshal(buffer, w)
-	if err != nil {
-		return nil, err
-	}
-	return buffer.Bytes(), nil
+	return protomarshal.Marshal(w)
 }
 
 // UnmarshalJSON is a custom unmarshaller to handle protobuf pain
 func (w *Wrapper) UnmarshalJSON(b []byte) error {
-	cd := &adminapi.ConfigDump{}
-	err := (&jsonpb.Unmarshaler{
-		AllowUnknownFields: true,
-		AnyResolver:        &envoyResolver,
-	}).Unmarshal(bytes.NewReader(b), cd)
+	cd := &admin.ConfigDump{}
+	err := protomarshal.UnmarshalAllowUnknownWithAnyResolver(&envoyResolver, b, cd)
 	*w = Wrapper{cd}
 	return err
 }

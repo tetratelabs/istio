@@ -35,10 +35,6 @@ import (
 	"istio.io/istio/pilot/pkg/networking/core"
 	"istio.io/istio/pilot/pkg/networking/core/v1alpha3/envoyfilter"
 	"istio.io/istio/pilot/pkg/networking/grpcgen"
-	"istio.io/istio/pilot/pkg/serviceregistry"
-	"istio.io/istio/pilot/pkg/serviceregistry/aggregate"
-	"istio.io/istio/pilot/pkg/serviceregistry/memory"
-	"istio.io/istio/pilot/pkg/serviceregistry/provider"
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/security"
@@ -76,9 +72,6 @@ type debounceOptions struct {
 type DiscoveryServer struct {
 	// Env is the model environment.
 	Env *model.Environment
-
-	// MemRegistry is used for debug and load testing, allow adding services. Visible for testing.
-	MemRegistry *memory.ServiceDiscovery
 
 	// ConfigGenerator is responsible for generating data plane configuration using Istio networking
 	// APIs and service registry info
@@ -142,6 +135,8 @@ type DiscoveryServer struct {
 
 	instanceID string
 
+	clusterID cluster.ID
+
 	// Cache for XDS resources
 	Cache model.XdsCache
 
@@ -157,7 +152,7 @@ type DiscoveryServer struct {
 }
 
 // NewDiscoveryServer creates DiscoveryServer that sources data from Pilot's internal mesh data structures
-func NewDiscoveryServer(env *model.Environment, instanceID string, clusterAliases map[string]string) *DiscoveryServer {
+func NewDiscoveryServer(env *model.Environment, instanceID string, clusterID cluster.ID, clusterAliases map[string]string) *DiscoveryServer {
 	out := &DiscoveryServer{
 		Env:                 env,
 		Generators:          map[string]model.XdsResourceGenerator{},
@@ -177,6 +172,7 @@ func NewDiscoveryServer(env *model.Environment, instanceID string, clusterAliase
 		},
 		Cache:      model.DisabledCache{},
 		instanceID: instanceID,
+		clusterID:  clusterID,
 	}
 
 	out.ClusterAliases = make(map[cluster.ID]cluster.ID)
@@ -243,28 +239,6 @@ func (s *DiscoveryServer) Start(stopCh <-chan struct{}) {
 	go s.handleUpdates(stopCh)
 	go s.periodicRefreshMetrics(stopCh)
 	go s.sendPushes(stopCh)
-}
-
-func (s *DiscoveryServer) getNonK8sRegistries() []serviceregistry.Instance {
-	var registries []serviceregistry.Instance
-	var nonK8sRegistries []serviceregistry.Instance
-
-	if agg, ok := s.Env.ServiceDiscovery.(*aggregate.Controller); ok {
-		registries = agg.GetRegistries()
-	} else {
-		registries = []serviceregistry.Instance{
-			serviceregistry.Simple{
-				ServiceDiscovery: s.Env.ServiceDiscovery,
-			},
-		}
-	}
-
-	for _, registry := range registries {
-		if registry.Provider() != provider.Kubernetes && registry.Provider() != provider.External {
-			nonK8sRegistries = append(nonK8sRegistries, registry)
-		}
-	}
-	return nonK8sRegistries
 }
 
 // Push metrics are updated periodically (10s default)
@@ -544,10 +518,6 @@ func (s *DiscoveryServer) initPushContext(req *model.PushRequest, oldPushContext
 		return nil, err
 	}
 
-	if err := s.UpdateServiceShards(push); err != nil {
-		return nil, err
-	}
-
 	s.updateMutex.Lock()
 	s.Env.PushContext = push
 	// Ensure we drop the cache in the lock to avoid races, where we drop the cache, fill it back up, then update push context
@@ -569,8 +539,13 @@ func (s *DiscoveryServer) InitGenerators(env *model.Environment, systemNameSpace
 	s.Generators[v3.ListenerType] = &LdsGenerator{Server: s}
 	s.Generators[v3.RouteType] = &RdsGenerator{Server: s}
 	s.Generators[v3.EndpointType] = edsGen
+	ecdsGen := &EcdsGenerator{Server: s}
+	if env.CredentialsController != nil {
+		s.Generators[v3.SecretType] = NewSecretGen(env.CredentialsController, s.Cache, s.clusterID, env.Mesh())
+		ecdsGen.SetCredController(env.CredentialsController)
+	}
+	s.Generators[v3.ExtensionConfigurationType] = ecdsGen
 	s.Generators[v3.NameTableType] = &NdsGenerator{Server: s}
-	s.Generators[v3.ExtensionConfigurationType] = &EcdsGenerator{Server: s}
 	s.Generators[v3.ProxyConfigType] = &PcdsGenerator{Server: s, TrustBundle: env.TrustBundle}
 
 	s.Generators["grpc"] = &grpcgen.GrpcConfigGenerator{}

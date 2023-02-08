@@ -23,9 +23,9 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/genproto/googleapis/devtools/cloudtrace/v1"
-	loggingpb "google.golang.org/genproto/googleapis/logging/v2"
-	monitoring "google.golang.org/genproto/googleapis/monitoring/v3"
+	loggingpb "cloud.google.com/go/logging/apiv2/loggingpb"
+	monitoring "cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
+	cloudtrace "cloud.google.com/go/trace/apiv1/tracepb"
 	"google.golang.org/protobuf/proto"
 
 	"istio.io/istio/pkg/test/framework"

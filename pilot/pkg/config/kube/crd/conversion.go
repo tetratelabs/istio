@@ -23,10 +23,9 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"gopkg.in/yaml.v2"
-	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeyaml "k8s.io/apimachinery/pkg/util/yaml"
 
-	"istio.io/api/meta/v1alpha1"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/schema/collection"
 	"istio.io/istio/pkg/config/schema/collections"
@@ -46,7 +45,7 @@ func FromJSON(s collection.Schema, js string) (config.Spec, error) {
 	return c, nil
 }
 
-func IstioStatusJSONFromMap(jsonMap map[string]any) (config.Status, error) {
+func StatusJSONFromMap(schema collection.Schema, jsonMap map[string]any) (config.Status, error) {
 	if jsonMap == nil {
 		return nil, nil
 	}
@@ -54,12 +53,15 @@ func IstioStatusJSONFromMap(jsonMap map[string]any) (config.Status, error) {
 	if err != nil {
 		return nil, err
 	}
-	var status v1alpha1.IstioStatus
-	err = json.Unmarshal(js, &status)
+	status, err := schema.Resource().Status()
 	if err != nil {
 		return nil, err
 	}
-	return &status, nil
+	err = json.Unmarshal(js, status)
+	if err != nil {
+		return nil, err
+	}
+	return status, nil
 }
 
 // FromYAML converts a canonical YAML to a proto message
@@ -99,7 +101,7 @@ func ConvertObject(schema collection.Schema, object IstioObject, domain string) 
 	if err != nil {
 		return nil, err
 	}
-	status, err := IstioStatusJSONFromMap(object.GetStatus())
+	status, err := StatusJSONFromMap(schema, object.GetStatus())
 	if err != nil {
 		log.Errorf("could not get istio status from map %v, err %v", object.GetStatus(), err)
 	}
@@ -133,20 +135,20 @@ func ConvertConfig(cfg config.Config) (IstioObject, error) {
 	}
 	namespace := cfg.Namespace
 	if namespace == "" {
-		namespace = meta_v1.NamespaceDefault
+		namespace = metav1.NamespaceDefault
 	}
 	return &IstioKind{
-		TypeMeta: meta_v1.TypeMeta{
+		TypeMeta: metav1.TypeMeta{
 			Kind:       cfg.GroupVersionKind.Kind,
 			APIVersion: cfg.GroupVersionKind.Group + "/" + cfg.GroupVersionKind.Version,
 		},
-		ObjectMeta: meta_v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:              cfg.Name,
 			Namespace:         namespace,
 			ResourceVersion:   cfg.ResourceVersion,
 			Labels:            cfg.Labels,
 			Annotations:       cfg.Annotations,
-			CreationTimestamp: meta_v1.NewTime(cfg.CreationTimestamp),
+			CreationTimestamp: metav1.NewTime(cfg.CreationTimestamp),
 		},
 		Spec:   spec,
 		Status: status,

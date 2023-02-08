@@ -20,7 +20,7 @@ import (
 	"io"
 	"os"
 
-	xdsapi "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/rest"
 
@@ -89,7 +89,7 @@ Retrieves last sent and last acknowledged xDS sync from Istiod to each Envoy in 
 					return err
 				}
 
-				path := fmt.Sprintf("/debug/config_dump?proxyID=%s.%s", podName, ns)
+				path := fmt.Sprintf("debug/config_dump?proxyID=%s.%s", podName, ns)
 				istiodDumps, err := kubeClient.AllDiscoveryDo(context.TODO(), istioNamespace, path)
 				if err != nil {
 					return err
@@ -100,7 +100,7 @@ Retrieves last sent and last acknowledged xDS sync from Istiod to each Envoy in 
 				}
 				return c.Diff()
 			}
-			statuses, err := kubeClient.AllDiscoveryDo(context.TODO(), istioNamespace, "/debug/syncz")
+			statuses, err := kubeClient.AllDiscoveryDo(context.TODO(), istioNamespace, "debug/syncz")
 			if err != nil {
 				return err
 			}
@@ -215,7 +215,7 @@ Retrieves last sent and last acknowledged xDS sync from Istiod to each Envoy in 
 					return fmt.Errorf("could not contact sidecar: %w", err)
 				}
 
-				xdsRequest := xdsapi.DiscoveryRequest{
+				xdsRequest := discovery.DiscoveryRequest{
 					ResourceNames: []string{fmt.Sprintf("%s.%s", podName, ns)},
 					TypeUrl:       pilotxds.TypeDebugConfigDump,
 				}
@@ -229,7 +229,7 @@ Retrieves last sent and last acknowledged xDS sync from Istiod to each Envoy in 
 				}
 				return c.Diff()
 			}
-			xdsRequest := xdsapi.DiscoveryRequest{
+			xdsRequest := discovery.DiscoveryRequest{
 				TypeUrl: pilotxds.TypeDebugSyncronization,
 			}
 			xdsResponses, err := multixds.AllRequestAndProcessXds(&xdsRequest, centralOpts, istioNamespace, "", "", kubeClient, multiXdsOpts)

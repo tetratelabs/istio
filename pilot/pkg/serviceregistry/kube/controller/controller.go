@@ -36,14 +36,17 @@ import (
 	"istio.io/istio/pilot/pkg/serviceregistry/aggregate"
 	"istio.io/istio/pilot/pkg/serviceregistry/kube"
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
+	labelutil "istio.io/istio/pilot/pkg/serviceregistry/util/label"
 	"istio.io/istio/pilot/pkg/serviceregistry/util/workloadinstances"
 	"istio.io/istio/pilot/pkg/util/informermetric"
 	"istio.io/istio/pkg/cluster"
+	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/config/protocol"
 	kubelib "istio.io/istio/pkg/kube"
+	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/informer"
 	filter "istio.io/istio/pkg/kube/namespace"
 	"istio.io/istio/pkg/network"
@@ -266,9 +269,6 @@ type Controller struct {
 	workloadInstancesIndex workloadinstances.Index
 
 	multinetwork
-	// informerInit is set to true once the controller is running successfully. This ensures we do not
-	// return HasSynced=true before we are running
-	informerInit *atomic.Bool
 	// beginSync is set to true when calling SyncAll, it indicates the controller has began sync resources.
 	beginSync *atomic.Bool
 	// initialSync is set to true after performing an initial in-order processing of all objects.
@@ -287,7 +287,6 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 		nodeInfoMap:                make(map[string]kubernetesNode),
 		externalNameSvcInstanceMap: make(map[host.Name][]*model.ServiceInstance),
 		workloadInstancesIndex:     workloadinstances.NewIndex(),
-		informerInit:               atomic.NewBool(false),
 		beginSync:                  atomic.NewBool(false),
 		initialSync:                atomic.NewBool(false),
 
@@ -369,12 +368,14 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 
 	// This is for getting the node IPs of a selected set of nodes
 	c.nodeInformer = kubeClient.KubeInformer().Core().V1().Nodes().Informer()
-	_ = c.nodeInformer.SetTransform(kubelib.StripUnusedFields)
 	c.nodeLister = kubeClient.KubeInformer().Core().V1().Nodes().Lister()
 	nodeInformer := informer.NewFilteredSharedIndexInformer(nil, c.nodeInformer)
+	_ = c.nodeInformer.SetTransform(stripNodeUnusedFields)
 	c.registerHandlers(nodeInformer, "Nodes", c.onNodeEvent, nil)
 
-	podInformer := informer.NewFilteredSharedIndexInformer(c.opts.DiscoveryNamespacesFilter.Filter, kubeClient.KubeInformer().Core().V1().Pods().Informer())
+	sharedPodInformer := kubeClient.KubeInformer().Core().V1().Pods().Informer()
+	podInformer := informer.NewFilteredSharedIndexInformer(c.opts.DiscoveryNamespacesFilter.Filter, sharedPodInformer)
+	_ = sharedPodInformer.SetTransform(stripPodUnusedFields)
 	c.pods = newPodCache(c, podInformer, func(key string) {
 		item, exists, err := c.endpoints.getInformer().GetIndexer().GetByKey(key)
 		if err != nil {
@@ -387,7 +388,7 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 		}
 		if shouldEnqueue("Pods", c.beginSync) {
 			c.queue.Push(func() error {
-				return c.endpoints.onEvent(item, model.EventUpdate)
+				return c.endpoints.onEvent(nil, item, model.EventUpdate)
 			})
 		}
 	})
@@ -508,22 +509,27 @@ func (c *Controller) Cleanup() error {
 	return nil
 }
 
-func (c *Controller) onServiceEvent(curr any, event model.Event) error {
-	svc, err := extractService(curr)
-	if err != nil {
-		log.Error(err)
+func (c *Controller) onServiceEvent(prev, curr any, event model.Event) error {
+	currSvc := controllers.Extract[*v1.Service](curr)
+	if currSvc == nil {
 		return nil
 	}
 
-	log.Debugf("Handle event %s for service %s in namespace %s", event, svc.Name, svc.Namespace)
+	log.Debugf("Handle event %s for service %s in namespace %s", event, currSvc.Name, currSvc.Namespace)
 
 	// Create the standard (cluster.local) service.
-	svcConv := kube.ConvertService(*svc, c.opts.DomainSuffix, c.Cluster())
+	svcConv := kube.ConvertService(*currSvc, c.opts.DomainSuffix, c.Cluster())
 	switch event {
 	case model.EventDelete:
 		c.deleteService(svcConv)
-	default:
-		c.addOrUpdateService(svc, svcConv, event, false)
+	case model.EventAdd:
+		c.addOrUpdateService(nil, currSvc, svcConv, event, false)
+	case model.EventUpdate:
+		prevSvc := controllers.Extract[*v1.Service](prev)
+		if prevSvc == nil {
+			return nil
+		}
+		c.addOrUpdateService(prevSvc, currSvc, svcConv, event, false)
 	}
 
 	return nil
@@ -549,32 +555,32 @@ func (c *Controller) deleteService(svc *model.Service) {
 	event := model.EventDelete
 	c.opts.XDSUpdater.SvcUpdate(shard, string(svc.Hostname), svc.Attributes.Namespace, event)
 
-	c.handlers.NotifyServiceHandlers(svc, event)
+	c.handlers.NotifyServiceHandlers(nil, svc, event)
 }
 
-func (c *Controller) addOrUpdateService(svc *v1.Service, svcConv *model.Service, event model.Event, updateEDSCache bool) {
+func (c *Controller) addOrUpdateService(prev, curr *v1.Service, currConv *model.Service, event model.Event, updateEDSCache bool) {
 	needsFullPush := false
 	// First, process nodePort gateway service, whose externalIPs specified
 	// and loadbalancer gateway service
-	if !svcConv.Attributes.ClusterExternalAddresses.IsEmpty() {
-		needsFullPush = c.extractGatewaysFromService(svcConv)
-	} else if isNodePortGatewayService(svc) {
+	if !currConv.Attributes.ClusterExternalAddresses.IsEmpty() {
+		needsFullPush = c.extractGatewaysFromService(currConv)
+	} else if isNodePortGatewayService(curr) {
 		// We need to know which services are using node selectors because during node events,
 		// we have to update all the node port services accordingly.
-		nodeSelector := getNodeSelectorsForService(svc)
+		nodeSelector := getNodeSelectorsForService(curr)
 		c.Lock()
 		// only add when it is nodePort gateway service
-		c.nodeSelectorsForServices[svcConv.Hostname] = nodeSelector
+		c.nodeSelectorsForServices[currConv.Hostname] = nodeSelector
 		c.Unlock()
-		needsFullPush = c.updateServiceNodePortAddresses(svcConv)
+		needsFullPush = c.updateServiceNodePortAddresses(currConv)
 	}
 
 	// instance conversion is only required when service is added/updated.
-	instances := kube.ExternalNameServiceInstances(svc, svcConv)
+	instances := kube.ExternalNameServiceInstances(curr, currConv)
 	c.Lock()
-	c.servicesMap[svcConv.Hostname] = svcConv
+	c.servicesMap[currConv.Hostname] = currConv
 	if len(instances) > 0 {
-		c.externalNameSvcInstanceMap[svcConv.Hostname] = instances
+		c.externalNameSvcInstanceMap[currConv.Hostname] = instances
 	}
 	c.Unlock()
 
@@ -586,20 +592,24 @@ func (c *Controller) addOrUpdateService(svc *v1.Service, svcConv *model.Service,
 	}
 
 	shard := model.ShardKeyFromRegistry(c)
-	ns := svcConv.Attributes.Namespace
+	ns := currConv.Attributes.Namespace
 	// We also need to update when the Service changes. For Kubernetes, a service change will result in Endpoint updates,
 	// but workload entries will also need to be updated.
 	// TODO(nmittler): Build different sets of endpoints for cluster.local and clusterset.local.
 	if updateEDSCache || features.EnableK8SServiceSelectWorkloadEntries {
-		endpoints := c.buildEndpointsForService(svcConv, updateEDSCache)
+		endpoints := c.buildEndpointsForService(currConv, updateEDSCache)
 		if len(endpoints) > 0 {
-			c.opts.XDSUpdater.EDSCacheUpdate(shard, string(svcConv.Hostname), ns, endpoints)
+			c.opts.XDSUpdater.EDSCacheUpdate(shard, string(currConv.Hostname), ns, endpoints)
 		}
 	}
 
-	c.opts.XDSUpdater.SvcUpdate(shard, string(svcConv.Hostname), ns, event)
+	c.opts.XDSUpdater.SvcUpdate(shard, string(currConv.Hostname), ns, event)
+	var prevConv *model.Service
+	if event == model.EventUpdate && prev != nil {
+		prevConv = kube.ConvertService(*prev, c.opts.DomainSuffix, c.Cluster())
+	}
 
-	c.handlers.NotifyServiceHandlers(svcConv, event)
+	c.handlers.NotifyServiceHandlers(prevConv, currConv, event)
 }
 
 func (c *Controller) buildEndpointsForService(svc *model.Service, updateCache bool) []*model.IstioEndpoint {
@@ -611,19 +621,10 @@ func (c *Controller) buildEndpointsForService(svc *model.Service, updateCache bo
 	return endpoints
 }
 
-func (c *Controller) onNodeEvent(obj any, event model.Event) error {
-	node, ok := obj.(*v1.Node)
-	if !ok {
-		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
-		if !ok {
-			log.Errorf("couldn't get object from tombstone %+v", obj)
-			return nil
-		}
-		node, ok = tombstone.Obj.(*v1.Node)
-		if !ok {
-			log.Errorf("tombstone contained object that is not a node %#v", obj)
-			return nil
-		}
+func (c *Controller) onNodeEvent(_, obj any, event model.Event) error {
+	node := controllers.Extract[*v1.Node](obj)
+	if node == nil {
+		return nil
 	}
 	var updatedNeeded bool
 	if event == model.EventDelete {
@@ -669,11 +670,11 @@ type FilterOutFunc func(old, cur any) bool
 
 func (c *Controller) registerHandlers(
 	informer informer.FilteredSharedIndexInformer, otype string,
-	handler func(any, model.Event) error, filter FilterOutFunc,
+	handler func(any, any, model.Event) error, filter FilterOutFunc,
 ) {
-	wrappedHandler := func(obj any, event model.Event) error {
-		obj = tryGetLatestObject(informer, obj)
-		return handler(obj, event)
+	wrappedHandler := func(prev, curr any, event model.Event) error {
+		curr = tryGetLatestObject(informer, curr)
+		return handler(prev, curr, event)
 	}
 	_ = informer.SetWatchErrorHandler(informermetric.ErrorHandlerForCluster(c.Cluster()))
 	informer.AddEventHandler(
@@ -684,7 +685,7 @@ func (c *Controller) registerHandlers(
 					return
 				}
 				c.queue.Push(func() error {
-					return wrappedHandler(obj, model.EventAdd)
+					return wrappedHandler(nil, obj, model.EventAdd)
 				})
 			},
 			UpdateFunc: func(old, cur any) {
@@ -700,7 +701,7 @@ func (c *Controller) registerHandlers(
 					return
 				}
 				c.queue.Push(func() error {
-					return wrappedHandler(cur, model.EventUpdate)
+					return wrappedHandler(old, cur, model.EventUpdate)
 				})
 			},
 			DeleteFunc: func(obj any) {
@@ -709,7 +710,7 @@ func (c *Controller) registerHandlers(
 					return
 				}
 				c.queue.Push(func() error {
-					return handler(obj, model.EventDelete)
+					return handler(nil, obj, model.EventDelete)
 				})
 			},
 		})
@@ -739,10 +740,6 @@ func (c *Controller) HasSynced() bool {
 }
 
 func (c *Controller) informersSynced() bool {
-	if !c.informerInit.Load() {
-		// registration/Run of informers hasn't occurred yet
-		return false
-	}
 	if (c.nsInformer != nil && !c.nsInformer.HasSynced()) ||
 		!c.serviceInformer.HasSynced() ||
 		!c.endpoints.HasSynced() ||
@@ -778,7 +775,7 @@ func (c *Controller) syncSystemNamespace() error {
 		sysNs, _ := c.nsLister.Get(c.opts.SystemNamespace)
 		log.Debugf("initializing systemNamespace:%s", c.opts.SystemNamespace)
 		if sysNs != nil {
-			err = c.onSystemNamespaceEvent(sysNs, model.EventAdd)
+			err = c.onSystemNamespaceEvent(nil, sysNs, model.EventAdd)
 		}
 	}
 	return err
@@ -797,7 +794,7 @@ func (c *Controller) syncNodes() error {
 	nodes := c.nodeInformer.GetIndexer().List()
 	log.Debugf("initializing %d nodes", len(nodes))
 	for _, s := range nodes {
-		err = multierror.Append(err, c.onNodeEvent(s, model.EventAdd))
+		err = multierror.Append(err, c.onNodeEvent(nil, s, model.EventAdd))
 	}
 	return err.ErrorOrNil()
 }
@@ -807,7 +804,7 @@ func (c *Controller) syncServices() error {
 	services, _ := c.serviceInformer.List(metav1.NamespaceAll)
 	log.Debugf("initializing %d services", len(services))
 	for _, s := range services {
-		err = multierror.Append(err, c.onServiceEvent(s, model.EventAdd))
+		err = multierror.Append(err, c.onServiceEvent(nil, s, model.EventAdd))
 	}
 	return err.ErrorOrNil()
 }
@@ -817,7 +814,7 @@ func (c *Controller) syncPods() error {
 	pods, _ := c.pods.informer.List(metav1.NamespaceAll)
 	log.Debugf("initializing %d pods", len(pods))
 	for _, s := range pods {
-		err = multierror.Append(err, c.pods.onEvent(s, model.EventAdd))
+		err = multierror.Append(err, c.pods.onEvent(nil, s, model.EventAdd))
 	}
 	return err.ErrorOrNil()
 }
@@ -827,7 +824,7 @@ func (c *Controller) syncEndpoints() error {
 	endpoints := c.endpoints.getInformer().GetIndexer().List()
 	log.Debugf("initializing %d endpoints", len(endpoints))
 	for _, s := range endpoints {
-		err = multierror.Append(err, c.endpoints.onEvent(s, model.EventAdd))
+		err = multierror.Append(err, c.endpoints.onEvent(nil, s, model.EventAdd))
 	}
 	return err.ErrorOrNil()
 }
@@ -836,9 +833,9 @@ func (c *Controller) syncEndpoints() error {
 func (c *Controller) Run(stop <-chan struct{}) {
 	if c.opts.SyncTimeout != 0 {
 		time.AfterFunc(c.opts.SyncTimeout, func() {
-			if !c.informerInit.Load() {
+			if !c.initialSync.Load() {
 				log.Warnf("kube controller for %s initial sync timed out", c.opts.ClusterID)
-				c.informerInit.Store(true)
+				c.initialSync.Store(true)
 			}
 		})
 	}
@@ -848,7 +845,6 @@ func (c *Controller) Run(stop <-chan struct{}) {
 		c.reloadMeshNetworks()
 		c.reloadNetworkGateways()
 	}
-	c.informerInit.Store(true)
 
 	kubelib.WaitForCacheSync(stop, c.informersSynced)
 	// after informer caches sync the first time, process resources in order
@@ -918,9 +914,9 @@ func (c *Controller) getPodLocality(pod *v1.Pod) string {
 }
 
 // InstancesByPort implements a service catalog operation
-func (c *Controller) InstancesByPort(svc *model.Service, reqSvcPort int, labels labels.Instance) []*model.ServiceInstance {
+func (c *Controller) InstancesByPort(svc *model.Service, reqSvcPort int) []*model.ServiceInstance {
 	// First get k8s standard service instances and the workload entry instances
-	outInstances := c.endpoints.InstancesByPort(c, svc, reqSvcPort, labels)
+	outInstances := c.endpoints.InstancesByPort(c, svc, reqSvcPort)
 	outInstances = append(outInstances, c.serviceInstancesFromWorkloadInstances(svc, reqSvcPort)...)
 
 	// return when instances found or an error occurs
@@ -1186,8 +1182,7 @@ func (c *Controller) WorkloadInstanceHandler(si *model.WorkloadInstance, event m
 				if port.Protocol == protocol.UDP {
 					continue
 				}
-				// Similar code as UpdateServiceShards in eds.go
-				instances := c.InstancesByPort(service, port.Port, nil)
+				instances := c.InstancesByPort(service, port.Port)
 				for _, inst := range instances {
 					endpoints = append(endpoints, inst.Endpoint)
 				}
@@ -1198,13 +1193,13 @@ func (c *Controller) WorkloadInstanceHandler(si *model.WorkloadInstance, event m
 	}
 }
 
-func (c *Controller) onSystemNamespaceEvent(obj any, ev model.Event) error {
+func (c *Controller) onSystemNamespaceEvent(_, curr any, ev model.Event) error {
 	if ev == model.EventDelete {
 		return nil
 	}
-	ns, ok := obj.(*v1.Namespace)
+	ns, ok := curr.(*v1.Namespace)
 	if !ok {
-		log.Warnf("Namespace watch getting wrong type in event: %T", obj)
+		log.Warnf("Namespace watch getting wrong type in event: %T", curr)
 		return nil
 	}
 	if ns == nil {
@@ -1266,7 +1261,7 @@ func (c *Controller) getProxyServiceInstancesFromMetadata(proxy *model.Proxy) ([
 			return nil, fmt.Errorf("failed to find model service for %v", hostname)
 		}
 
-		for _, modelService := range c.servicesForNamespacedName(kube.NamespacedNameForK8sObject(svc)) {
+		for _, modelService := range c.servicesForNamespacedName(config.NamespacedName(svc)) {
 			discoverabilityPolicy := c.exports.EndpointDiscoverabilityPolicy(modelService)
 
 			tps := make(map[model.Port]*model.Port)
@@ -1326,7 +1321,7 @@ func (c *Controller) getProxyServiceInstancesByPod(pod *v1.Pod,
 ) []*model.ServiceInstance {
 	var out []*model.ServiceInstance
 
-	for _, svc := range c.servicesForNamespacedName(kube.NamespacedNameForK8sObject(service)) {
+	for _, svc := range c.servicesForNamespacedName(config.NamespacedName(service)) {
 		discoverabilityPolicy := c.exports.EndpointDiscoverabilityPolicy(svc)
 
 		tps := make(map[model.Port]*model.Port)
@@ -1378,27 +1373,38 @@ func (c *Controller) getProxyServiceInstancesByPod(pod *v1.Pod,
 func (c *Controller) GetProxyWorkloadLabels(proxy *model.Proxy) labels.Instance {
 	pod := c.pods.getPodByProxy(proxy)
 	if pod != nil {
-		if _, exist := pod.Labels[model.LocalityLabel]; exist {
+		var locality, nodeName string
+		locality = c.getPodLocality(pod)
+		if len(proxy.GetNodeName()) == 0 {
+			// this can happen for an "old" proxy with no `Metadata.NodeName` set
+			// in this case we set the node name in labels on the fly
+			// TODO: remove this when 1.16 is EOL?
+			nodeName = pod.Spec.NodeName
+		}
+		if len(locality) == 0 && len(nodeName) == 0 {
 			return pod.Labels
 		}
-		locality := c.getPodLocality(pod)
-		if locality == "" {
-			return pod.Labels
-		}
-		out := make(map[string]string, len(pod.Labels)+1)
+
+		out := make(labels.Instance, len(pod.Labels)+2)
 		for k, v := range pod.Labels {
 			out[k] = v
 		}
-		// Add locality labels to support locality Load balancing for proxy without service instances.
-		// As this may contain node topology labels, which could not be got from aggregator controller
-		out[model.LocalityLabel] = locality
+		if len(locality) > 0 {
+			// Add locality labels to support locality Load balancing for proxy without service instances.
+			// As this may contain node topology labels, which could not be got from aggregator controller
+			out[model.LocalityLabel] = locality
+		}
+		if len(nodeName) > 0 {
+			// set k8s node name label, for ServiceInternalTrafficPolicy
+			out[labelutil.LabelHostname] = nodeName
+		}
 		return out
 	}
 	return nil
 }
 
 // AppendServiceHandler implements a service catalog operation
-func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) {
+func (c *Controller) AppendServiceHandler(f model.ServiceHandler) {
 	c.handlers.AppendServiceHandler(f)
 }
 
@@ -1410,4 +1416,61 @@ func (c *Controller) AppendWorkloadHandler(f func(*model.WorkloadInstance, model
 // AppendNamespaceDiscoveryHandlers register handlers on namespace selected/deselected by discovery selectors change.
 func (c *Controller) AppendNamespaceDiscoveryHandlers(f func(string, model.Event)) {
 	c.namespaceDiscoveryHandlers = append(c.namespaceDiscoveryHandlers, f)
+}
+
+// stripPodUnusedFields is the transform function for shared pod informers,
+// it removes unused fields from objects before they are stored in the cache to save memory.
+func stripPodUnusedFields(obj any) (any, error) {
+	t, ok := obj.(metav1.ObjectMetaAccessor)
+	if !ok {
+		// shouldn't happen
+		return obj, nil
+	}
+	// ManagedFields is large and we never use it
+	t.GetObjectMeta().SetManagedFields(nil)
+	// Annotation is never used
+	t.GetObjectMeta().SetAnnotations(nil)
+	// only container ports can be used
+	if pod := obj.(*v1.Pod); pod != nil {
+		containers := []v1.Container{}
+		for _, c := range pod.Spec.Containers {
+			if len(c.Ports) > 0 {
+				containers = append(containers, v1.Container{
+					Ports: c.Ports,
+				})
+			}
+		}
+		pod.Spec.Containers = containers
+		pod.Spec.InitContainers = nil
+		pod.Spec.Volumes = nil
+		pod.Status.InitContainerStatuses = nil
+		pod.Status.ContainerStatuses = nil
+	}
+
+	return obj, nil
+}
+
+// stripNodeUnusedFields is the transform function for shared pod informers,
+// it removes unused fields from objects before they are stored in the cache to save memory.
+func stripNodeUnusedFields(obj any) (any, error) {
+	t, ok := obj.(metav1.ObjectMetaAccessor)
+	if !ok {
+		// shouldn't happen
+		return obj, nil
+	}
+	// ManagedFields is large and we never use it
+	t.GetObjectMeta().SetManagedFields(nil)
+	// Annotation is never used
+	t.GetObjectMeta().SetAnnotations(nil)
+	// OwnerReference is never used
+	t.GetObjectMeta().SetOwnerReferences(nil)
+	// only node labels and addressed are useful
+	if node := obj.(*v1.Node); node != nil {
+		node.Status.Allocatable = nil
+		node.Status.Capacity = nil
+		node.Status.Images = nil
+		node.Status.Conditions = nil
+	}
+
+	return obj, nil
 }

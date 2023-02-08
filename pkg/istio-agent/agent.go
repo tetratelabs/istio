@@ -115,12 +115,11 @@ type Agent struct {
 // Please don't add 100 parameters to the NewAgent function (or any other)!
 type AgentOptions struct {
 	// ProxyXDSDebugViaAgent if true will listen on 15004 and forward queries
-	// to XDS istio.io/debug. (Requires ProxyXDSViaAgent).
+	// to XDS istio.io/debug.
 	ProxyXDSDebugViaAgent bool
 	// Port value for the debugging endpoint.
 	ProxyXDSDebugViaAgentPort int
 	// DNSCapture indicates if the XDS proxy has dns capture enabled or not
-	// This option will not be considered if proxyXDSViaAgent is false.
 	DNSCapture bool
 	// DNSAddr is the DNS capture address
 	DNSAddr string
@@ -274,7 +273,6 @@ func (a *Agent) initializeEnvoyAgent(ctx context.Context) error {
 	a.envoyOpts.BinaryPath = a.proxyConfig.BinaryPath
 	a.envoyOpts.AdminPort = a.proxyConfig.ProxyAdminPort
 	a.envoyOpts.DrainDuration = a.proxyConfig.DrainDuration
-	a.envoyOpts.ParentShutdownDuration = a.proxyConfig.ParentShutdownDuration
 	a.envoyOpts.Concurrency = a.proxyConfig.Concurrency.GetValue()
 
 	// Checking only uid should be sufficient - but tests also run as root and
@@ -546,7 +544,7 @@ func (a *Agent) GetDNSTable() *dnsProto.NameTable {
 		a.localDNSServer.BuildAlternateHosts(nt, func(althosts map[string]struct{}, ipv4 []netip.Addr, ipv6 []netip.Addr, _ []string) {
 			for host := range althosts {
 				if _, exists := nt.Table[host]; !exists {
-					addresses := make([]string, len(ipv4)+len(ipv6))
+					addresses := make([]string, 0, len(ipv4)+len(ipv6))
 					for _, addr := range ipv4 {
 						addresses = append(addresses, addr.String())
 					}
@@ -565,7 +563,7 @@ func (a *Agent) GetDNSTable() *dnsProto.NameTable {
 	return nil
 }
 
-func (a *Agent) close() {
+func (a *Agent) Close() {
 	if a.xdsProxy != nil {
 		a.xdsProxy.close()
 	}
@@ -697,7 +695,10 @@ func socketHealthCheck(ctx context.Context, socketPath string) error {
 	if err != nil {
 		return err
 	}
-	conn.Close()
+	err = conn.Close()
+	if err != nil {
+		log.Infof("connection is not closed: %v", err)
+	}
 
 	return nil
 }

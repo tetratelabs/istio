@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"helm.sh/helm/v3/pkg/chart"
@@ -27,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/version"
 	"sigs.k8s.io/yaml"
 
+	"istio.io/istio/istioctl/pkg/install/k8sversion"
 	"istio.io/istio/manifests"
 	"istio.io/istio/operator/pkg/util"
 	"istio.io/pkg/log"
@@ -42,6 +44,16 @@ const (
 	// NotesFileNameSuffix is the file name suffix for helm notes.
 	// see https://helm.sh/docs/chart_template_guide/notes_files/
 	NotesFileNameSuffix = ".txt"
+)
+
+const (
+	// InstallationDirectory is temporary folder name for caching downloaded installation packages.
+	InstallationDirectory = "istio-install-packages"
+	// OperatorSubdirFilePath is file path of installation packages to helm charts.
+	OperatorSubdirFilePath = "manifests"
+	// OperatorSubdirFilePath15 is the file path of installation packages to helm charts for 1.5 and earlier.
+	// TODO: remove in 1.7.
+	OperatorSubdirFilePath15 = "install/kubernetes/operator"
 )
 
 var scope = log.RegisterScope("installer", "installer", 0)
@@ -101,6 +113,11 @@ func renderChart(namespace, values string, chrt *chart.Chart, filterFunc Templat
 	}
 
 	caps := *chartutil.DefaultCapabilities
+
+	// overwrite helm default capabilities
+	operatorVersion, _ := chartutil.ParseKubeVersion("1." + strconv.Itoa(k8sversion.MinK8SVersion) + ".0")
+	caps.KubeVersion = *operatorVersion
+
 	if version != nil {
 		caps.KubeVersion = chartutil.KubeVersion{
 			Version: version.GitVersion,

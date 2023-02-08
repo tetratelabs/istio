@@ -66,29 +66,31 @@ typedConfig:
             ids:
             - orIds:
                 ids:
-                - authenticated:
-                    principalName:
+                - filterState:
+                    key: io.istio.peer_principal
+                    stringMatch:
                       exact: spiffe://principal
             - notId:
                 orIds:
                   ids:
-                  - authenticated:
-                      principalName:
+                  - filterState:
+                      key: io.istio.peer_principal
+                      stringMatch:
                         exact: spiffe://not-principal
             - orIds:
                 ids:
-                - authenticated:
-                    principalName:
+                - filterState:
+                    key: io.istio.peer_principal
+                    stringMatch:
                       safeRegex:
-                        googleRe2: {}
                         regex: .*/ns/ns/.*
             - notId:
                 orIds:
                   ids:
-                  - authenticated:
-                      principalName:
+                  - filterState:
+                      key: io.istio.peer_principal
+                      stringMatch:
                         safeRegex:
-                          googleRe2: {}
                           regex: .*/ns/not-ns/.*
             - orIds:
                 ids:
@@ -136,29 +138,31 @@ typedConfig:
                       prefixLen: 32
             - orIds:
                 ids:
-                - authenticated:
-                    principalName:
+                - filterState:
+                    key: io.istio.peer_principal
+                    stringMatch:
                       safeRegex:
-                        googleRe2: {}
                         regex: .*/ns/ns/.*
             - notId:
                 orIds:
                   ids:
-                  - authenticated:
-                      principalName:
+                  - filterState:
+                      key: io.istio.peer_principal
+                      stringMatch:
                         safeRegex:
-                          googleRe2: {}
                           regex: .*/ns/not-ns/.*
             - orIds:
                 ids:
-                - authenticated:
-                    principalName:
+                - filterState:
+                    key: io.istio.peer_principal
+                    stringMatch:
                       exact: spiffe://principal
             - notId:
                 orIds:
                   ids:
-                  - authenticated:
-                      principalName:
+                  - filterState:
+                      key: io.istio.peer_principal
+                      stringMatch:
                         exact: spiffe://not-principal
   shadowRulesStatPrefix: istio_dry_run_allow_
   statPrefix: tcp.

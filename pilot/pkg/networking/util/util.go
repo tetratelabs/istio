@@ -27,11 +27,15 @@ import (
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	http_conn "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	statefulsession "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/stateful_session/v3"
+	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	cookiev3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/stateful_session/cookie/v3"
+	httpv3 "github.com/envoyproxy/go-control-plane/envoy/type/http/v3"
 	matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -40,6 +44,7 @@ import (
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	istionetworking "istio.io/istio/pilot/pkg/networking"
+	"istio.io/istio/pilot/pkg/serviceregistry/util/label"
 	"istio.io/istio/pilot/pkg/util/protoconv"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/config"
@@ -61,6 +66,9 @@ const (
 	// Passthrough is the name of the virtual host used to forward traffic to the
 	// PassthroughCluster
 	Passthrough = "allow_any"
+	// OutboundTunnel is HBONE's outbound cluster.
+	OutboundTunnel = "outbound-tunnel"
+
 	// PassthroughFilterChain to catch traffic that doesn't match other filter chains.
 	PassthroughFilterChain = "PassthroughFilterChain"
 
@@ -81,6 +89,10 @@ const (
 
 	// Well-known header names
 	AltSvcHeader = "alt-svc"
+
+	// Envoy Stateful Session Filter
+	// TODO: Move to well known.
+	StatefulSessionFilter = "envoy.filters.http.stateful_session"
 )
 
 // ALPNH2Only advertises that Proxy is going to use HTTP/2 when talking to the cluster.
@@ -113,9 +125,6 @@ var ALPNHttp3OverQUIC = []string{"h3"}
 
 // ALPNDownstreamWithMxc advertises that Proxy is going to talk either tcp(for metadata exchange), http2 or http 1.1.
 var ALPNDownstreamWithMxc = []string{"istio-peer-exchange", "h2", "http/1.1"}
-
-// RegexEngine is the default google RE2 regex engine.
-var RegexEngine = &matcher.RegexMatcher_GoogleRe2{GoogleRe2: &matcher.RegexMatcher_GoogleRE2{}}
 
 func ListContains(haystack []string, needle string) bool {
 	for _, n := range haystack {
@@ -254,6 +263,12 @@ func IsIstioVersionGE116(version *model.IstioVersion) bool {
 		version.Compare(&model.IstioVersion{Major: 1, Minor: 16, Patch: -1}) >= 0
 }
 
+// IsIstioVersionGE117 checks whether the given Istio version is greater than or equals 1.17.
+func IsIstioVersionGE117(version *model.IstioVersion) bool {
+	return version == nil ||
+		version.Compare(&model.IstioVersion{Major: 1, Minor: 17, Patch: -1}) >= 0
+}
+
 func IsProtocolSniffingEnabledForPort(port *model.Port) bool {
 	return features.EnableProtocolSniffingForOutbound && port.Protocol.IsUnsupported()
 }
@@ -272,7 +287,7 @@ func ConvertLocality(locality string) *core.Locality {
 		return &core.Locality{}
 	}
 
-	region, zone, subzone := model.SplitLocalityLabel(locality)
+	region, zone, subzone := label.SplitLocalityLabel(locality)
 	return &core.Locality{
 		Region:  region,
 		Zone:    zone,
@@ -318,7 +333,7 @@ func IsLocalityEmpty(locality *core.Locality) bool {
 }
 
 func LocalityMatch(proxyLocality *core.Locality, ruleLocality string) bool {
-	ruleRegion, ruleZone, ruleSubzone := model.SplitLocalityLabel(ruleLocality)
+	ruleRegion, ruleZone, ruleSubzone := label.SplitLocalityLabel(ruleLocality)
 	regionMatch := ruleRegion == "*" || proxyLocality.GetRegion() == ruleRegion
 	zoneMatch := ruleZone == "*" || ruleZone == "" || proxyLocality.GetZone() == ruleZone
 	subzoneMatch := ruleSubzone == "*" || ruleSubzone == "" || proxyLocality.GetSubZone() == ruleSubzone
@@ -614,8 +629,7 @@ func ConvertToEnvoyMatch(in *networking.StringMatch) *matcher.StringMatcher {
 		return &matcher.StringMatcher{
 			MatchPattern: &matcher.StringMatcher_SafeRegex{
 				SafeRegex: &matcher.RegexMatcher{
-					EngineType: RegexEngine,
-					Regex:      m.Regex,
+					Regex: m.Regex,
 				},
 			},
 		}
@@ -684,8 +698,8 @@ func toMaskedPrefix(c *core.CidrRange) (netip.Prefix, error) {
 
 // meshconfig ForwardClientCertDetails and the Envoy config enum are off by 1
 // due to the UNDEFINED in the meshconfig ForwardClientCertDetails
-func MeshConfigToEnvoyForwardClientCertDetails(c meshconfig.Topology_ForwardClientCertDetails) http_conn.HttpConnectionManager_ForwardClientCertDetails {
-	return http_conn.HttpConnectionManager_ForwardClientCertDetails(c - 1)
+func MeshConfigToEnvoyForwardClientCertDetails(c meshconfig.Topology_ForwardClientCertDetails) hcm.HttpConnectionManager_ForwardClientCertDetails {
+	return hcm.HttpConnectionManager_ForwardClientCertDetails(c - 1)
 }
 
 // ByteCount returns a human readable byte format
@@ -768,4 +782,44 @@ func BuildTunnelMetadataStruct(tunnelAddress, address string, port, tunnelPort i
 		"destination": net.JoinHostPort(address, strconv.Itoa(port)),
 	})
 	return st
+}
+
+func BuildStatefulSessionFilter(svc *model.Service) *hcm.HttpFilter {
+	filterConfig := MaybeBuildStatefulSessionFilterConfig(svc)
+	if filterConfig == nil {
+		return nil
+	}
+
+	return &hcm.HttpFilter{
+		Name: StatefulSessionFilter,
+		ConfigType: &hcm.HttpFilter_TypedConfig{
+			TypedConfig: protoconv.MessageToAny(filterConfig),
+		},
+	}
+}
+
+func MaybeBuildStatefulSessionFilterConfig(svc *model.Service) *statefulsession.StatefulSession {
+	if features.PersistentSessionLabel == "" || svc == nil {
+		return nil
+	}
+	sessionCookie := svc.Attributes.Labels[features.PersistentSessionLabel]
+	if sessionCookie == "" {
+		return nil
+	}
+	cookieName, cookiePath, found := strings.Cut(sessionCookie, ":")
+	if !found {
+		cookiePath = "/"
+	}
+	return &statefulsession.StatefulSession{
+		SessionState: &core.TypedExtensionConfig{
+			Name: "envoy.http.stateful_session.cookie",
+			TypedConfig: protoconv.MessageToAny(&cookiev3.CookieBasedSessionState{
+				Cookie: &httpv3.Cookie{
+					Path: cookiePath,
+					Ttl:  &durationpb.Duration{Seconds: 120},
+					Name: cookieName,
+				},
+			}),
+		},
+	}
 }

@@ -17,7 +17,6 @@ package bootstrap
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -41,6 +40,7 @@ import (
 	"istio.io/istio/security/pkg/pki/ra"
 	caserver "istio.io/istio/security/pkg/server/ca"
 	"istio.io/istio/security/pkg/server/ca/authenticate"
+	"istio.io/istio/security/pkg/util"
 	"istio.io/pkg/env"
 	"istio.io/pkg/log"
 )
@@ -206,7 +206,7 @@ func detectAuthEnv(jwt string) (*authenticate.JwtPayload, error) {
 	}
 	payload := jwtSplit[1]
 
-	payloadBytes, err := base64.RawStdEncoding.DecodeString(payload)
+	payloadBytes, err := util.DecodeJwtPart(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode jwt: %v", err.Error())
 	}
@@ -270,7 +270,7 @@ func (s *Server) loadCACerts(caOpts *caOptions, dir string) error {
 	}
 
 	secret, err := s.kubeClient.Kube().CoreV1().Secrets(caOpts.Namespace).Get(
-		context.TODO(), "cacerts", metav1.GetOptions{})
+		context.TODO(), ca.ExternalCASecret, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return nil
@@ -357,8 +357,7 @@ func (s *Server) handleCACertsFileWatch() {
 				log.Debug("plugin cacerts watch stopped")
 				return
 			}
-
-			if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
 				if timerC == nil {
 					timerC = time.After(100 * time.Millisecond)
 				}
@@ -441,7 +440,7 @@ func (s *Server) createIstioCA(opts *caOptions) (*ca.IstioCA, error) {
 				selfSignedRootCertGracePeriodPercentile.Get(), SelfSignedCACertTTL.Get(),
 				selfSignedRootCertCheckInterval.Get(), workloadCertTTL.Get(),
 				maxWorkloadCertTTL.Get(), opts.TrustDomain, true,
-				opts.Namespace, -1, s.kubeClient.Kube().CoreV1(), fileBundle.RootCertFile,
+				opts.Namespace, s.kubeClient.Kube().CoreV1(), fileBundle.RootCertFile,
 				enableJitterForRootCertRotator.Get(), caRSAKeySize.Get())
 		} else {
 			log.Warnf(

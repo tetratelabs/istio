@@ -25,6 +25,7 @@ import (
 
 	"istio.io/istio/pkg/test/framework"
 	kubecluster "istio.io/istio/pkg/test/framework/components/cluster/kube"
+	"istio.io/istio/pkg/test/framework/components/namespace"
 	"istio.io/istio/pkg/test/helm"
 	"istio.io/istio/tests/util/sanitycheck"
 )
@@ -69,17 +70,24 @@ func setupInstallation(overrideValuesStr string) func(t framework.TestContext) {
 		}
 		cs := t.Clusters().Default().(*kubecluster.Cluster)
 		h := helm.New(cs.Filename())
-
 		s := t.Settings()
 		overrideValues := fmt.Sprintf(overrideValuesStr, s.Image.Hub, s.Image.Tag)
 		overrideValuesFile := filepath.Join(workDir, "values.yaml")
 		if err := os.WriteFile(overrideValuesFile, []byte(overrideValues), os.ModePerm); err != nil {
 			t.Fatalf("failed to write iop cr file: %v", err)
 		}
-		InstallIstio(t, cs, h, "", overrideValuesFile, ManifestsChartPath, "", true)
+		t.Cleanup(func() {
+			if !t.Failed() {
+				return
+			}
+			if t.Settings().CIMode {
+				namespace.Dump(t, IstioNamespace)
+			}
+		})
+		InstallIstio(t, cs, h, overrideValuesFile, "", true)
 
 		VerifyInstallation(t, cs, true)
-		VerifyValidation(t)
+		verifyValidation(t)
 
 		sanitycheck.RunTrafficTest(t, t)
 		t.Cleanup(func() {

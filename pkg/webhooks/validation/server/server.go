@@ -22,16 +22,14 @@ import (
 	"net/http"
 
 	multierror "github.com/hashicorp/go-multierror"
-	kubeApiAdmissionv1 "k8s.io/api/admission/v1"
+	admissionv1 "k8s.io/api/admission/v1"
 	kubeApiAdmissionv1beta1 "k8s.io/api/admission/v1beta1"
-	kubeApiApps "k8s.io/api/apps/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 
 	"istio.io/istio/pilot/pkg/config/kube/crd"
 	"istio.io/istio/pkg/config/schema/collection"
-	"istio.io/istio/pkg/config/schema/collections"
 	"istio.io/istio/pkg/config/schema/resource"
 	"istio.io/istio/pkg/config/validation"
 	"istio.io/istio/pkg/kube"
@@ -56,8 +54,7 @@ var (
 )
 
 func init() {
-	_ = kubeApiApps.AddToScheme(runtimeScheme)
-	_ = kubeApiAdmissionv1.AddToScheme(runtimeScheme)
+	_ = admissionv1.AddToScheme(runtimeScheme)
 	_ = kubeApiAdmissionv1beta1.AddToScheme(runtimeScheme)
 }
 
@@ -213,14 +210,7 @@ func (wh *Webhook) validate(request *kube.AdmissionRequest) *kube.AdmissionRespo
 
 	gvk := obj.GroupVersionKind()
 
-	// TODO(jasonwzm) remove this when multi-version is supported. v1beta1 shares the same
-	// schema as v1lalpha3. Fake conversion and validate against v1alpha3.
-	if gvk.Group == "networking.istio.io" && gvk.Version == "v1beta1" &&
-		// ProxyConfig CR is stored as v1beta1 since it was introduced as v1beta1
-		gvk.Kind != collections.IstioNetworkingV1Beta1Proxyconfigs.Resource().Kind() {
-		gvk.Version = "v1alpha3"
-	}
-	s, exists := wh.schemas.FindByGroupVersionKind(resource.FromKubernetesGVK(&gvk))
+	s, exists := wh.schemas.FindByGroupVersionAliasesKind(resource.FromKubernetesGVK(&gvk))
 	if !exists {
 		scope.Infof("unrecognized type %v", obj.GroupVersionKind())
 		reportValidationFailed(request, reasonUnknownType)

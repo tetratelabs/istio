@@ -51,6 +51,8 @@ func NewHTTPFetcher(requestTimeout time.Duration, requestMaxRetry int) *HTTPFetc
 		requestTimeout = 5 * time.Second
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// nolint: gosec
+	// This is only when a user explicitly sets a flag to enable insecure mode
 	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	return &HTTPFetcher{
 		client: &http.Client{
@@ -100,7 +102,10 @@ func (f *HTTPFetcher) Fetch(ctx context.Context, url string, allowInsecure bool)
 			if err != nil {
 				return nil, err
 			}
-			resp.Body.Close()
+			err = resp.Body.Close()
+			if err != nil {
+				wasmLog.Infof("wasm server connection is not closed: %v", err)
+			}
 			return unboxIfPossible(body), err
 		}
 		lastError = fmt.Errorf("wasm module download request failed: status code %v", resp.StatusCode)
@@ -111,11 +116,17 @@ func (f *HTTPFetcher) Fetch(ctx context.Context, url string, allowInsecure bool)
 				return nil, err
 			}
 			wasmLog.Debugf("wasm module download failed: status code %v, body %v", resp.StatusCode, string(body))
-			resp.Body.Close()
+			err = resp.Body.Close()
+			if err != nil {
+				wasmLog.Infof("wasm server connection is not closed: %v", err)
+			}
 			time.Sleep(b.NextBackOff())
 			continue
 		}
-		resp.Body.Close()
+		err = resp.Body.Close()
+		if err != nil {
+			wasmLog.Infof("wasm server connection is not closed: %v", err)
+		}
 		break
 	}
 	return nil, fmt.Errorf("wasm module download failed after %v attempts, last error: %v", attempts, lastError)

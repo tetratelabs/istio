@@ -99,22 +99,22 @@ type metadataCerts struct {
 // ClusterBuilder interface provides an abstraction for building Envoy Clusters.
 type ClusterBuilder struct {
 	// Proxy related information used to build clusters.
-	serviceInstances  []*model.ServiceInstance // Service instances of Proxy.
-	metadataCerts     *metadataCerts           // Client certificates specified in metadata.
-	clusterID         string                   // Cluster in which proxy is running.
-	proxyID           string                   // Identifier that uniquely identifies a proxy.
-	proxyVersion      string                   // Version of Proxy.
-	proxyType         model.NodeType           // Indicates whether the proxy is sidecar or gateway.
-	sidecarScope      *model.SidecarScope      // Computed sidecar for the proxy.
-	passThroughBindIP string                   // Passthrough IP to be used while building clusters.
-	supportsIPv4      bool                     // Whether Proxy IPs has IPv4 address.
-	supportsIPv6      bool                     // Whether Proxy IPs has IPv6 address.
-	hbone             bool                     // Does the proxy support HBONE
-	locality          *core.Locality           // Locality information of proxy.
-	proxyLabels       map[string]string        // Proxy labels.
-	proxyView         model.ProxyView          // Proxy view of endpoints.
-	proxyIPAddresses  []string                 // IP addresses on which proxy is listening on.
-	configNamespace   string                   // Proxy config namespace.
+	serviceInstances   []*model.ServiceInstance // Service instances of Proxy.
+	metadataCerts      *metadataCerts           // Client certificates specified in metadata.
+	clusterID          string                   // Cluster in which proxy is running.
+	proxyID            string                   // Identifier that uniquely identifies a proxy.
+	proxyVersion       string                   // Version of Proxy.
+	proxyType          model.NodeType           // Indicates whether the proxy is sidecar or gateway.
+	sidecarScope       *model.SidecarScope      // Computed sidecar for the proxy.
+	passThroughBindIPs []string                 // Passthrough IPs to be used while building clusters.
+	supportsIPv4       bool                     // Whether Proxy IPs has IPv4 address.
+	supportsIPv6       bool                     // Whether Proxy IPs has IPv6 address.
+	hbone              bool                     // Does the proxy support HBONE
+	locality           *core.Locality           // Locality information of proxy.
+	proxyLabels        map[string]string        // Proxy labels.
+	proxyView          model.ProxyView          // Proxy view of endpoints.
+	proxyIPAddresses   []string                 // IP addresses on which proxy is listening on.
+	configNamespace    string                   // Proxy config namespace.
 	// PushRequest to look for updates.
 	req                   *model.PushRequest
 	cache                 model.XdsCache
@@ -124,22 +124,22 @@ type ClusterBuilder struct {
 // NewClusterBuilder builds an instance of ClusterBuilder.
 func NewClusterBuilder(proxy *model.Proxy, req *model.PushRequest, cache model.XdsCache) *ClusterBuilder {
 	cb := &ClusterBuilder{
-		serviceInstances:  proxy.ServiceInstances,
-		proxyID:           proxy.ID,
-		proxyType:         proxy.Type,
-		proxyVersion:      proxy.Metadata.IstioVersion,
-		sidecarScope:      proxy.SidecarScope,
-		passThroughBindIP: getPassthroughBindIP(proxy),
-		supportsIPv4:      proxy.SupportsIPv4(),
-		supportsIPv6:      proxy.SupportsIPv6(),
-		hbone:             proxy.EnableHBONE(),
-		locality:          proxy.Locality,
-		proxyLabels:       proxy.Labels,
-		proxyView:         proxy.GetView(),
-		proxyIPAddresses:  proxy.IPAddresses,
-		configNamespace:   proxy.ConfigNamespace,
-		req:               req,
-		cache:             cache,
+		serviceInstances:   proxy.ServiceInstances,
+		proxyID:            proxy.ID,
+		proxyType:          proxy.Type,
+		proxyVersion:       proxy.Metadata.IstioVersion,
+		sidecarScope:       proxy.SidecarScope,
+		passThroughBindIPs: getPassthroughBindIPs(proxy.GetIPMode()),
+		supportsIPv4:       proxy.SupportsIPv4(),
+		supportsIPv6:       proxy.SupportsIPv6(),
+		hbone:              proxy.EnableHBONE(),
+		locality:           proxy.Locality,
+		proxyLabels:        proxy.Labels,
+		proxyView:          proxy.GetView(),
+		proxyIPAddresses:   proxy.IPAddresses,
+		configNamespace:    proxy.ConfigNamespace,
+		req:                req,
+		cache:              cache,
 	}
 	if proxy.Metadata != nil {
 		if proxy.Metadata.TLSClientCertChain != "" {
@@ -471,11 +471,34 @@ func (cb *ClusterBuilder) buildInboundClusterForPortOrUDS(clusterPort int, bind 
 		// config which will be skipped.
 		localCluster.cluster.UpstreamBindConfig = &core.BindConfig{
 			SourceAddress: &core.SocketAddress{
-				Address: cb.passThroughBindIP,
+				Address: cb.passThroughBindIPs[0],
 				PortSpecifier: &core.SocketAddress_PortValue{
 					PortValue: uint32(0),
 				},
 			},
+		}
+		// There is an usage doc here:
+		// https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/address.proto#config-core-v3-bindconfig
+		// to support the Dual Stack via Envoy bindconfig, and belows are related issue and PR in Envoy:
+		// https://github.com/envoyproxy/envoy/issues/9811
+		// https://github.com/envoyproxy/envoy/pull/22639
+		instExtraSvcAddr := instance.Service.GetExtraAddressesForProxy(proxy)
+		// the extra source address for UpstreamBindConfig shoulde be added when the service is a dual stack k8s service
+		if features.EnableDualStack && len(cb.passThroughBindIPs) > 1 && len(instExtraSvcAddr) > 0 {
+			// add extra source addresses to cluster builder
+			var extraSrcAddrs []*core.ExtraSourceAddress
+			for _, extraBdIP := range cb.passThroughBindIPs[1:] {
+				extraSrcAddr := &core.ExtraSourceAddress{
+					Address: &core.SocketAddress{
+						Address: extraBdIP,
+						PortSpecifier: &core.SocketAddress_PortValue{
+							PortValue: uint32(0),
+						},
+					},
+				}
+				extraSrcAddrs = append(extraSrcAddrs, extraSrcAddr)
+			}
+			localCluster.cluster.UpstreamBindConfig.ExtraSourceAddresses = extraSrcAddrs
 		}
 	}
 	return localCluster
@@ -659,7 +682,7 @@ func (cb *ClusterBuilder) applyH2Upgrade(opts buildClusterOpts, connectionPool *
 	}
 }
 
-// shouldH2Upgrade function returns true if the cluster  should be upgraded to http2.
+// shouldH2Upgrade function returns true if the cluster should be upgraded to http2.
 func (cb *ClusterBuilder) shouldH2Upgrade(clusterName string, direction model.TrafficDirection, port *model.Port, mesh *meshconfig.MeshConfig,
 	connectionPool *networking.ConnectionPoolSettings,
 ) bool {
@@ -907,13 +930,6 @@ func (cb *ClusterBuilder) applyConnectionPool(mesh *meshconfig.MeshConfig, mc *M
 }
 
 func (cb *ClusterBuilder) applyUpstreamTLSSettings(opts *buildClusterOpts, tls *networking.ClientTLSSettings, mtlsCtxType mtlsContextType) {
-	if tls == nil {
-		if cb.hbone {
-			opts.mutable.cluster.TransportSocketMatches = HboneOrPlaintextSocket
-		}
-		return
-	}
-
 	c := opts.mutable
 
 	tlsContext, err := cb.buildUpstreamClusterTLSContext(opts, tls)
@@ -928,45 +944,66 @@ func (cb *ClusterBuilder) applyUpstreamTLSSettings(opts *buildClusterOpts, tls *
 			ConfigType: &core.TransportSocket_TypedConfig{TypedConfig: protoconv.MessageToAny(tlsContext)},
 		}
 	}
-
-	// For headless service, discover type will be `Cluster_ORIGINAL_DST`
-	// Apply auto mtls to clusters excluding these kind of headless service
-	if c.cluster.GetType() != cluster.Cluster_ORIGINAL_DST {
-		// convert to transport socket matcher if the mode was auto detected
-		if tls.Mode == networking.ClientTLSSettings_ISTIO_MUTUAL && mtlsCtxType == autoDetected {
+	istioAutodetectedMtls := tls != nil && tls.Mode == networking.ClientTLSSettings_ISTIO_MUTUAL &&
+		mtlsCtxType == autoDetected
+	if cb.hbone {
+		cb.applyHBONETransportSocketMatches(c.cluster, tls, istioAutodetectedMtls)
+	} else if c.cluster.GetType() != cluster.Cluster_ORIGINAL_DST {
+		// For headless service, discovery type will be `Cluster_ORIGINAL_DST`
+		// Apply auto mtls to clusters excluding these kind of headless services.
+		if istioAutodetectedMtls {
+			// convert to transport socket matcher if the mode was auto detected
 			transportSocket := c.cluster.TransportSocket
 			c.cluster.TransportSocket = nil
-			if cb.hbone {
-				c.cluster.TransportSocketMatches = []*cluster.Cluster_TransportSocketMatch{
-					{
-						Name:            "hbone",
-						Match:           hboneTransportSocketMatch,
-						TransportSocket: InternalUpstreamSocket,
-					},
-					{
-						Name:            "tlsMode-" + model.IstioMutualTLSModeLabel,
-						Match:           istioMtlsTransportSocketMatch,
-						TransportSocket: transportSocket,
-					},
-					defaultTransportSocketMatch(),
-				}
-			} else {
-				c.cluster.TransportSocketMatches = []*cluster.Cluster_TransportSocketMatch{
-					{
-						Name:            "tlsMode-" + model.IstioMutualTLSModeLabel,
-						Match:           istioMtlsTransportSocketMatch,
-						TransportSocket: transportSocket,
-					},
-					defaultTransportSocketMatch(),
-				}
+			c.cluster.TransportSocketMatches = []*cluster.Cluster_TransportSocketMatch{
+				{
+					Name:            "tlsMode-" + model.IstioMutualTLSModeLabel,
+					Match:           istioMtlsTransportSocketMatch,
+					TransportSocket: transportSocket,
+				},
+				defaultTransportSocketMatch(),
 			}
-		} else if cb.hbone {
-			opts.mutable.cluster.TransportSocketMatches = HboneOrPlaintextSocket
+		}
+	}
+}
+
+func (cb *ClusterBuilder) applyHBONETransportSocketMatches(c *cluster.Cluster, tls *networking.ClientTLSSettings,
+	istioAutoDetectedMtls bool,
+) {
+	if tls == nil {
+		c.TransportSocketMatches = HboneOrPlaintextSocket
+		return
+	}
+	// For headless service, discovery type will be `Cluster_ORIGINAL_DST`
+	// Apply auto mtls to clusters excluding these kind of headless services.
+	if c.GetType() != cluster.Cluster_ORIGINAL_DST {
+		// convert to transport socket matcher if the mode was auto detected
+		if istioAutoDetectedMtls {
+			transportSocket := c.TransportSocket
+			c.TransportSocket = nil
+			c.TransportSocketMatches = []*cluster.Cluster_TransportSocketMatch{
+				{
+					Name:            "hbone",
+					Match:           hboneTransportSocketMatch,
+					TransportSocket: InternalUpstreamSocket,
+				},
+				{
+					Name:            "tlsMode-" + model.IstioMutualTLSModeLabel,
+					Match:           istioMtlsTransportSocketMatch,
+					TransportSocket: transportSocket,
+				},
+				defaultTransportSocketMatch(),
+			}
+		} else {
+			c.TransportSocketMatches = HboneOrPlaintextSocket
 		}
 	}
 }
 
 func (cb *ClusterBuilder) buildUpstreamClusterTLSContext(opts *buildClusterOpts, tls *networking.ClientTLSSettings) (*auth.UpstreamTlsContext, error) {
+	if tls == nil {
+		return nil, nil
+	}
 	// Hack to avoid egress sds cluster config generation for sidecar when
 	// CredentialName is set in DestinationRule without a workloadSelector.
 	// We do not want to support CredentialName setting in non workloadSelector based DestinationRules, because

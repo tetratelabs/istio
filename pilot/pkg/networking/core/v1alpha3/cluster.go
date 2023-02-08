@@ -26,12 +26,12 @@ import (
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	internalupstream "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/internal_upstream/v3"
-	rawbuffer "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/raw_buffer/v3"
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	http "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	metadata "github.com/envoyproxy/go-control-plane/envoy/type/metadata/v3"
 	xdstype "github.com/envoyproxy/go-control-plane/envoy/type/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	anypb "github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -49,6 +49,7 @@ import (
 	authnmodel "istio.io/istio/pilot/pkg/security/model"
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
 	"istio.io/istio/pilot/pkg/util/protoconv"
+	xdsfilters "istio.io/istio/pilot/pkg/xds/filters"
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/protocol"
@@ -61,6 +62,8 @@ import (
 // deltaConfigTypes are used to detect changes and trigger delta calculations. When config updates has ONLY entries
 // in this map, then delta calculation is triggered.
 var deltaConfigTypes = sets.New(kind.ServiceEntry.String())
+
+const TransportSocketInternalUpstream = "envoy.transport_sockets.internal_upstream"
 
 // getDefaultCircuitBreakerThresholds returns a copy of the default circuit breaker thresholds for the given traffic direction.
 func getDefaultCircuitBreakerThresholds() *cluster.CircuitBreakers_Thresholds {
@@ -177,10 +180,12 @@ func (configgen *ConfigGeneratorImpl) buildClusters(proxy *model.Proxy, req *mod
 		// Setup inbound clusters
 		inboundPatcher := clusterPatcher{efw: envoyFilterPatches, pctx: networking.EnvoyFilter_SIDECAR_INBOUND}
 		clusters = append(clusters, configgen.buildInboundClusters(cb, proxy, instances, inboundPatcher)...)
-		clusters = append(clusters, configgen.buildInboundHBONEClusters(cb, proxy, instances)...)
 		// Pass through clusters for inbound traffic. These cluster bind loopback-ish src address to access node local service.
 		clusters = inboundPatcher.conditionallyAppend(clusters, nil, cb.buildInboundPassthroughClusters()...)
 		clusters = append(clusters, inboundPatcher.insertedClusters()...)
+		if proxy.EnableHBONE() {
+			clusters = append(clusters, configgen.buildInboundHBONEClusters(cb, instances)...)
+		}
 	default: // Gateways
 		patcher := clusterPatcher{efw: envoyFilterPatches, pctx: networking.EnvoyFilter_GATEWAY}
 		ob, cs := configgen.buildOutboundClusters(cb, proxy, patcher, services)
@@ -194,13 +199,16 @@ func (configgen *ConfigGeneratorImpl) buildClusters(proxy *model.Proxy, req *mod
 		clusters = append(clusters, patcher.insertedClusters()...)
 	}
 
+	// OutboundTunnel cluster is needed for sidecar and gateway.
+	if proxy.EnableHBONE() {
+		clusters = append(clusters, outboundTunnelCluster(proxy, req.Push))
+	}
+
 	// if credential socket exists, create a cluster for it
 	if proxy.Metadata != nil && proxy.Metadata.Raw[security.CredentialMetaDataName] == "true" {
 		clusters = append(clusters, cb.buildExternalSDSCluster(security.CredentialNameSocketPath))
 	}
-	if proxy.EnableHBONE() {
-		clusters = append(clusters, outboundTunnelCluster(proxy, req.Push))
-	}
+
 	for _, c := range clusters {
 		resources = append(resources, &discovery.Resource{Name: c.Name, Resource: protoconv.MessageToAny(c)})
 	}
@@ -217,7 +225,7 @@ func shouldUseDelta(updates *model.PushRequest) bool {
 }
 
 // deltaAwareConfigTypes returns true if all updated configs are delta enabled.
-func deltaAwareConfigTypes(cfgs map[model.ConfigKey]struct{}) bool {
+func deltaAwareConfigTypes(cfgs sets.Set[model.ConfigKey]) bool {
 	for k := range cfgs {
 		if !deltaConfigTypes.Contains(k.Kind.String()) {
 			return false
@@ -392,7 +400,7 @@ func (configgen *ConfigGeneratorImpl) buildClustersFromServiceInstances(cb *Clus
 	enableSidecarServiceInboundListenerMerge bool,
 ) []*cluster.Cluster {
 	clusters := make([]*cluster.Cluster, 0)
-	_, actualLocalHost := getActualWildcardAndLocalHost(proxy)
+	_, actualLocalHosts := getWildcardsAndLocalHost(proxy.GetIPMode())
 	clustersToBuild := make(map[int][]*model.ServiceInstance)
 
 	ingressPortListSet := sets.New[int]()
@@ -409,7 +417,7 @@ func (configgen *ConfigGeneratorImpl) buildClustersFromServiceInstances(cb *Clus
 		clustersToBuild[ep] = append(clustersToBuild[ep], instance)
 	}
 
-	bind := actualLocalHost
+	bind := actualLocalHosts[0]
 	if features.EnableInboundPassthrough {
 		bind = ""
 	}
@@ -448,8 +456,7 @@ func (configgen *ConfigGeneratorImpl) buildInboundClusters(cb *ClusterBuilder, p
 	sidecarScope := proxy.SidecarScope
 	noneMode := proxy.GetInterceptionMode() == model.InterceptionNone
 
-	_, actualLocalHost := getActualWildcardAndLocalHost(proxy)
-
+	_, actualLocalHosts := getWildcardsAndLocalHost(proxy.GetIPMode())
 	// No user supplied sidecar scope or the user supplied one has no ingress listeners
 	if !sidecarScope.HasIngressListener() {
 		// We should not create inbound listeners in NONE mode based on the service instances
@@ -518,7 +525,7 @@ func (configgen *ConfigGeneratorImpl) buildInboundClusters(cb *ClusterBuilder, p
 					endpointAddress = model.LocalhostIPv6AddressPrefix
 				}
 			} else if hostIP == model.LocalhostAddressPrefix || hostIP == model.LocalhostIPv6AddressPrefix {
-				endpointAddress = actualLocalHost
+				endpointAddress = actualLocalHosts[0]
 			}
 		}
 		// Find the service instance that corresponds to this ingress listener by looking
@@ -1018,15 +1025,12 @@ func getOrCreateIstioMetadata(cluster *cluster.Cluster) *structpb.Struct {
 	return cluster.Metadata.FilterMetadata[util.IstioMetadataKey]
 }
 
-func (configgen *ConfigGeneratorImpl) buildInboundHBONEClusters(cb *ClusterBuilder, proxy *model.Proxy, instances []*model.ServiceInstance) []*cluster.Cluster {
-	if !proxy.EnableHBONE() {
-		return nil
-	}
+func (configgen *ConfigGeneratorImpl) buildInboundHBONEClusters(cb *ClusterBuilder, instances []*model.ServiceInstance) []*cluster.Cluster {
 	clusters := make([]*cluster.Cluster, 0)
 	names := sets.New[string]()
 	for _, i := range instances {
 		p := i.Endpoint.EndpointPort
-		name := fmt.Sprintf("inbound-hbone|%d", p)
+		name := "inbound-hbone" + "|" + strconv.Itoa(int(p))
 		if !names.InsertContains(name) {
 			clusters = append(clusters, cb.buildInternalListenerCluster(name, name).build())
 		}
@@ -1036,9 +1040,8 @@ func (configgen *ConfigGeneratorImpl) buildInboundHBONEClusters(cb *ClusterBuild
 
 func (cb *ClusterBuilder) buildInternalListenerCluster(clusterName string, listenerName string) *MutableCluster {
 	clusterType := cluster.Cluster_STATIC
-	llb := util.BuildInternalEndpoint(listenerName, nil)
 	port := &model.Port{}
-	localCluster := cb.buildDefaultCluster(clusterName, clusterType, llb,
+	localCluster := cb.buildDefaultCluster(clusterName, clusterType, util.BuildInternalEndpoint(listenerName, nil),
 		model.TrafficDirectionInbound, port, nil, nil)
 	// no TLS
 	localCluster.cluster.TransportSocketMatches = nil
@@ -1056,7 +1059,7 @@ var HboneOrPlaintextSocket = []*cluster.Cluster_TransportSocketMatch{
 }
 
 var InternalUpstreamSocket = &core.TransportSocket{
-	Name: "envoy.transport_sockets.internal_upstream",
+	Name: TransportSocketInternalUpstream,
 	ConfigType: &core.TransportSocket_TypedConfig{TypedConfig: protoconv.MessageToAny(&internalupstream.InternalUpstreamTransport{
 		PassthroughMetadata: []*internalupstream.InternalUpstreamTransport_MetadataValueSource{
 			{
@@ -1076,16 +1079,13 @@ var InternalUpstreamSocket = &core.TransportSocket{
 				Name: "istio",
 			},
 		},
-		TransportSocket: &core.TransportSocket{
-			Name:       "envoy.transport_sockets.raw_buffer",
-			ConfigType: &core.TransportSocket_TypedConfig{TypedConfig: protoconv.MessageToAny(&rawbuffer.RawBuffer{})},
-		},
+		TransportSocket: xdsfilters.RawBufferTransportSocket,
 	})},
 }
 
 func outboundTunnelCluster(proxy *model.Proxy, push *model.PushContext) *cluster.Cluster {
 	return &cluster.Cluster{
-		Name:                 "outbound-tunnel",
+		Name:                 util.OutboundTunnel,
 		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_ORIGINAL_DST},
 		LbPolicy:             cluster.Cluster_CLUSTER_PROVIDED,
 		ConnectTimeout:       push.Mesh.ConnectTimeout,
@@ -1102,17 +1102,17 @@ func outboundTunnelCluster(proxy *model.Proxy, push *model.PushContext) *cluster
 			}),
 		},
 		TransportSocket: &core.TransportSocket{
-			Name: "envoy.transport_sockets.tls",
+			Name: wellknown.TransportSocketTls,
 			ConfigType: &core.TransportSocket_TypedConfig{TypedConfig: protoconv.MessageToAny(&tls.UpstreamTlsContext{
-				CommonTlsContext: buildHBONECommonTLSContext(proxy, push, false),
+				CommonTlsContext: buildHBONECommonTLSContext(proxy, push),
 			})},
 		},
 	}
 }
 
-func buildHBONECommonTLSContext(proxy *model.Proxy, push *model.PushContext, inbound bool) *tls.CommonTlsContext {
+func buildHBONECommonTLSContext(proxy *model.Proxy, push *model.PushContext) *tls.CommonTlsContext {
 	ctx := &tls.CommonTlsContext{}
-	authnmodel.ApplyToCommonTLSContext(ctx, proxy, nil, authn.TrustDomainsForValidation(push.Mesh), inbound)
+	authnmodel.ApplyToCommonTLSContext(ctx, proxy, nil, authn.TrustDomainsForValidation(push.Mesh), false)
 
 	ctx.AlpnProtocols = util.ALPNH2Only
 

@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -26,12 +25,11 @@ import (
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	fault "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/fault/v3"
-	http_conn "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	redis "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/redis_proxy/v3"
 	tcp_proxy "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/proto"
@@ -55,6 +53,7 @@ import (
 	istio_proto "istio.io/istio/pkg/proto"
 	"istio.io/istio/pkg/test/env"
 	"istio.io/istio/pkg/util/protomarshal"
+	"istio.io/pkg/log"
 )
 
 var testMesh = &meshconfig.MeshConfig{
@@ -68,7 +67,7 @@ func buildEnvoyFilterConfigStore(configPatches []*networking.EnvoyFilter_EnvoyCo
 	store := memory.Make(collections.Pilot)
 
 	for i, cp := range configPatches {
-		store.Create(config.Config{
+		_, err := store.Create(config.Config{
 			Meta: config.Meta{
 				Name:             fmt.Sprintf("test-envoyfilter-%d", i),
 				Namespace:        "not-default",
@@ -78,13 +77,16 @@ func buildEnvoyFilterConfigStore(configPatches []*networking.EnvoyFilter_EnvoyCo
 				ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{cp},
 			},
 		})
+		if err != nil {
+			log.Errorf("create envoyfilter failed %v", err)
+		}
 	}
 	return store
 }
 
 func buildPatchStruct(config string) *structpb.Struct {
 	val := &structpb.Struct{}
-	_ = jsonpb.Unmarshal(strings.NewReader(config), val)
+	_ = protomarshal.UnmarshalString(config, val)
 	return val
 }
 
@@ -893,6 +895,84 @@ func TestApplyListenerPatches(t *testing.T) {
 								"alpn_protocols": [ "h2-6380", "http/1.1-6380" ]}}}}`),
 			},
 		},
+		{
+			ApplyTo: networking.EnvoyFilter_LISTENER_FILTER,
+			Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+				Context: networking.EnvoyFilter_SIDECAR_OUTBOUND,
+				ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+					Listener: &networking.EnvoyFilter_ListenerMatch{
+						PortNumber: 12345,
+					},
+				},
+			},
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: networking.EnvoyFilter_Patch_ADD,
+				Value:     buildPatchStruct(`{"name":"envoy.filters.listener.proxy_protocol"}`),
+			},
+		},
+		{
+			ApplyTo: networking.EnvoyFilter_LISTENER_FILTER,
+			Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+				Context: networking.EnvoyFilter_SIDECAR_OUTBOUND,
+				ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+					Listener: &networking.EnvoyFilter_ListenerMatch{
+						PortNumber:     12345,
+						ListenerFilter: "envoy.filters.listener.proxy_protocol",
+					},
+				},
+			},
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: networking.EnvoyFilter_Patch_INSERT_BEFORE,
+				Value:     buildPatchStruct(`{"name":"before proxy_protocol"}`),
+			},
+		},
+		{
+			ApplyTo: networking.EnvoyFilter_LISTENER_FILTER,
+			Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+				Context: networking.EnvoyFilter_SIDECAR_OUTBOUND,
+				ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+					Listener: &networking.EnvoyFilter_ListenerMatch{
+						PortNumber:     12345,
+						ListenerFilter: "envoy.filters.listener.proxy_protocol",
+					},
+				},
+			},
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: networking.EnvoyFilter_Patch_INSERT_AFTER,
+				Value:     buildPatchStruct(`{"name":"after proxy_protocol"}`),
+			},
+		},
+		{
+			ApplyTo: networking.EnvoyFilter_LISTENER_FILTER,
+			Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+				Context: networking.EnvoyFilter_SIDECAR_OUTBOUND,
+				ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+					Listener: &networking.EnvoyFilter_ListenerMatch{
+						PortNumber:     6381,
+						ListenerFilter: "filter-to-be-removed",
+					},
+				},
+			},
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: networking.EnvoyFilter_Patch_REMOVE,
+			},
+		},
+		{
+			ApplyTo: networking.EnvoyFilter_LISTENER_FILTER,
+			Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+				Context: networking.EnvoyFilter_SIDECAR_OUTBOUND,
+				ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+					Listener: &networking.EnvoyFilter_ListenerMatch{
+						PortNumber:     6381,
+						ListenerFilter: "filter-before-replace",
+					},
+				},
+			},
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: networking.EnvoyFilter_Patch_REPLACE,
+				Value:     buildPatchStruct(`{"name":"filter-after-replace"}`),
+			},
+		},
 	}
 
 	sidecarOutboundIn := []*listener.Listener{
@@ -1020,6 +1100,14 @@ func TestApplyListenerPatches(t *testing.T) {
 					{Name: "default-network-filter-removed"},
 				},
 			},
+			ListenerFilters: []*listener.ListenerFilter{
+				{
+					Name: "filter-to-be-removed",
+				},
+				{
+					Name: "filter-before-replace",
+				},
+			},
 		},
 		{
 			Name: "another-listener",
@@ -1037,8 +1125,8 @@ func TestApplyListenerPatches(t *testing.T) {
 						{
 							Name: wellknown.HTTPConnectionManager,
 							ConfigType: &listener.Filter_TypedConfig{
-								TypedConfig: protoconv.MessageToAny(&http_conn.HttpConnectionManager{
-									HttpFilters: []*http_conn.HttpFilter{
+								TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
+									HttpFilters: []*hcm.HttpFilter{
 										{Name: "http-filter-to-be-replaced"},
 										{Name: "another-http-filter"},
 									},
@@ -1062,8 +1150,8 @@ func TestApplyListenerPatches(t *testing.T) {
 						{
 							Name: wellknown.HTTPConnectionManager,
 							ConfigType: &listener.Filter_TypedConfig{
-								TypedConfig: protoconv.MessageToAny(&http_conn.HttpConnectionManager{
-									HttpFilters: []*http_conn.HttpFilter{
+								TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
+									HttpFilters: []*hcm.HttpFilter{
 										{Name: "http-filter-should-not-be-replaced"},
 										{Name: "another-http-filter"},
 									},
@@ -1156,6 +1244,17 @@ func TestApplyListenerPatches(t *testing.T) {
 						{Name: "filter0"},
 						{Name: "filter1"},
 					},
+				},
+			},
+			ListenerFilters: []*listener.ListenerFilter{
+				{
+					Name: "before proxy_protocol",
+				},
+				{
+					Name: "envoy.filters.listener.proxy_protocol",
+				},
+				{
+					Name: "after proxy_protocol",
 				},
 			},
 		},
@@ -1257,6 +1356,11 @@ func TestApplyListenerPatches(t *testing.T) {
 					{Name: "default-network-filter-replaced"},
 				},
 			},
+			ListenerFilters: []*listener.ListenerFilter{
+				{
+					Name: "filter-after-replace",
+				},
+			},
 		},
 		{
 			Name: "another-listener",
@@ -1274,8 +1378,8 @@ func TestApplyListenerPatches(t *testing.T) {
 						{
 							Name: wellknown.HTTPConnectionManager,
 							ConfigType: &listener.Filter_TypedConfig{
-								TypedConfig: protoconv.MessageToAny(&http_conn.HttpConnectionManager{
-									HttpFilters: []*http_conn.HttpFilter{
+								TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
+									HttpFilters: []*hcm.HttpFilter{
 										{Name: "http-filter-replaced"},
 										{Name: "another-http-filter"},
 									},
@@ -1299,8 +1403,8 @@ func TestApplyListenerPatches(t *testing.T) {
 						{
 							Name: wellknown.HTTPConnectionManager,
 							ConfigType: &listener.Filter_TypedConfig{
-								TypedConfig: protoconv.MessageToAny(&http_conn.HttpConnectionManager{
-									HttpFilters: []*http_conn.HttpFilter{
+								TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
+									HttpFilters: []*hcm.HttpFilter{
 										{Name: "http-filter-should-not-be-replaced"},
 										{Name: "another-http-filter"},
 									},
@@ -1441,6 +1545,17 @@ func TestApplyListenerPatches(t *testing.T) {
 					},
 				},
 			},
+			ListenerFilters: []*listener.ListenerFilter{
+				{
+					Name: "before proxy_protocol",
+				},
+				{
+					Name: "envoy.filters.listener.proxy_protocol",
+				},
+				{
+					Name: "after proxy_protocol",
+				},
+			},
 		},
 		{
 			Name: "another-listener",
@@ -1478,8 +1593,8 @@ func TestApplyListenerPatches(t *testing.T) {
 						{
 							Name: wellknown.HTTPConnectionManager,
 							ConfigType: &listener.Filter_TypedConfig{
-								TypedConfig: protoconv.MessageToAny(&http_conn.HttpConnectionManager{
-									HttpFilters: []*http_conn.HttpFilter{
+								TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
+									HttpFilters: []*hcm.HttpFilter{
 										{Name: "http-filter1"},
 										{Name: "http-filter2"},
 									},
@@ -1534,8 +1649,8 @@ func TestApplyListenerPatches(t *testing.T) {
 						{
 							Name: wellknown.HTTPConnectionManager,
 							ConfigType: &listener.Filter_TypedConfig{
-								TypedConfig: protoconv.MessageToAny(&http_conn.HttpConnectionManager{
-									HttpFilters: []*http_conn.HttpFilter{
+								TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
+									HttpFilters: []*hcm.HttpFilter{
 										{Name: "http-filter1"},
 										{Name: "http-filter2"},
 										{Name: "http-filter3"},
@@ -1613,11 +1728,11 @@ func TestApplyListenerPatches(t *testing.T) {
 						{
 							Name: wellknown.HTTPConnectionManager,
 							ConfigType: &listener.Filter_TypedConfig{
-								TypedConfig: protoconv.MessageToAny(&http_conn.HttpConnectionManager{
-									HttpFilters: []*http_conn.HttpFilter{
+								TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
+									HttpFilters: []*hcm.HttpFilter{
 										{
 											Name:       wellknown.Fault,
-											ConfigType: &http_conn.HttpFilter_TypedConfig{TypedConfig: faultFilterInAny},
+											ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: faultFilterInAny},
 										},
 										{Name: "http-filter2"},
 										{Name: "http-filter-to-be-removed"},
@@ -1666,8 +1781,8 @@ func TestApplyListenerPatches(t *testing.T) {
 						{
 							Name: wellknown.HTTPConnectionManager,
 							ConfigType: &listener.Filter_TypedConfig{
-								TypedConfig: protoconv.MessageToAny(&http_conn.HttpConnectionManager{
-									HttpFilters: []*http_conn.HttpFilter{
+								TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
+									HttpFilters: []*hcm.HttpFilter{
 										{Name: "base"},
 									},
 								}),
@@ -1733,15 +1848,15 @@ func TestApplyListenerPatches(t *testing.T) {
 						{
 							Name: wellknown.HTTPConnectionManager,
 							ConfigType: &listener.Filter_TypedConfig{
-								TypedConfig: protoconv.MessageToAny(&http_conn.HttpConnectionManager{
+								TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
 									XffNumTrustedHops:            4,
 									MergeSlashes:                 true,
 									AlwaysSetRequestIdInResponse: true,
-									HttpFilters: []*http_conn.HttpFilter{
+									HttpFilters: []*hcm.HttpFilter{
 										{Name: "http-filter0"},
 										{
 											Name:       wellknown.Fault,
-											ConfigType: &http_conn.HttpFilter_TypedConfig{TypedConfig: faultFilterOutAny},
+											ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: faultFilterOutAny},
 										},
 										{Name: "http-filter3"},
 										{Name: "http-filter2"},
@@ -1813,8 +1928,8 @@ func TestApplyListenerPatches(t *testing.T) {
 						{
 							Name: wellknown.HTTPConnectionManager,
 							ConfigType: &listener.Filter_TypedConfig{
-								TypedConfig: protoconv.MessageToAny(&http_conn.HttpConnectionManager{
-									HttpFilters: []*http_conn.HttpFilter{
+								TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
+									HttpFilters: []*hcm.HttpFilter{
 										{Name: "base"},
 									},
 								}),
@@ -1943,11 +2058,11 @@ func BenchmarkTelemetryV2Filters(b *testing.B) {
 					{
 						Name: wellknown.HTTPConnectionManager,
 						ConfigType: &listener.Filter_TypedConfig{
-							TypedConfig: protoconv.MessageToAny(&http_conn.HttpConnectionManager{
+							TypedConfig: protoconv.MessageToAny(&hcm.HttpConnectionManager{
 								XffNumTrustedHops:            4,
 								MergeSlashes:                 true,
 								AlwaysSetRequestIdInResponse: true,
-								HttpFilters: []*http_conn.HttpFilter{
+								HttpFilters: []*hcm.HttpFilter{
 									{Name: "http-filter3"},
 									{Name: "envoy.router"}, // Use deprecated name for test.
 									{Name: "http-filter2"},
