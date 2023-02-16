@@ -32,4 +32,5 @@ if [[ "${TEST_ARCH}" = "arm64" ]]; then
 fi
 
 echo "creating a eks cluster with \"$CLUSTER_NAME\" name..."
-eksctl create cluster --name $CLUSTER_NAME --version $K8S_VERSION --nodes 3 --node-type $NODE_TYPE --tags tetrate:owner=psb,tetrate:purpose=development,tetrate:team=eng:platform,tetrate:customer=internal,tetrate:lifespan=ongoing
+eksctl create cluster --name $CLUSTER_NAME --version $K8S_VERSION --nodes 3 --node-type $NODE_TYPE --tags tetrate:owner=psb,tetrate:purpose=development,tetrate:team=eng:tid,tetrate:customer=internal,tetrate:lifespan=ongoing
+
