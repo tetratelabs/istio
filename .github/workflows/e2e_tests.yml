@@ -375,7 +375,7 @@ jobs:
 
   eks-e2e-arm64-test:
     name: eks-e2e-arm64-test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted,aws,amd64]
     needs: [create-test-images-amd64]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
@@ -443,7 +443,7 @@ jobs:
 
   eks-e2e-test:
     name: eks-e2e-test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted,aws,amd64]
     needs: [create-multiarch-images]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
