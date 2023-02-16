@@ -24,8 +24,12 @@ then
 fi
 
 SHA8=$(git rev-parse --short $GITHUB_SHA)
-SUFFIX=$(sed 's/\.//g' <<< $K8S_VERSION)
+SUFFIX=$(sed 's/\.//g' <<< $K8S_VERSION.$TEST_ARCH)
 CLUSTER_NAME="test-istio-$SHA8-$SUFFIX"
+NODE_TYPE="m5.xlarge"
+if [[ "${TEST_ARCH}" = "arm64" ]]; then
+    NODE_TYPE="m6g.xlarge"
+fi
 
 echo "creating a eks cluster with \"$CLUSTER_NAME\" name..."
-eksctl create cluster --name $CLUSTER_NAME --version $K8S_VERSION --nodes 3 --node-type m5.xlarge
+eksctl create cluster --name $CLUSTER_NAME --version $K8S_VERSION --nodes 3 --node-type $NODE_TYPE --tags tetrate:owner=psb,tetrate:purpose=development,tetrate:team=eng:platform,tetrate:customer=internal,tetrate:lifespan=ongoing
