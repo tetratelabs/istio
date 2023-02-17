@@ -245,7 +245,7 @@ jobs:
 
   create-images-amd64:
     name: create-images-amd64
-    runs-on: ["self-hosted", "aws-hosted"]
+    runs-on: [self-hosted,Linux,x64,aws-hosted]
     needs: [build_fips_proxy]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
