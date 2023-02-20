@@ -110,7 +110,7 @@ jobs:
     if: contains(github.event.ref, 'fips')
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
-    runs-on: ["self-hosted", "arm64"]
+    runs-on: ['self-hosted', 'arm64']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
       ARCH_SUFFIX: arm64
