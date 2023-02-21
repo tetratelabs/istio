@@ -48,7 +48,7 @@ jobs:
         run: |
           SHA=$(git rev-parse --verify HEAD)
           SHOULD_BUILD=1
-          if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}.* ; then
+          if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}[^-]" ; then
             SHOULD_BUILD=0
           fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
