@@ -14,8 +14,8 @@ jobs:
     # Only run this job when the release type equals "fips".
     if: contains(github.event.ref, 'fips')
     name: build fips proxy binary
-    timeout-minutes: 1440 # 12 hours
-    runs-on: ['self-hosted','Linux','x64','m5']
+    timeout-minutes: 840 
+    runs-on: ['self-hosted','Linux','x64']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
     steps:
@@ -110,7 +110,7 @@ jobs:
     if: contains(github.event.ref, 'fips')
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
-    runs-on: ['self-hosted', 'ARM64','Linux']
+    runs-on: ['self-hosted','Linux','ARM64']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
       ARCH_SUFFIX: arm64
