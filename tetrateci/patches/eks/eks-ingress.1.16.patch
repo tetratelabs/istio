@@ -2,6 +2,7 @@
 <<<<<<< ours
 <<<<<<< ours
 <<<<<<< ours
+<<<<<<< ours
 diff --git a/pkg/test/framework/components/echo/kube/deployment.go b/pkg/test/framework/components/echo/kube/deployment.go
 index 6bc7cfcfd7..f384dcd289 100644
 --- a/pkg/test/framework/components/echo/kube/deployment.go
@@ -214,6 +215,8 @@ index bc877cf57f..9f623ae3e3 100644
 - 					if got != host {
 - 						return fmt.Errorf("unexpected ingress status, got %+v want %v", got, host)
 - 					}
+=======
+>>>>>>> theirs
 =======
 >>>>>>> theirs
 =======
