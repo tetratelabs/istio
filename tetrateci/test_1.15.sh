@@ -31,14 +31,13 @@ if [[ "${CLUSTER}" == "gke" ]]; then
 
   COMMON_TEST_FLAGS+=( "-istio.test.kube.helm.iopFile=${SCRIPTDIR}/iop-gke-integration.yml" )
 
-  echo "Applying GKE specific patches...."
-  git apply "${SCRIPTDIR}/patches/gke/chiron-gke.patch"
 fi
 
 if [[ "${CLUSTER}" == "eks" ]]; then
   echo "Applying Ingress patch for EKS...."
-  git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.11.patch"
+  git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.15.patch"
 fi
+
 
 PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/...")
 
@@ -64,6 +63,20 @@ for pkg in $PACKAGES; do
     SKIP_TEST_FLAGS+=( "--istio.test.skip=${test}" )
   done
 
+  go test \
+    -test.v \
+    -timeout 2h \
+    -tags=integ \
+    "${pkg}" \
+    --istio.test.select=-postsubmit,-flaky \
+    ${SKIP_TEST_FLAGS[@]+"${SKIP_TEST_FLAGS[@]}"} \
+    --istio.test.ci \
+    --istio.test.hub=${HUB} \
+    --istio.test.tag=${TAG}-distroless \
+    --istio.test.pullpolicy=IfNotPresent \
+    --istio.test.retries=1 \
+    ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
+    && \
   go test \
     -test.v \
     -timeout 2h \
