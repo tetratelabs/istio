@@ -12,7 +12,7 @@ jobs:
   # copied from make_release.yml
   build_fips_proxy:
     # Only run this job when the release type equals "fips".
-    if: contains(github.event.ref, 'dips')
+    if: contains(github.event.ref, 'fips')
     name: build fips proxy binary
     timeout-minutes: 840 
     runs-on: ['self-hosted','Linux','x64']
@@ -263,7 +263,7 @@ jobs:
   create-test-images-amd64:
     name: create-test-images-amd64
     #runs-on: ['self-hosted','Linux','x64','m5']
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted','Linux','x64']
     needs: [build_fips_proxy]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
