@@ -24,10 +24,8 @@
 
 istio.io/istio/tests/integration/helm/upgrade=TestRevisionTagsUpgradeFromPrevious
 MinorRelease
-
 istio.io/istio/tests/integration/pilot=TestIngress/status
-
+istio.io/istio/tests/integration/security/ca_custom_root
 istio.io/istio/tests/integration/telemetry/tracing/zipkin/servertracing=TestProxyTracing
-
 istio.io/istio/tests/integration/telemetry/stackdriver=*
 istio.io/istio/tests/integration/telemetry/stackdriver/vm=*
