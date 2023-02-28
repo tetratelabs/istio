@@ -13,7 +13,7 @@ jobs:
     if: contains(github.event.inputs.tag, 'fips')
     name: build fips proxy binary
     timeout-minutes: 1440 # 12 hours
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted','Linux','x64','m5.large']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
     steps:
@@ -102,7 +102,7 @@ jobs:
     if: "!contains(github.event.ref, 'fips')"
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
-    runs-on: ["self-hosted", "arm64"]
+    runs-on: ['self-hosted','Linux','ARM64','m6.large']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-arm
     steps:
@@ -192,7 +192,7 @@ jobs:
 
   create-images-arm64:
     name: create-images-arm64
-    runs-on: ["self-hosted", "arm64"]
+    runs-on: ['self-hosted','Linux','ARM64','m6.large']
     env:
       TARGETARCH: arm64
       DOCKER_ARCHITECTURES: linux/arm64
@@ -246,7 +246,7 @@ jobs:
 
   create-images-amd64:
     name: create-images-amd64
-    runs-on: ["self-hosted", "amd64", "aws"]
+    runs-on: ['self-hosted','Linux','x64','m5.large']
     needs: [build_fips_proxy]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
