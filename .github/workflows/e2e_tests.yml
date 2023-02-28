@@ -427,9 +427,9 @@ jobs:
           TEST_ARCH: arm64
 
       - name: integration-tests
-        run: bash ./tetrateci/test_${ISTIO_MINOR_VER}_arm.sh
+        run: bash ./tetrateci/test_${ISTIO_MINOR_VER}.sh
         env:
-          TAG: ${{ steps.get_tag.outputs.TAG }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}-arm64
           ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: eks-arm64
           K8S_VERSION: ${{ matrix.version }}
@@ -494,7 +494,7 @@ jobs:
       - name: integration-tests
         run: bash ./tetrateci/test_${ISTIO_MINOR_VER}.sh
         env:
-          TAG: ${{ steps.get_tag.outputs.TAG }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}-amd64
           ISTIO_MINOR_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
           CLUSTER: eks
           K8S_VERSION: ${{ matrix.version }}

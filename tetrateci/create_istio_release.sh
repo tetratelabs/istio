@@ -67,7 +67,13 @@ if [[ "$(uname -m)" = "aarch64" ]]; then
 fi
 
 
-
+if [[ ${TAG} =~ "multiarch" ]]; then
+  if  [[ "$(uname -m)" = "aarch64" ]]; then
+    export TAG="${TAG}-arm64"
+  else
+    export TAG="${TAG}-amd64"
+  fi
+fi
 
 # HACK : default manifest from release builder is modified
 echo "Generating the manifests"
