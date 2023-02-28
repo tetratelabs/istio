@@ -22,22 +22,12 @@
 #
 # indicates that tests for the package `<pkg>` should not be run at all.
 
-istio.io/istio/tests/integration/helm/upgrade=*
+istio.io/istio/tests/integration/operator=TestController
+istio.io/istio/tests/integration/pilot/endpointsmode=TestTraffic/jwt-claim-route
+istio.io/istio/tests/integration/pilot=TestGatewayConformance TestTunnelingOutboundTraffic
 
-istio.io/istio/tests/integration/pilot=*
-istio.io/istio/tests/integration/pilot/endpointslice=*
-istio.io/istio/tests/integration/pilot/revisions=TestMultiRevision
-istio.io/istio/tests/integration/security=*
+istio.io/istio/tests/integration/helm/upgrade=*
+istio.io/istio/tests/integration/security=TestReachability/global_no_peer_authn TestReachability/migration_no_tls
 istio.io/istio/tests/integration/security/sds_ingress/quic=*
-istio.io/istio/tests/integration/security/https_jwt=*
-istio.io/istio/tests/integration/security/sds_ingress=*
-istio.io/istio/tests/integration/security/sds_tls_origination=TestSimpleTlsOrigination TestMutualTlsOrigination
-istio.io/istio/tests/integration/security/ca_custom_root
-istio.io/istio/tests/integration/telemetry/tracing/zipkin/clienttracing=TestClientTracing
-istio.io/istio/tests/integration/telemetry/tracing/zipkin/servertracing=TestProxyTracing
-istio.io/istio/tests/integration/telemetry/stackdriver=*
-istio.io/istio/tests/integration/telemetry/stats/prometheus/customizemetrics=*
-istio.io/istio/tests/integration/telemetry/stackdriver/api=*
-istio.io/istio/tests/integration/telemetry/stackdriver/vm=*
-istio.io/istio/tests/integration/telemetry/tracing/opencensusagent=*
-istio.io/istio/tests/integration/telemetry/policy=*
+istio.io/istio/tests/integration/telemetry/tracing/opencensusagent=TestProxyTracing/primary-0
+istio.io/istio/tests/integration/telemetry/tracing/zipkin=TestProxyTracing TestClientTracing TestServerTracing
