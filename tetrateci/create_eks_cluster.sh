@@ -26,7 +26,7 @@ fi
 SHA8=$(git rev-parse --short $GITHUB_SHA)
 SUFFIX=$(sed 's/\.//g' <<< $K8S_VERSION.$TEST_ARCH)
 CLUSTER_NAME="test-istio-$SHA8-$SUFFIX"
-NODE_TYPE="m5.xlarge"
+NODE_TYPE="r5.2xlarge"
 if [[ "${TEST_ARCH}" = "arm64" ]]; then
     NODE_TYPE="m6g.xlarge"
 fi
