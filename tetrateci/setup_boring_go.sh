@@ -31,7 +31,7 @@ if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.14" ]]; then
 fi
 
 if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.15" ]]; then
-    export GOLANG_VERSION=1.19.2
+    export GOLANG_VERSION=1.19.6
 fi
 
 if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.16" ]]; then
