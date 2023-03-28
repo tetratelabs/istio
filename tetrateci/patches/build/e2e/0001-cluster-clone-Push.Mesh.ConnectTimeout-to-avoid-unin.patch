@@ -1,0 +1,83 @@
+From 6dd6f49bc2164c9a72a6911f3093a567edf66d46 Mon Sep 17 00:00:00 2001
+From: Yaroslav Skopets <yaroslav@tetrate.io>
+Date: Tue, 21 Feb 2023 23:49:33 +0100
+Subject: [PATCH] cluster: clone Push.Mesh.ConnectTimeout to avoid unintended
+ mutation by EnvoyFilter (#43436)
+
+* cluster: clone Push.Mesh.ConnectTimeout to avoid unintended mutation by EnvoyFilter
+
+Signed-off-by: Yaroslav Skopets <yaroslav@tetrate.io>
+
+* add release notes
+
+Signed-off-by: Yaroslav Skopets <yaroslav@tetrate.io>
+
+* code review: missed spot
+
+Signed-off-by: Yaroslav Skopets <yaroslav@tetrate.io>
+
+---------
+
+Signed-off-by: Yaroslav Skopets <yaroslav@tetrate.io>
+---
+ pilot/pkg/networking/core/v1alpha3/cluster_builder.go | 7 ++++---
+ releasenotes/notes/43436.yaml                         | 8 ++++++++
+ 2 files changed, 12 insertions(+), 3 deletions(-)
+ create mode 100644 releasenotes/notes/43436.yaml
+
+diff --git a/pilot/pkg/networking/core/v1alpha3/cluster_builder.go b/pilot/pkg/networking/core/v1alpha3/cluster_builder.go
+index 563ecf14c7..901c69843b 100644
+--- a/pilot/pkg/networking/core/v1alpha3/cluster_builder.go
++++ b/pilot/pkg/networking/core/v1alpha3/cluster_builder.go
+@@ -29,6 +29,7 @@ import (
+ 	auth "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+ 	http "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
+ 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
++	"google.golang.org/protobuf/proto"
+ 	any "google.golang.org/protobuf/types/known/anypb"
+ 	"google.golang.org/protobuf/types/known/durationpb"
+ 	"google.golang.org/protobuf/types/known/structpb"
+@@ -701,7 +702,7 @@ func (cb *ClusterBuilder) buildBlackHoleCluster() *cluster.Cluster {
+ 	c := &cluster.Cluster{
+ 		Name:                 util.BlackHoleCluster,
+ 		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_STATIC},
+-		ConnectTimeout:       cb.req.Push.Mesh.ConnectTimeout,
++		ConnectTimeout:       proto.Clone(cb.req.Push.Mesh.ConnectTimeout).(*durationpb.Duration),
+ 		LbPolicy:             cluster.Cluster_ROUND_ROBIN,
+ 	}
+ 	return c
+@@ -713,7 +714,7 @@ func (cb *ClusterBuilder) buildDefaultPassthroughCluster() *cluster.Cluster {
+ 	cluster := &cluster.Cluster{
+ 		Name:                 util.PassthroughCluster,
+ 		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_ORIGINAL_DST},
+-		ConnectTimeout:       cb.req.Push.Mesh.ConnectTimeout,
++		ConnectTimeout:       proto.Clone(cb.req.Push.Mesh.ConnectTimeout).(*durationpb.Duration),
+ 		LbPolicy:             cluster.Cluster_CLUSTER_PROVIDED,
+ 		TypedExtensionProtocolOptions: map[string]*any.Any{
+ 			v3.HttpProtocolOptionsType: passthroughHttpProtocolOptions,
+@@ -899,7 +900,7 @@ func (cb *ClusterBuilder) buildIstioMutualTLS(san []string, sni string) *network
+ }
+ 
+ func (cb *ClusterBuilder) applyDefaultConnectionPool(cluster *cluster.Cluster) {
+-	cluster.ConnectTimeout = cb.req.Push.Mesh.ConnectTimeout
++	cluster.ConnectTimeout = proto.Clone(cb.req.Push.Mesh.ConnectTimeout).(*durationpb.Duration)
+ }
+ 
+ // FIXME: there isn't a way to distinguish between unset values and zero values
+diff --git a/releasenotes/notes/43436.yaml b/releasenotes/notes/43436.yaml
+new file mode 100644
+index 0000000000..fc25506386
+--- /dev/null
++++ b/releasenotes/notes/43436.yaml
+@@ -0,0 +1,8 @@
++apiVersion: release-notes/v2
++kind: bug-fix
++area: traffic-management
++issue:
++- 43435
++releaseNotes:
++- |
++  **Fixed** an issue where `EnvoyFilter` for `Cluster.ConnectTimeout` was affecting unrelated `Clusters`.
+-- 
+2.39.1
+
