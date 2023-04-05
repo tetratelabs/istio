@@ -84,9 +84,9 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	helm.sh/helm/v3 v3.10.3
-	istio.io/api v0.0.0-20230215211151-50468cdae908
-	istio.io/client-go v1.16.3-0.20230215211650-125664ea97f5
-	istio.io/pkg v0.0.0-20221107183613-574f8d141535
+	istio.io/api v0.0.0-20230322185124-6a21629f95a9
+	istio.io/client-go v1.16.4-0.20230322185923-76fcecaa6589
+	istio.io/pkg v0.0.0-20230322185623-e58a70bb0f57
 	k8s.io/api v0.25.2
 	k8s.io/apiextensions-apiserver v0.25.2
 	k8s.io/apimachinery v0.25.2
@@ -126,7 +126,7 @@ require (
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
-	github.com/cespare/xxhash/v2 v2.1.2 // indirect
+	github.com/cespare/xxhash/v2 v2.1.2
 	github.com/chai2010/gettext-go v1.0.2 // indirect
 	github.com/cncf/udpa/go v0.0.0-20210930031921-04548b0d99d4 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.12.0 // indirect
