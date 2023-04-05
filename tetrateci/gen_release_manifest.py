@@ -32,7 +32,7 @@ with open(source_yaml, "r") as file :
     # added check for "gogo-genproto" dependenciy if it present then assign branch
     if "gogo-genproto" in manifest["dependencies"]:
         manifest["dependencies"]["gogo-genproto"]["branch"] = branch
-    manifest["dependencies"]["envoy"]["git"] = "https://github.com/envoyproxy/envoy"
+    manifest["dependencies"]["envoy"]["git"] = "https://github.com/istio/envoy"
     manifest['outputs'] = ["docker"]
     f = open(os.path.join(destination_folder, "manifest.docker.yaml"), 'w')
     yaml.dump(manifest, f)
