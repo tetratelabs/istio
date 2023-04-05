@@ -72,10 +72,10 @@ require (
 	go.opentelemetry.io/proto/otlp v0.19.0
 	go.uber.org/atomic v1.10.0
 	go.uber.org/multierr v1.9.0
-	golang.org/x/net v0.5.0
+	golang.org/x/net v0.7.0
 	golang.org/x/oauth2 v0.4.0
 	golang.org/x/sync v0.1.0
-	golang.org/x/sys v0.4.0
+	golang.org/x/sys v0.5.0
 	golang.org/x/time v0.3.0
 	gomodules.xyz/jsonpatch/v3 v3.0.1
 	google.golang.org/api v0.107.0
@@ -85,10 +85,10 @@ require (
 	gopkg.in/square/go-jose.v2 v2.6.0
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
-	helm.sh/helm/v3 v3.11.0
-	istio.io/api v0.0.0-20230217221049-9d422bf48675
-	istio.io/client-go v1.17.1-0.20230217222049-183e0a2c5a1f
-	istio.io/pkg v0.0.0-20230217221449-ee41b8dd085b
+	helm.sh/helm/v3 v3.11.1
+	istio.io/api v0.0.0-20230322183722-d5ba2da6d5a0
+	istio.io/client-go v1.17.2-0.20230322184722-9a3ad952dcd3
+	istio.io/pkg v0.0.0-20230322184123-84f1f6975651
 	k8s.io/api v0.26.0
 	k8s.io/apiextensions-apiserver v0.26.0
 	k8s.io/apimachinery v0.26.0
@@ -234,8 +234,8 @@ require (
 	golang.org/x/crypto v0.5.0 // indirect
 	golang.org/x/exp v0.0.0-20230108222341-4b8118a2686a
 	golang.org/x/mod v0.7.0 // indirect
-	golang.org/x/term v0.4.0 // indirect
-	golang.org/x/text v0.6.0 // indirect
+	golang.org/x/term v0.5.0 // indirect
+	golang.org/x/text v0.7.0 // indirect
 	golang.org/x/tools v0.5.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
 	gomodules.xyz/orderedmap v0.1.0 // indirect
