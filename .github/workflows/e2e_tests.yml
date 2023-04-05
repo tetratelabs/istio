@@ -113,7 +113,6 @@ jobs:
     runs-on: ['self-hosted','Linux','ARM64','m6.large']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-arm
-      ARCH_SUFFIX: arm64
     steps:
       - name: Get the tag
         id: get_tag
@@ -147,7 +146,7 @@ jobs:
           SHA=$(git rev-parse --verify HEAD)
           echo $SHA
           SHOULD_BUILD=1
-          if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-arm64 ; then
+          if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA} ; then
             SHOULD_BUILD=0
           fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
