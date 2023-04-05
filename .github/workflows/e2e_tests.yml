@@ -132,7 +132,7 @@ jobs:
         uses: actions/checkout@v2
         with:
           repository: "istio/proxy"
-          ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
+          ref: "1.15.7"
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
