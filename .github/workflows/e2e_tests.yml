@@ -107,7 +107,8 @@ jobs:
           
   build_fips_arm_proxy:
     # Do not run this job when the release type equals "fips"as we do not support fips compliant ARM build yet.
-    if: "contains(github.event.ref, 'multiarch')"
+    # if: "contains(github.event.ref, 'multiarch')"
+    if: false
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
     runs-on: ['self-hosted','Linux','ARM64','m6.large']
