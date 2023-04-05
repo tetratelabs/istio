@@ -112,7 +112,7 @@ jobs:
     timeout-minutes: 1440 # 12 hours
     runs-on: ['self-hosted','Linux','ARM64','m6.large']
     env:
-      RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
+      RELEASE_GCS_PATH: gs://getistio-build/proxy-arm
       ARCH_SUFFIX: arm64
     steps:
       - name: Get the tag
