@@ -33,10 +33,10 @@ if [[ "${CLUSTER}" == "gke" ]]; then
 
 fi
 
-if [[ "${CLUSTER}" == "eks" ]]; then
-  echo "Applying Ingress patch for EKS...."
-  git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.15.patch"
-fi
+# if [[ "${CLUSTER}" == "eks" ]]; then
+#   echo "Applying Ingress patch for EKS...."
+#   git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.15.patch"
+# fi
 
 
 PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/...")
