@@ -27,4 +27,6 @@ istio.io/istio/tests/integration/helm/upgrade=*
 istio.io/istio/tests/integration/security/sds_ingress/quic=*
 istio.io/istio/tests/integration/telemetry/stackdriver=*
 istio.io/istio/tests/integration/telemetry/stackdriver/vm=*
+istio.io/istio/tests/integration/pilot/endpointsmode=*
+istio.io/istio/tests/integration/pilot/revisions=*
 istio.io/istio/tests/integration/telemetry_envoyfilter_nullvm=TestDashboard
