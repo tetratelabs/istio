@@ -78,7 +78,7 @@ jobs:
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           sed -i 's/d45eacec11967b7c3fce724709239f2bf9ca0cc4/4b5f5474f35763423684c0fe25c99cc7b2a01fcf/g' WORKSPACE
           sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/00191a1e702040ec8f92ba18344b001e862e55cc6e24a60509db450bdeb8c0ee/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=d45eacec11967b7c3fce724709239f2bf9ca0cc4/g scripts/release-binary.sh
+          sed -i 's/SHA=.*/SHA=d45eacec11967b7c3fce724709239f2bf9ca0cc4/g' scripts/release-binary.sh
           cat scripts/release-binary.sh
           cat WORKSPACE
 
