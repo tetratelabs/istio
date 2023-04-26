@@ -48,7 +48,7 @@ jobs:
         run: |
           SHA=$(git rev-parse --verify HEAD)
           SHOULD_BUILD=1
-          if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
+          if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}-patch" ; then
             SHOULD_BUILD=0
           fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
@@ -74,7 +74,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
+          echo H4sIAAAAAAAAA5VW+2/bNhD+XX/FQQEGG7JlSX7JyjokbR00WNYWcZahaAOBj5OtVZYEkXLitvvfR0p+KEvtZIIgiuR3x3t8PPKiyJbAPcp9b0xchsQfTvw+xYE36I8myLk/IEMP2XhMHB/+yFKYYQ7uGBwnqF7wHMc1LpSaAH4viYRPKASm2Qp+/aq6Z/Msmydos2z5m/GWSAzgZlF2wO3DeV4oYa8PzjBwR4E3AMtRjzEr6d/IZACfP57fvHl3B1Gci0B9H+AvIpaADxJTEWepAJmBUpwna7iP5QIuLj/ODGMWz1Pk3SyKunT9vFHdbtcASr5h0suL7GEd3qtFQpbn4SIT0s6JZAuAH9piq/lshQrMMxHLrIhR2PRbAvvnB4C/FVKLiKwsGPbUqsss7a2w0E70Xv95efV2h3fBOgTctDZjGjiEjRUDFZkEBbAFSefIO+CNIE4FFlKHqGW1VbCBY4K63+q2DWAFqkTAMuMIruOMBoPn/DcMHkcRdLvzWALpPRct+hzCSPG+MrtphBGnHB/A2T22zdAdTkg0RK7TBD2Oq15aJomhPH/BKmdn0HU6DlhuR2Xv7MywHrlRR57WrWHVy48mbEI5sW3uTfrOxNsaZ2kDyBZbr7/p6GV8vzMGq/qqLmNhEtOCFOuWYe3oYAYLJFxl0exsRu/AAqFSw2TrexPYq10LWLHOZRaKtZC4NNWOuFOS3QaMZSmPq0QHHCNSJlKjzDOq6JjOhUh6vY0SU4taLxDFdJWttwbUehoaKul/2ts/ktyTtUji9Cu8AlePtn9GlSd7hB6Y2HAgIu6IRnSIfdum6A18VYgmbJuKOhMHFDSZ8WRSZ8p1RhOdq6qtaKF2RwThf2gk+NdWOzAqL3XFKVKShAsp85AUbBGvsJWSJSqvzaeCZtswfqpUc1Nr7f5vrVpSqbUOC+75c0xFZw+r9ogSnwsF/mx2c3ef4e00VnMNamruPKbIwe3XXGureBcYXD4f4MdMOlY96bHZDadG7tino8mIctseR77vDQaM9h9z6piWmljHEJpdo2FnBJb6VnWgClTYrAbQiMjuXwX/7fT97YdP4Wx2Fd5Or2eXH96/+vLli/m62n9qVHfMrcx2++3CxjGvk6h2/A61HdyvYwYbg8M4ZUnJUVeiZtV57F3dBEvCikwjX5COxhl1KFZ7yCYxLndoP4rGXBV8l0TUGXDK2UsS01B1LDsNWFUAPJ0i9XUdfSbAySYYYBKqCqaQVenUbSjyJJb2wjwGUm24ivFewwzrJI40v/fZrO4k1l48y9XlRWmoa6oWsk5QVeLIUGd5nVB1p0mF1Ad6AbSMEx4KtgwLXMXajc93p8eBQhJZCg2r3O372t2BtzmZKomKl0GgOlE8122BQbDqB8FrreW2jtcvsPm5TKMsCGhjqtWG72on0yxLHoOUZxfqtvZGX8piksoKCAeCAnA9vZqez6bh+Ww2vb5p6eFQ3wiU2Ct9noCph+pLwrJUhlNUthOaIFd3HJhqN6pbH9SulAXRJ5pttk81rwuUpYqSLEpU/RNMBDaGI6L6p8a/5bqW6wILAAA | base64 -d | gunzip | patch -p1
           sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
+          sed -i 's/SHA=.*/SHA=d799381810ae54f1cccb2a9ae79d9c6191ca2c83-patch/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
 
@@ -146,7 +148,7 @@ jobs:
         run: |
           SHA=$(git rev-parse --verify HEAD)
           SHOULD_BUILD=1
-          if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-arm64 ; then
+          if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-patch-arm64 ; then
             SHOULD_BUILD=0
           fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
@@ -170,13 +172,11 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
+          sed -i 's/SHA=.*/SHA=d799381810ae54f1cccb2a9ae79d9c6191ca2c83-patch/g' scripts/release-binary.sh          
           sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
           sed -i '/if \[\[ "${BUILD_ENVOY_BINARY_ONLY}" !/, +6d' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
-      - name: Add FIPS flag
-        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
-        run: echo "build --define boringssl=fips" >> .bazelrc
 
       - name: Build and push
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
