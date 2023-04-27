@@ -12,7 +12,8 @@ jobs:
   # copied from make_release.yml
   build_fips_proxy:
     # Only run this job when the release type equals "fips".
-    if: contains(github.event.ref, 'fips')
+    # if: contains(github.event.ref, 'fips')
+    if: false
     name: build fips proxy binary
     timeout-minutes: 840 
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
@@ -180,7 +181,7 @@ jobs:
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
           BUILD_WITH_CONTAINER: 1
-          IMG: gcr.io/tetrate-istio-arm/build-tools-proxy:master-latest-arm64
+          # IMG: gcr.io/tetrate-istio-arm/build-tools-proxy:master-latest-arm64
         run: make push_release
 
       - name: Put CentOS binary
