@@ -48,7 +48,7 @@ jobs:
         run: |
           SHA=$(git rev-parse --verify HEAD)
           SHOULD_BUILD=1
-          if gsutil ls ${RELEASE_GCS_PATH} | grep "e0433be316e635e7b032079aadc5efcf4fcada25" ; then
+          if gsutil ls ${RELEASE_GCS_PATH} | grep "e0433be316e635eee7b032079aadc5efcf4fcada25" ; then
             SHOULD_BUILD=0
           fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
@@ -142,6 +142,16 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
+
+      - name: Check if already built
+        id: check_already_built
+        run: |
+          SHA=$(git rev-parse --verify HEAD)
+          SHOULD_BUILD=1
+          if gsutil ls ${RELEASE_GCS_PATH} | grep "e0433be316e635e7b032079aadc5efcf4fca44a25" ; then
+            SHOULD_BUILD=0
+          fi
+          echo ::set-output name=should_build::${SHOULD_BUILD}
       - name: Tweak make recipe
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         # 1) remove unnecessary dependency on naive "build" target
