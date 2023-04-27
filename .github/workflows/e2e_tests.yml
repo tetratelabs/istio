@@ -76,6 +76,9 @@ jobs:
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
           sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
+          sed -i 's/87bbee939d9691d20c72936a03dd38457368babd/e0433be316e635e7b032079aadc5efcf4fcada25/g' WORKSPACE
+          sed -i 's/6359991c3c7f6a52820d82416a8bba8788488cc3e0d9de59d61787c31a69906f/78f7c5458f72109cf51ad961466b4fa6f96eaeebb853dc35754d693322fb55c9/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=e0433be316e635e7b032079aadc5efcf4fcada25/g' scripts/release-binary.sh
           cat scripts/release-binary.sh
 
       - name: Add FIPS flag
@@ -107,7 +110,8 @@ jobs:
           
   build_fips_arm_proxy:
     # Do not run this job when the release type equals "fips"as we do not support fips compliant ARM build yet.
-    if: contains(github.event.ref, 'fips')
+    # if: contains(github.event.ref, 'fips')
+    if: false
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
     runs-on: ['self-hosted','Linux','ARM64','m6.large']
