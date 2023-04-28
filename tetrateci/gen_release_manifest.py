@@ -35,6 +35,7 @@ with open(source_yaml, "r") as file :
     if "gogo-genproto" in manifest["dependencies"]:
         manifest["dependencies"]["gogo-genproto"]["branch"] = branch
     manifest["dependencies"]["envoy"]["git"] = "https://github.com/envoyproxy/envoy"
+    del manifest["dependencies"]["envoy"]["auto"]
     manifest["dependencies"]["envoy"]["sha"] = "e0433be316e635e7b032079aadc5efcf4fcada25"
     manifest['outputs'] = ["docker"]
     f = open(os.path.join(destination_folder, "manifest.docker.yaml"), 'w')
