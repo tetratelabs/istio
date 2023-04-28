@@ -27,7 +27,7 @@ with open(source_yaml, "r") as file :
     manifest["version"] = tag
     manifest["dependencies"]["istio"] = {"localpath" : "./istio"}
     manifest["dependencies"]["proxy"]["git"] = "https://github.com/envoyproxy/envoy"
-    manifest["dependencies"]["proxy"]["auto"] = "proxy_workspace"
+    manifest["dependencies"]["proxy"]["sha"] = "e0433be316e635e7b032079aadc5efcf4fcada25"
     manifest["dependencies"]["client-go"]["branch"] = branch
     manifest["dependencies"]["tools"]["branch"] = branch
     # genproto has been removed from 1.14
