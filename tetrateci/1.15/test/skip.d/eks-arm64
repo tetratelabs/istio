@@ -32,4 +32,4 @@ istio.io/istio/tests/integration/security/ca_custom_root=*
 istio.io/istio/tests/integration/telemetry_envoyfilter_nullvm=TestDashboard
 istio.io/istio/tests/integration/pilot/endpointsmode=*
 istio.io/istio/tests/integration/pilot/revisions=*
-istio.io/istio/tests/integration/security/sds_ingress/quic=
+istio.io/istio/tests/integration/security/sds_ingress/quic=*
