@@ -75,9 +75,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/87bbee939d9691d20c72936a03dd38457368babd/e0433be316e635e7b032079aadc5efcf4fcada25/g' WORKSPACE
-          sed -i 's/6359991c3c7f6a52820d82416a8bba8788488cc3e0d9de59d61787c31a69906f/78f7c5458f72109cf51ad961466b4fa6f96eaeebb853dc35754d693322fb55c9/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=e0433be316e635e7b032079aadc5efcf4fcada25/g' scripts/release-binary.sh
+          sed -i 's/87bbee939d9691d20c72936a03dd38457368babd/c3cfc44104483a07e253fe2d84f650c9961d33ee/g' WORKSPACE
+          sed -i 's/6359991c3c7f6a52820d82416a8bba8788488cc3e0d9de59d61787c31a69906f/7221661bff6d6aa1439472152d4db4a83aeeb8d9497c93bc40956d01da145eed/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=c3cfc44104483a07e253fe2d84f650c9961d33ee/g' scripts/release-binary.sh
           cat scripts/release-binary.sh
 
       - name: Add FIPS flag
