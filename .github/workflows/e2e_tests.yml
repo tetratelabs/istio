@@ -49,7 +49,7 @@ jobs:
         run: |
           SHA=$(git rev-parse --verify HEAD)
           SHOULD_BUILD=1
-          if gsutil ls ${RELEASE_GCS_PATH} | grep "c3cfc44104483a07e253fe2d84f650c9961d33ee" ; then
+          if gsutil ls ${RELEASE_GCS_PATH} | grep "c3cfc44104483a07e253fe2d84f650c9961d33ee-arm64" ; then
             SHOULD_BUILD=0
           fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
