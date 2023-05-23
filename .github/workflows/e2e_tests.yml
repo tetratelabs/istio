@@ -81,8 +81,9 @@ jobs:
           cat scripts/release-binary.sh
 
       - name: Add FIPS flag
-        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
-        run: echo "build --define boringssl=fips" >> .bazelrc
+        #if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        #run: echo "build --define boringssl=fips" >> .bazelrc
+        run: cat scripts/release-binary.sh
 
       - name: Build and push
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
