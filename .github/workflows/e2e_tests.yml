@@ -15,7 +15,7 @@ jobs:
     if: contains(github.event.ref, 'fips')
     name: build fips proxy binary
     timeout-minutes: 840 
-    runs-on: ['self-hosted','Linux','x64','m5.large']
+    runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
     steps:
@@ -171,7 +171,6 @@ jobs:
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
           sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
-          sed -i '/if \[\[ "${BUILD_ENVOY_BINARY_ONLY}" !/, +6d' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
       - name: Add FIPS flag
