@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v2
         with:
           repository: "istio/proxy"
-          ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
+          ref: release-1.17
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
@@ -107,7 +107,7 @@ jobs:
           
   build_fips_arm_proxy:
     # Do not run this job when the release type equals "fips"as we do not support fips compliant ARM build yet.
-    if: contains(github.event.ref, 'fips')
+    if: false
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
     runs-on: ['self-hosted','Linux','ARM64','m6.large']
