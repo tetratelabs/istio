@@ -18,6 +18,7 @@ jobs:
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
+      IMG: gcr.io/tid-testing/build-tools-proxy:v1
     steps:
       - name: Get the tag
         id: get_tag
@@ -88,6 +89,7 @@ jobs:
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
           BUILD_WITH_CONTAINER: 1
+          IMG: gcr.io/tid-testing/build-tools-proxy:v1
         run: make push_release
 
       - name: Put CentOS binary
