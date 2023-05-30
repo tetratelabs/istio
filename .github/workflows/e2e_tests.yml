@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v2
         with:
           repository: "istio/proxy"
-          ref: release-1.17
+          ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
@@ -46,7 +46,7 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA=$(git rev-parse --verify HEAD)
+          SHA=1ff9f05870fba46c8a75b0ad556c50a5a651e156
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
             SHOULD_BUILD=0
@@ -61,8 +61,7 @@ jobs:
         # from push_release.
         run: |
           ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
-          sed -i "s/\-p//g; s/push_release: build/push_release:/g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
-
+          sed -i "s/PUSH_RELEASE_FLAGS ?= -p//g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
       - name: Tweak release-binary script
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         # 1) Setup in-docker auth against gcloud
@@ -74,7 +73,10 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
+          sed -i 's/d45eacec11967b7c3fce724709239f2bf9ca0cc4/1ff9f05870fba46c8a75b0ad556c50a5a651e156/g' WORKSPACE
+          sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/bb15b4ceec157da3fea40a05fe0923f44edd0c39eaa104e1fb37a685c64ae95f/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=1ff9f05870fba46c8a75b0ad556c50a5a651e156/g' scripts/release-binary.sh
+          sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
 
@@ -170,8 +172,10 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
-          sed -i '/if \[\[ "${BUILD_ENVOY_BINARY_ONLY}" !/, +6d' scripts/release-binary.sh
+          sed -i 's/d45eacec11967b7c3fce724709239f2bf9ca0cc4/1ff9f05870fba46c8a75b0ad556c50a5a651e156/g' WORKSPACE
+          sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/bb15b4ceec157da3fea40a05fe0923f44edd0c39eaa104e1fb37a685c64ae95f/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=1ff9f05870fba46c8a75b0ad556c50a5a651e156/g' scripts/release-binary.sh
+          sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
       - name: Add FIPS flag
