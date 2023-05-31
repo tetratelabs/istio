@@ -78,8 +78,11 @@ jobs:
           sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/bb15b4ceec157da3fea40a05fe0923f44edd0c39eaa104e1fb37a685c64ae95f/g' WORKSPACE
           sed -i 's/SHA=.*/SHA=1ff9f05870fba46c8a75b0ad556c50a5a651e156/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
+          sed -i 's/llvm-10/llvm/g' scripts/release-binary.sh
+          sed -i 's/llvm-10/llvm/g' Makefile.core.mk
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
+          cat Makefile.core.mk
 
       - name: Add FIPS flag
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
