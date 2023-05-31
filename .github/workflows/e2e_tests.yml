@@ -74,9 +74,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/d45eacec11967b7c3fce724709239f2bf9ca0cc4/52fe7a9883b9652468e1556645c5c0cdc660d446/g' WORKSPACE
-          sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/92a202aca58c28652a648375eca9bb5f1708dd05cb11513bba8e540de7545b82/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=52fe7a9883b9652468e1556645c5c0cdc660d446/g' scripts/release-binary.sh
+          sed -i 's/d45eacec11967b7c3fce724709239f2bf9ca0cc4/1ff9f05870fba46c8a75b0ad556c50a5a651e156/g' WORKSPACE
+          sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/bb15b4ceec157da3fea40a05fe0923f44edd0c39eaa104e1fb37a685c64ae95f/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=1ff9f05870fba46c8a75b0ad556c50a5a651e156/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
