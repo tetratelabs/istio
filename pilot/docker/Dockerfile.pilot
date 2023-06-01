@@ -6,9 +6,6 @@ ARG BASE_VERSION=latest
 
 # The following section is used as base image if BASE_DISTRIBUTION=debug
 FROM gcr.io/istio-release/base:${BASE_VERSION} as debug
-RUN apt-get update && apt-get upgrade -y \
-  && apt-get clean \
-  && rm -rf  /var/log/*log /var/lib/apt/lists/* /var/log/apt/* /var/lib/dpkg/*-old /var/cache/debconf/*-old
 
 # The following section is used as base image if BASE_DISTRIBUTION=distroless
 FROM gcr.io/istio-release/distroless:${BASE_VERSION} as distroless
