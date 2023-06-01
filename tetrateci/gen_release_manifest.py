@@ -27,6 +27,8 @@ with open(source_yaml, "r") as file :
     manifest["version"] = tag
     manifest["dependencies"]["istio"] = {"localpath" : "./istio"}
     manifest["dependencies"]["client-go"]["branch"] = branch
+    del manifest["dependencies"]["proxy"]["auto"]
+    manifest["dependencies"]["proxy"]["branch"] = branch
     manifest["dependencies"]["tools"]["branch"] = branch
     # genproto has been removed from 1.14
     # added check for "gogo-genproto" dependenciy if it present then assign branch
