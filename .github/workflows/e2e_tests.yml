@@ -192,7 +192,7 @@ jobs:
         env:
           BUILD_WITH_CONTAINER: 1
           BUILD_ENVOY_BINARY_ONLY: 1
-          IMG: gcr.io/tid-testing/build-tools-proxy:v3
+          IMG: gcr.io/tid-testing/build-tools-proxy-arm64:v3
         run: make push_release
 
       - name: Put CentOS binary
