@@ -150,7 +150,7 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA=4740c10b483985dac60479899f21cbd5104447cb-arm64
+          SHA=4740c10b483985dac60479899f21cbd5104447cb
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-arm64 ; then
             SHOULD_BUILD=0
@@ -454,7 +454,7 @@ jobs:
   eks-e2e-test:
     name: eks-e2e-test
     runs-on: ubuntu-latest
-    needs: [create-multiarch-images]
+    needs: [create-test-images-amd64]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
