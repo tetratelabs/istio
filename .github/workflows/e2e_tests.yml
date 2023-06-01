@@ -47,7 +47,7 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA=1ff9f05870fba46c8a75b0ad556c50a5a651e156
+          SHA=4740c10b483985dac60479899f21cbd5104447cb
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
             SHOULD_BUILD=0
@@ -116,7 +116,7 @@ jobs:
     if: false
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
-    runs-on: ['self-hosted','Linux','ARM64','m6.large']
+    runs-on: ['self-hosted','Linux','ARM64','arm64-32']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
       ARCH_SUFFIX: arm64
@@ -150,7 +150,7 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA=$(git rev-parse --verify HEAD)
+          SHA=4740c10b483985dac60479899f21cbd5104447cb-arm64
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-arm64 ; then
             SHOULD_BUILD=0
@@ -176,12 +176,13 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/d45eacec11967b7c3fce724709239f2bf9ca0cc4/1ff9f05870fba46c8a75b0ad556c50a5a651e156/g' WORKSPACE
-          sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/bb15b4ceec157da3fea40a05fe0923f44edd0c39eaa104e1fb37a685c64ae95f/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=1ff9f05870fba46c8a75b0ad556c50a5a651e156/g' scripts/release-binary.sh
+          sed -i 's/d45eacec11967b7c3fce724709239f2bf9ca0cc4/4740c10b483985dac60479899f21cbd5104447cb/g' WORKSPACE
+          sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/e710cf61f5e35747684ec068ec15f5542967d6bce770c31b776f20f765ed6922/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=4740c10b483985dac60479899f21cbd5104447cb/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
+          cat Makefile.core.mk
       - name: Add FIPS flag
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         run: echo "build --define boringssl=fips" >> .bazelrc
@@ -190,7 +191,8 @@ jobs:
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
           BUILD_WITH_CONTAINER: 1
-          IMG: gcr.io/tetrate-istio-arm/build-tools-proxy:master-latest-arm64
+          BUILD_ENVOY_BINARY_ONLY: 1
+          IMG: gcr.io/tid-testing/build-tools-proxy:v3
         run: make push_release
 
       - name: Put CentOS binary
