@@ -6,6 +6,10 @@ ARG BASE_VERSION=latest
 
 # The following section is used as base image if BASE_DISTRIBUTION=debug
 FROM gcr.io/istio-release/base:${BASE_VERSION} as debug
+RUN apt-mark hold libsystemd0 && apt-get update && apt-get upgrade -y \
+  && apt-get clean \
+  && rm -rf  /var/log/*log /var/lib/apt/lists/* /var/log/apt/* /var/lib/dpkg/*-old /var/cache/debconf/*-old
+
 
 # The following section is used as base image if BASE_DISTRIBUTION=distroless
 # This image is a custom built debian11 distroless image with multiarchitecture support.
