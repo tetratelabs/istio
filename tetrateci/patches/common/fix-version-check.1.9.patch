@@ -1,0 +1,13 @@
+diff --git a/pkg/test/framework/components/cluster/topology.go b/pkg/test/framework/components/cluster/topology.go
+index cb2f02b91c..b5eef8100a 100644
+--- a/pkg/test/framework/components/cluster/topology.go
++++ b/pkg/test/framework/components/cluster/topology.go
+@@ -122,7 +122,7 @@ func (c Topology) MinKubeVersion(major, minor int) bool {
+ 	if err != nil {
+ 		return true
+ 	}
+-	serverMinor, err := strconv.Atoi(ver.Minor)
++	serverMinor, err := strconv.Atoi(ver.Minor[:2])
+ 	if err != nil {
+ 		return true
+ 	}

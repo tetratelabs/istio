@@ -1,0 +1,173 @@
+From a73e4473ebf9f35d15d825077253993f6e770020 Mon Sep 17 00:00:00 2001
+From: John Howard <howardjohn@google.com>
+Date: Mon, 4 Oct 2021 11:06:39 -0700
+Subject: [PATCH] Allow turning off ALPN in echo server (#35447)
+
+---
+ pkg/test/echo/cmd/server/main.go              |  3 +++
+ pkg/test/echo/common/model.go                 |  5 +++++
+ pkg/test/echo/server/endpoint/http.go         |  6 +++++-
+ pkg/test/echo/server/endpoint/instance.go     |  1 +
+ pkg/test/echo/server/instance.go              |  2 ++
+ .../components/echo/kube/deployment.go        |  3 +++
+ .../security/ca_custom_root/main_test.go      | 21 +++++++++++--------
+ 7 files changed, 31 insertions(+), 10 deletions(-)
+
+diff --git a/pkg/test/echo/cmd/server/main.go b/pkg/test/echo/cmd/server/main.go
+index e32a07dff5..30bc9d7a01 100644
+--- a/pkg/test/echo/cmd/server/main.go
++++ b/pkg/test/echo/cmd/server/main.go
+@@ -48,6 +48,7 @@ var (
+ 	crt              string
+ 	key              string
+ 	istioVersion     string
++	disableALPN      bool
+ 
+ 	loggingOptions = log.DefaultOptions()
+ 
+@@ -123,6 +124,7 @@ var (
+ 				Cluster:               cluster,
+ 				IstioVersion:          istioVersion,
+ 				UDSServer:             uds,
++				DisableALPN:           disableALPN,
+ 			})
+ 
+ 			if err := s.Start(); err != nil {
+@@ -164,6 +166,7 @@ func init() {
+ 	rootCmd.PersistentFlags().StringVar(&crt, "crt", "", "gRPC TLS server-side certificate")
+ 	rootCmd.PersistentFlags().StringVar(&key, "key", "", "gRPC TLS server-side key")
+ 	rootCmd.PersistentFlags().StringVar(&istioVersion, "istio-version", "", "Istio sidecar version")
++	rootCmd.PersistentFlags().BoolVar(&disableALPN, "disable-alpn", disableALPN, "disable ALPN negotiation")
+ 
+ 	loggingOptions.AttachCobraFlags(rootCmd)
+ 
+diff --git a/pkg/test/echo/common/model.go b/pkg/test/echo/common/model.go
+index 0433f36ef8..2e721ebdd7 100644
+--- a/pkg/test/echo/common/model.go
++++ b/pkg/test/echo/common/model.go
+@@ -28,6 +28,11 @@ type TLSSettings struct {
+ 	Hostname string
+ 	// If set to true, the cert will be provisioned by proxy, and extra cert volume will be mounted.
+ 	ProxyProvision bool
++	// AcceptAnyALPN, if true, will make the server accept ANY ALPNs. This comes at the expense of
++	// allowing h2 negotiation and being able to detect the negotiated ALPN (as there is none), because
++	// Golang doesn't like us doing this (https://github.com/golang/go/issues/46310).
++	// This is useful when the server is simulating Envoy which does unconventional things with ALPN.
++	AcceptAnyALPN bool
+ }
+ 
+ // Port represents a network port where a service is listening for
+diff --git a/pkg/test/echo/server/endpoint/http.go b/pkg/test/echo/server/endpoint/http.go
+index 59aa38abd6..2d93d55fa4 100644
+--- a/pkg/test/echo/server/endpoint/http.go
++++ b/pkg/test/echo/server/endpoint/http.go
+@@ -86,9 +86,13 @@ func (s *httpInstance) Start(onReady OnReadyFunc) error {
+ 		if cerr != nil {
+ 			return fmt.Errorf("could not load TLS keys: %v", cerr)
+ 		}
++		nextProtos := []string{"h2", "http/1.1", "http/1.0"}
++		if s.DisableALPN {
++			nextProtos = nil
++		}
+ 		config := &tls.Config{
+ 			Certificates: []tls.Certificate{cert},
+-			NextProtos:   []string{"h2", "http/1.1", "http/1.0"},
++			NextProtos:   nextProtos,
+ 			GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+ 				// There isn't a way to pass through all ALPNs presented by the client down to the
+ 				// HTTP server to return in the response. However, for debugging, we can at least log
+diff --git a/pkg/test/echo/server/endpoint/instance.go b/pkg/test/echo/server/endpoint/instance.go
+index f2ccbf5086..f6a0c7de16 100644
+--- a/pkg/test/echo/server/endpoint/instance.go
++++ b/pkg/test/echo/server/endpoint/instance.go
+@@ -40,6 +40,7 @@ type Config struct {
+ 	Port          *common.Port
+ 	ListenerIP    string
+ 	IstioVersion  string
++	DisableALPN   bool
+ }
+ 
+ // Instance of an endpoint that serves the Echo application on a single port/protocol.
+diff --git a/pkg/test/echo/server/instance.go b/pkg/test/echo/server/instance.go
+index b3040fcea7..ccf0557855 100644
+--- a/pkg/test/echo/server/instance.go
++++ b/pkg/test/echo/server/instance.go
+@@ -47,6 +47,7 @@ type Config struct {
+ 	Cluster               string
+ 	Dialer                common.Dialer
+ 	IstioVersion          string
++	DisableALPN           bool
+ }
+ 
+ func (c Config) String() string {
+@@ -164,6 +165,7 @@ func (s *Instance) newEndpoint(port *common.Port, udsServer string) (endpoint.In
+ 		TLSKey:        s.TLSKey,
+ 		Dialer:        s.Dialer,
+ 		ListenerIP:    ip,
++		DisableALPN:   s.DisableALPN,
+ 		IstioVersion:  s.IstioVersion,
+ 	})
+ }
+diff --git a/pkg/test/framework/components/echo/kube/deployment.go b/pkg/test/framework/components/echo/kube/deployment.go
+index 667a79fa7c..75079eb210 100644
+--- a/pkg/test/framework/components/echo/kube/deployment.go
++++ b/pkg/test/framework/components/echo/kube/deployment.go
+@@ -221,6 +221,9 @@ spec:
+ {{- if $.TLSSettings }}
+           - --crt=/etc/certs/custom/cert-chain.pem
+           - --key=/etc/certs/custom/key.pem
++{{- if $.TLSSettings.AcceptAnyALPN}}
++          - --disable-alpn
++{{- end }}
+ {{- else }}
+           - --crt=/cert.crt
+           - --key=/cert.key
+diff --git a/tests/integration/security/ca_custom_root/main_test.go b/tests/integration/security/ca_custom_root/main_test.go
+index 095a242184..293bc5c085 100644
+--- a/tests/integration/security/ca_custom_root/main_test.go
++++ b/tests/integration/security/ca_custom_root/main_test.go
+@@ -141,9 +141,10 @@ func SetupApps(ctx resource.Context, apps *EchoDeployments) error {
+ 				},
+ 			},
+ 			TLSSettings: &common.TLSSettings{
+-				RootCert:   rootCert,
+-				ClientCert: clientCert,
+-				Key:        Key,
++				RootCert:      rootCert,
++				ClientCert:    clientCert,
++				Key:           Key,
++				AcceptAnyALPN: true,
+ 			},
+ 		}).
+ 		WithConfig(echo.Config{
+@@ -165,9 +166,10 @@ func SetupApps(ctx resource.Context, apps *EchoDeployments) error {
+ 				},
+ 			},
+ 			TLSSettings: &common.TLSSettings{
+-				RootCert:   rootCert,
+-				ClientCert: clientCert,
+-				Key:        Key,
++				RootCert:      rootCert,
++				ClientCert:    clientCert,
++				Key:           Key,
++				AcceptAnyALPN: true,
+ 			},
+ 		}).
+ 		WithConfig(echo.Config{
+@@ -190,9 +192,10 @@ func SetupApps(ctx resource.Context, apps *EchoDeployments) error {
+ 				},
+ 			},
+ 			TLSSettings: &common.TLSSettings{
+-				RootCert:   rootCertAlt,
+-				ClientCert: clientCertAlt,
+-				Key:        keyAlt,
++				RootCert:      rootCertAlt,
++				ClientCert:    clientCertAlt,
++				Key:           keyAlt,
++				AcceptAnyALPN: true,
+ 			},
+ 		}).
+ 		WithConfig(echo.Config{
+-- 
+2.21.1 (Apple Git-122.3)
+
