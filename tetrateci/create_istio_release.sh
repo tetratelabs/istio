@@ -51,7 +51,10 @@ if [[ ${TAG} =~ "fips" ]]; then
 	# Escape '/'
 	PROXY_DISTROLESS_BASE_ESCAPED=$(sed 's/\//\\\//g' <<< ${PROXY_DISTROLESS_BASE})
 	sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/operator/docker/Dockerfile.operator
-        export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
+  export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
+  sed -i "s,RELEASE_LDFLAGS='-extldflags -static -s -w',RELEASE_LDFLAGS='-extldflags -static',g" ${BASEDIR}/Makefile.core.mk
+  cat ${BASEDIR}/Makefile.core.mk | grep -i extldflags
+
 fi
 
 
