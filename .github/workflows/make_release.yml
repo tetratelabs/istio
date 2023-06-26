@@ -281,6 +281,15 @@ jobs:
         shell: bash
         env:
           TAG: ${{ github.event.inputs.tag }}
+          
+      - uses: google-github-actions/setup-gcloud@v0
+        with:
+            project_id: "tid-testing"
+            service_account_key: ${{ secrets.TEMP_SEC }}
+        env:
+            HUB: gcr.io/tid-testing
+      - run: |
+            gcloud auth configure-docker
 
       - name: build and push images
         run: bash ./tetrateci/create_istio_release.sh
