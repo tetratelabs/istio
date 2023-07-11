@@ -47,7 +47,7 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA=4740c10b483985dac60479899f21cbd5104447cb
+          SHA=7f438cbb9fcf5a6114abdd2c1a50223cff9ccb4e
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
             SHOULD_BUILD=0
@@ -74,10 +74,10 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/d45eacec11967b7c3fce724709239f2bf9ca0cc4/4740c10b483985dac60479899f21cbd5104447cb/g' WORKSPACE
-          sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/e710cf61f5e35747684ec068ec15f5542967d6bce770c31b776f20f765ed6922/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=4740c10b483985dac60479899f21cbd5104447cb/g' scripts/release-binary.sh
-          sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
+          sed -i 's/da9e3341ab7aa35d6b4980aa0709a7412de79ff6/7f438cbb9fcf5a6114abdd2c1a50223cff9ccb4e/g' WORKSPACE
+          sed -i 's/65d3405d78bb877ecbe598ca7d9eb57cc9d04924480d47fd92c85a71eb3619c0/88b9da6afdcc72c4acc49ec4cecc3d054d3ab6816602fb6422ebaa3baa709e00/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=7f438cbb9fcf5a6114abdd2c1a50223cff9ccb4e/g' scripts/release-binary.sh
+          # sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "envoy"/g' WORKSPACE
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
           cat Makefile.core.mk
@@ -91,7 +91,7 @@ jobs:
         env:
           BUILD_WITH_CONTAINER: 1
         run: |
-          make clean
+          # make clean
           make push_release
 
       - name: Put CentOS binary
@@ -106,7 +106,7 @@ jobs:
         env:
           UPSTREAM_GCSP_PATH: gs://istio-build/proxy
         run: |
-          SHA=$(git rev-parse --verify HEAD)
+          SHA="e9ff5fc6ab89d0383d2db9e3a45ca13d96e58729"
           gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
           gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
           gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
@@ -176,10 +176,10 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/d45eacec11967b7c3fce724709239f2bf9ca0cc4/2d7a13b1272e5f688454deb2dbe470c9a75807fa/g' WORKSPACE
-          sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/cb10fad758c738c10ad3fc9479263628bfbe0cd48e6e3828327c974b83eb1ae0/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=4740c10b483985dac60479899f21cbd5104447cb/g' scripts/release-binary.sh
-          sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
+          sed -i 's/da9e3341ab7aa35d6b4980aa0709a7412de79ff6/7f438cbb9fcf5a6114abdd2c1a50223cff9ccb4e/g' WORKSPACE
+          sed -i 's/65d3405d78bb877ecbe598ca7d9eb57cc9d04924480d47fd92c85a71eb3619c0/88b9da6afdcc72c4acc49ec4cecc3d054d3ab6816602fb6422ebaa3baa709e00/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=7f438cbb9fcf5a6114abdd2c1a50223cff9ccb4e/g' scripts/release-binary.sh
+          # sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
           cat Makefile.core.mk
@@ -206,7 +206,7 @@ jobs:
         env:
           UPSTREAM_GCSP_PATH: gs://istio-build/proxy
         run: |
-          SHA=$(git rev-parse --verify HEAD)
+          SHA="e9ff5fc6ab89d0383d2db9e3a45ca13d96e58729"
           gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
           gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
           gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
@@ -221,7 +221,8 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: "contains(github.event.ref, 'multiarch')"
+    # if: "contains(github.event.ref, 'multiarch')"
+    if: false
 
     steps:
       - name: checkout
@@ -278,7 +279,8 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: ${{ !cancelled() && !failure() }}
+    # if: ${{ !cancelled() && !failure() }}
+    if: false
 
     steps:
       - name: checkout
@@ -390,8 +392,8 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    # if: false
-    if: ${{ !cancelled() && !failure() }}
+    if: false
+    # if: ${{ !cancelled() && !failure() }}
 
     strategy:
       fail-fast: false
@@ -458,7 +460,8 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: ${{ !cancelled() && !failure() }}
+    # if: ${{ !cancelled() && !failure() }}
+    if: false
 
     strategy:
       fail-fast: false
@@ -522,7 +525,8 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: ${{ !cancelled() && !failure() }}
+    # if: ${{ !cancelled() && !failure() }}
+    if: false
 
     strategy:
       fail-fast: false
