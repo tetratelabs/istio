@@ -18,7 +18,7 @@ jobs:
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
-      IMG: gcr.io/tid-testing/build-tools-proxy:v3
+      IMG: gcr.io/tid-testing/build-tools-proxy:v5
     steps:
       - name: Get the tag
         id: get_tag
@@ -47,7 +47,7 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA=7f438cbb9fcf5a6114abdd2c1a50223cff9ccb4e
+          SHA=4475c3b143380244436a19752f2ee085f93a99fe
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
             SHOULD_BUILD=0
@@ -74,10 +74,10 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/da9e3341ab7aa35d6b4980aa0709a7412de79ff6/7f438cbb9fcf5a6114abdd2c1a50223cff9ccb4e/g' WORKSPACE
-          sed -i 's/65d3405d78bb877ecbe598ca7d9eb57cc9d04924480d47fd92c85a71eb3619c0/88b9da6afdcc72c4acc49ec4cecc3d054d3ab6816602fb6422ebaa3baa709e00/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=7f438cbb9fcf5a6114abdd2c1a50223cff9ccb4e/g' scripts/release-binary.sh
-          # sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "envoy"/g' WORKSPACE
+          sed -i 's/da9e3341ab7aa35d6b4980aa0709a7412de79ff6/4475c3b143380244436a19752f2ee085f93a99fe/g' WORKSPACE
+          sed -i 's/65d3405d78bb877ecbe598ca7d9eb57cc9d04924480d47fd92c85a71eb3619c0/8ccc15fefcfad5878f354410da16b63f70c86ff38d8daee8c7bacba58d8d467a/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=4475c3b143380244436a19752f2ee085f93a99fe/g' scripts/release-binary.sh
+          sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
           cat Makefile.core.mk
@@ -150,7 +150,7 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA=7f438cbb9fcf5a6114abdd2c1a50223cff9ccb4e
+          SHA=4475c3b143380244436a19752f2ee085f93a99fe
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-arm64 ; then
             SHOULD_BUILD=0
@@ -176,10 +176,10 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/da9e3341ab7aa35d6b4980aa0709a7412de79ff6/7f438cbb9fcf5a6114abdd2c1a50223cff9ccb4e/g' WORKSPACE
-          sed -i 's/65d3405d78bb877ecbe598ca7d9eb57cc9d04924480d47fd92c85a71eb3619c0/88b9da6afdcc72c4acc49ec4cecc3d054d3ab6816602fb6422ebaa3baa709e00/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=7f438cbb9fcf5a6114abdd2c1a50223cff9ccb4e/g' scripts/release-binary.sh
-          # sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
+          sed -i 's/da9e3341ab7aa35d6b4980aa0709a7412de79ff6/4475c3b143380244436a19752f2ee085f93a99fe/g' WORKSPACE
+          sed -i 's/65d3405d78bb877ecbe598ca7d9eb57cc9d04924480d47fd92c85a71eb3619c0/8ccc15fefcfad5878f354410da16b63f70c86ff38d8daee8c7bacba58d8d467a/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=4475c3b143380244436a19752f2ee085f93a99fe/g' scripts/release-binary.sh
+          sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
           cat Makefile.core.mk
