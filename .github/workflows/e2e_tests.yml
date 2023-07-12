@@ -78,6 +78,7 @@ jobs:
           sed -i 's/e6f1f6a4e454a7e96364d56993acedc30b974d5724ff222519fb8eb64db2c6da/8ccc15fefcfad5878f354410da16b63f70c86ff38d8daee8c7bacba58d8d467a/g' WORKSPACE
           sed -i 's/SHA=.*/SHA=4dac5b9124fb272c29ecd49917aecb88cf231692/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
+          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
           cat Makefile.core.mk
@@ -180,6 +181,7 @@ jobs:
           sed -i 's/e6f1f6a4e454a7e96364d56993acedc30b974d5724ff222519fb8eb64db2c6da/8ccc15fefcfad5878f354410da16b63f70c86ff38d8daee8c7bacba58d8d467a/g' WORKSPACE
           sed -i 's/SHA=.*/SHA=4dac5b9124fb272c29ecd49917aecb88cf231692/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
+          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
           cat Makefile.core.mk
