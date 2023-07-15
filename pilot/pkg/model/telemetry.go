@@ -515,7 +515,7 @@ func (t *Telemetries) telemetryFilters(proxy *Proxy, class networking.ListenerCl
 		if p == nil {
 			continue
 		}
-		_, logging := tml[k]
+		loggingCfg, logging := tml[k]
 		mertricCfg, metrics := tmm[k]
 
 		mertricCfg.RotationInterval = rotationInterval
@@ -524,7 +524,7 @@ func (t *Telemetries) telemetryFilters(proxy *Proxy, class networking.ListenerCl
 		cfg := telemetryFilterConfig{
 			Provider:      p,
 			metricsConfig: mertricCfg,
-			AccessLogging: logging,
+			AccessLogging: logging && !loggingCfg.Disabled,
 			Metrics:       metrics,
 			LogsFilter:    tml[p.Name].Filter,
 			NodeType:      proxy.Type,
@@ -869,7 +869,7 @@ func isAllMetrics(match *tpb.MetricSelector) bool {
 	case *tpb.MetricSelector_Metric:
 		return m.Metric == tpb.MetricSelector_ALL_METRICS
 	default:
-		return false
+		return true
 	}
 }
 
