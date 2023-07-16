@@ -43,4 +43,3 @@ with open(source_yaml, "r") as file :
     print(manifest)
     f = open(os.path.join(destination_folder, "manifest.archive.yaml"), 'w')
     yaml.dump(manifest, f)
-
