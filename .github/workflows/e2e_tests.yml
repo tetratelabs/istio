@@ -47,7 +47,7 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA=4740c10b483985dac60479899f21cbd5104447cb
+          SHA=db9385cd0d90e56c13cff011a59e9ced167db08a
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
             SHOULD_BUILD=0
@@ -155,7 +155,7 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA=4740c10b483985dac60479899f21cbd5104447cb
+          SHA=db9385cd0d90e56c13cff011a59e9ced167db08a
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-arm64 ; then
             SHOULD_BUILD=0
