@@ -202,7 +202,6 @@ jobs:
           IMG: gcr.io/tid-testing/build-tools-proxy-arm64:v5
         run: make push_release
 
-
   create-test-images-arm64:
     name: create-test-images-arm64
     runs-on: ["self-hosted", "arm64"]
@@ -267,7 +266,7 @@ jobs:
     name: create-test-images-amd64
     #runs-on: ['self-hosted','Linux','x64','m5']
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
-    needs: ['build_fips_proxy','build_fips_arm_proxy']
+    needs: ['build_fips_proxy']
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
