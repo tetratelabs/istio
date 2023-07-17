@@ -202,14 +202,6 @@ jobs:
           IMG: gcr.io/tid-testing/build-tools-proxy-arm64:v5
         run: make push_release
 
-      - name: Put CentOS binary
-        # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
-        # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
-        run: |
-          SHA=3484b38f170965a95e9983d1853e1469180a98b8
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
-
 
   create-test-images-arm64:
     name: create-test-images-arm64
