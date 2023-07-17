@@ -74,13 +74,14 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/d45eacec11967b7c3fce724709239f2bf9ca0cc4/4740c10b483985dac60479899f21cbd5104447cb/g' WORKSPACE
-          sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/e710cf61f5e35747684ec068ec15f5542967d6bce770c31b776f20f765ed6922/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=4740c10b483985dac60479899f21cbd5104447cb/g' scripts/release-binary.sh
+          sed -i 's/894be19b3466e821f7cc0cd203307b29e1fa5759/db9385cd0d90e56c13cff011a59e9ced167db08a/g' WORKSPACE
+          sed -i 's/299f2e596682ddba7b93435f98223468212eb83676d666fe11b5013939e66ce4/88914541a08bfb80ae514f7f3966fdf16c73350210b9b0945617f97c9b4a94f4/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=db9385cd0d90e56c13cff011a59e9ced167db08a/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
           cat Makefile.core.mk
+          cat WORKSPACE
 
       - name: Add FIPS flag
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
@@ -98,7 +99,7 @@ jobs:
         # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
         # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
         run: |
-          SHA=$(git rev-parse --verify HEAD)
+          SHA="db9385cd0d90e56c13cff011a59e9ced167db08a"
           gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
 
       - name: Put Wasm binary
@@ -106,10 +107,14 @@ jobs:
         env:
           UPSTREAM_GCSP_PATH: gs://istio-build/proxy
         run: |
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
+          SHA="098fbf9322eca71618e4039c5f4d71905853e6a4"
+          SHA1="db9385cd0d90e56c13cff011a59e9ced167db08a"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}.compiled.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA1}.compiled.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA1}.compiled.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA1}.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA1}.wasm.sha256"
+          # gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
+          # gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
           
   build_fips_arm_proxy:
     # Do not run this job when the release type equals "fips"as we do not support fips compliant ARM build yet.
@@ -176,9 +181,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/d45eacec11967b7c3fce724709239f2bf9ca0cc4/2d7a13b1272e5f688454deb2dbe470c9a75807fa/g' WORKSPACE
-          sed -i 's/9d34f2dd099d7ceac6f19a9b13edb50232066682ba99d22e79520b62b29e702f/cb10fad758c738c10ad3fc9479263628bfbe0cd48e6e3828327c974b83eb1ae0/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=4740c10b483985dac60479899f21cbd5104447cb/g' scripts/release-binary.sh
+          sed -i 's/894be19b3466e821f7cc0cd203307b29e1fa5759/db9385cd0d90e56c13cff011a59e9ced167db08a/g' WORKSPACE
+          sed -i 's/299f2e596682ddba7b93435f98223468212eb83676d666fe11b5013939e66ce4/88914541a08bfb80ae514f7f3966fdf16c73350210b9b0945617f97c9b4a94f4/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=db9385cd0d90e56c13cff011a59e9ced167db08a/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
@@ -195,21 +200,6 @@ jobs:
           IMG: gcr.io/tid-testing/build-tools-proxy-arm64:v5
         run: make push_release
 
-      - name: Put CentOS binary
-        # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
-        # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
-        run: |
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
-      - name: Put Wasm binary
-        # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
-        env:
-          UPSTREAM_GCSP_PATH: gs://istio-build/proxy
-        run: |
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
 
   create-test-images-arm64:
     name: create-test-images-arm64
