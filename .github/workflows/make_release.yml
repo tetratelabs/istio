@@ -40,7 +40,7 @@ jobs:
         id: check_already_built
         run: |
           set +e
-          SHA=$(git rev-parse --verify HEAD)
+          SHA=3484b38f170965a95e9983d1853e1469180a98b8
           gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}
           echo ::set-output name=should_build::$?
 

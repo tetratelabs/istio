@@ -49,7 +49,7 @@ jobs:
         run: |
           SHA=3484b38f170965a95e9983d1853e1469180a98b8
           SHOULD_BUILD=1
-          if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
+          if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}" ; then
             SHOULD_BUILD=0
           fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
