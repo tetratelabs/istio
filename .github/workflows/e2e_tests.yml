@@ -76,14 +76,13 @@ jobs:
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
           mkdir envoytar
-          wget --header 'Authorization:Bearer ${ENVOY_SECRET}' https://github.com/tetratelabs/envoy/archive/574c3dd2c41fb18431eb79ad574042c0b865bc1f.tar.gz -O envoytar/574c3dd2c41fb18431eb79ad574042c0b865bc1f.tar.gz
+          # wget --header 'Authorization:Bearer ${ENVOY_SECRET}' https://github.com/tetratelabs/envoy/archive/574c3dd2c41fb18431eb79ad574042c0b865bc1f.tar.gz -O envoytar/574c3dd2c41fb18431eb79ad574042c0b865bc1f.tar.gz
           # sed -i 's/87bbee939d9691d20c72936a03dd38457368babd/574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' WORKSPACE
           # sed  -i '/strip_prefix/a\    auth_patterns = {\n     "github.com": "Bearer <password>",\n    },' WORKSPACE
           # sed -i 's/ENVOY_ORG = "istio"/ENVOY_ORG = "tetratelabs"/g' WORKSPACE
           # sed -i 's/6359991c3c7f6a52820d82416a8bba8788488cc3e0d9de59d61787c31a69906f/a25626fa4dcd58bebd2faed9a9762901009e9dc436e530102519dc30de396d2f/g' WORKSPACE
           sed -i 's/SHA=.*/SHA=574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' scripts/release-binary.sh
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
-          # echo machine github.com password ${ENVOY_SECRET} > .netrc
           echo "build --override_repository=envoy=./envoytar" >> .bazelrc
           cat .bazelrc
           sleep 300
