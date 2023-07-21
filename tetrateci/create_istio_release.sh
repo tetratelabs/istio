@@ -63,9 +63,6 @@ if [[ "$(uname -m)" = "aarch64" ]]; then
     
 fi
 
-
-
-
 # HACK : default manifest from release builder is modified
 echo "Generating the manifests"
 # we are generating the different yamls for both the archive & docker image builds which are saved to release-builder folder

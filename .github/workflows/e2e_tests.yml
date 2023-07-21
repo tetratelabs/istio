@@ -10,6 +10,86 @@ env:
 
 jobs:
   # copied from make_release.yml
+  build_proxy:
+    # Only run this job when the release type equals "fips".
+    if: contains(github.event.ref, 'envoy')
+    name: build  proxy binary
+    timeout-minutes: 840 
+    runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
+    env:
+      RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
+    steps:
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
+
+      - name: Get normalized tag
+        id: get_minor_ver
+        run: echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          repository: "istio/proxy"
+          ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Check if already built
+        id: check_already_built
+        run: |
+          SHA="574c3dd2c41fb18431eb79ad574042c0b865bc1f"
+          SHOULD_BUILD=1
+          if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
+            SHOULD_BUILD=0
+          fi
+          echo ::set-output name=should_build::${SHOULD_BUILD}
+
+      - name: Tweak make recipe
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        # 1) remove unnecessary dependency on naive "build" target
+        # 2) remove "-p" flag to not push and build container,
+        # 3) replace RELEASE_GCS_PATH var with the literal due to docker build.
+        # from push_release.
+        run: |
+          ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
+          sed -i "s/\-p//g; s/push_release: build/push_release:/g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
+
+      - name: Tweak release-binary script
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        # 1) Setup in-docker auth against gcloud
+        # 2) Remove unnecessary debug build
+        # 3) Remove unnecessary Wasm build and publish
+        # Note that /work is the mount destination of the current home of make command with BUILD_WITH_CONTAINER=1.
+        run: |
+          CREDENTIAL_FILE_NAME=$(echo ${GOOGLE_APPLICATION_CREDENTIALS} | awk -F/ '{print $NF}')
+          cp scripts/release-binary.sh scripts/release-binary.sh.tmp
+          echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
+          cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
+          sed -i 's/87bbee939d9691d20c72936a03dd38457368babd/574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' WORKSPACE
+          sed  -i '/strip_prefix/a\    auth_patterns = {\n     "github.com": "Token <password>",\n    },' WORKSPACE
+          sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "tetratelabs"/g' WORKSPACE
+          sed -i 's/6359991c3c7f6a52820d82416a8bba8788488cc3e0d9de59d61787c31a69906f/a25626fa4dcd58bebd2faed9a9762901009e9dc436e530102519dc30de396d2f/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' scripts/release-binary.sh
+          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
+          cat scripts/release-binary.sh
+          cat Makefile.core.mk
+          cat WORKSPACE
+          cat scripts/release-binary.sh
+
+      - name: Build and push
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        env:
+          BUILD_WITH_CONTAINER: 1
+        run: make push_release
   build_fips_proxy:
     # Only run this job when the release type equals "fips".
     if: contains(github.event.ref, 'fips')
@@ -263,13 +343,12 @@ jobs:
   create-test-images-amd64:
     name: create-test-images-amd64
     #runs-on: ['self-hosted','Linux','x64','m5']
-    runs-on: ['self-hosted','Linux','x64','m5.large']
+    runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     needs: [build_fips_proxy]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
     if: ${{ !cancelled() && !failure() }}
-
     steps:
       - name: checkout
         uses: actions/checkout@v2
