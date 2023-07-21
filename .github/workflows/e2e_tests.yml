@@ -82,8 +82,8 @@ jobs:
           sed -i 's/SHA=.*/SHA=574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' scripts/release-binary.sh
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           # echo machine github.com password ${ENVOY_SECRET} > .netrc
-          echo "--override_repository=envoy=/home/tetrateci/actions-runner/_work" >> .bazelrc
-          sleep 200
+          echo "build --override_repository=envoy=/home/tetrateci/actions-runner/_work" >> .bazelrc
+          sleep 60
           cat .bazelrc
 
       - name: Build and push
