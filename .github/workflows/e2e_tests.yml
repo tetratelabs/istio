@@ -82,11 +82,9 @@ jobs:
           sed -i 's/SHA=.*/SHA=574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' scripts/release-binary.sh
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           echo machine github.com password ${ENVOY_SECRET} > .netrc
-          cp .netrc 
-
           cat Makefile.core.mk
           cat WORKSPACE
-          cat scripts/release-binary.sh
+          pwd
           sleep 500
 
       - name: Build and push
