@@ -87,7 +87,7 @@ jobs:
           sed -i 's/SHA=.*/SHA=574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' scripts/release-binary.sh
           sed  -i 's/release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sleep 60
-          echo "build --override_repository=envoy=/work/envoytar" >> .bazelrc
+          echo build --override_repository="envoy=/work/envoytar" >> .bazelrc
           cat .bazelrc
          
 
