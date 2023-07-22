@@ -79,7 +79,7 @@ jobs:
           mkdir envoytar
           touch  envoytar/WORKSPACE
           echo filegroup(name = "all", srcs = glob(["**"]), visibility = ["//visibility:public"]) > envoytar/BUILD
-          wget --header 'Authorization:Bearer password' https://github.com/tetratelabs/envoy/archive/574c3dd2c41fb18431eb79ad574042c0b865bc1f.tar.gz -O envoytar/574c3dd2c41fb18431eb79ad574042c0b865bc1f.tar.gz
+          # wget --header 'Authorization:Bearer password' https://github.com/tetratelabs/envoy/archive/574c3dd2c41fb18431eb79ad574042c0b865bc1f.tar.gz -O envoytar/574c3dd2c41fb18431eb79ad574042c0b865bc1f.tar.gz
           # sed -i 's/87bbee939d9691d20c72936a03dd38457368babd/574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' WORKSPACE
           # sed  -i '/strip_prefix/a\    auth_patterns = {\n     "github.com": "Bearer <password>",\n    },' WORKSPACE
           # sed -i 's/ENVOY_ORG = "istio"/ENVOY_ORG = "tetratelabs"/g' WORKSPACE
