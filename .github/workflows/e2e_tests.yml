@@ -264,6 +264,7 @@ jobs:
         env:
           BUILD_WITH_CONTAINER: 1
           BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
+          BUILD_ENVOY_BINARY_ONLY: 1
         run: make push_release
 
 
