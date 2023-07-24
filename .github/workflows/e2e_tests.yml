@@ -192,10 +192,10 @@ jobs:
           
   build_fips_arm_proxy:
     # Do not run this job when the release type equals "fips"as we do not support fips compliant ARM build yet.
-    if: contains(github.event.ref, 'fips')
+    if: contains(github.event.ref, 'envoy')
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
-    runs-on: ['self-hosted','Linux','ARM64','m6.large']
+    runs-on: ['self-hosted','Linux','ARM64','arm64-32']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
       ARCH_SUFFIX: arm64
@@ -229,7 +229,7 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA=$(git rev-parse --verify HEAD)
+          SHA="574c3dd2c41fb18431eb79ad574042c0b865bc1f"
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-arm64 ; then
             SHOULD_BUILD=0
@@ -255,36 +255,17 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
-          sed -i '/if \[\[ "${BUILD_ENVOY_BINARY_ONLY}" !/, +6d' scripts/release-binary.sh
-          sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
-          cat scripts/release-binary.sh
-      - name: Add FIPS flag
-        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
-        run: echo "build --define boringssl=fips" >> .bazelrc
+          sed -i 's/SHA=.*/SHA=574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' scripts/release-binary.sh
+          sed  -i 's/release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
+          cp -rf ../envoy .     
 
       - name: Build and push
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
           BUILD_WITH_CONTAINER: 1
-          IMG: gcr.io/tetrate-istio-arm/build-tools-proxy:master-latest-arm64
+          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
         run: make push_release
 
-      - name: Put CentOS binary
-        # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
-        # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
-        run: |
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
-      - name: Put Wasm binary
-        # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
-        env:
-          UPSTREAM_GCSP_PATH: gs://istio-build/proxy
-        run: |
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
 
   create-test-images-arm64:
     name: create-test-images-arm64
@@ -349,7 +330,7 @@ jobs:
     name: create-test-images-amd64
     #runs-on: ['self-hosted','Linux','x64','m5']
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
-    needs: [build_fips_proxy]
+    needs: [build_fips_arm_proxy]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
