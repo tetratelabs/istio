@@ -396,6 +396,7 @@ jobs:
       - name: build and push images
         run: bash ./tetrateci/create_istio_release.sh
         env:
+          ISTIO_ENVOY_BASE_URL: "https://storage.googleapis.com/getistio-build/proxy-fips"
           TAG: ${{ steps.get_tag.outputs.TAG }}
           TEST: "true"
           # if the tag contains fips we are doing a fips build
