@@ -522,6 +522,7 @@ spec:
 		if rev := getIstioRevision(cfg.Namespace); len(rev) > 0 {
 			cmd = append(cmd, "--revision", rev)
 		}
+		cmd = append(cmd, "--ingressIP", istiodAddr.Addr().String())
 		// make sure namespace controller has time to create root-cert ConfigMap
 		if err := retry.UntilSuccess(func() error {
 			stdout, stderr, err := istioCtl.Invoke(cmd)
