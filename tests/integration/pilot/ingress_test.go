@@ -48,8 +48,6 @@ import (
 	ingressutil "istio.io/istio/tests/integration/security/sds_ingress/util"
 )
 
-<<<<<<< ours
-=======
 func TestGateway(t *testing.T) {
 	framework.
 		NewTest(t).
@@ -282,7 +280,6 @@ spec:
 		})
 }
 
->>>>>>> theirs
 func skipIfIngressClassUnsupported(t framework.TestContext) {
 	if !t.Clusters().Default().MinKubeVersion(18) {
 		t.Skip("IngressClass not supported")
