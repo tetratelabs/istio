@@ -7,7 +7,7 @@ on:
 
 env:
   HUB: ${{ secrets.TEST_HUB }}
-  SHA: "3484b38f170965a95e9983d1853e1469180a98b8"
+  SHA: "457ef9c0b1b3019df990dddf1bf110f42db8247e"
 
 jobs:
   # copied from make_release.yml
