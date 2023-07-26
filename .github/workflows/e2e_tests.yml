@@ -180,7 +180,7 @@ jobs:
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
           sed -i 's/da77eab7d2f758ac4380467775ec29e47ff28205/44bb48b8a72151a8cc8ebeec583e524e324b5bc0/g' WORKSPACE
-          sed -i 's/8bae7e001560c1be51f4096eaffc72164c16f60138b3e96db253b1867118f979/ba1da637c52b9c7cd93fbb7f2e3f10747663ab8c66a53b8b4d64e2afa7a6ca6c/g' WORKSPACE
+          sed -i 's/8bae7e001560c1be51f4096eaffc72164c16f60138b3e96db253b1867118f979/bb17f0011395b1c79a773430f5cf1782e24cbe53e1e3e0fa0ebe771cbd2e1247/g' WORKSPACE
           sed -i 's/SHA=.*/SHA=44bb48b8a72151a8cc8ebeec583e524e324b5bc0/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
