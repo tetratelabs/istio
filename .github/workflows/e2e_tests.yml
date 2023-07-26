@@ -7,7 +7,7 @@ on:
 
 env:
   HUB: ${{ secrets.TEST_HUB }}
-  SHA: "457ef9c0b1b3019df990dddf1bf110f42db8247e"
+  SHA: "220f2abf4d0ee5f9c2fca11101cf4607a766ab0c"
 
 jobs:
   # copied from make_release.yml
@@ -75,9 +75,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/f826f1dbddd3326abee19009ea9f019e8a9d5997/457ef9c0b1b3019df990dddf1bf110f42db8247e/g' WORKSPACE
-          sed -i 's/0a932fd090feed587d82b4b943a1032a5a424587f65455a37236cffefc8648ef/ca68ae880f02d2f0ff9cf1cd5442beca1d4c1bd644000c74c40724b1d7ef25d1/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=457ef9c0b1b3019df990dddf1bf110f42db8247e/g' scripts/release-binary.sh
+          sed -i 's/f826f1dbddd3326abee19009ea9f019e8a9d5997/220f2abf4d0ee5f9c2fca11101cf4607a766ab0c/g' WORKSPACE
+          sed -i 's/0a932fd090feed587d82b4b943a1032a5a424587f65455a37236cffefc8648ef/5376b0dfea2beb0a7f22be0e9727c952a423d95bded7683a068ab891c362003b/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=220f2abf4d0ee5f9c2fca11101cf4607a766ab0c/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
@@ -108,11 +108,11 @@ jobs:
         env:
           UPSTREAM_GCSP_PATH: gs://istio-build/proxy
         run: |
-          SHA1="3484b38f170965a95e9983d1853e1469180a98b8"
-          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}.compiled.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA1}.compiled.wasm"
-          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA1}.compiled.wasm.sha256"
-          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA1}.wasm"
-          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA1}.wasm.sha256"
+          SHA1="3c27a1b0cf381ca854ccc3a2034e88c206928da2"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm.sha256"
 
           
   build_fips_arm_proxy:
