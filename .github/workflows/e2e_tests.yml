@@ -154,7 +154,6 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA=3484b38f170965a95e9983d1853e1469180a98b8
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-arm64 ; then
             SHOULD_BUILD=0
