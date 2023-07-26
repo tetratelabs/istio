@@ -30,3 +30,4 @@ istio.io/istio/tests/integration/operator=TestPostInstallControlPlaneVerificatio
 istio.io/istio/tests/integration/security=TestReachability/global_no_peer_authn TestReachability/migration_tls_mutual TestReachability/migration_no_tls TestReachability/mtls_strict
 istio.io/istio/tests/integration/helm/upgrade=*
 istio.io/istio/tests/integration/security/sds_ingress/quic=*
+istio.io/istio/tests/integration/telemetry/envoyfilter/customizemetrics=*

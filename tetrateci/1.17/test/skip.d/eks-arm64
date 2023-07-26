@@ -29,3 +29,4 @@ istio.io/istio/tests/integration/security/sds_ingress/quic=*
 istio.io/istio/tests/integration/telemetry/stackdriver=*
 istio.io/istio/tests/integration/telemetry/stackdriver/vm=*
 istio.io/istio/tests/integration/telemetry_envoyfilter_nullvm=TestDashboard
+istio.io/istio/tests/integration/telemetry/envoyfilter/customizemetrics=*
