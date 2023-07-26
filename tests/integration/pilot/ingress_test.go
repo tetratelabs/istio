@@ -228,7 +228,7 @@ spec:
 						retry.UntilSuccessOrFail(t, func() error {
 							gwc, err := t.Clusters().Kube().Default().GatewayAPI().GatewayV1beta1().GatewayClasses().Get(context.Background(), "istio", metav1.GetOptions{})
 							if err != nil {
-                                                           return err
+								return err
 							}
 
 							if s := kstatus.GetCondition(gwc.Status.Conditions, string(k8s.GatewayClassConditionStatusAccepted)).Status; s != metav1.ConditionTrue {
@@ -553,8 +553,6 @@ spec:
 				host, _ := defaultIngress.HTTPAddress()
 				hostIsIP := net.ParseIP(host).String() != "<nil>"
 				retry.UntilSuccessOrFail(t, func() error {
-<<<<<<< ours
-=======
 					if apiVersion == "v1beta1" {
 						ing, err := t.Clusters().Default().Kube().NetworkingV1beta1().Ingresses(apps.Namespace.Name()).Get(context.Background(), "ingress", metav1.GetOptions{})
 						if err != nil {
@@ -578,7 +576,6 @@ spec:
 						}
 						return nil
 					}
->>>>>>> theirs
 					ing, err := t.Clusters().Default().Kube().NetworkingV1().Ingresses(apps.Namespace.Name()).Get(context.Background(), "ingress", metav1.GetOptions{})
 					if err != nil {
 						return err
