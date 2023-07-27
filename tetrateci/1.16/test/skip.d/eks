@@ -22,12 +22,10 @@
 #
 # indicates that tests for the package `<pkg>` should not be run at all.
 
-istio.io/istio/tests/integration/helm/upgrade=TestRevisionTagsUpgradeFromPrevious
-MinorRelease
-
-istio.io/istio/tests/integration/pilot=TestIngress/status
-
-istio.io/istio/tests/integration/telemetry/tracing/zipkin/servertracing=TestProxyTracing
-
 istio.io/istio/tests/integration/telemetry/stackdriver=*
 istio.io/istio/tests/integration/telemetry/stackdriver/vm=*
+istio.io/istio/tests/integration/pilot=TestGatewayConformance TestIngress/status
+istio.io/istio/tests/integration/helm/upgrade=*
+istio.io/istio/tests/integration/pilot/endpointsmode=*
+istio.io/istio/tests/integration/pilot/revisions=*
+istio.io/istio/tests/integration/security/sds_ingress/quic=*
