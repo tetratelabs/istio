@@ -10,7 +10,7 @@ on:
 jobs:
   build_fips_proxy:
     # Only run this job when the release type equals "fips".
-    if: contains(github.event.inputs.tag, 'fips')
+    if: false
     name: build fips proxy binary
     timeout-minutes: 1440 # 12 hours
     runs-on: ['self-hosted','Linux','x64','m5.large']
