@@ -71,6 +71,7 @@ for pkg in $PACKAGES; do
     ${SKIP_TEST_FLAGS[@]+"${SKIP_TEST_FLAGS[@]}"} \
     --istio.test.ci \
     --istio.test.hub=${HUB} \
+    --istio.test.skipVM=true \
     --istio.test.tag=${TAG}-distroless \
     --istio.test.pullpolicy=IfNotPresent \
     --istio.test.retries=3 \
@@ -84,6 +85,7 @@ for pkg in $PACKAGES; do
     --istio.test.select=-postsubmit,-flaky \
     ${SKIP_TEST_FLAGS[@]+"${SKIP_TEST_FLAGS[@]}"} \
     --istio.test.ci \
+    --istio.test.skipVM=true \
     --istio.test.pullpolicy=IfNotPresent \
     --istio.test.retries=3 \
     ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
