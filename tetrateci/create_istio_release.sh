@@ -8,14 +8,9 @@ BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
 sudo rm -rf /usr/local/go
 
-## Set up apporiate go version
-if [[ ${TAG} =~ "fips" ]]; then
-    echo "Set up FIPS compliant Golang"
-    source ${BASEDIR}/tetrateci/setup_boring_go.sh
-else
-    echo "Set up Golang"
-    source ${BASEDIR}/tetrateci/setup_go.sh
-fi
+source ${BASEDIR}/tetrateci/setup_go.sh
+
+
 
 ## Set up release-builder
 
@@ -131,9 +126,10 @@ echo "Images are built with: go $BUILD_GO_VERSION"
 
 [ $BUILD_GO_VERSION == go$GOLANG_VERSION ] || exit 1
 
-# fips go versions are like 1.14.12b5, extra checking to not miss anything
-if [ ${TAG} =~ "fips" ]; then 
-    [[ $BUILD_GO_VERSION =~ 1.[0-9]+.[0-9]+[a-z][0-9]$ ]] || exit 1
+# Check if binaries are compiled with boringcrypto
+if [ ${TAG} =~ "fips" ]; then
+    CHECK_CRYPTO=$(go version pilot-bin| cut -f3 -d" ") 
+    [[ $CHECK_CRYPTO == X:boringcrypto ]] || exit 1
 fi
 
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
