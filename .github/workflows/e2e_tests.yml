@@ -56,6 +56,7 @@ jobs:
         id: check_already_built
         env:
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
         run: |
           SHA=$(echo $TAG | sed 's/test-//g' | sed 's/[0-9].[0-9][0-9].[0-9]-[A-Za-z]*-//g' | sed 's/-.*//g')
           SHOULD_BUILD=1
@@ -125,7 +126,8 @@ jobs:
           
   build_fips_arm_proxy:
     # Do not run this job when the release type equals "fips"as we do not support fips compliant ARM build yet.
-    if: contains(github.event.ref, 'fips')
+    # if: contains(github.event.ref, 'fips')
+    if: false
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
     runs-on: ['self-hosted','Linux','ARM64','arm64-32']
