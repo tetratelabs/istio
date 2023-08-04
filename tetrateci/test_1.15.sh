@@ -34,8 +34,8 @@ if [[ "${CLUSTER}" == "gke" ]]; then
 fi
 
 if [[ "${CLUSTER}" == "eks" ]]; then
-  echo "Applying Ingress patch for EKS...."
-  git apply "${SCRIPTDIR}/patches/eks/eks-ingress.1.15.patch"
+  echo "Applying  patch for EKS...."
+  git apply --3way "${SCRIPTDIR}/patches/eks/eks.${ISTIO_MINOR_VER}.patch"
 fi
 
 
