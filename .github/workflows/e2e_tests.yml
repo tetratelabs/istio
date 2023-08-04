@@ -22,36 +22,29 @@ jobs:
       - name: Get the tag
         id: get_tag
         run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
-
       - name: Get normalized tag
         id: get_normalized_ver
         run: echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g')
         shell: bash
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
-
       - name: Get minor version
         id: get_minor_ver
         run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
         shell: bash
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
-
-
       - name: Checkout
         uses: actions/checkout@v2
         with:
           repository: "istio/proxy"
           ref: ${{ steps.get_normalized_ver.outputs.NORMALIZED_TAG }}
-
-
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
-
       - name: Check if already built
         id: check_already_built
         env:
@@ -65,12 +58,10 @@ jobs:
             SHOULD_BUILD=0
           fi          
           if [ $(bc <<< "$REL_BRANCH_VER > 1.17") -eq 1 ];then 
-            SHOULD_COPY=1
+            SHOULD_COPY=0
           fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
           echo ::set-output name=should_copy::${SHOULD_COPY}
-
-
       - name: Tweak make recipe
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         # 1) remove unnecessary dependency on naive "build" target
@@ -80,7 +71,6 @@ jobs:
         run: |
           ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
           sed -i "s/\-p//g; s/push_release: build/push_release:/g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
-
       - name: Tweak release-binary script
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         # 1) Setup in-docker auth against gcloud
@@ -92,7 +82,7 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
+          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
 
@@ -100,24 +90,24 @@ jobs:
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         run: echo "build --define boringssl=fips" >> .bazelrc
 
-      # - name: Build and push
-      #   if: ${{ steps.check_already_built.outputs.should_build == '1' }}
-      #   env:
-      #     BUILD_WITH_CONTAINER: 1
-      #   run: make push_release
+      - name: Build and push
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        env:
+          BUILD_WITH_CONTAINER: 1
+        run: make push_release
 
-      # - name: Put CentOS binary
-      #   env:
-      #     REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-      #     TAG: ${{ steps.get_tag.outputs.TAG }}
-      #   # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
-      #   # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
-      #   run: |
-      #     SHA=$(echo $TAG | sed 's/test-//g' | sed 's/[0-9].[0-9][0-9].[0-9]-[A-Za-z]*-//g' | sed 's/-.*//g')
-      #     gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
+      - name: Put CentOS binary
+        env:
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+        # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
+        # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
+        run: |
+          SHA=$(echo $TAG | sed 's/test-//g' | sed 's/[0-9].[0-9][0-9].[0-9]-[A-Za-z]*-//g' | sed 's/-.*//g')
+          gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
 
       - name: Put Wasm binary
-        if: ${{ steps.check_already_built.outputs.should_build == '0' &&  steps.check_already_built.outputs.should_copy == '1' }}
+        if: ${{ steps.check_already_built.outputs.should_build == '1' &&  steps.check_already_built.outputs.should_copy == '1' }}
         # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
         env:
           UPSTREAM_GCSP_PATH: gs://istio-build/proxy
@@ -134,7 +124,7 @@ jobs:
           gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/stats-${SHA}.compiled.wasm.sha256"
           gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.wasm" "${RELEASE_GCS_PATH}/stats-${SHA}.wasm"
           gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.wasm.sha256" "${RELEASE_GCS_PATH}/stats-${SHA}.wasm.sha256"
-          
+
   build_fips_arm_proxy:
     # Do not run this job when the release type equals "fips"as we do not support fips compliant ARM build yet.
     # if: contains(github.event.ref, 'fips')
@@ -146,40 +136,40 @@ jobs:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
       ARCH_SUFFIX: arm64
     steps:
-      - name: Get the tag
-        id: get_tag
-        run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
-
       - name: Get normalized tag
-        id: get_minor_ver
-        run: |
-          echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g')
-          echo ::set-output name=RELEASE_VERSION::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g' | sed 's/\.[^\.]*$//g')
+        id: get_normalized_ver
+        run: echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g')
         shell: bash
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
-
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
       - name: Checkout
         uses: actions/checkout@v2
         with:
           repository: "istio/proxy"
-          ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
-
+          ref: ${{ steps.get_normalized_ver.outputs.NORMALIZED_TAG }}
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
-
       - name: Check if already built
         id: check_already_built
+        env:
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
         run: |
-          SHA=$(git rev-parse --verify HEAD)
+          SHA=$(echo $TAG | sed 's/test-//g' | sed 's/[0-9].[0-9][0-9].[0-9]-[A-Za-z]*-//g' | sed 's/-.*//g')
           SHOULD_BUILD=1
-          if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-arm64 ; then
+          if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
             SHOULD_BUILD=0
-          fi
+          fi          
           echo ::set-output name=should_build::${SHOULD_BUILD}
       - name: Tweak make recipe
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
@@ -208,29 +198,12 @@ jobs:
       - name: Add FIPS flag
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         run: echo "build --define boringssl=fips" >> .bazelrc
-
       - name: Build and push
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
+          BUILD_ENVOY_BINARY_ONLY: 1
           BUILD_WITH_CONTAINER: 1
-          IMG: gcr.io/istio-testing/build-tools-proxy:release-1.18-4b6de8aea68d4d43ce4fbe2243933928c7219676
         run: make push_release
-
-      - name: Put CentOS binary
-        # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
-        # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
-        run: |
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
-      - name: Put Wasm binary
-        # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
-        env:
-          UPSTREAM_GCSP_PATH: gs://istio-build/proxy
-        run: |
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
 
   create-test-images-arm64:
     name: create-test-images-arm64
