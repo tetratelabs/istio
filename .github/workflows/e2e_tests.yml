@@ -64,7 +64,7 @@ jobs:
           if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
             SHOULD_BUILD=0
           fi          
-          if [ $(bc <<< $REL_BRANCH_VER: > 1.17") -eq 1 ]; then
+          if [ $(bc <<< "$REL_BRANCH_VER > 1.17") -eq 1 ];then 
             SHOULD_COPY=0
           fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
