@@ -30,13 +30,18 @@ docker cp $CNI_CONTAINER_ID:/usr/local/bin/install-cni install-cni
 
 Verify the Go version used by the binaries.
 ```shell
-go version pilot-discovery | cut -f2 -d" "
-go version pilot-agent | cut -f2 -d" "
-go version operator | cut -f2 -d" "
-go version istioctl | cut -f2 -d" "
-go version install-cni | cut -f2 -d" "
+go version pilot-discovery 
+go version pilot-agent 
+go version operator 
+go version istioctl 
+go version install-cni 
 ```
-The Go version should include `b` to indicate BoringSSL, `go1.16.9b7` for example.
+
+For Istio minor version <1.15
+The Go version should include `b` to indicate BoringSSL, `go1.16.9b7` 
+For Istio minor version >1.15
+The Go version should indicate X:boringcrypto as cryptolibrary, `pilot-discovery: go1.19.1 X:boringcrypto`
+
 
 Verify Envoy is using BoringSSL FIPS:
 ```shell
