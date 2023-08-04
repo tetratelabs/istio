@@ -37,10 +37,10 @@ go version istioctl
 go version install-cni 
 ```
 
-For Istio minor version <1.15
-The Go version should include `b` to indicate BoringSSL, `go1.16.9b7` 
-For Istio minor version >1.15
-The Go version should indicate X:boringcrypto as cryptolibrary, `pilot-discovery: go1.19.1 X:boringcrypto`
+- For Istio minor version <1.15
+  The Go version should include `b` to indicate BoringSSL, `go1.16.9b7` 
+- For Istio minor version >1.15
+  The Go version should indicate X:boringcrypto as cryptolibrary, `pilot-discovery: go1.19.1 X:boringcrypto`
 
 
 Verify Envoy is using BoringSSL FIPS:
