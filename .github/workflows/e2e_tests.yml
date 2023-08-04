@@ -65,7 +65,7 @@ jobs:
             SHOULD_BUILD=0
           fi          
           if [ $(bc <<< "$REL_BRANCH_VER > 1.17") -eq 1 ];then 
-            SHOULD_COPY=0
+            SHOULD_COPY=1
           fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
           echo ::set-output name=should_copy::${SHOULD_COPY}
@@ -100,21 +100,21 @@ jobs:
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         run: echo "build --define boringssl=fips" >> .bazelrc
 
-      - name: Build and push
-        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
-        env:
-          BUILD_WITH_CONTAINER: 1
-        run: make push_release
+      # - name: Build and push
+      #   if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+      #   env:
+      #     BUILD_WITH_CONTAINER: 1
+      #   run: make push_release
 
-      - name: Put CentOS binary
-        env:
-          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-          TAG: ${{ steps.get_tag.outputs.TAG }}
-        # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
-        # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
-        run: |
-          SHA=$(echo $TAG | sed 's/test-//g' | sed 's/[0-9].[0-9][0-9].[0-9]-[A-Za-z]*-//g' | sed 's/-.*//g')
-          gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
+      # - name: Put CentOS binary
+      #   env:
+      #     REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+      #     TAG: ${{ steps.get_tag.outputs.TAG }}
+      #   # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
+      #   # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
+      #   run: |
+      #     SHA=$(echo $TAG | sed 's/test-//g' | sed 's/[0-9].[0-9][0-9].[0-9]-[A-Za-z]*-//g' | sed 's/-.*//g')
+      #     gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
 
       - name: Put Wasm binary
         if: ${{ steps.check_already_built.outputs.should_build == '1' &&  steps.check_already_built.outputs.should_copy == '1' }}
