@@ -107,6 +107,9 @@ jobs:
         run: make push_release
 
       - name: Put CentOS binary
+        env:
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
         # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
         # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
         run: |
@@ -118,8 +121,10 @@ jobs:
         # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
         env:
           UPSTREAM_GCSP_PATH: gs://istio-build/proxy
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
         run: |
-          SHA=$(git rev-parse --verify HEAD)
+          SHA=$(echo $TAG | sed 's/test-//g' | sed 's/[0-9].[0-9][0-9].[0-9]-[A-Za-z]*-//g' | sed 's/-.*//g')
           gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
           gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
           gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
