@@ -12,7 +12,7 @@ jobs:
   # copied from make_release.yml
   build_fips_proxy:
     # Only run this job when the release type equals "fips".
-    if: contains(github.event.ref, 'dips')
+    if: contains(github.event.ref, 'fips')
     name: build fips proxy binary
     timeout-minutes: 840 
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
@@ -24,17 +24,26 @@ jobs:
         run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
 
       - name: Get normalized tag
-        id: get_minor_ver
+        id: get_normalized_ver
         run: echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g')
         shell: bash
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
 
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+
       - name: Checkout
         uses: actions/checkout@v2
         with:
           repository: "istio/proxy"
-          ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
+          ref: ${{ steps.get_normalized_ver.outputs.NORMALIZED_TAG }}
+
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
@@ -45,13 +54,21 @@ jobs:
 
       - name: Check if already built
         id: check_already_built
+        env:
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
         run: |
           SHA=$(git rev-parse --verify HEAD)
           SHOULD_BUILD=1
+          SHOULD_COPY=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
             SHOULD_BUILD=0
+          fi          
+          if [ $(bc <<< $REL_BRANCH_VER: > 1.17") -eq 1 ]; then
+            SHOULD_COPY=0
           fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
+          echo ::set-output name=should_copy::${SHOULD_COPY}
+
 
       - name: Tweak make recipe
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
@@ -96,6 +113,7 @@ jobs:
           gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
 
       - name: Put Wasm binary
+        if: ${{ steps.check_already_built.outputs.should_build == '1' &&  steps.check_already_built.outputs.should_copy == '1' }}
         # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
         env:
           UPSTREAM_GCSP_PATH: gs://istio-build/proxy
@@ -107,7 +125,7 @@ jobs:
           
   build_fips_arm_proxy:
     # Do not run this job when the release type equals "fips"as we do not support fips compliant ARM build yet.
-    if: contains(github.event.ref, 'dips')
+    if: contains(github.event.ref, 'fips')
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
     runs-on: ['self-hosted','Linux','ARM64','arm64-32']
