@@ -10,6 +10,11 @@ version_matrix = {
     "1.11": {"1.18", "1.19", "1.20", "1.21", "1.22"},
     "1.12": {"1.19", "1.20", "1.21", "1.22"}, # officially supported versions according to https://istio.io/latest/news/releases/1.12.x/announcing-1.12
     "1.13": {"1.20", "1.21", "1.22", "1.23"}, # officially supported versions according to https://istio.io/latest/news/releases/1.13.x/announcing-1.13
+    "1.14": {"1.20","1.21", "1.22", "1.23", "1.24"} , # officially supported versions according to https://istio.io/latest/news/releases/1.14.x/announcing-1.14
+    "1.15": {"1.21","1.22", "1.23", "1.24", "1.25"} , # officially supported versions according to https://istio.io/latest/news/releases/1.15.x/announcing-1.15
+    "1.16": {"1.22", "1.23", "1.24", "1.25"} , # officially supported versions according to https://istio.io/latest/news/releases/1.16.x/announcing-1.16
+    "1.17": {"1.22", "1.23", "1.24", "1.25"} , # officially supported versions according to https://istio.io/latest/news/releases/1.17.x/announcing-1.17
+    "1.18": {"1.24", "1.25", "1.26", "1.27"} , # officially supported versions according to https://istio.io/latest/news/releases/1.18.x/announcing-1.18
 }
 
 istio_ver = os.environ.get("ISTIO_MINOR_VER")
