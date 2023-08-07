@@ -165,7 +165,7 @@ jobs:
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
             SHOULD_BUILD=0
-          fi          
+          fi
           echo ::set-output name=should_build::${SHOULD_BUILD}
       - name: Tweak make recipe
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
