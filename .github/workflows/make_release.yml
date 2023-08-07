@@ -1,7 +1,7 @@
 name: Make a release
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
     inputs:
       tag:
         description: Tag [e.g. 1.7.8-tetrate-v0]
@@ -10,51 +10,172 @@ on:
 jobs:
   build_fips_proxy:
     # Only run this job when the release type equals "fips".
-    if: contains(github.event.inputs.tag, 'fips')
+    if: contains(github.event.ref, 'fips')
     name: build fips proxy binary
-    timeout-minutes: 1440 # 12 hours
-    runs-on: ubuntu-latest
+    timeout-minutes: 840 
+    runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
     steps:
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
       - name: Get normalized tag
-        id: get_minor_ver
-        run: echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/-.*//g')
+        id: get_normalized_ver
+        run: echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g')
         shell: bash
         env:
-          TAG: ${{ github.event.inputs.tag }}
-
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          repository: 'istio/proxy'
-          ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
-
+          repository: "istio/proxy"
+          ref: ${{ steps.get_normalized_ver.outputs.NORMALIZED_TAG }}
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
-
       - name: Check if already built
         id: check_already_built
+        env:
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
         run: |
-          set +e
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}
-          echo ::set-output name=should_build::$?
-
+          SHA=$(echo $TAG | sed 's/test-//g' | sed 's/[0-9].[0-9][0-9].[0-9]-[A-Za-z]*-//g' | sed 's/-.*//g')
+          SHOULD_BUILD=1
+          SHOULD_COPY=1
+          if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
+            SHOULD_BUILD=0
+          fi          
+          if [ $(bc <<< "$REL_BRANCH_VER > 1.17") -eq 1 ];then 
+            SHOULD_COPY=0
+          fi
+          echo ::set-output name=should_build::${SHOULD_BUILD}
+          echo ::set-output name=should_copy::${SHOULD_COPY}
       - name: Tweak make recipe
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
-        # 1) remove unnecessary dependency on naive "build" target 
-        # 2) remove "-p" flag to not push and build container, 
+        # 1) remove unnecessary dependency on naive "build" target
+        # 2) remove "-p" flag to not push and build container,
         # 3) replace RELEASE_GCS_PATH var with the literal due to docker build.
         # from push_release.
         run: |
           ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
           sed -i "s/\-p//g; s/push_release: build/push_release:/g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
+      - name: Tweak release-binary script
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        # 1) Setup in-docker auth against gcloud
+        # 2) Remove unnecessary debug build
+        # 3) Remove unnecessary Wasm build and publish
+        # Note that /work is the mount destination of the current home of make command with BUILD_WITH_CONTAINER=1.
+        run: |
+          CREDENTIAL_FILE_NAME=$(echo ${GOOGLE_APPLICATION_CREDENTIALS} | awk -F/ '{print $NF}')
+          cp scripts/release-binary.sh scripts/release-binary.sh.tmp
+          echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
+          cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
+          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
+          sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
+          cat scripts/release-binary.sh
 
+      - name: Add FIPS flag
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        run: echo "build --define boringssl=fips" >> .bazelrc
+
+      - name: Build and push
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        env:
+          BUILD_WITH_CONTAINER: 1
+        run: make push_release
+
+      - name: Put CentOS binary
+        env:
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+        # Copy the binary built on Ubuntu to CentOS path - this binary cannot run on CentOS/RHEL 7, but fine with CentOS 8.
+        # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
+        run: |
+          SHA=$(echo $TAG | sed 's/test-//g' | sed 's/[0-9].[0-9][0-9].[0-9]-[A-Za-z]*-//g' | sed 's/-.*//g')
+          gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
+
+      - name: Put Wasm binary
+        if: ${{ steps.check_already_built.outputs.should_build == '1' &&  steps.check_already_built.outputs.should_copy == '1' }}
+        # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
+        env:
+          UPSTREAM_GCSP_PATH: gs://istio-build/proxy
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+        run: |  
+          SHA1=$(git rev-parse --verify HEAD)
+          SHA=$(echo $TAG | sed 's/test-//g' | sed 's/[0-9].[0-9][0-9].[0-9]-[A-Za-z]*-//g' | sed 's/-.*//g')
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.compiled.wasm" "${RELEASE_GCS_PATH}/stats-${SHA}.compiled.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/stats-${SHA}.compiled.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.wasm" "${RELEASE_GCS_PATH}/stats-${SHA}.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.wasm.sha256" "${RELEASE_GCS_PATH}/stats-${SHA}.wasm.sha256"
+
+  build_fips_arm_proxy:
+    if: contains(github.event.ref, 'fips')
+    name: build ARM proxy binary
+    timeout-minutes: 1440 # 12 hours
+    runs-on: ['self-hosted','Linux','ARM64','arm64-32']
+    env:
+      RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
+      ARCH_SUFFIX: arm64
+    steps:
+      - name: Get normalized tag
+        id: get_normalized_ver
+        run: echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          repository: "istio/proxy"
+          ref: ${{ steps.get_normalized_ver.outputs.NORMALIZED_TAG }}
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+      - name: Check if already built
+        id: check_already_built
+        env:
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+        run: |
+          SHA=$(echo $TAG | sed 's/test-//g' | sed 's/[0-9].[0-9][0-9].[0-9]-[A-Za-z]*-//g' | sed 's/-.*//g')
+          SHOULD_BUILD=1
+          if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
+            SHOULD_BUILD=0
+          fi          
+          echo ::set-output name=should_build::${SHOULD_BUILD}
+      - name: Tweak make recipe
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        # 1) remove unnecessary dependency on naive "build" target
+        # 2) remove "-p" flag to not push and build container,
+        # 3) replace RELEASE_GCS_PATH var with the literal due to docker build.
+        # from push_release.
+        run: |
+          ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
+          sed -i "s/\-p//g; s/push_release: build/push_release:/g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
       - name: Tweak release-binary script
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         # 1) Setup in-docker auth against gcloud
@@ -67,41 +188,81 @@ jobs:
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
           sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
+          sed -i '/if \[\[ "${BUILD_ENVOY_BINARY_ONLY}" !/, +6d' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
-
       - name: Add FIPS flag
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         run: echo "build --define boringssl=fips" >> .bazelrc
-
       - name: Build and push
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
-          BUILD_WITH_CONTAINER: 1 
+          BUILD_ENVOY_BINARY_ONLY: 1
+          BUILD_WITH_CONTAINER: 1
         run: make push_release
-      
-      - name: Put CentOS binary
-        # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
-        # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
-        run: |
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
 
-      - name: Put Wasm binary
-        # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
+  create-images-arm64:
+    name: create-images-arm64
+    runs-on: ["self-hosted", "arm64"]
+    env:
+      TARGETARCH: arm64
+      DOCKER_ARCHITECTURES: linux/arm64
+      HUB: ${{ secrets.CLOUDSMITH_HUB }}
+    needs: [build_arm_proxy]
+    # 'if' condition causes this job to run even if some of the dependent jobs
+    # have been skipped, e.g. `build_fips_proxy`.
+    # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
+    if: "contains(github.event.ref, 'multiarch')"
+
+    steps:
+      - name: Checkout to choosen tag
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.inputs.tag }}
+          fetch-depth: 0
+
+      - name: Login to CloudSmith
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ env.HUB }}
+          username: ${{ secrets.CLOUDSMITH_USER }}
+          password: ${{ secrets.CLOUDSMITH_API_KEY }}
+
+      - name: Get Registry
+        id: get_registry
+        run: |
+          [[ ${HUB} == *.* ]] && REGISTRY=$(echo ${HUB} | cut -d/ -f1)
+          echo REGISTRY=${REGISTRY}
+          echo REGISTRY=${REGISTRY} >> $GITHUB_ENV
+
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF/refs\/tags\/test-/}
+        shell: bash
+
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
         env:
-          UPSTREAM_GCSP_PATH: gs://istio-build/proxy
-        run: |
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
+          TAG: ${{ github.event.inputs.tag }}
 
-  make_release:
-    name: release-builder-run (${{ github.event.inputs.tag }})
-    if: ${{ ! failure() }} # Make sure that this job runs even if build == "fips".
-    runs-on: ubuntu-latest
+      - name: build and push images
+        run: bash ./tetrateci/create_istio_release.sh
+        env:
+          CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+          TAG: ${{ github.event.inputs.tag }}
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+
+  create-images-amd64:
+    name: create-images-amd64
+    runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     needs: [build_fips_proxy]
+    # 'if' condition causes this job to run even if some of the dependent jobs
+    # have been skipped, e.g. `build_fips_proxy`.
+    # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
+    if: ${{ !cancelled() && !failure() }}
     env:
       HUB: ${{ secrets.CLOUDSMITH_HUB }}
 
@@ -119,6 +280,13 @@ jobs:
           username: ${{ secrets.CLOUDSMITH_USER }}
           password: ${{ secrets.CLOUDSMITH_API_KEY }}
 
+      - name: Get Registry
+        id: get_registry
+        run: |
+          [[ ${HUB} == *.* ]] && REGISTRY=$(echo ${HUB} | cut -d/ -f1)
+          echo REGISTRY=${REGISTRY}
+          echo REGISTRY=${REGISTRY} >> $GITHUB_ENV
+
       - name: Get minor version
         id: get_minor_ver
         run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
@@ -126,10 +294,82 @@ jobs:
         env:
           TAG: ${{ github.event.inputs.tag }}
 
-      - name: Run release builder
+      - name: build and push images
+        run: bash ./tetrateci/create_istio_release.sh
         env:
           CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
           TAG: ${{ github.event.inputs.tag }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-        run: ./tetrateci/create_istio_release.sh
+  Scan:
+      name: Scanner
+      runs-on: ubuntu-20.04
+      needs: [create-images-amd64]
+      if: ${{ !cancelled() && !failure() }}
+      steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+      - name: List docker images
+        run: bash ./tetrateci/images.sh && pwd 
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+      - name: Scan images for CRITICAL vulnerabilities
+        uses: docker://ghcr.io/aquasecurity/trivy
+        with:
+          entrypoint: /bin/sh
+          args: -c "trivy image --clear-cache; for img in $(cat list.txt); do trivy image --exit-code 0 --severity HIGH,CRITICAL --no-progress --quiet --format sarif  $img >> $img.sarif ;done "
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v1
+        with:
+          sarif_file: containers.istio.tetratelabs.com  
+  create-multiarch-images:
+    name: create-multiarch-images
+    runs-on: ubuntu-latest
+    needs: [create-images-amd64, create-images-arm64]
+    # 'if' condition causes this job to run even if some of the dependent jobs
+    # have been skipped, e.g. `build_fips_proxy`.
+    # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
+    if: "contains(github.event.ref, 'multiarch')"
+    env:
+      HUB: ${{ secrets.CLOUDSMITH_HUB }}
+    steps:
+      - name: Checkout to choosen tag
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.inputs.tag }}
+          fetch-depth: 0
+
+      - name: Login to CloudSmith
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ env.HUB }}
+          username: ${{ secrets.CLOUDSMITH_USER }}
+          password: ${{ secrets.CLOUDSMITH_API_KEY }}
+
+      - name: Get Registry
+        id: get_registry
+        run: |
+          [[ ${HUB} == *.* ]] && REGISTRY=$(echo ${HUB} | cut -d/ -f1)
+          echo REGISTRY=${REGISTRY}
+          echo REGISTRY=${REGISTRY} >> $GITHUB_ENV
+
+      - name: Get minor version
+        id: get_minor_ver
+        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
+        shell: bash
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+
+      - name: build and push images
+        run: bash ./tetrateci/create_multiarch_images.sh
+        env:
+          CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+          TAG: ${{ github.event.inputs.tag }}
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
