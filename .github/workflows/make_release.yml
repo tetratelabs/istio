@@ -80,7 +80,7 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
+          sed -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
           cat scripts/release-binary.sh
 
