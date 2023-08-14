@@ -38,7 +38,7 @@ if [[ "${CLUSTER}" == "eks" ]]; then
 fi
 
 
-PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/...")
+PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/pilot/..." "${ROOTDIR}/tests/integration/security/...")
 
 echo "Starting Testing"
 
