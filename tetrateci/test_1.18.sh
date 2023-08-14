@@ -34,7 +34,7 @@ fi
 
 if [[ "${CLUSTER}" == "eks" ]]; then
   echo "Applying  patch for EKS...."
-  git apply --3way "${SCRIPTDIR}/patches/eks/eks.${ISTIO_MINOR_VER}.patch"
+  git apply --3way "${SCRIPTDIR}/patches/eks/eks_${ISTIO_MINOR_VER}.patch"
 fi
 
 

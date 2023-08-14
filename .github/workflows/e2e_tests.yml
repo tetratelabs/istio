@@ -376,6 +376,14 @@ jobs:
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+  
+  unit-test:
+    name: Unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v2
+      - run: make -e T="-v -count=1" init racetest
 
   eks-e2e-arm64-test:
     name: eks-e2e-arm64-test
