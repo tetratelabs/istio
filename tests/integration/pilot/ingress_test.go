@@ -332,6 +332,12 @@ spec:
 					if hostIsIP {
 						got = ing.Status.LoadBalancer.Ingress[0].IP
 					}
+					if ing.Status.LoadBalancer.Ingress[0].Hostname != "" {
+						ip, _ := net.LookupIP(ing.Status.LoadBalancer.Ingress[0].Hostname)
+						if len(ip) > 0 {
+							got = ip[0].String()
+						}
+					}
 					if got != host {
 						return fmt.Errorf("unexpected ingress status, got %+v want %v", got, host)
 					}
@@ -441,10 +447,6 @@ func TestCustomGateway(t *testing.T) {
 		NewTest(t).
 		Features("traffic.ingress.custom").
 		Run(func(t framework.TestContext) {
-			inject := false
-			if t.Settings().Compatibility {
-				inject = true
-			}
 			injectLabel := `sidecar.istio.io/inject: "true"`
 			if t.Settings().Revisions.Default() != "" {
 				injectLabel = fmt.Sprintf(`istio.io/rev: "%v"`, t.Settings().Revisions.Default())
@@ -458,7 +460,7 @@ func TestCustomGateway(t *testing.T) {
 			}
 
 			t.NewSubTest("minimal").Run(func(t framework.TestContext) {
-				gatewayNs := namespace.NewOrFail(t, t, namespace.Config{Prefix: "custom-gateway-minimal", Inject: inject})
+				gatewayNs := namespace.NewOrFail(t, t, namespace.Config{Prefix: "custom-gateway-minimal"})
 				_ = t.ConfigIstio().Eval(gatewayNs.Name(), templateParams, `apiVersion: v1
 kind: Service
 metadata:
