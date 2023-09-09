@@ -108,7 +108,7 @@ jobs:
         env:
           UPSTREAM_GCSP_PATH: gs://istio-build/proxy
         run: |
-          SHA1="3ac8014570d7f4187fb277d25bce010fa6f7b22b""
+          SHA1="3ac8014570d7f4187fb277d25bce010fa6f7b22b"
           gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm"
           gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm.sha256"
           gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm"
