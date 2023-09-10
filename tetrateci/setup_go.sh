@@ -39,7 +39,7 @@ if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.17" ]]; then
 fi
 
 if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.18" ]]; then
-    export GOLANG_VERSION=1.21.1
+    export GOLANG_VERSION=1.20.8
 fi
 
 url="https://golang.org/dl/go$GOLANG_VERSION.linux-$(dpkg --print-architecture).tar.gz"
