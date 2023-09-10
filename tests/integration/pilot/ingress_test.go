@@ -332,6 +332,12 @@ spec:
 					if hostIsIP {
 						got = ing.Status.LoadBalancer.Ingress[0].IP
 					}
+					if ing.Status.LoadBalancer.Ingress[0].Hostname != "" {
+						ip, _ := net.LookupIP(ing.Status.LoadBalancer.Ingress[0].Hostname)
+						if len(ip) > 0 {
+							got = ip[0].String()
+						}
+					}
 					if got != host {
 						return fmt.Errorf("unexpected ingress status, got %+v want %v", got, host)
 					}
