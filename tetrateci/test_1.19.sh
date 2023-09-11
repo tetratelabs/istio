@@ -74,7 +74,7 @@ for pkg in $PACKAGES; do
     --istio.test.hub=${HUB} \
     --istio.test.tag=${TAG}-distroless \
     --istio.test.pullpolicy=IfNotPresent \
-    --istio.test.retries=3 \
+    --istio.test.retries=1 \
     ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
     && \
   go test \
@@ -87,7 +87,7 @@ for pkg in $PACKAGES; do
     --istio.test.ci \
     --istio.test.skipVM=true \
     --istio.test.pullpolicy=IfNotPresent \
-    --istio.test.retries=3 \
+    --istio.test.retries=1 \
     ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
     || \
     { FAILED_PACKAGES+=( "${pkg}" ) && echo "Test Failed: ${pkg}" ; }
