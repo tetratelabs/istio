@@ -72,20 +72,7 @@ for pkg in $PACKAGES; do
     --istio.test.ci \
     --istio.test.skipVM=true \
     --istio.test.hub=${HUB} \
-    --istio.test.tag=${TAG}-distroless \
-    --istio.test.pullpolicy=IfNotPresent \
-    --istio.test.retries=1 \
-    ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
-    && \
-  go test \
-    -test.v \
-    -timeout 2h \
-    -tags=integ \
-    "${pkg}" \
-    --istio.test.select=-postsubmit,-flaky \
-    ${SKIP_TEST_FLAGS[@]+"${SKIP_TEST_FLAGS[@]}"} \
-    --istio.test.ci \
-    --istio.test.skipVM=true \
+    --istio.test.tag=${TAG} \
     --istio.test.pullpolicy=IfNotPresent \
     --istio.test.retries=1 \
     ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
