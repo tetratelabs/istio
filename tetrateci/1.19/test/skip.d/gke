@@ -1,0 +1,44 @@
+# e2e tests to skip (until a long-term fix is found)
+#
+# Each line has format:
+#
+# ```text
+# <pkg>=<test1> <test2> <test3> ...
+# ```
+#
+# where
+# 1. <pkg>   - is a name of a package with Istio e2e tests, e.g.
+#              `istio.io/istio/tests/integration/pilot`
+# 2. <testN> - is a regexp that matches unit tests to skip, e.g.
+#              'TestA', 'TestA|TestB|TestC', 'TestA/case-b', etc.
+#              Each `<testN>` value will be translated into the
+#              `--istio.test.skip` option of the Istio Test Framework.
+#
+# A special case,
+#
+# ```text
+# <pkg>=*
+# ```
+#
+# indicates that tests for the package `<pkg>` should not be run at all.
+
+istio.io/istio/tests/integration/helm=TestDefaultInstall TestInstallWithFirstPartyJwt
+istio.io/istio/tests/integration/operator=TestPostInstallControlPlaneVerification
+istio.io/istio/tests/integration/helm/upgrade=*
+istio.io/istio/tests/integration/pilot=TestGatewayConformance TestTunnelingOutboundTraffic TestGateway TestIngress TestRevisionCommand
+istio.io/istio/tests/integration/security=TestAuthz_Namespace TestAuthz_DenyNamespace TestAuthz_NotHost TestAuthz_NotNamespace TestAuthz_NotMethod TestAuthz_NotPort TestAuthz_DenyPlaintext TestAuthz_Conditions TestAuthz_PathNormalization TestAuthz_CustomServer TestAuthz_EgressGateway TestMutualTlsOrigination TestRequestAuthentication TestIngressRequestAuthentication TestNormalization TestPassThroughFilterChain TestReachability
+istio.io/istio/tests/integration/security/sds_ingress=*  
+istio.io/istio/tests/integration/security/sds_ingress/quic=*
+istio.io/istio/tests/integration/telemetry=*
+istio.io/istio/tests/integration/telemetry/api=*
+istio.io/istio/tests/integration/telemetry/common=*
+istio.io/istio/tests/integration/telemetry/envoyfilter/customizemetrics=*
+istio.io/istio/tests/integration/telemetry/envoyfilter/nullvm=*
+istio.io/istio/tests/integration/telemetry/envoyfilter/wasm=*
+istio.io/istio/tests/integration/telemetry/policy=*
+istio.io/istio/tests/integration/telemetry/stackdriver=*
+istio.io/istio/tests/integration/telemetry/stackdriver/api=*
+istio.io/istio/tests/integration/telemetry/stackdriver/vm=*
+istio.io/istio/tests/integration/telemetry/tracing=*
+istio.io/istio/tests/integration/telemetry/tracing/otelcollector=*
+istio.io/istio/tests/integration/telemetry/tracing/zipkin=*

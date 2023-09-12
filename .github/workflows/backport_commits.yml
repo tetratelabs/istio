@@ -1,0 +1,21 @@
+name: create-backport-pr
+
+on:
+  push:
+    branches:
+      - 'tetrate-workflow'
+
+jobs:
+  create-pr:
+    name: create-pr
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      
+      - name: invoke hub
+        run: bash ./tetrateci/port_patches_to_release.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

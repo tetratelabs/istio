@@ -1,0 +1,34 @@
+#!/usr/bin/python3
+
+import sys, os
+
+version_matrix = {
+    "1.7": {"1.16", "1.17", "1.18"},
+    "1.8": {"1.16", "1.17", "1.18", "1.19"},
+    "1.9": {"1.17", "1.18", "1.19", "1.20"},
+    "1.10": {"1.18", "1.19", "1.20", "1.21"},
+    "1.11": {"1.18", "1.19", "1.20", "1.21", "1.22"},
+    "1.12": {"1.19", "1.20", "1.21", "1.22"}, # officially supported versions according to https://istio.io/latest/news/releases/1.12.x/announcing-1.12
+    "1.13": {"1.20", "1.21", "1.22", "1.23"}, # officially supported versions according to https://istio.io/latest/news/releases/1.13.x/announcing-1.13
+    "1.14": {"1.20","1.21", "1.22", "1.23", "1.24"} , # officially supported versions according to https://istio.io/latest/news/releases/1.14.x/announcing-1.14
+    "1.15": {"1.21","1.22", "1.23", "1.24", "1.25"} , # officially supported versions according to https://istio.io/latest/news/releases/1.15.x/announcing-1.15
+    "1.16": {"1.22", "1.23", "1.24", "1.25"} , # officially supported versions according to https://istio.io/latest/news/releases/1.16.x/announcing-1.16
+    "1.17": {"1.22", "1.23", "1.24", "1.25"} , # officially supported versions according to https://istio.io/latest/news/releases/1.17.x/announcing-1.17
+    "1.18": {"1.24", "1.25", "1.26", "1.27"} , # officially supported versions according to https://istio.io/latest/news/releases/1.18.x/announcing-1.18
+    "1.19": {"1.25", "1.26", "1.27", "1.28"} , # officially supported versions according to https://istio.io/latest/news/releases/1.19.x/announcing-1.19
+
+}
+
+istio_ver = os.environ.get("ISTIO_MINOR_VER")
+k8s_ver = os.environ.get("K8S_VERSION")
+
+print("Istio Version : ", istio_ver)
+print("Kubernetes Version : ", k8s_ver)
+
+if istio_ver in version_matrix:
+    if k8s_ver in version_matrix[istio_ver]:
+        print("Version matched!!")
+        sys.exit(1)
+
+print("Version not matched!!")
+sys.exit(0)
