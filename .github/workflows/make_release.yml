@@ -292,6 +292,8 @@ jobs:
   Scan:
       name: Scanner
       runs-on: ubuntu-20.04
+      env:
+        HUB: ${{ secrets.CLOUDSMITH_HUB }}
       needs: [create-images-amd64]
       if: ${{ !cancelled() && !failure() }}
       steps:
