@@ -448,13 +448,13 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    # if: ${{ !cancelled() && !failure() }}
-    if: false
+    if: ${{ !cancelled() && !failure() }}
+    #if: false
 
     strategy:
       fail-fast: false
       matrix:
-        version: ["1.26", "1.25", "1.24"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+        version: ["1.26", "1.25", "1.27"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
 
     steps:
       - name: checkout
