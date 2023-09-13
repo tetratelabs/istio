@@ -46,7 +46,8 @@ if [[ ${TAG} =~ "fips" ]]; then
 	# Escape '/'
 	PROXY_DISTROLESS_BASE_ESCAPED=$(sed 's/\//\\\//g' <<< ${PROXY_DISTROLESS_BASE})
 	sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/operator/docker/Dockerfile.operator
-        export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
+  sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/pilot/docker/Dockerfile.pilot
+  export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
 fi
 
 
@@ -88,10 +89,7 @@ cp -r ../istio .
 echo "Enabling CGO for FIPS build via CGO_ENABLED=1 to istio/common/scripts/gobuild.sh"
 
 if [[ ${TAG} =~ "fips" ]]; then
-  echo "Checking if the upstream file is not changed"
-  if ! grep -q 'CGO_ENABLED=${CGO_ENABLED:-0}' istio/common/scripts/gobuild.sh;then exit 1;fi
-  text="if [[ "\${GOARCH}" == "amd64" ]]; then export CGO_ENABLED=1; else export CGO_ENABLED=0; fi"
-  sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
+  export CGO_ENABLED=1
 fi
 
 # Generalizing TAG variable exporting option to incorporate ARM build.We need amd64 and arm64 suffix in docker images to create multi-arch images.Not needed for tetrate and tetratefips build.
@@ -151,7 +149,7 @@ if [[ -z ${TEST:-} ]]; then
         sudo rm -rf /usr/local/go
         source ${BASEDIR}/tetrateci/setup_go.sh
         #disabling cgo flag
-        sed -i '/then export CGO_ENABLED=1/c\export CGO_ENABLED=0' istio/common/scripts/gobuild.sh
+        export CGO_ENABLED=0
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
