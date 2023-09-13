@@ -44,6 +44,8 @@ func (d *operatorDumper) Dump(ctx resource.Context) {
 		return
 	}
 	kube2.DumpPods(ctx, dir, ns, []string{"name=istio-operator"})
+	kube2.DumpPods(ctx, dir, ns, []string{"istio=pilot"})          // dump pilot pods for debugging
+	kube2.DumpPods(ctx, dir, ns, []string{"istio=ingressgateway"}) // dump ingressgateway pods for debugging
 }
 
 func (d *operatorDumper) ID() resource.ID {
