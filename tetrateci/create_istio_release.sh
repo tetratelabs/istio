@@ -46,13 +46,15 @@ if [[ ${TAG} =~ "fips" ]]; then
 	# Escape '/'
 	PROXY_DISTROLESS_BASE_ESCAPED=$(sed 's/\//\\\//g' <<< ${PROXY_DISTROLESS_BASE})
 	sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/operator/docker/Dockerfile.operator
-        export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
+  sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/pilot/docker/Dockerfile.pilot
+  export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
 fi
 
 
 if [[ "$(uname -m)" = "aarch64" ]]; then
     sed -i 's/gcr\.io\/istio-release/gcr\.io\/tetrate-istio-arm/' $(find ${BASEDIR} | grep Dockerfile)
     sed -i 's/gcr\.io\/tetrate-istio-arm\/iptables@sha256:[0-9a-f]*/gcr\.io\/istio-release\/iptables@sha256:8efeb55ddf08f2f513d303b8f0ff42c9f08f355de2f4124e641d209d11a6af91/' ${BASEDIR}/pilot/docker/Dockerfile.proxyv2
+    
     export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-arm
     export BASE_VERSION=1602e34d9524a2a312907aab276bcd7100da52df # 1.12
     
