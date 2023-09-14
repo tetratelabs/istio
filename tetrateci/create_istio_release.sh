@@ -45,9 +45,11 @@ if [[ ${TAG} =~ "fips" ]]; then
 	PROXY_DISTROLESS_BASE=$(grep 'as distroless' ${BASEDIR}/pilot/docker/Dockerfile.proxyv2)
 	# Escape '/'
   PROXY_DISTROLESS_BASE_ESCAPED=$(sed 's/\//\\\//g' <<< ${PROXY_DISTROLESS_BASE})
+  cat ${BASEDIR}/docker/Dockerfile.distroless
   sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/operator/docker/Dockerfile.operator
-  sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/pilot/docker/Dockerfile.pilot
+  sed "s/.*as distroless/FROM gcr.io\/distroless\/static-debian11@sha256:7198a357ff3a8ef750b041324873960cf2153c11cc50abb9d8d5f8bb089f6b4e as distroless_source/" ${BASEDIR}/docker/Dockerfile.distroless
   export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
+  cat ${BASEDIR}/docker/Dockerfile.distroless
 fi
 
 
