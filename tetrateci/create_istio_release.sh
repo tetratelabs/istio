@@ -37,7 +37,7 @@ export ISTIO_VERSION=$TAG
 
 # We are not using a docker container to build the istioctl binary and images, so we make it explicit
 export BUILD_WITH_CONTAINER=0
-expport BASE_VERSION=master-2023-09-05T17-00-27 # try with latest from master
+export BASE_VERSION=master-2023-09-05T17-00-27 # try with latest from master
 
 # HACK : For FIPS change the distroless base image to include glibc
 # We would use the same distroless base image as istio-proxy for pilot and operator
