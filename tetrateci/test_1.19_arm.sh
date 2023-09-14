@@ -79,7 +79,7 @@ for pkg in $PACKAGES; do
     --istio.test.retries=1 \
     ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
     || \
-    { FAILED_PACKAGES+=( "${pkg}" ) && echo "Test Failed: ${pkg}" ; }
+    { FAILED_PACKAGES+=( "${pkg}" ) && echo "Test Failed: ${pkg}" && { for fn in $(find /tmp -type f); do echo "$fn"; cat "$fn"; done; exit 1; }; }
 
   find /tmp -mindepth 1 -maxdepth 1 -type d -name '*istio*' -exec sudo rm -f -- {} \;
 done
