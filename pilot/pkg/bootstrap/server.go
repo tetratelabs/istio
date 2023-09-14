@@ -515,7 +515,7 @@ func (s *Server) initKubeClient(args *PilotArgs) error {
 	hasK8SConfigStore := false
 	if args.RegistryOptions.FileDir == "" {
 		// If file dir is set - config controller will just use file.
-		if _, err := os.Stat(args.MeshConfigFile); !os.IsNotExist(err) {
+		if _, err := os.Stat(args.MeshConfigFile); os.IsExist(err) {
 			meshConfig, err := mesh.ReadMeshConfig(args.MeshConfigFile)
 			if err != nil {
 				return fmt.Errorf("failed reading mesh config: %v", err)
