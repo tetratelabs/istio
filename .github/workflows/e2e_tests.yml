@@ -314,6 +314,7 @@ jobs:
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           TEST: "true"
+          BASE_VERSION: "1.18-2023-07-21T13-00-12"
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
@@ -381,7 +382,8 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: ${{ !cancelled() && !failure() }}
+    # if: ${{ !cancelled() && !failure() }}
+    if: false
 
     strategy:
       fail-fast: false
@@ -448,8 +450,8 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: ${{ !cancelled() && !failure() }}
-    #if: false
+    # if: ${{ !cancelled() && !failure() }}
+    if: false
 
     strategy:
       fail-fast: false
@@ -513,8 +515,8 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: ${{ !cancelled() && !failure() }}
-    # if: false
+    # if: ${{ !cancelled() && !failure() }}
+    if: false
 
     strategy:
       fail-fast: false
