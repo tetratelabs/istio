@@ -110,7 +110,7 @@ sudo apt-get install rpm -y
 sudo rm -rf /tmp/istio-release && mkdir /tmp/istio-release
 
 if [[ ${TAG} =~ "fips" ]]; then
-  GOEXPERIMENT=boringcrypto go run main.go build --manifest manifest.docker.yaml
+  go run main.go build --manifest manifest.docker.yaml
 else
   go run main.go build --manifest manifest.docker.yaml
 fi
