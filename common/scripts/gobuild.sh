@@ -64,7 +64,7 @@ if [[ -z ${BUILDINFO} ]];then
 fi
 
 # BUILD LD_EXTRAFLAGS
-LD_EXTRAFLAGS="-linkmode 'external'"
+LD_EXTRAFLAGS=""
 
 while read -r line; do
     LD_EXTRAFLAGS="${LD_EXTRAFLAGS} -X ${line}"
@@ -80,4 +80,4 @@ time GOOS=${BUILD_GOOS} GOARCH=${BUILD_GOARCH} ${GOBINARY} build \
         -o "${OUT}" \
         "${OPTIMIZATION_FLAGS[@]}" \
         -pkgdir="${GOPKG}/${BUILD_GOOS}_${BUILD_GOARCH}" \
-        -ldflags  "-linkmode 'external' ${LDFLAGS} ${LD_EXTRAFLAGS}" "${@}"
+        -ldflags "${LDFLAGS} ${LD_EXTRAFLAGS}" "${@}"
