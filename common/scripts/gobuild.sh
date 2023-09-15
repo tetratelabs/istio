@@ -43,7 +43,7 @@ GOBINARY=${GOBINARY:-go}
 GOPKG="$GOPATH/pkg"
 BUILDINFO=${BUILDINFO:-""}
 STATIC=${STATIC:-1}
-LDFLAGS=${LDFLAGS:--linkmode 'external' -extldflags -static}
+LDFLAGS=${LDFLAGS:--extldflags -static}
 GOBUILDFLAGS=${GOBUILDFLAGS:-""}
 # Split GOBUILDFLAGS by spaces into an array called GOBUILDFLAGS_ARRAY.
 IFS=' ' read -r -a GOBUILDFLAGS_ARRAY <<< "$GOBUILDFLAGS"
@@ -64,7 +64,7 @@ if [[ -z ${BUILDINFO} ]];then
 fi
 
 # BUILD LD_EXTRAFLAGS
-LD_EXTRAFLAGS=""
+LD_EXTRAFLAGS="-linkmode 'external'"
 
 while read -r line; do
     LD_EXTRAFLAGS="${LD_EXTRAFLAGS} -X ${line}"
