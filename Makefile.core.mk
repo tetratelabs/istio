@@ -205,9 +205,11 @@ fmt: format-go format-python tidy-go
 
 ifeq ($(DEBUG),1)
 # gobuild script uses custom linker flag to set the variables.
-RELEASE_LDFLAGS=''
+RELEASE_LDFLAGS=""
+else ifeq ($(GOARCH_LOCAL),"arm64") 
+RELEASE_LDFLAGS="-linkmode 'external' -extldflags -static -s -w"
 else
-RELEASE_LDFLAGS='-extldflags -static -s -w'
+RELEASE_LDFLAGS="-extldflags -static -s -w"
 endif
 
 # List of all binaries to build
