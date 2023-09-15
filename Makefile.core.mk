@@ -206,12 +206,9 @@ fmt: format-go format-python tidy-go
 ifeq ($(DEBUG),1)
 # gobuild script uses custom linker flag to set the variables.
 RELEASE_LDFLAGS=''
-else ifeq ($(GOARCH_LOCAL),"arm64")
-RELEASE_LDFLAGS='-linkmode 'external' -extldflags -static -s -w'
 else
 RELEASE_LDFLAGS='-extldflags -static -s -w'
 endif
-
 
 # List of all binaries to build
 # We split the binaries into "agent" binaries and standard ones. This corresponds to build "agent".
@@ -238,14 +235,8 @@ RELEASE_SIZE_TEST_BINARIES:=pilot-discovery pilot-agent istioctl bug-report envo
 
 .PHONY: build
 build: depend ## Builds all go binaries.
-ifeq ($(GOARCH_LOCAL),"arm64") 
-	CC=aarch64-linux-gnu-gcc GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ $(STANDARD_BINARIES)
-	CC=aarch64-linux-gnu-gcc GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ -tags=agent $(AGENT_BINARIES)
-else
 	GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ $(STANDARD_BINARIES)
 	GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ -tags=agent $(AGENT_BINARIES)
-endif
-
 
 # The build-linux target is responsible for building binaries used within containers.
 # This target should be expanded upon as we add more Linux architectures: i.e. build-arm64.
@@ -253,14 +244,8 @@ endif
 # various platform images.
 .PHONY: build-linux
 build-linux: depend
-ifeq ($(GOARCH_LOCAL),"arm64") 
-	CC=aarch64-linux-gnu-gcc GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ $(STANDARD_BINARIES)
-	CC=aarch64-linux-gnu-gcc GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ -tags=agent $(AGENT_BINARIES)
-else
-	GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ $(STANDARD_BINARIES)
-	GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ -tags=agent $(AGENT_BINARIES)
-endif
-
+	GOOS=linux GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT_LINUX)/ $(STANDARD_BINARIES)
+	GOOS=linux GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT_LINUX)/ -tags=agent $(LINUX_AGENT_BINARIES)
 
 # Create targets for TARGET_OUT_LINUX/binary
 # There are two use cases here:
