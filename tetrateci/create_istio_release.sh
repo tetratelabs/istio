@@ -94,7 +94,7 @@ if [[ ${TAG} =~ "fips" ]]; then
   echo "Checking if the upstream file is not changed"
   if ! grep -q 'CGO_ENABLED=${CGO_ENABLED:-0}' istio/common/scripts/gobuild.sh;then exit 1;fi
   text="if [[ "\${GOARCH}" == "amd64" ]]; then export CGO_ENABLED=1; else export CGO_ENABLED=0; fi"
-  sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/export CGO_ENABLED=1'"$text"'/g' istio/common/scripts/gobuild.sh
+  sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
 fi
 
 # Generalizing TAG variable exporting option to incorporate ARM build.We need amd64 and arm64 suffix in docker images to create multi-arch images.Not needed for tetrate and tetratefips build.
