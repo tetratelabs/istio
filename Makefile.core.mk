@@ -258,8 +258,14 @@ endif
 # various platform images.
 .PHONY: build-linux
 build-linux: depend
-	GOOS=linux GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT_LINUX)/ $(STANDARD_BINARIES)
-	GOOS=linux GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT_LINUX)/ -tags=agent $(LINUX_AGENT_BINARIES)
+ifeq ($(GOARCH_LOCAL),"arm64") 
+	CC=aarch64-linux-gnu-gcc GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ $(STANDARD_BINARIES)
+	CC=aarch64-linux-gnu-gcc GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ -tags=agent $(AGENT_BINARIES)
+else
+	GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ $(STANDARD_BINARIES)
+	GOOS=$(GOOS_LOCAL) GOARCH=$(GOARCH_LOCAL) LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $(TARGET_OUT)/ -tags=agent $(AGENT_BINARIES)
+endif
+
 
 # Create targets for TARGET_OUT_LINUX/binary
 # There are two use cases here:
