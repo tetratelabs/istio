@@ -213,14 +213,6 @@ RELEASE_LDFLAGS='-extldflags -static -s -w'
 endif
 
 
-ifeq ($(DEBUG),1)
-# gobuild script uses custom linker flag to set the variables.
-RELEASE_LDFLAGS=''
-else
-else
-RELEASE_LDFLAGS='-linkmode 'external' -extldflags -static -s -w'
-endif
-
 # List of all binaries to build
 # We split the binaries into "agent" binaries and standard ones. This corresponds to build "agent".
 # This allows conditional compilation to avoid pulling in costly dependencies to the agent, such as XDS and k8s.
