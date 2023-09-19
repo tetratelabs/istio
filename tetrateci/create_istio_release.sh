@@ -155,6 +155,7 @@ if [[ -z ${TEST:-} ]]; then
         source ${BASEDIR}/tetrateci/setup_go.sh
         #disabling cgo flag
         sed -i '/then export CGO_ENABLED=1/c\export CGO_ENABLED=0' istio/common/scripts/gobuild.sh
+        export CGO_ENABLED=0
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
