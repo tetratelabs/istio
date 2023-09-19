@@ -6,6 +6,9 @@ set -o pipefail
 
 BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
+ECR_REGISTRY= "957006768579.dkr.ecr.us-east-2.amazonaws.com"
+
+
 IMAGES=(install-cni
 istioctl
 operator
@@ -16,7 +19,7 @@ IMAGE_SUFFIXES=("" "-debug" "-distroless")
 
 for image in "${IMAGES[@]}"; do
   for suffix in "${IMAGE_SUFFIXES[@]}"; do
-    docker tag $HUB/${image}:${TAG}${suffix} 957006768579.dkr.ecr.us-east-2.amazonaws.com/tid-istio/${image}:${TAG}${suffix}
-    docker push 957006768579.dkr.ecr.us-east-2.amazonaws.com/tid-istio/${image}:${TAG}${suffix}
+    docker tag $HUB/${image}:${TAG}${suffix} $ECR_REGISTRY/tid-istio/${image}:${TAG}${suffix}
+    docker push $ECR_REGISTRY/tid-istio/${image}:${TAG}${suffix}
   done
 done
