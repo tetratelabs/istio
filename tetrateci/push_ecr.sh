@@ -6,8 +6,6 @@ set -o pipefail
 
 BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
-ECR_REGISTRY= "957006768579.dkr.ecr.us-east-2.amazonaws.com"
-
 
 IMAGES=(install-cni
 istioctl
