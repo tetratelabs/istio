@@ -18,6 +18,7 @@ IMAGE_SUFFIXES=("" "-debug" "-distroless")
 for image in "${IMAGES[@]}"; do
   for suffix in "${IMAGE_SUFFIXES[@]}"; do
     docker tag $HUB/${image}:${TAG}${suffix} $ECR_REGISTRY/tid-istio/${image}:${TAG}${suffix}
+    echo $ECR_REGISTRY/tid-istio/${image}:${TAG}${suffix}
     docker push $ECR_REGISTRY/tid-istio/${image}:${TAG}${suffix}
   done
 done
