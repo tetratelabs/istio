@@ -208,7 +208,7 @@ jobs:
       TARGETARCH: arm64
       DOCKER_ARCHITECTURES: linux/arm64
       HUB: ${{ secrets.CLOUDSMITH_HUB }}
-    needs: [build_arm_proxy]
+    needs: [build_fips_arm_proxy]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
