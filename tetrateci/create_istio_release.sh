@@ -155,7 +155,7 @@ if [[ -z ${TEST:-} ]]; then
         source ${BASEDIR}/tetrateci/setup_go.sh
         #disabling cgo flag
         sed -i '/then export CGO_ENABLED=1/c\export CGO_ENABLED=0' istio/common/scripts/gobuild.sh
-        sed "s/-linkmode.*/-extldflags -static -s -w/g" ${BASEDIR}/Makefile.core.mk
+        sed -i "s/-linkmode.*/-extldflags -static -s -w/g" ${BASEDIR}/Makefile.core.mk
         export CGO_ENABLED=0
         cat ${BASEDIR}/Makefile.core.mk 
     fi
