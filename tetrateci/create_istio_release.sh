@@ -157,10 +157,7 @@ if [[ -z ${TEST:-} ]]; then
         sed -i '/then export CGO_ENABLED=1/c\export CGO_ENABLED=0' istio/common/scripts/gobuild.sh
         sed -i "s/-linkmode.*/-extldflags -static -s -w/g" ${BASEDIR}/Makefile.core.mk
         export CGO_ENABLED=0
-        cat ${BASEDIR}/Makefile.core.mk 
         export LDFLAGS="-extldflags -static -s -w"
-        make -p
-
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
