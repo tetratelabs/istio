@@ -158,6 +158,9 @@ if [[ -z ${TEST:-} ]]; then
         sed -i "s/-linkmode.*/-extldflags -static -s -w/g" ${BASEDIR}/Makefile.core.mk
         export CGO_ENABLED=0
         cat ${BASEDIR}/Makefile.core.mk 
+        BUILDINFO=$(mktemp)
+        "${BASEDIR}/common/scripts/report_build_info.sh" > "${BUILDINFO}"
+        cat ${BUILDINFO}
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
