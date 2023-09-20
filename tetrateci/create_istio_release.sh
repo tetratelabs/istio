@@ -111,11 +111,11 @@ sudo apt-get install rpm -y
 # Build Docker Images
 sudo rm -rf /tmp/istio-release && mkdir /tmp/istio-release
 
-if [[ ${TAG} =~ "fips" ]]; then
-  GOEXPERIMENT=boringcrypto go run main.go build --manifest manifest.docker.yaml
-else
-  go run main.go build --manifest manifest.docker.yaml
-fi
+# if [[ ${TAG} =~ "fips" ]]; then
+#   GOEXPERIMENT=boringcrypto go run main.go build --manifest manifest.docker.yaml
+# else
+#   go run main.go build --manifest manifest.docker.yaml
+# fi
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
 
 #loading pilot image manually since docker container create command is failing due to unavailbilty of pilot image locally
@@ -135,7 +135,7 @@ if [ ${TAG} =~ "fips" ]; then
     [[ $CHECK_CRYPTO == X:boringcrypto ]] || exit 1
 fi
 
-go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+# go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 echo "Cleaning up the istio source artificats...."
 sudo rm -rf /tmp/istio-release/sources/
 
@@ -154,9 +154,7 @@ if [[ -z ${TEST:-} ]]; then
         sudo rm -rf /usr/local/go
         source ${BASEDIR}/tetrateci/setup_go.sh
         #disabling cgo flag
-        sed -i '/then export CGO_ENABLED=1/c\export CGO_ENABLED=0' istio/common/scripts/gobuild.sh
-        sed -i "s/-linkmode.*/-extldflags -static -s -w/g" ${BASEDIR}/Makefile.core.mk
-        export CGO_ENABLED=0
+
         export LDFLAGS="-extldflags -static -s -w"
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
