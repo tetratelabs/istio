@@ -158,7 +158,7 @@ if [[ -z ${TEST:-} ]]; then
         sed -i "s/-linkmode.*/-extldflags -static -s -w/g" ${BASEDIR}/Makefile.core.mk
         export CGO_ENABLED=0
         cat ${BASEDIR}/Makefile.core.mk 
-        export LDFLAGS="-extldflags -static -s -w
+        export LDFLAGS="-extldflags -static -s -w"
         make -p
 
     fi
