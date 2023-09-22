@@ -247,6 +247,10 @@ jobs:
     name: create-images-amd64
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     needs: [build_fips_proxy]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # This is required for requesting the JWT
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
@@ -274,7 +278,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.ECR_PUSH_ROLE }}
           aws-region: us-east-2
-          
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
