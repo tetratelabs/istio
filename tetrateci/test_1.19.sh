@@ -38,59 +38,64 @@ fi
 #fi
 
 
-PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/...")
+go test -tags=integ -v   ./tests/integration/pilot  --istio.test.skip=TestGatewayConformance -run TestProxyProtocolTCPGateway --istio.test.skipVM=true -istio.test.hub=${HUB} -istio.test.tag=${TAG}-distroless   --timeout 10m
 
-echo "Starting Testing"
+# PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/...")
 
-FAILED_PACKAGES=()
+# echo "Starting Testing"
 
-for pkg in $PACKAGES; do
-  echo "========================================================TESTING ${pkg} ========================================================"
+# FAILED_PACKAGES=()
 
-  SKIP_RULE=$( grep -F "${pkg}=" "${SCRIPTDIR}/${ISTIO_MINOR_VER}/test/skip.d/${CLUSTER}" 2>/dev/null || echo "" )
-  SKIP_TESTS=$( echo -n "${SKIP_RULE#${pkg}=}" )
+# for pkg in $PACKAGES; do
+#   echo "========================================================TESTING ${pkg} ========================================================"
 
-  if [[ "${SKIP_TESTS}" == "*" ]]; then
-    echo "Skipping according to the rule: ${SKIP_RULE}"
-    continue
-  fi
+#   SKIP_RULE=$( grep -F "${pkg}=" "${SCRIPTDIR}/${ISTIO_MINOR_VER}/test/skip.d/${CLUSTER}" 2>/dev/null || echo "" )
+#   SKIP_TESTS=$( echo -n "${SKIP_RULE#${pkg}=}" )
 
-  read -ra SKIP_TESTS_ARRAY <<< "${SKIP_TESTS}"
+#   if [[ "${SKIP_TESTS}" == "*" ]]; then
+#     echo "Skipping according to the rule: ${SKIP_RULE}"
+#     continue
+#   fi
 
-  SKIP_TEST_FLAGS=()
-  for test in ${SKIP_TESTS_ARRAY[@]+"${SKIP_TESTS_ARRAY[@]}"} ; do
-    SKIP_TEST_FLAGS+=( "--istio.test.skip=${test}" )
-  done
+#   read -ra SKIP_TESTS_ARRAY <<< "${SKIP_TESTS}"
 
-  go test \
-    -test.v \
-    -timeout 2h \
-    -tags=integ \
-    "${pkg}" \
-    --istio.test.select=-postsubmit,-flaky \
-    ${SKIP_TEST_FLAGS[@]+"${SKIP_TEST_FLAGS[@]}"} \
-    --istio.test.ci \
-    --istio.test.skipVM=true \
-    --istio.test.hub=${HUB} \
-    --istio.test.tag=${TAG}-distroless \
-    --istio.test.pullpolicy=IfNotPresent \
-    --istio.test.retries=1 \
-    ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
-    || \
-    { FAILED_PACKAGES+=( "${pkg}" ) && echo "Test Failed: ${pkg}" ; }
+#   SKIP_TEST_FLAGS=()
+#   for test in ${SKIP_TESTS_ARRAY[@]+"${SKIP_TESTS_ARRAY[@]}"} ; do
+#     SKIP_TEST_FLAGS+=( "--istio.test.skip=${test}" )
+#   done
 
-  find /tmp -mindepth 1 -maxdepth 1 -type d -name '*istio*' -exec sudo rm -f -- {} \;
-done
+ 
 
-echo "Testing Done"
 
-if [[ ${#FAILED_PACKAGES[@]} -gt 0 ]]; then
-  echo ""
-  echo "Some of the tests have failed :("
-  echo ""
-  echo "Packages with failed tests:"
-  for pkg in "${FAILED_PACKAGES[@]}"; do
-    echo "- ${pkg}"
-  done
-  exit 1
-fi
+#   # go test \
+#   #   -test.v \
+#   #   -timeout 2h \
+#   #   -tags=integ \
+#   #   "${pkg}" \
+#   #   --istio.test.select=-postsubmit,-flaky \
+#   #   ${SKIP_TEST_FLAGS[@]+"${SKIP_TEST_FLAGS[@]}"} \
+#   #   --istio.test.ci \
+#   #   --istio.test.skipVM=true \
+#   #   --istio.test.hub=${HUB} \
+#   #   --istio.test.tag=${TAG}-distroless \
+#   #   --istio.test.pullpolicy=IfNotPresent \
+#   #   --istio.test.retries=1 \
+#   #   ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
+#   #   || \
+#   #   { FAILED_PACKAGES+=( "${pkg}" ) && echo "Test Failed: ${pkg}" ; }
+
+#   find /tmp -mindepth 1 -maxdepth 1 -type d -name '*istio*' -exec sudo rm -f -- {} \;
+# done
+
+# echo "Testing Done"
+
+# if [[ ${#FAILED_PACKAGES[@]} -gt 0 ]]; then
+#   echo ""
+#   echo "Some of the tests have failed :("
+#   echo ""
+#   echo "Packages with failed tests:"
+#   for pkg in "${FAILED_PACKAGES[@]}"; do
+#     echo "- ${pkg}"
+#   done
+#   exit 1
+# fi

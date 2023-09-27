@@ -80,4 +80,4 @@ time GOOS=${BUILD_GOOS} GOARCH=${BUILD_GOARCH} ${GOBINARY} build \
         -o "${OUT}" \
         "${OPTIMIZATION_FLAGS[@]}" \
         -pkgdir="${GOPKG}/${BUILD_GOOS}_${BUILD_GOARCH}" \
-        -ldflags "${LDFLAGS} ${LD_EXTRAFLAGS}" "${@}"
+        -ldflags "${LDFLAGS} -tags netgo ${LD_EXTRAFLAGS}" "${@}"
