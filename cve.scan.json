@@ -1,8 +1,6 @@
 {
     "tid-istio": {
-        "branches": [
-
-        ],
+        "branches": [],
         "tags": [
             "1.19.0-tetrate-v0",
             "1.18.3-tetrate-v0",
@@ -11,15 +9,21 @@
         ]
     },
     "tid-istio-fips": {
-        "branches": [
-
-        ],
+        "branches": [],
         "tags": [
             "1.19.0-tetratefips-v0",
             "1.18.3-tetratefips-v0",
             "1.17.6-tetratefips-v0",
             "1.16.7-tetratefips-v0"
         ]
+    },
+    "oss-istio": {
+        "branches": [],
+        "tags": [
+            "1.19.0",
+            "1.18.3",
+            "1.17.6",
+            "1.16.7"
+        ]
     }
-
 }
