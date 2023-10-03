@@ -7,7 +7,7 @@ on:
 
 env:
   HUB: ${{ secrets.TEST_HUB }}
-  SHA: "ab11c88ffcf1cc7f0d353dcd90a0250141595bdc"
+  SHA: "76528fd70640bfea4c8f50194f0a763d52f4c432"
 
 jobs:
   # copied from make_release.yml
@@ -75,9 +75,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/47297e26f07520d39272e5925ac1fee05f50ced3/ab11c88ffcf1cc7f0d353dcd90a0250141595bdc/g' WORKSPACE
-          sed -i 's/e73238b75a71cd927015c2997d2734a3f1fe21da9ec24f440780506d81088b49/5ad8649c07d7c1097be4e4a971b47b9332ac27ce7fc995130275a4a3a8acd44f/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=ab11c88ffcf1cc7f0d353dcd90a0250141595bdc/g' scripts/release-binary.sh
+          sed -i 's/83e604abd8214f379617e6320d2255ea20ca0e1f/76528fd70640bfea4c8f50194f0a763d52f4c432/g' WORKSPACE
+          sed -i 's/79205f32b8fb8d32843c9b25d0b415712bf41252b9bb66a0b6aced45d789b314/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=76528fd70640bfea4c8f50194f0a763d52f4c432/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
@@ -179,9 +179,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/f826f1dbddd3326abee19009ea9f019e8a9d5997/ab11c88ffcf1cc7f0d353dcd90a0250141595bdc/g' WORKSPACE
-          sed -i 's/0a932fd090feed587d82b4b943a1032a5a424587f65455a37236cffefc8648ef/ba1da637c52b9c7cd93fbb7f2e3f10747663ab8c66a53b8b4d64e2afa7a6ca6c/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=ab11c88ffcf1cc7f0d353dcd90a0250141595bdc/g' scripts/release-binary.sh
+          sed -i 's/83e604abd8214f379617e6320d2255ea20ca0e1f/76528fd70640bfea4c8f50194f0a763d52f4c432/g' WORKSPACE
+          sed -i 's/79205f32b8fb8d32843c9b25d0b415712bf41252b9bb66a0b6aced45d789b314/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=76528fd70640bfea4c8f50194f0a763d52f4c432/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
@@ -314,7 +314,6 @@ jobs:
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
           TEST: "true"
-          BASE_VERSION: "1.18-2023-07-21T13-00-12"
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
