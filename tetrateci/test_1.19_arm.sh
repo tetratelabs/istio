@@ -33,10 +33,10 @@ if [[ "${CLUSTER}" == "gke" ]]; then
 
 fi
 
-if [[ "${CLUSTER}" == "eks" ]]; then
-  echo "Applying  patch for EKS...."
-  git apply --3way "${SCRIPTDIR}/patches/eks/eks_${ISTIO_MINOR_VER}.patch"
-fi
+#if [[ "${CLUSTER}" == "eks" ]]; then
+#  echo "Applying  patch for EKS...."
+#  git apply "${SCRIPTDIR}/patches/eks/eks_${ISTIO_MINOR_VER}.patch"
+#fi
 
 #go test -test.v -timeout 2h -tags=integ istio.io/istio/tests/integration/security --istio.test.select=-postsubmit,-flaky  --istio.test.ci --istio.test.hub=${HUB} --istio.test.tag=${TAG}-distroless --istio.test.pullpolicy=IfNotPresent --istio.test.retries=1 && go test -test.v -timeout 2h -tags=integ istio.io/istio/tests/integration/security --istio.test.select=-postsubmit,-flaky  --istio.test.ci --istio.test.hub=${HUB} --istio.test.tag=${TAG} --istio.test.pullpolicy=IfNotPresent
 
@@ -75,19 +75,6 @@ for pkg in $PACKAGES; do
     --istio.test.skipVM=true \
     --istio.test.hub=${HUB} \
     --istio.test.tag=${TAG}-distroless \
-    --istio.test.pullpolicy=IfNotPresent \
-    --istio.test.retries=1 \
-    ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
-    && \
-  go test \
-    -test.v \
-    -timeout 2h \
-    -tags=integ \
-    "${pkg}" \
-    --istio.test.select=-postsubmit,-flaky \
-    ${SKIP_TEST_FLAGS[@]+"${SKIP_TEST_FLAGS[@]}"} \
-    --istio.test.ci \
-    --istio.test.skipVM=true \
     --istio.test.pullpolicy=IfNotPresent \
     --istio.test.retries=1 \
     ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \

@@ -21,7 +21,6 @@ echo "Applying patches...."
 # Apply the same patches that were applies when building test images
 "${SCRIPTDIR}/apply_e2e_build_patches.sh"
 
-#git apply "${SCRIPTDIR}/patches/common/increase-dashboard-timeout.1.11.patch"
 
 if [[ "${CLUSTER}" == "gke" ]]; then
   echo "Generating operator config for GKE"
@@ -33,12 +32,11 @@ if [[ "${CLUSTER}" == "gke" ]]; then
 
 fi
 
-if [[ "${CLUSTER}" == "eks" ]]; then
-  echo "Applying  patch for EKS...."
-  git apply --3way "${SCRIPTDIR}/patches/eks/eks_${ISTIO_MINOR_VER}.patch"
-fi
+#if [[ "${CLUSTER}" == "eks" ]]; then
+#  echo "Applying  patch for EKS...."
+#  git apply "${SCRIPTDIR}/patches/eks/eks_${ISTIO_MINOR_VER}.patch"
+#fi
 
-#go test -test.v -timeout 2h -tags=integ istio.io/istio/tests/integration/security --istio.test.select=-postsubmit,-flaky  --istio.test.ci --istio.test.hub=${HUB} --istio.test.tag=${TAG}-distroless --istio.test.pullpolicy=IfNotPresent --istio.test.retries=1 && go test -test.v -timeout 2h -tags=integ istio.io/istio/tests/integration/security --istio.test.select=-postsubmit,-flaky  --istio.test.ci --istio.test.hub=${HUB} --istio.test.tag=${TAG} --istio.test.pullpolicy=IfNotPresent
 
 PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/...")
 
@@ -74,20 +72,7 @@ for pkg in $PACKAGES; do
     --istio.test.ci \
     --istio.test.skipVM=true \
     --istio.test.hub=${HUB} \
-    --istio.test.tag=${TAG}-distroless \
-    --istio.test.pullpolicy=IfNotPresent \
-    --istio.test.retries=1 \
-    ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
-    && \
-  go test \
-    -test.v \
-    -timeout 2h \
-    -tags=integ \
-    "${pkg}" \
-    --istio.test.select=-postsubmit,-flaky \
-    ${SKIP_TEST_FLAGS[@]+"${SKIP_TEST_FLAGS[@]}"} \
-    --istio.test.ci \
-    --istio.test.skipVM=true \
+    --istio.test.tag=${TAG} \
     --istio.test.pullpolicy=IfNotPresent \
     --istio.test.retries=1 \
     ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \

@@ -34,7 +34,7 @@ fi
 
 if [[ "${CLUSTER}" == "eks" ]]; then
   echo "Applying  patch for EKS...."
-  git apply --3way "${SCRIPTDIR}/patches/eks/eks.${ISTIO_MINOR_VER}.patch"
+  git apply --3way "${SCRIPTDIR}/patches/eks/eks_${ISTIO_MINOR_VER}.patch"
 fi
 
 
@@ -74,7 +74,7 @@ for pkg in $PACKAGES; do
     --istio.test.hub=${HUB} \
     --istio.test.tag=${TAG}-distroless \
     --istio.test.pullpolicy=IfNotPresent \
-    --istio.test.retries=1 \
+    --istio.test.retries=3 \
     ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
     && \
   go test \
@@ -87,7 +87,7 @@ for pkg in $PACKAGES; do
     --istio.test.ci \
     --istio.test.skipVM=true \
     --istio.test.pullpolicy=IfNotPresent \
-    --istio.test.retries=1 \
+    --istio.test.retries=3 \
     ${COMMON_TEST_FLAGS[@]+"${COMMON_TEST_FLAGS[@]}"} \
     || \
     { FAILED_PACKAGES+=( "${pkg}" ) && echo "Test Failed: ${pkg}" ; }

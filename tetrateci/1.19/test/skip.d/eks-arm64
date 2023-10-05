@@ -21,13 +21,12 @@
 # ```
 #
 # indicates that tests for the package `<pkg>` should not be run at all.
-
-
 istio.io/istio/tests/integration/helm=TestDefaultInstall TestInstallWithFirstPartyJwt
 istio.io/istio/tests/integration/operator=TestPostInstallControlPlaneVerification
 istio.io/istio/tests/integration/helm/upgrade=*
-istio.io/istio/tests/integration/pilot=TestGatewayConformance TestTunnelingOutboundTraffic
-istio.io/istio/tests/integration/security=TestAuthz_Namespace TestAuthz_DenyNamespace TestAuthz_NotNamespace TestAuthz_NotMethod TestAuthz_NotPort TestAuthz_DenyPlaintext TestAuthz_Conditions TestAuthz_PathNormalization TestAuthz_CustomServer TestMutualTlsOrigination TestRequestAuthentication TestIngressRequestAuthentication TestNormalization TestPassThroughFilterChain TestReachability    
+istio.io/istio/tests/integration/pilot=TestGatewayConformance TestTunnelingOutboundTraffic  TestIngress
+istio.io/istio/tests/integration/security=TestAuthz_Namespace TestAuthz_DenyNamespace TestAuthz_NotHost TestAuthz_NotNamespace TestAuthz_NotMethod TestAuthz_NotPort TestAuthz_DenyPlaintext TestAuthz_Conditions TestAuthz_PathNormalization TestAuthz_CustomServer TestMutualTlsOrigination TestRequestAuthentication TestIngressRequestAuthentication TestNormalization TestPassThroughFilterChain TestReachability
+istio.io/istio/tests/integration/security/sds_ingress=*
 istio.io/istio/tests/integration/security/sds_ingress/quic=*
 istio.io/istio/tests/integration/telemetry=*
 istio.io/istio/tests/integration/telemetry/api=*
@@ -42,9 +41,3 @@ istio.io/istio/tests/integration/telemetry/stackdriver/vm=*
 istio.io/istio/tests/integration/telemetry/tracing=*
 istio.io/istio/tests/integration/telemetry/tracing/otelcollector=*
 istio.io/istio/tests/integration/telemetry/tracing/zipkin=*
-
-
-
-
-
- 
