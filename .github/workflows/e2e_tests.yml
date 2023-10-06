@@ -84,6 +84,7 @@ jobs:
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
           BUILD_WITH_CONTAINER: 1
+          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
         run: |
           # make clean
           make push_release
