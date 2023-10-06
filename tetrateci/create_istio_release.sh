@@ -44,9 +44,12 @@ export BUILD_WITH_CONTAINER=0
 if [[ ${TAG} =~ "fips" ]]; then
 	PROXY_DISTROLESS_BASE=$(grep 'as distroless' ${BASEDIR}/pilot/docker/Dockerfile.proxyv2)
 	# Escape '/'
-	PROXY_DISTROLESS_BASE_ESCAPED=$(sed 's/\//\\\//g' <<< ${PROXY_DISTROLESS_BASE})
-	sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/operator/docker/Dockerfile.operator
-        export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
+  PROXY_DISTROLESS_BASE_ESCAPED=$(sed 's/\//\\\//g' <<< ${PROXY_DISTROLESS_BASE})
+  cat ${BASEDIR}/docker/Dockerfile.distroless
+  sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/operator/docker/Dockerfile.operator
+  sed "s/.*as distroless/FROM gcr.io\/distroless\/static-debian11@sha256:7198a357ff3a8ef750b041324873960cf2153c11cc50abb9d8d5f8bb089f6b4e as distroless_source/" ${BASEDIR}/docker/Dockerfile.distroless
+  export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
+  cat ${BASEDIR}/docker/Dockerfile.distroless
 fi
 
 
@@ -133,6 +136,24 @@ if [ ${TAG} =~ "fips" ]; then
 fi
 
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+
+
+IMAGES=(install-cni
+proxyv2
+operator
+istioctl
+pilot)
+
+IMAGE_SUFFIXES=("" "-debug" "-distroless")
+
+for image in "${IMAGES[@]}"; do
+  for suffix in "${IMAGE_SUFFIXES[@]}"; do
+    DIGEST=$(crane digest $HUB/${image}:${TAG}${suffix})
+    cosign sign -y --identity-token=$(gcloud auth print-identity-token --audiences=sigstore --include-email --impersonate-service-account image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com) $HUB/${image}@$DIGEST
+  done
+done
+
+
 echo "Cleaning up the istio source artificats...."
 sudo rm -rf /tmp/istio-release/sources/
 
@@ -148,10 +169,7 @@ if [[ -z ${TEST:-} ]]; then
     echo "Building archives..."
     # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
     if [[ ${TAG} =~ "fips" ]]; then
-        sudo rm -rf /usr/local/go
-        source ${BASEDIR}/tetrateci/setup_go.sh
-        #disabling cgo flag
-        sed -i '/then export CGO_ENABLED=1/c\export CGO_ENABLED=0' istio/common/scripts/gobuild.sh
+      exit 0      
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
