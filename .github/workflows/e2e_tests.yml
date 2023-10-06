@@ -16,7 +16,7 @@ jobs:
     # Only run this job when the release type equals "fips".
     if: contains(github.event.ref, 'envoy')
 
-    name: build fips proxy binary
+    name: build vanilla proxy binary
     timeout-minutes: 840 
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     env:
