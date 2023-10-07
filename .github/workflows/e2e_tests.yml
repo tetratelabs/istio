@@ -408,6 +408,7 @@ jobs:
         run: bash ./tetrateci/create_istio_release.sh
         env:
           TAG: ${{ steps.get_tag.outputs.TAG }}
+          ISTIO_ENVOY_BASE_URL: "https://storage.googleapis.com/getistio-build/proxy-fips"
           TEST: "true"
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
