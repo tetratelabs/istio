@@ -115,10 +115,10 @@ jobs:
 
     name: build vanilla arm proxy binary
     timeout-minutes: 840 
-    runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
+    runs-on: ['self-hosted','Linux','ARM64','arm64-32']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
-      IMG: gcr.io/tid-testing/build-tools-proxy:v5
+      ARCH_SUFFIX: arm64
     steps:
       - name: Get the tag
         id: get_tag
