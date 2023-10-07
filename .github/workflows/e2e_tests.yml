@@ -183,7 +183,6 @@ jobs:
           BUILD_WITH_CONTAINER: 1
           BUILD_ENVOY_BINARY_ONLY: 1
           BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
-          IMG: gcr.io/tid-testing/build-tools-proxy-arm64:v5
         run: |
           # make clean
           make push_release
