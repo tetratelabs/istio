@@ -7,8 +7,7 @@ on:
 
 env:
   HUB: ${{ secrets.TEST_HUB }}
-  SHA: "d5d3279b14008091e142dac654a65b87527a56a0"
-  FIPSSHA: "d5d3279b14008091e142dac654a65b87527afips"
+  SHA: "d5d3279b14008091e142dac654a65b87527afips"
 
 jobs:
   # copied from make_release.yml
@@ -273,8 +272,8 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/SHA=.*/SHA=d5d3279b14008091e142dac654a65b87527a56a0/g' scripts/release-binary.sh
-          sed  -i 's/release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
+          sed -i 's/SHA=.*/SHA=d5d3279b14008091e142dac654a65b87527afips/g' scripts/release-binary.sh
+          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           cp -rf ../envoy .
     
       - name: Add FIPS flag
@@ -375,8 +374,8 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/SHA=.*/SHA=d5d3279b14008091e142dac654a65b87527a56a0/g' scripts/release-binary.sh
-          sed  -i 's/release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
+          sed -i 's/SHA=.*/SHA=d5d3279b14008091e142dac654a65b87527afips/g' scripts/release-binary.sh
+          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           cp -rf ../envoy .
 
       - name: Add FIPS flag
