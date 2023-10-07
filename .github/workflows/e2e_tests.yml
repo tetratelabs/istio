@@ -77,7 +77,7 @@ jobs:
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
           sed -i 's/SHA=.*/SHA=d5d3279b14008091e142dac654a65b87527a56a0/g' scripts/release-binary.sh
-          sed  -i 's/release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
+          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           cp -rf ../envoy .
     
       - name: Build and push
@@ -88,7 +88,6 @@ jobs:
         run: |
           # make clean
           make push_release
-          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
 
       - name: Put CentOS binary
         # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
