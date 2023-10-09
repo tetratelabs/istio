@@ -7,7 +7,7 @@ on:
 
 env:
   HUB: ${{ secrets.TEST_HUB }}
-  SHA: "d93dd07b4d08c6d62a45ec0a251d2e2eebd80346"
+  SHA: "d93dd07b4d08c6d62a45ec0a251d2e2eebd8fips"
 
 jobs:
   # copied from make_release.yml
@@ -218,7 +218,6 @@ jobs:
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
-      IMG: gcr.io/tid-testing/build-tools-proxy:v5
     steps:
       - name: Get the tag
         id: get_tag
@@ -273,9 +272,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/SHA=.*/SHA=d5d3279b14008091e142dac654a65b87527a56a0/g' scripts/release-binary.sh
-          sed  -i 's/release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
-          cp -rf ../envoy .
+          sed -i 's/SHA=.*/SHA=d93dd07b4d08c6d62a45ec0a251d2e2eebd8fips/g' scripts/release-binary.sh
+          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
+          cp -rf ../envoy-d93dd07b4d08c6d62a45ec0a251d2e2eebd80346 .
     
       - name: Add FIPS flag
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
@@ -284,7 +283,7 @@ jobs:
       - name: Build and push
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
-          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
+          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy-d93dd07b4d08c6d62a45ec0a251d2e2eebd80346 ."
           BUILD_WITH_CONTAINER: 1
         run: |
           # make clean
@@ -376,9 +375,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/SHA=.*/SHA=d5d3279b14008091e142dac654a65b87527a56a0/g' scripts/release-binary.sh
+          sed -i 's/SHA=.*/SHA=d93dd07b4d08c6d62a45ec0a251d2e2eebd8fips/g' scripts/release-binary.sh
           sed  -i 's/release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
-          cp -rf ../envoy .
+          cp -rf ../envoy-d93dd07b4d08c6d62a45ec0a251d2e2eebd80346 .
 
       - name: Add FIPS flag
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
@@ -389,7 +388,7 @@ jobs:
         env:
           BUILD_WITH_CONTAINER: 1
           BUILD_ENVOY_BINARY_ONLY: 1
-          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
+          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy-d93dd07b4d08c6d62a45ec0a251d2e2eebd80346 ."
           IMG: gcr.io/tid-testing/build-tools-proxy-arm64:v5
         run: make push_release
 
