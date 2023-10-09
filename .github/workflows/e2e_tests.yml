@@ -7,18 +7,20 @@ on:
 
 env:
   HUB: ${{ secrets.TEST_HUB }}
+  SHA: "d93dd07b4d08c6d62a45ec0a251d2e2eebd80346"
 
 jobs:
   # copied from make_release.yml
   build_proxy:
     # Only run this job when the release type equals "fips".
     if: contains(github.event.ref, 'envoy')
-    name: build  proxy binary
+
+    name: build vanilla proxy binary
     timeout-minutes: 840 
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
-      ENVOY_SECRET: ${{ secrets.ENVOY_SECRET}}
+      IMG: gcr.io/tid-testing/build-tools-proxy:v5
     steps:
       - name: Get the tag
         id: get_tag
@@ -47,7 +49,6 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA="574c3dd2c41fb18431eb79ad574042c0b865bc1f"
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
             SHOULD_BUILD=0
@@ -62,122 +63,35 @@ jobs:
         # from push_release.
         run: |
           ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
-          sed -i "s/\-p//g; s/push_release: build/push_release:/g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
-
+          sed -i "s/PUSH_RELEASE_FLAGS ?= -p//g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
       - name: Tweak release-binary script
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         # 1) Setup in-docker auth against gcloud
         # 2) Remove unnecessary debug build
         # 3) Remove unnecessary Wasm build and publish
         # Note that /work is the mount destination of the current home of make command with BUILD_WITH_CONTAINER=1.
-        run: |
+        run: |          
           CREDENTIAL_FILE_NAME=$(echo ${GOOGLE_APPLICATION_CREDENTIALS} | awk -F/ '{print $NF}')
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          # echo password $ENVOY_SECRET > .netrc
-          # mkdir envoytar
-          # touch  envoytar/WORKSPACE
-          # echo "filegroup(name = "all", srcs = glob(["**"]), visibility = ["//visibility:public"])" > envoytar/BUILD
-          # wget --header 'Authorization:Bearer password' https://github.com/tetratelabs/envoy/archive/574c3dd2c41fb18431eb79ad574042c0b865bc1f.tar.gz -O envoytar/574c3dd2c41fb18431eb79ad574042c0b865bc1f.tar.gz
-          # sed -i 's/87bbee939d9691d20c72936a03dd38457368babd/574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' WORKSPACE
-          # sed  -i '/strip_prefix/a\    auth_patterns = {\n     "github.com": "Bearer <password>",\n    },' WORKSPACE
-          # sed -i 's/ENVOY_ORG = "istio"/ENVOY_ORG = "tetratelabs"/g' WORKSPACE
-          # sed -i 's/6359991c3c7f6a52820d82416a8bba8788488cc3e0d9de59d61787c31a69906f/a25626fa4dcd58bebd2faed9a9762901009e9dc436e530102519dc30de396d2f/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' scripts/release-binary.sh
-          sed  -i 's/release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
-          cp -rf ../envoy .      
-
+          sed -i 's/SHA=.*/SHA=d93dd07b4d08c6d62a45ec0a251d2e2eebd80346/g' scripts/release-binary.sh
+          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
+          cp -rf ../envoy-${SHA} .
+    
       - name: Build and push
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
           BUILD_WITH_CONTAINER: 1
-          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
+          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy-${SHA}"
         run: |
+          # make clean
           make push_release
-  build_fips_proxy:
-    # Only run this job when the release type equals "fips".
-    if: contains(github.event.ref, 'fips')
-    name: build fips proxy binary
-    timeout-minutes: 840 
-    runs-on: ['self-hosted','Linux','x64','m5.large']
-    env:
-      RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
-    steps:
-      - name: Get the tag
-        id: get_tag
-        run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
-
-      - name: Get normalized tag
-        id: get_minor_ver
-        run: echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g')
-        shell: bash
-        env:
-          TAG: ${{ steps.get_tag.outputs.TAG }}
-
-      - name: Checkout
-        uses: actions/checkout@v2
-        with:
-          repository: "istio/proxy"
-          ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v0
-        with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
-          export_default_credentials: true
-
-      - name: Check if already built
-        id: check_already_built
-        run: |
-          SHA=$(git rev-parse --verify HEAD)
-          SHOULD_BUILD=1
-          if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
-            SHOULD_BUILD=0
-          fi
-          echo ::set-output name=should_build::${SHOULD_BUILD}
-
-      - name: Tweak make recipe
-        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
-        # 1) remove unnecessary dependency on naive "build" target
-        # 2) remove "-p" flag to not push and build container,
-        # 3) replace RELEASE_GCS_PATH var with the literal due to docker build.
-        # from push_release.
-        run: |
-          ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
-          sed -i "s/\-p//g; s/push_release: build/push_release:/g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
-
-      - name: Tweak release-binary script
-        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
-        # 1) Setup in-docker auth against gcloud
-        # 2) Remove unnecessary debug build
-        # 3) Remove unnecessary Wasm build and publish
-        # Note that /work is the mount destination of the current home of make command with BUILD_WITH_CONTAINER=1.
-        run: |
-          CREDENTIAL_FILE_NAME=$(echo ${GOOGLE_APPLICATION_CREDENTIALS} | awk -F/ '{print $NF}')
-          cp scripts/release-binary.sh scripts/release-binary.sh.tmp
-          echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
-          cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/release release\-symbol debug/release release\-symbol/' scripts/release-binary.sh
-          sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
-          cat scripts/release-binary.sh
-
-      - name: Add FIPS flag
-        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
-        run: echo "build --define boringssl=fips" >> .bazelrc
-
-      - name: Build and push
-        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
-        env:
-          BUILD_WITH_CONTAINER: 1
-        run: make push_release
 
       - name: Put CentOS binary
         # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
         # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
         run: |
-          SHA=$(git rev-parse --verify HEAD)
           gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
 
       - name: Put Wasm binary
@@ -185,15 +99,221 @@ jobs:
         env:
           UPSTREAM_GCSP_PATH: gs://istio-build/proxy
         run: |
-          SHA=$(git rev-parse --verify HEAD)
-          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA}*" ${RELEASE_GCS_PATH}/
-          gsutil cp "${UPSTREAM_GCSP_PATH}/attributegen-${SHA}*" ${RELEASE_GCS_PATH}/
+          SHA1="d93dd07b4d08c6d62a45ec0a251d2e2eebd80346"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.compiled.wasm" "${RELEASE_GCS_PATH}/stats-${SHA}.compiled.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/stats-${SHA}.compiled.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.wasm" "${RELEASE_GCS_PATH}/stats-${SHA}.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.wasm.sha256" "${RELEASE_GCS_PATH}/stats-${SHA}.wasm.sha256"
+  build_arm_proxy:
+    # Only run this job when the release type equals "fips".
+    if: contains(github.event.ref, 'envoy')
+
+    name: build vanilla arm proxy binary
+    timeout-minutes: 840 
+    runs-on: ['self-hosted','Linux','ARM64','arm64-32']
+    env:
+      RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
+      ARCH_SUFFIX: arm64
+    steps:
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
+
+      - name: Get normalized tag
+        id: get_minor_ver
+        run: echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          repository: "istio/proxy"
+          ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Check if already built
+        id: check_already_built
+        run: |
+          SHOULD_BUILD=1
+          if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-arm64 ; then
+            SHOULD_BUILD=0
+          fi
+          echo ::set-output name=should_build::${SHOULD_BUILD}
+
+      - name: Tweak make recipe
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        # 1) remove unnecessary dependency on naive "build" target
+        # 2) remove "-p" flag to not push and build container,
+        # 3) replace RELEASE_GCS_PATH var with the literal due to docker build.
+        # from push_release.
+        run: |
+          ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
+          sed -i "s/PUSH_RELEASE_FLAGS ?= -p//g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
+      - name: Tweak release-binary script
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        # 1) Setup in-docker auth against gcloud
+        # 2) Remove unnecessary debug build
+        # 3) Remove unnecessary Wasm build and publish
+        # Note that /work is the mount destination of the current home of make command with BUILD_WITH_CONTAINER=1.
+        run: |          
+          CREDENTIAL_FILE_NAME=$(echo ${GOOGLE_APPLICATION_CREDENTIALS} | awk -F/ '{print $NF}')
+          cp scripts/release-binary.sh scripts/release-binary.sh.tmp
+          echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
+          cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
+          sed -i 's/SHA=.*/SHA=d93dd07b4d08c6d62a45ec0a251d2e2eebd80346/g' scripts/release-binary.sh
+          sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
+          cp -rf ../envoy-${SHA} .
+    
+      - name: Build and push
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        env:
+          BUILD_WITH_CONTAINER: 1
+          BUILD_ENVOY_BINARY_ONLY: 1
+          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy-${SHA}"
+        run: |
+          # make clean
+          make push_release
+
+      - name: Put CentOS binary
+        # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
+        # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
+        run: |
+          gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
+
+      - name: Put Wasm binary
+        # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
+        env:
+          UPSTREAM_GCSP_PATH: gs://istio-build/proxy
+        run: |
+          SHA1="d93dd07b4d08c6d62a45ec0a251d2e2eebd80346"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.compiled.wasm" "${RELEASE_GCS_PATH}/stats-${SHA}.compiled.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/stats-${SHA}.compiled.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.wasm" "${RELEASE_GCS_PATH}/stats-${SHA}.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.wasm.sha256" "${RELEASE_GCS_PATH}/stats-${SHA}.wasm.sha256"
+
+        
+  build_fips_proxy:
+    # Only run this job when the release type equals "fips".
+    if: contains(github.event.ref, 'fips')
+
+    name: build fips proxy binary
+    timeout-minutes: 840 
+    runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
+    env:
+      RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
+      IMG: gcr.io/tid-testing/build-tools-proxy:v5
+    steps:
+      - name: Get the tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
+
+      - name: Get normalized tag
+        id: get_minor_ver
+        run: echo ::set-output name=NORMALIZED_TAG::$(echo $TAG | sed 's/test-//g' | sed 's/-.*//g')
+        shell: bash
+        env:
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          repository: "istio/proxy"
+          ref: ${{ steps.get_minor_ver.outputs.NORMALIZED_TAG }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Check if already built
+        id: check_already_built
+        run: |
+          SHOULD_BUILD=1
+          if gsutil ls ${RELEASE_GCS_PATH} | grep "${SHA}[^-]" ; then
+            SHOULD_BUILD=0
+          fi
+          echo ::set-output name=should_build::${SHOULD_BUILD}
+
+      - name: Tweak make recipe
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        # 1) remove unnecessary dependency on naive "build" target
+        # 2) remove "-p" flag to not push and build container,
+        # 3) replace RELEASE_GCS_PATH var with the literal due to docker build.
+        # from push_release.
+        run: |
+          ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
+          sed -i "s/PUSH_RELEASE_FLAGS ?= -p//g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
+      - name: Tweak release-binary script
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        # 1) Setup in-docker auth against gcloud
+        # 2) Remove unnecessary debug build
+        # 3) Remove unnecessary Wasm build and publish
+        # Note that /work is the mount destination of the current home of make command with BUILD_WITH_CONTAINER=1.
+        run: |          
+          CREDENTIAL_FILE_NAME=$(echo ${GOOGLE_APPLICATION_CREDENTIALS} | awk -F/ '{print $NF}')
+          cp scripts/release-binary.sh scripts/release-binary.sh.tmp
+          echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
+          cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
+          sed -i 's/SHA=.*/SHA=d5d3279b14008091e142dac654a65b87527a56a0/g' scripts/release-binary.sh
+          sed  -i 's/release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
+          cp -rf ../envoy .
+    
+      - name: Add FIPS flag
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        run: echo "build --define boringssl=fips" >> .bazelrc
+
+      - name: Build and push
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        env:
+          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
+          BUILD_WITH_CONTAINER: 1
+        run: |
+          # make clean
+          make push_release
+
+      - name: Put CentOS binary
+        # Copy the binary built on Ubuntu to CentOS path - this binar cannot run on CentOS/RHEL 7, but fine with CentOS 8.
+        # The point is that we cannot build FIPS binary directly on CentOS 7 due to the constraints described in the BoringCrypto certification.
+        run: |
+          gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
+
+      - name: Put Wasm binary
+        # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
+        env:
+          UPSTREAM_GCSP_PATH: gs://istio-build/proxy
+        run: |
+          SHA1="ca3e0c6ebdfe634348776db633b7509cf097e76f"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.compiled.wasm" "${RELEASE_GCS_PATH}/stats-${SHA}.compiled.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/stats-${SHA}.compiled.wasm.sha256"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.wasm" "${RELEASE_GCS_PATH}/stats-${SHA}.wasm"
+          gsutil cp "${UPSTREAM_GCSP_PATH}/stats-${SHA1}.wasm.sha256" "${RELEASE_GCS_PATH}/stats-${SHA}.wasm.sha256"
+
           
   build_fips_arm_proxy:
     # Do not run this job when the release type equals "fips"as we do not support fips compliant ARM build yet.
-    # if: contains(github.event.ref, 'envoy')
-    if: false
+    if: contains(github.event.ref, 'fips')
     name: build ARM proxy binary
     timeout-minutes: 1440 # 12 hours
     runs-on: ['self-hosted','Linux','ARM64','arm64-32']
@@ -230,7 +350,6 @@ jobs:
       - name: Check if already built
         id: check_already_built
         run: |
-          SHA="574c3dd2c41fb18431eb79ad574042c0b865bc1f"
           SHOULD_BUILD=1
           if gsutil ls ${RELEASE_GCS_PATH} | grep ${SHA}-arm64 ; then
             SHOULD_BUILD=0
@@ -256,18 +375,22 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/SHA=.*/SHA=574c3dd2c41fb18431eb79ad574042c0b865bc1f/g' scripts/release-binary.sh
+          sed -i 's/SHA=.*/SHA=d5d3279b14008091e142dac654a65b87527a56a0/g' scripts/release-binary.sh
           sed  -i 's/release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
-          cp -rf ../envoy .     
+          cp -rf ../envoy .
+
+      - name: Add FIPS flag
+        if: ${{ steps.check_already_built.outputs.should_build == '1' }}
+        run: echo "build --define boringssl=fips" >> .bazelrc
 
       - name: Build and push
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
           BUILD_WITH_CONTAINER: 1
-          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
           BUILD_ENVOY_BINARY_ONLY: 1
+          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
+          IMG: gcr.io/tid-testing/build-tools-proxy-arm64:v5
         run: make push_release
-
 
   create-test-images-arm64:
     name: create-test-images-arm64
@@ -279,7 +402,8 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    if: "contains(github.event.ref, 'multiarch')"
+    # if: "contains(github.event.ref, 'multiarch')"
+    if: false
 
     steps:
       - name: checkout
@@ -332,11 +456,12 @@ jobs:
     name: create-test-images-amd64
     #runs-on: ['self-hosted','Linux','x64','m5']
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
-    needs: [build_fips_arm_proxy]
+    needs: ['build_fips_proxy','build_fips_arm_proxy']
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
     if: ${{ !cancelled() && !failure() }}
+
 
     steps:
       - name: checkout
@@ -379,8 +504,8 @@ jobs:
       - name: build and push images
         run: bash ./tetrateci/create_istio_release.sh
         env:
-          ISTIO_ENVOY_BASE_URL: "https://storage.googleapis.com/getistio-build/proxy-fips"
           TAG: ${{ steps.get_tag.outputs.TAG }}
+          ISTIO_ENVOY_BASE_URL: "https://storage.googleapis.com/getistio-build/proxy-fips"
           TEST: "true"
           # if the tag contains fips we are doing a fips build
           BUILD: ${{ contains(github.event.ref, 'fips') && 'fips' }}
@@ -449,13 +574,12 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
-    # if: false
     if: ${{ !cancelled() && !failure() }}
 
     strategy:
       fail-fast: false
       matrix:
-        version: ["1.22", "1.23", "1.24"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+        version: ["1.25", "1.23", "1.24"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
 
     steps:
       - name: checkout
@@ -513,16 +637,17 @@ jobs:
   eks-e2e-test:
     name: eks-e2e-test
     runs-on: ubuntu-latest
-    needs: [create-multiarch-images]
+    needs: [create-test-images-amd64]
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
     if: ${{ !cancelled() && !failure() }}
+    # if: false
 
     strategy:
       fail-fast: false
       matrix:
-        version: ["1.23", "1.22", "1.24"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+        version: ["1.23", "1.25", "1.24"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
 
     steps:
       - name: checkout
@@ -581,6 +706,7 @@ jobs:
     # 'if' condition causes this job to run even if some of the dependent jobs
     # have been skipped, e.g. `build_fips_proxy`.
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
+    # if: ${{ !cancelled() && !failure() }}
     if: false
 
     strategy:
@@ -590,9 +716,7 @@ jobs:
         include:
           - version: "1.24"
             channel: "rapid"
-          - version: "1.23"
-            channel: "regular"
-          - version: "1.22"
+          - version: "1.25"
             channel: "regular"
 
     steps:
