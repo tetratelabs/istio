@@ -284,6 +284,7 @@ jobs:
       - name: Build and push
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         env:
+          BAZEL_BUILD_ARGS: "--override_repository=envoy=/work/envoy"
           BUILD_WITH_CONTAINER: 1
         run: |
           # make clean

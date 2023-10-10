@@ -6,15 +6,18 @@ on:
       tag:
         description: Tag [e.g. 1.7.8-tetrate-v0]
         required: true
-
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+  packages: write
+  
 jobs:
   build_fips_proxy:
     # Only run this job when the release type equals "fips".
-    # if: contains(github.event.inputs.tag, 'fips')
-    if: false
+    if: contains(github.event.inputs.tag, 'fips')
     name: build fips proxy binary
     timeout-minutes: 1440 # 12 hours
-    runs-on: ['self-hosted','Linux','x64','m5.large']
+    runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
     steps:
@@ -254,6 +257,7 @@ jobs:
     if: ${{ !cancelled() && !failure() }}
     env:
       HUB: ${{ secrets.CLOUDSMITH_HUB }}
+      ECR_REGISTRY: 957006768579.dkr.ecr.us-east-2.amazonaws.com
 
     steps:
       - name: Checkout to choosen tag
@@ -262,12 +266,32 @@ jobs:
           ref: ${{ github.event.inputs.tag }}
           fetch-depth: 0
 
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          token_format: 'access_token'
+          workload_identity_provider: 'projects/733020594933/locations/global/workloadIdentityPools/image-signing-oidc/providers/githuboidcprovider'
+          service_account: 'image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com'
+
       - name: Login to CloudSmith
         uses: docker/login-action@v1
         with:
           registry: ${{ env.HUB }}
           username: ${{ secrets.CLOUDSMITH_USER }}
           password: ${{ secrets.CLOUDSMITH_API_KEY }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: ${{ secrets.ECR_PUSH_ROLE }}
+          aws-region: us-east-2
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+        with:
+          mask-password: 'true'
 
       - name: Get Registry
         id: get_registry
@@ -283,41 +307,30 @@ jobs:
         env:
           TAG: ${{ github.event.inputs.tag }}
 
+      - uses: sigstore/cosign-installer@main
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+
+      - uses: imjasonh/setup-crane@v0.3
+
       - name: build and push images
         run: bash ./tetrateci/create_istio_release.sh
         env:
-          BASE_VERSION: 1.17-2023-05-24T19-03-36
+          ISTIO_ENVOY_BASE_URL: "https://storage.googleapis.com/getistio-build/proxy-fips"
           CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
           TAG: ${{ github.event.inputs.tag }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-  Scan:
-      name: Scanner
-      runs-on: ubuntu-20.04
-      needs: [create-images-amd64]
-      if: ${{ !cancelled() && !failure() }}
-      steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      - name: Get minor version
-        id: get_minor_ver
-        run: echo ::set-output name=REL_BRANCH_VER::$(echo $TAG | grep -Eo '[0-9]+\.[0-9]+')
-        shell: bash
+
+      - name: Push images to ECR
+        run: bash ./tetrateci/push_ecr.sh
         env:
-          TAG: ${{ steps.get_tag.outputs.TAG }}
-      - name: List docker images
-        run: bash ./tetrateci/images.sh && pwd 
-        env:
+          CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
           TAG: ${{ github.event.inputs.tag }}
-      - name: Scan images for CRITICAL vulnerabilities
-        uses: docker://ghcr.io/aquasecurity/trivy
-        with:
-          entrypoint: /bin/sh
-          args: -c "trivy image --clear-cache; for img in $(cat list.txt); do trivy image --exit-code 0 --severity HIGH,CRITICAL --no-progress --quiet --format sarif  $img >> $img.sarif ;done "
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v1
-        with:
-          sarif_file: containers.istio.tetratelabs.com  
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+
   create-multiarch-images:
     name: create-multiarch-images
     runs-on: ubuntu-latest
