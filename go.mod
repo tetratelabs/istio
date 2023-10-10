@@ -108,11 +108,7 @@ replace sigs.k8s.io/gateway-api => github.com/istio/gateway-api v0.0.0-202210061
 require (
 	cloud.google.com/go/compute v1.12.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.8.0 // indirect
-	github.com/golang/mock v1.6.0 // indirect
 	github.com/onsi/ginkgo/v2 v2.13.0 // indirect
-	github.com/quic-go/qtls-go1-19 v0.3.3 // indirect
-	github.com/quic-go/qtls-go1-20 v0.3.4 // indirect
-	github.com/quic-go/quic-go v0.36.0 // indirect
 )
 
 require (
@@ -250,7 +246,6 @@ require (
 	golang.org/x/term v0.13.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/tools v0.14.0 // indirect
-	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
 	gomodules.xyz/orderedmap v0.1.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
