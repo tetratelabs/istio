@@ -31,7 +31,7 @@ if $(grep -q "1.15" <<< $TAG); then
 fi
 
 if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.16" ]]; then
-    export GOLANG_VERSION=1.19.10
+    export GOLANG_VERSION=1.20.10
 fi
 
 if [[ "${REL_BRANCH_VER:-${ISTIO_MINOR_VER}}" == "1.17" ]]; then
