@@ -7,7 +7,7 @@ on:
 
 env:
   HUB: ${{ secrets.TEST_HUB }}
-  SHA: "76528fd70640bfea4c8f50194f0a763d52f4c432"
+  SHA: "7734e6a7d8383182b81b4913f163290f3d1e3832"
 
 jobs:
   # copied from make_release.yml
@@ -75,9 +75,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/83e604abd8214f379617e6320d2255ea20ca0e1f/76528fd70640bfea4c8f50194f0a763d52f4c432/g' WORKSPACE
-          sed -i 's/79205f32b8fb8d32843c9b25d0b415712bf41252b9bb66a0b6aced45d789b314/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=76528fd70640bfea4c8f50194f0a763d52f4c432/g' scripts/release-binary.sh
+          sed -i 's/d3663038baad00278ca6d2663f7859a913b96d73/7734e6a7d8383182b81b4913f163290f3d1e3832/g' WORKSPACE
+          sed -i 's/35f1930e47dd8d854dec19df6343ad72d0d0135071d48d0c1f1e03e54153a70d/d4d20a03300b40e925a40738ccbb4740d866d7abebdd4ca866f4833043b40cfc/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=7734e6a7d8383182b81b4913f163290f3d1e3832/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
@@ -108,7 +108,7 @@ jobs:
         env:
           UPSTREAM_GCSP_PATH: gs://istio-build/proxy
         run: |
-          SHA1="3ac8014570d7f4187fb277d25bce010fa6f7b22b"
+          SHA1="f558e66e0f092e60899f5a0493b95b32a8df1a84"
           gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm"
           gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.compiled.wasm.sha256" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.compiled.wasm.sha256"
           gsutil cp "${UPSTREAM_GCSP_PATH}/metadata_exchange-${SHA1}.wasm" "${RELEASE_GCS_PATH}/metadata_exchange-${SHA}.wasm"
@@ -180,9 +180,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/83e604abd8214f379617e6320d2255ea20ca0e1f/76528fd70640bfea4c8f50194f0a763d52f4c432/g' WORKSPACE
-          sed -i 's/79205f32b8fb8d32843c9b25d0b415712bf41252b9bb66a0b6aced45d789b314/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=76528fd70640bfea4c8f50194f0a763d52f4c432/g' scripts/release-binary.sh
+          sed -i 's/d3663038baad00278ca6d2663f7859a913b96d73/7734e6a7d8383182b81b4913f163290f3d1e3832/g' WORKSPACE
+          sed -i 's/35f1930e47dd8d854dec19df6343ad72d0d0135071d48d0c1f1e03e54153a70d/d4d20a03300b40e925a40738ccbb4740d866d7abebdd4ca866f4833043b40cfc/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=7734e6a7d8383182b81b4913f163290f3d1e3832/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
