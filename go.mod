@@ -59,7 +59,7 @@ require (
 	github.com/prometheus/client_model v0.2.0
 	github.com/prometheus/common v0.37.0
 	github.com/prometheus/prometheus v0.36.2
-	github.com/quic-go/quic-go v0.39.0
+	github.com/quic-go/quic-go v0.36.0
 	github.com/ryanuber/go-glob v1.0.0
 	github.com/spf13/cobra v1.5.0
 	github.com/spf13/pflag v1.0.5
@@ -104,10 +104,11 @@ require (
 )
 
 require (
+	github.com/golang/mock v1.6.0 // indirect
 	github.com/onsi/ginkgo/v2 v2.9.5 // indirect
 	github.com/quic-go/qpack v0.4.0 // indirect
+	github.com/quic-go/qtls-go1-19 v0.3.2 // indirect
 	github.com/quic-go/qtls-go1-20 v0.3.4 // indirect
-	go.uber.org/mock v0.3.0 // indirect
 )
 
 require (
