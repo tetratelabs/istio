@@ -32,10 +32,10 @@ if [[ "${CLUSTER}" == "gke" ]]; then
 
 fi
 
-if [[ "${CLUSTER}" == "eks" ]]; then
-  echo "Applying  patch for EKS...."
-  git apply --3way "${SCRIPTDIR}/patches/eks/eks_${ISTIO_MINOR_VER}.patch"
-fi
+#if [[ "${CLUSTER}" == "eks" ]]; then
+ #echo "Applying  patch for EKS...."
+ #git apply --3way "${SCRIPTDIR}/patches/eks/eks_${ISTIO_MINOR_VER}.patch"
+#fi
 
 
 PACKAGES=$(go list -tags=integ "${ROOTDIR}/tests/integration/...")
