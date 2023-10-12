@@ -205,9 +205,11 @@ fmt: format-go format-python tidy-go
 
 ifeq ($(DEBUG),1)
 # gobuild script uses custom linker flag to set the variables.
-RELEASE_LDFLAGS=''
+RELEASE_LDFLAGS=""
+else ifeq ($(GOARCH_LOCAL),amd64) 
+RELEASE_LDFLAGS="-linkmode 'external' -extldflags -static -s -w"
 else
-RELEASE_LDFLAGS='-extldflags -static -s -w'
+RELEASE_LDFLAGS="-extldflags -static -s -w"
 endif
 
 # List of all binaries to build
@@ -361,17 +363,17 @@ copy-templates:
 
 # Non-static istioctl targets. These are typically a build artifact.
 ${TARGET_OUT}/release/istioctl-linux-amd64: depend
-	GOOS=linux GOARCH=amd64 LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
+	GOOS=linux GOARCH=amd64 LDFLAGS="-extldflags -static -s -w" common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
 ${TARGET_OUT}/release/istioctl-linux-armv7: depend
-	GOOS=linux GOARCH=arm GOARM=7 LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
+	GOOS=linux GOARCH=arm GOARM=7 LDFLAGS="-extldflags -static -s -w" common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
 ${TARGET_OUT}/release/istioctl-linux-arm64: depend
-	GOOS=linux GOARCH=arm64 LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
+	GOOS=linux GOARCH=arm64 LDFLAGS="-extldflags -static -s -w" common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
 ${TARGET_OUT}/release/istioctl-osx: depend
-	GOOS=darwin GOARCH=amd64 LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
+	GOOS=darwin GOARCH=amd64 LDFLAGS="-extldflags -static -s -w" common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
 ${TARGET_OUT}/release/istioctl-osx-arm64: depend
-	GOOS=darwin GOARCH=arm64 LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
+	GOOS=darwin GOARCH=arm64 LDFLAGS="-extldflags -static -s -w" common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
 ${TARGET_OUT}/release/istioctl-win.exe: depend
-	GOOS=windows LDFLAGS=$(RELEASE_LDFLAGS) common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
+	GOOS=windows LDFLAGS="-extldflags -static -s -w" common/scripts/gobuild.sh $@ ./istioctl/cmd/istioctl
 
 # generate the istioctl completion files
 ${TARGET_OUT}/release/istioctl.bash: ${LOCAL_OUT}/istioctl
