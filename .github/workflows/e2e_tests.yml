@@ -76,7 +76,7 @@ jobs:
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
           sed -i 's/2e4228b0ee73ae640c92e0974c91e251997a3d2f/7abe508d5b490fceffdde0371e66bfdba831c732/g' WORKSPACE
-          sed -i 's/844bb21ca335b282e57b7b4a77a19c9dcafeef67b7140c98eaec726dcbfe5c78/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
+          sed -i 's/c3e7c2a9c657247c857b269f6a86099515d9bf294a1aff70c5d1ef2a562cdde3/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
           sed -i 's/SHA=.*/SHA=7abe508d5b490fceffdde0371e66bfdba831c732/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
@@ -181,7 +181,7 @@ jobs:
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
           sed -i 's/2e4228b0ee73ae640c92e0974c91e251997a3d2f/7abe508d5b490fceffdde0371e66bfdba831c732/g' WORKSPACE
-          sed -i 's/844bb21ca335b282e57b7b4a77a19c9dcafeef67b7140c98eaec726dcbfe5c78/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
+          sed -i 's/c3e7c2a9c657247c857b269f6a86099515d9bf294a1aff70c5d1ef2a562cdde3/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
           sed -i 's/SHA=.*/SHA=7abe508d5b490fceffdde0371e66bfdba831c732/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
