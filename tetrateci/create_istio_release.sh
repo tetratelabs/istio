@@ -138,20 +138,6 @@ fi
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
 
-IMAGES=(install-cni
-proxyv2
-operator
-istioctl
-pilot)
-
-IMAGE_SUFFIXES=("" "-debug" "-distroless")
-
-for image in "${IMAGES[@]}"; do
-  for suffix in "${IMAGE_SUFFIXES[@]}"; do
-    DIGEST=$(crane digest $HUB/${image}:${TAG}${suffix})
-    cosign sign -y --identity-token=$(gcloud auth print-identity-token --audiences=sigstore --include-email --impersonate-service-account image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com) $HUB/${image}@$DIGEST
-  done
-done
 
 
 echo "Cleaning up the istio source artificats...."
@@ -166,6 +152,21 @@ fi
 
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
+
+    IMAGES=(install-cni
+    proxyv2
+    operator
+    istioctl
+    pilot)
+
+    IMAGE_SUFFIXES=("" "-debug" "-distroless")
+
+    for image in "${IMAGES[@]}"; do
+      for suffix in "${IMAGE_SUFFIXES[@]}"; do
+        DIGEST=$(crane digest $HUB/${image}:${TAG}${suffix})
+        cosign sign -y --identity-token=$(gcloud auth print-identity-token --audiences=sigstore --include-email --impersonate-service-account image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com) $HUB/${image}@$DIGEST
+      done
+    done
     echo "Building archives..."
     # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
     if [[ ${TAG} =~ "fips" ]]; then
