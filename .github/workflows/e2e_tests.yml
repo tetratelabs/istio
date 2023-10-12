@@ -7,7 +7,7 @@ on:
 
 env:
   HUB: ${{ secrets.TEST_HUB }}
-  SHA: "76528fd70640bfea4c8f50194f0a763d52f4c432"
+  SHA: "7abe508d5b490fceffdde0371e66bfdba831c732"
 
 jobs:
   # copied from make_release.yml
@@ -75,9 +75,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/83e604abd8214f379617e6320d2255ea20ca0e1f/76528fd70640bfea4c8f50194f0a763d52f4c432/g' WORKSPACE
-          sed -i 's/79205f32b8fb8d32843c9b25d0b415712bf41252b9bb66a0b6aced45d789b314/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=76528fd70640bfea4c8f50194f0a763d52f4c432/g' scripts/release-binary.sh
+          sed -i 's/2e4228b0ee73ae640c92e0974c91e251997a3d2f/7abe508d5b490fceffdde0371e66bfdba831c732/g' WORKSPACE
+          sed -i 's/844bb21ca335b282e57b7b4a77a19c9dcafeef67b7140c98eaec726dcbfe5c78/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=7abe508d5b490fceffdde0371e66bfdba831c732/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
@@ -180,9 +180,9 @@ jobs:
           cp scripts/release-binary.sh scripts/release-binary.sh.tmp
           echo gcloud auth activate-service-account --key-file="/work/${CREDENTIAL_FILE_NAME}" > scripts/release-binary.sh
           cat scripts/release-binary.sh.tmp >> scripts/release-binary.sh
-          sed -i 's/83e604abd8214f379617e6320d2255ea20ca0e1f/76528fd70640bfea4c8f50194f0a763d52f4c432/g' WORKSPACE
-          sed -i 's/79205f32b8fb8d32843c9b25d0b415712bf41252b9bb66a0b6aced45d789b314/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
-          sed -i 's/SHA=.*/SHA=76528fd70640bfea4c8f50194f0a763d52f4c432/g' scripts/release-binary.sh
+          sed -i 's/2e4228b0ee73ae640c92e0974c91e251997a3d2f/7abe508d5b490fceffdde0371e66bfdba831c732/g' WORKSPACE
+          sed -i 's/844bb21ca335b282e57b7b4a77a19c9dcafeef67b7140c98eaec726dcbfe5c78/f842ee5128abdc12596fc2dbf1b689d1376ab363dd471f85c91d0e7b0f658985/g' WORKSPACE
+          sed -i 's/SHA=.*/SHA=7abe508d5b490fceffdde0371e66bfdba831c732/g' scripts/release-binary.sh
           sed -i 's/ENVOY_ORG = "envoyproxy"/ENVOY_ORG = "psbrar99"/g' WORKSPACE
           sed  -i 's/for config in release release-symbol asan debug/for config in release/g' scripts/release-binary.sh
           sed -i -n '/Build and publish Wasm plugins/q;p' scripts/release-binary.sh
