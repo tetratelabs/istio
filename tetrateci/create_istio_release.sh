@@ -6,25 +6,23 @@ set -x
 
 BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
-## Set up apporiate go version
-if [[ ${TAG} =~ "fips" ]]; then
-    echo "Set up FIPS compliant Golang"
-    source ${BASEDIR}/tetrateci/setup_boring_go.sh
-else
-    echo "Set up Golang"
-    source ${BASEDIR}/tetrateci/setup_go.sh
-fi
+sudo rm -rf /usr/local/go
+
+source ${BASEDIR}/tetrateci/setup_go.sh
+
+
 
 ## Set up release-builder
 
 # BOM is needed for generating bill of materials, required by Istio since 1.13, https://github.com/istio/release-builder/pull/893
-go install sigs.k8s.io/bom/cmd/bom@v0.2.2
-cp /home/runner/go/bin/bom /usr/local/bin/
+# go install sigs.k8s.io/bom/cmd/bom@v0.2.2
+# sudo cp /home/runner/go/bin/bom /usr/local/bin/
 
 sudo gem install fpm
 sudo apt-get install go-bindata -y
 export BRANCH=release-${REL_BRANCH_VER}
 cd ..
+rm -rf release-builder
 git clone https://github.com/istio/release-builder --branch ${BRANCH}
 
 
@@ -46,11 +44,25 @@ export BUILD_WITH_CONTAINER=0
 if [[ ${TAG} =~ "fips" ]]; then
 	PROXY_DISTROLESS_BASE=$(grep 'as distroless' ${BASEDIR}/pilot/docker/Dockerfile.proxyv2)
 	# Escape '/'
-	PROXY_DISTROLESS_BASE_ESCAPED=$(sed 's/\//\\\//g' <<< ${PROXY_DISTROLESS_BASE})
-	sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/operator/docker/Dockerfile.operator
-
-    export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
+  PROXY_DISTROLESS_BASE_ESCAPED=$(sed 's/\//\\\//g' <<< ${PROXY_DISTROLESS_BASE})
+  cat ${BASEDIR}/docker/Dockerfile.distroless
+  sed -i "s/.*as distroless/${PROXY_DISTROLESS_BASE_ESCAPED}/" ${BASEDIR}/operator/docker/Dockerfile.operator
+  sed "s/.*as distroless/FROM gcr.io\/distroless\/static-debian11@sha256:7198a357ff3a8ef750b041324873960cf2153c11cc50abb9d8d5f8bb089f6b4e as distroless_source/" ${BASEDIR}/docker/Dockerfile.distroless
+  export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-fips
+  cat ${BASEDIR}/docker/Dockerfile.distroless
 fi
+
+
+if [[ "$(uname -m)" = "aarch64" ]]; then
+    sed -i 's/gcr\.io\/istio-release/gcr\.io\/tetrate-istio-arm/' $(find ${BASEDIR} | grep Dockerfile)
+    sed -i 's/gcr\.io\/tetrate-istio-arm\/iptables@sha256:[0-9a-f]*/gcr\.io\/istio-release\/iptables@sha256:8efeb55ddf08f2f513d303b8f0ff42c9f08f355de2f4124e641d209d11a6af91/' ${BASEDIR}/pilot/docker/Dockerfile.proxyv2
+    export ISTIO_ENVOY_BASE_URL=https://storage.googleapis.com/getistio-build/proxy-arm
+    export BASE_VERSION=1602e34d9524a2a312907aab276bcd7100da52df # 1.12
+    
+fi
+
+
+
 
 # HACK : default manifest from release builder is modified
 echo "Generating the manifests"
@@ -65,6 +77,11 @@ echo "TEST flag is '${TEST:-}'"
 
 echo "Getting into release builder"
 cd release-builder
+
+if [[ "$(uname -m)" = "aarch64" ]]; then
+    sed -i 's/linux_amd64/linux_arm64/' pkg/model/model.go
+fi
+
 echo "Copying istio directory"
 cp -r ../istio .
 # export IMAGE_VERSION=$(curl https://raw.githubusercontent.com/istio/test-infra/master/prow/config/jobs/release-builder.yaml | grep "image: gcr.io" | head -n 1 | cut -d: -f3)
@@ -79,9 +96,26 @@ if [[ ${TAG} =~ "fips" ]]; then
   text="if [[ "\${GOARCH}" == "amd64" ]]; then export CGO_ENABLED=1; else export CGO_ENABLED=0; fi"
   sed -i 's/export CGO_ENABLED=${CGO_ENABLED:-0}/'"$text"'/g' istio/common/scripts/gobuild.sh
 fi
+
+# Generalizing TAG variable exporting option to incorporate ARM build.We need amd64 and arm64 suffix in docker images to create multi-arch images.Not needed for tetrate and tetratefips build.
+if [[ ${TAG} =~ "multiarch" ]]; then
+  if  [[ "$(uname -m)" = "aarch64" ]]; then
+    export TAG="${TAG}-arm64"
+  else
+    export TAG="${TAG}-amd64"
+  fi
+fi
+
+#install rpm-build package
+sudo apt-get install rpm -y
 # Build Docker Images
-mkdir /tmp/istio-release
-go run main.go build --manifest manifest.docker.yaml
+sudo rm -rf /tmp/istio-release && mkdir /tmp/istio-release
+
+if [[ ${TAG} =~ "fips" ]]; then
+  GOEXPERIMENT=boringcrypto go run main.go build --manifest manifest.docker.yaml
+else
+  go run main.go build --manifest manifest.docker.yaml
+fi
 # go run main.go validate --release /tmp/istio-release/out # seems like it fails if not all the targets are generated
 
 #loading pilot image manually since docker container create command is failing due to unavailbilty of pilot image locally
@@ -95,24 +129,48 @@ echo "Images are built with: go $BUILD_GO_VERSION"
 
 [ $BUILD_GO_VERSION == go$GOLANG_VERSION ] || exit 1
 
-# fips go versions are like 1.14.12b5, extra checking to not miss anything
-if [ ${TAG} =~ "fips" ]; then 
-    [[ $BUILD_GO_VERSION =~ 1.[0-9]+.[0-9]+[a-z][0-9]$ ]] || exit 1
+# Check if binaries are compiled with boringcrypto
+if [ ${TAG} =~ "fips" ]; then
+    CHECK_CRYPTO=$(go version pilot-bin| cut -f3 -d" ") 
+    [[ $CHECK_CRYPTO == X:boringcrypto ]] || exit 1
 fi
 
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+
+
+
+
 echo "Cleaning up the istio source artificats...."
 sudo rm -rf /tmp/istio-release/sources/
 
+if [[ "$(uname -m)" = "x86_64" ]]; then
+    export TAG="${TAG%-amd64}"
+    ${BASEDIR}/tetrateci/gen_release_manifest.py ${BASEDIR}/../release-builder/example/manifest.yaml ${BASEDIR}/../release-builder/
+else
+    exit 0
+fi
+
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
+
+    IMAGES=(install-cni
+    proxyv2
+    operator
+    istioctl
+    pilot)
+
+    IMAGE_SUFFIXES=("" "-debug" "-distroless")
+
+    for image in "${IMAGES[@]}"; do
+      for suffix in "${IMAGE_SUFFIXES[@]}"; do
+        DIGEST=$(crane digest $HUB/${image}:${TAG}${suffix})
+        cosign sign -y --identity-token=$(gcloud auth print-identity-token --audiences=sigstore --include-email --impersonate-service-account image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com) $HUB/${image}@$DIGEST
+      done
+    done
     echo "Building archives..."
     # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
     if [[ ${TAG} =~ "fips" ]]; then
-        sudo rm -rf /usr/local/go
-        source ${BASEDIR}/tetrateci/setup_go.sh
-        #disabling cgo flag
-        sed -i '/then export CGO_ENABLED=1/c\export CGO_ENABLED=0' istio/common/scripts/gobuild.sh
+      exit 0      
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
@@ -121,6 +179,7 @@ if [[ -z ${TEST:-} ]]; then
     go run main.go build --manifest manifest.archive.yaml
 
     python3 -m pip install --upgrade cloudsmith-cli --user
+    export PATH=$PATH:/home/runner/.local/bin
 
     PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
     for package in $PACKAGES; do
@@ -129,6 +188,6 @@ if [[ -z ${TEST:-} ]]; then
     done
 fi
 echo "Cleaning /tmp/istio...."
-[ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
+#[ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
 
 echo "Done building and pushing the artifacts."
