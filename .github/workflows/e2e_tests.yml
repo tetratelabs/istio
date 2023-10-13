@@ -388,7 +388,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ["1.25", "1.26", "1.27"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+        version: ["1.24", "1.24", "1.26"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
 
     steps:
       - name: checkout
@@ -456,7 +456,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ["1.26", "1.25", "1.27"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+        version: ["1.23", "1.25", "1.26"] # available versions according to https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
 
     steps:
       - name: checkout
