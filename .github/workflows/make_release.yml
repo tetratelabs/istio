@@ -256,7 +256,7 @@ jobs:
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
     if: ${{ !cancelled() && !failure() }}
     env:
-      HUB: ${{ secrets.CLOUDSMITH_FIPS_HUB }}
+      HUB: ${{ secrets.CLOUDSMITH_HUB }}
 
     steps:
       - name: Checkout to choosen tag
