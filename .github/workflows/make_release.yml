@@ -256,8 +256,7 @@ jobs:
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
     if: ${{ !cancelled() && !failure() }}
     env:
-      HUB: ${{ secrets.CLOUDSMITH_HUB }}
-      HUB1: ${{ secrets.CLOUDSMITH_FIPS_HUB }}
+      HUB: ${{ secrets.CLOUDSMITH_FIPS_HUB }}
 
     steps:
       - name: Checkout to choosen tag
@@ -273,6 +272,13 @@ jobs:
           workload_identity_provider: 'projects/733020594933/locations/global/workloadIdentityPools/image-signing-oidc/providers/githuboidcprovider'
           service_account: 'image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com'
 
+
+      - name: Login to CloudSmith
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ env.HUB }}
+          username: ${{ secrets.CLOUDSMITH_USER }}
+          password: ${{ secrets.CLOUDSMITH_API_KEY }}
 
       - name: Login to CloudSmith
         uses: docker/login-action@v1
