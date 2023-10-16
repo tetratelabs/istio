@@ -135,7 +135,7 @@ if [ ${TAG} =~ "fips" ]; then
     [[ $CHECK_CRYPTO == X:boringcrypto ]] || exit 1
 fi
 
-# go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
 
 
