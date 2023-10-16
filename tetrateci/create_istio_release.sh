@@ -135,7 +135,7 @@ if [ ${TAG} =~ "fips" ]; then
     [[ $CHECK_CRYPTO == X:boringcrypto ]] || exit 1
 fi
 
-go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+# go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
 
 
@@ -152,32 +152,21 @@ fi
 
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
-    # IMAGES=(install-cni
-    # proxyv2
-    # operator
-    # istioctl
-    # pilot)
 
-    # IMAGE_SUFFIXES=("" "-debug" "-distroless")
 
-    # for image in "${IMAGES[@]}"; do
-    #   for suffix in "${IMAGE_SUFFIXES[@]}"; do
-    #     DIGEST=$(crane digest $HUB/${image}:${TAG}${suffix})
-    #     cosign sign -y --identity-token=$(gcloud auth print-identity-token --audiences=sigstore --include-email --impersonate-service-account image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com) $HUB/${image}@$DIGEST
-    #   done
-    # done
-
-    
 
     echo "Building archives..."
     # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
     if [[ ${TAG} =~ "fips" ]]; then
-      exit 0      
+        sudo rm -rf /usr/local/go
+        source ${BASEDIR}/tetrateci/setup_go.sh
+        #disabling cgo flag
+        sed -i '/then export CGO_ENABLED=1/c\export CGO_ENABLED=0' istio/common/scripts/gobuild.sh
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
     echo "Prunning docker images to reclaim more space for 1.13.x-fips release"
-    for i in `docker images | grep -i app_sidecar | awk {'print $3'} | tail -n +2`; do echo pruning $i; docker rmi $i --force; done
+    
     go run main.go build --manifest manifest.archive.yaml
 
     python3 -m pip install --upgrade cloudsmith-cli --user
@@ -190,6 +179,7 @@ if [[ -z ${TEST:-} ]]; then
     done
 fi
 echo "Cleaning /tmp/istio...."
+for i in `docker images | grep -i $TAG | awk {'print $1":"$2'} | tail -n +2`; do echo pruning $i; docker rmi $i --force; done
 #[ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
 
 echo "Done building and pushing the artifacts."
