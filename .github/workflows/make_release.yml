@@ -316,6 +316,12 @@ jobs:
 
       - uses: imjasonh/setup-crane@v0.3
 
+      - name: 'Set Hub'
+        if: contains(github.event.ref, 'fips')
+        env:
+          HUB: ${{ secrets.CLOUDSMITH_FIPS_HUB }}
+        run: echo "HUB=$HUB" >> $GITHUB_ENV
+
       - name: build and push images
         run: bash ./tetrateci/create_istio_release.sh
         env:
@@ -326,6 +332,7 @@ jobs:
           ACCESS_TOKEN: '${{ steps.auth.outputs.access_token }}'
 
       - name: Push images to ECR
+        if: ${{ ! contains(github.event.ref, 'fips') }}
         run: bash ./tetrateci/push_ecr.sh
         env:
           CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
