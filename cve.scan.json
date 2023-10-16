@@ -5,7 +5,7 @@
             "1.19.3-tetrate-v0",
             "1.18.5-tetrate-v0",
             "1.17.8-tetrate-v0",
-            "1.16.7-tetrate-v1",
+            "1.16.7-tetrate-v2",
             "1.19.0-tetrate-v0",
             "1.18.3-tetrate-v0",
             "1.17.6-tetrate-v0",
@@ -15,14 +15,15 @@
     "tid-istio-fips": {
         "branches": [],
         "tags": [
-            "1.19.3-tetrate-v0",
-            "1.18.5-tetrate-v0",
-            "1.17.8-tetrate-v0",
-            "1.16.7-tetrate-v1",
+            "1.19.3-tetratefips-v0",
+            "1.18.5-tetratefips-v0",
+            "1.17.8-tetratefips-v0",
+            "1.16.7-tetratefips-v2",
             "1.19.0-tetratefips-v0",
             "1.18.3-tetratefips-v0",
             "1.17.6-tetratefips-v0",
             "1.16.7-tetratefips-v0"
+    
         ]
     },
     "oss-istio": {
