@@ -6,13 +6,16 @@ ARG BASE_VERSION=latest
 
 # The following section is used as base image if BASE_DISTRIBUTION=debug
 FROM gcr.io/istio-release/base:${BASE_VERSION} as debug
+RUN apt-get update && apt-get upgrade -y \
+  && apt-get clean \
+  && rm -rf  /var/log/*log /var/lib/apt/lists/* /var/log/apt/* /var/lib/dpkg/*-old /var/cache/debconf/*-old
 
 # The following section is used as base image if BASE_DISTRIBUTION=distroless
 # This image is a custom built debian11 distroless image with multiarchitecture support.
 # It is built on the base distroless image, with iptables binary and libraries added
 # The source can be found at https://github.com/istio/distroless/tree/iptables
 # This version is from commit a8b3fb577adb785211ce704fdf892983fc268b11.
-FROM gcr.io/istio-release/iptables@sha256:4be99c4dbc0a158fc4404d66198bf18f321292ffeff55201e9c8fa518a54b81e as distroless
+FROM gcr.io/istio-release/iptables@sha256:1696a2570c01a00f8910b3d9d68039ff22ae8ddbe7903fa78005740251bddd9f as distroless
 
 # This will build the final image based on either debug or distroless from above
 # hadolint ignore=DL3006
