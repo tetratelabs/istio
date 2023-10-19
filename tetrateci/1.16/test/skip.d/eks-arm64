@@ -25,7 +25,8 @@
 istio.io/istio/tests/integration/helm=TestDefaultInstall TestInstallWithFirstPartyJwt
 istio.io/istio/tests/integration/operator=TestPostInstallControlPlaneVerification
 istio.io/istio/tests/integration/helm/upgrade=*
-istio.io/istio/tests/integration/pilot=TestGatewayConformance TestTunnelingOutboundTraffic TestGateway TestIngress
+istio.io/istio/tests/integration/pilot=TestGatewayConformance TestTunnelingOutboundTraffic TestGateway TestIngress TestTraffic/envoyfilter
+istio.io/istio/tests/integration/pilot_endpointsmode=TestTraffic/envoyfilter
 istio.io/istio/tests/integration/security=TestAuthz_Namespace TestAuthz_DenyNamespace TestAuthz_NotHost TestAuthz_NotNamespace TestAuthz_NotMethod TestAuthz_NotPort TestAuthz_DenyPlaintext TestAuthz_Conditions TestAuthz_PathNormalization TestAuthz_CustomServer TestMutualTlsOrigination TestRequestAuthentication TestIngressRequestAuthentication TestNormalization TestPassThroughFilterChain TestReachability
 istio.io/istio/tests/integration/security/sds_ingress=*
 istio.io/istio/tests/integration/security/sds_ingress/quic=*
