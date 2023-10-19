@@ -19,7 +19,7 @@
 # For more information see: https://github.com/istio/istio/pull/19322/
 
 
-BASE_VERSION ?= 1.18-2023-10-04T19-04-08
+BASE_VERSION ?= 1.18-2023-10-12T19-01-45
 BUILD_WITH_CONTAINER ?= 1
 CONTAINER_OPTIONS = --mount type=bind,source=/tmp,destination=/tmp --net=host
 
