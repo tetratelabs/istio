@@ -24,7 +24,9 @@ for image in "${IMAGES[@]}"; do
   done
 done
 
-if ! [[ ${TAG} =~ "fips" ]] && [[ ${BACKPORT} == "true" ]] ; then
+if  [[ ${TAG} =~ "fips" ]] ;then
+  exit 0;
+elif [[ ${BACKPORT} == "false" ]] ; then
     for image in "${IMAGES[@]}"; do
         for suffix in "${IMAGE_SUFFIXES[@]}"; do
             docker tag $HUB/${image}:${TAG}${suffix} $PUBLIC_HUB/${image}:${TAG}${suffix}
@@ -32,5 +34,6 @@ if ! [[ ${TAG} =~ "fips" ]] && [[ ${BACKPORT} == "true" ]] ; then
             docker push $PUBLIC_HUB/${image}:${TAG}${suffix}
         done
     done
+else
+  echo "Images synced"
 fi
-
