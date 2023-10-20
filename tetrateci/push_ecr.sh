@@ -22,3 +22,14 @@ for image in "${IMAGES[@]}"; do
     docker push $ECR_REGISTRY/tid-istio/${image}:${TAG}${suffix}
   done
 done
+
+
+if [[ ${BACKPORT} == "false" ]] ; then
+    for image in "${IMAGES[@]}"; do
+        for suffix in "${IMAGE_SUFFIXES[@]}"; do
+            docker tag $HUB/${image}:${TAG}${suffix} $PUBLIC_HUB/${image}:${TAG}${suffix}
+            echo $PUBLIC_HUB/${image}:${TAG}${suffix}
+            docker push $PUBLIC_HUB/${image}:${TAG}${suffix}
+        done
+    done
+fi
