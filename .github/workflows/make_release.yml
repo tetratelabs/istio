@@ -10,14 +10,14 @@ permissions:
   id-token: write   # This is required for requesting the JWT
   contents: read    # This is required for actions/checkout
   packages: write
-  
+
 jobs:
   build_fips_proxy:
     # Only run this job when the release type equals "fips".
     if: false
     name: build fips proxy binary
     timeout-minutes: 1440 # 12 hours
-    runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
+    runs-on: ['self-hosted','Linux','x64','m5.large']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
     steps:
@@ -220,6 +220,13 @@ jobs:
           username: ${{ secrets.CLOUDSMITH_USER }}
           password: ${{ secrets.CLOUDSMITH_API_KEY }}
 
+      - name: Login to CloudSmith
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ env.HUB }}
+          username: ${{ secrets.CLOUDSMITH_USER }}
+          password: ${{ secrets.CLOUDSMITH_API_KEY }}
+
       - name: Get Registry
         id: get_registry
         run: |
@@ -256,7 +263,8 @@ jobs:
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
     if: ${{ !cancelled() && !failure() }}
     env:
-      HUB: ${{ secrets.CLOUDSMITH_FIPS_HUB }}
+      PUBLIC_HUB: ${{ secrets.CLOUDSMITH_HUB }}
+      HUB: ${{ secrets.CLOUDSMITH_ADDON_HUB }}
       ECR_REGISTRY: 957006768579.dkr.ecr.us-east-2.amazonaws.com
 
     steps:
@@ -264,8 +272,7 @@ jobs:
         uses: actions/checkout@v2
         with:
           ref: ${{ github.event.inputs.tag }}
-          fetch-depth: 0
-
+          fetch-depth: 0  
       - id: 'auth'
         name: 'Authenticate to Google Cloud'
         uses: 'google-github-actions/auth@v1'
@@ -273,9 +280,20 @@ jobs:
           token_format: 'access_token'
           workload_identity_provider: 'projects/733020594933/locations/global/workloadIdentityPools/image-signing-oidc/providers/githuboidcprovider'
           service_account: 'image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com'
+        env:
+          HUB: gcr.io/tid-testing
 
       - name: Login to CloudSmith
         uses: docker/login-action@v1
+        if: contains(github.event.ref, 'fips')
+        with:
+          registry: ${{ secrets.CLOUDSMITH_FIPS_HUB }}
+          username: ${{ secrets.CLOUDSMITH_USER }}
+          password: ${{ secrets.CLOUDSMITH_API_KEY }}
+
+      - name: Login to CloudSmith
+        uses: docker/login-action@v1
+        if: ${{ ! contains(github.event.ref, 'fips') }}
         with:
           registry: ${{ env.HUB }}
           username: ${{ secrets.CLOUDSMITH_USER }}
@@ -314,17 +332,33 @@ jobs:
 
       - uses: imjasonh/setup-crane@v0.3
 
+      - name: 'Set Hub'
+        if: contains(github.event.ref, 'fips')
+        env:
+          HUB: ${{ secrets.CLOUDSMITH_FIPS_HUB }}
+        run: echo "HUB=$HUB" >> $GITHUB_ENV
+
       - name: build and push images
         run: bash ./tetrateci/create_istio_release.sh
         env:
-          ISTIO_ENVOY_BASE_URL: "https://storage.googleapis.com/getistio-build/proxy-fips"
           CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
           TAG: ${{ github.event.inputs.tag }}
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+          ACCESS_TOKEN: '${{ steps.auth.outputs.access_token }}'
 
       - name: Push images to ECR
+        if: ${{ ! contains(github.event.ref, 'fips') }}
         run: bash ./tetrateci/push_ecr.sh
+        env:
+          CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+          TAG: ${{ github.event.inputs.tag }}          
+          BACKPORT: "false"
+          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+
+      - name: Sign Images
+        run: bash ./tetrateci/images.sh
         env:
           CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
