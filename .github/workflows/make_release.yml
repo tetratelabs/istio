@@ -263,10 +263,6 @@ jobs:
     # see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#example-not-requiring-dependent-jobs-to-be-successful
     if: ${{ !cancelled() && !failure() }}
     env:
-<<<<<<< HEAD
-      ISTIO_ENVOY_BASE_URL: "https://storage.googleapis.com/getistio-build/proxy-fips"
-=======
->>>>>>> 5eeb147361b71b52d3f9cd0d0d115642e47c83bc
       PUBLIC_HUB: ${{ secrets.CLOUDSMITH_HUB }}
       HUB: ${{ secrets.CLOUDSMITH_ADDON_HUB }}
       ECR_REGISTRY: 957006768579.dkr.ecr.us-east-2.amazonaws.com
