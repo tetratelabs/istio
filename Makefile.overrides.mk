@@ -18,6 +18,9 @@
 # test cases fail within Docker, and Mac + Docker isn't quite perfect.
 # For more information see: https://github.com/istio/istio/pull/19322/
 
+# Base version of Istio image to use
+BASE_VERSION ?= 1.19-2023-10-13T03-27-30
+
 BUILD_WITH_CONTAINER ?= 1
 CONTAINER_OPTIONS = --mount type=bind,source=/tmp,destination=/tmp --net=host
 
