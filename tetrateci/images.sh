@@ -11,7 +11,6 @@ BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 IMAGES=(install-cni
 proxyv2
 operator
-istioctl
 pilot)
 
 IMAGE_SUFFIXES=("debug" "distroless")

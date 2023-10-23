@@ -23,9 +23,8 @@ for image in "${IMAGES[@]}"; do
   done
 done
 
-if  [[ ${TAG} =~ "fips" ]] ;then
-  exit 0;
-elif [[ ${BACKPORT} == "false" ]] ; then
+//do not copy images to public registry if backport=true
+if [[ ${BACKPORT} == "false" ]] ; then
     for image in "${IMAGES[@]}"; do
         for suffix in "${IMAGE_SUFFIXES[@]}"; do
             docker tag $HUB/${image}:${TAG}${suffix} $PUBLIC_HUB/${image}:${TAG}${suffix}
@@ -33,6 +32,4 @@ elif [[ ${BACKPORT} == "false" ]] ; then
             docker push $PUBLIC_HUB/${image}:${TAG}${suffix}
         done
     done
-else
-  echo "Images synced"
 fi
