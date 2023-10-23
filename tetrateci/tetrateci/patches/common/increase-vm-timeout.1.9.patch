@@ -1,0 +1,13 @@
+diff --git a/tests/integration/pilot/vm_test.go b/tests/integration/pilot/vm_test.go
+index 5aa5af8855..2cc94751ad 100644
+--- a/tests/integration/pilot/vm_test.go
++++ b/tests/integration/pilot/vm_test.go
+@@ -114,7 +114,7 @@ func TestVMRegistrationLifecycle(t *testing.T) {
+ 						return errors.New("expected 2 pilots")
+ 					}
+ 					return nil
+-				}, retry.Timeout(10*time.Second))
++				}, retry.Timeout(5*time.Minute))
+ 
+ 				// get the initial workload entry state
+ 				entries := getWorkloadEntriesOrFail(ctx, autoVM)

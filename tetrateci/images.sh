@@ -6,20 +6,19 @@ set -o pipefail
 
 BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
-mkdir containers.istio.tetratelabs.com
 
-IMAGES=(app
-install-cni
+
+IMAGES=(install-cni
+proxyv2
+operator
 istioctl
-pilot
-proxyv2)
-
+pilot)
 
 IMAGE_SUFFIXES=("debug" "distroless")
 
 for image in "${IMAGES[@]}"; do
   for suffix in "${IMAGE_SUFFIXES[@]}"; do
-    echo containers.istio.tetratelabs.com/${image}:${TAG}-${suffix} >> list.txt
-    cat list.txt
+    DIGEST=$(crane digest $HUB/${image}:${TAG}-${suffix})
+    cosign sign -y --identity-token=$(gcloud auth print-identity-token --audiences=sigstore --include-email --impersonate-service-account image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com) $HUB/${image}@$DIGEST
   done
 done
