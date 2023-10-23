@@ -11,7 +11,8 @@ IMAGES=(install-cni
 istioctl
 operator
 pilot
-proxyv2)
+proxyv2
+ztunnel)
 
 IMAGE_SUFFIXES=("" "-debug" "-distroless")
 
