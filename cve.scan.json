@@ -2,6 +2,10 @@
     "tid-istio": {
         "branches": [],
         "tags": [
+            "1.19.3-tetrate-v1",
+            "1.18.5-tetrate-v2",
+            "1.17.8-tetrate-v1",
+            "1.16.7-tetrate-v3",
             "1.19.3-tetrate-v0",
             "1.18.5-tetrate-v0",
             "1.17.8-tetrate-v0",
