@@ -151,7 +151,7 @@ else
 fi
 
 # If RELEASE, Build Archives
-if [[ -z ${TEST:-} ]]; then
+# if [[ -z ${TEST:-} ]]; then
 
 
     echo "Building archives..."
@@ -173,7 +173,7 @@ if [[ -z ${TEST:-} ]]; then
         echo "Publishing $package"
         cloudsmith push raw tetrate/getistio /tmp/istio-release/out/$package
     done
-fi
+#fi
 echo "Cleaning /tmp/istio...."
 #[ -d "/tmp/istio-release" ] && sudo rm -rf /tmp/istio-release
 
