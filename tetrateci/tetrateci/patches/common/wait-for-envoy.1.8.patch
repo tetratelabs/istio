@@ -1,0 +1,53 @@
+diff --git a/tests/integration/telemetry/policy/envoy_ratelimit_test.go b/tests/integration/telemetry/policy/envoy_ratelimit_test.go
+index 368c1ff9ea..8fa191ab08 100644
+--- a/tests/integration/telemetry/policy/envoy_ratelimit_test.go
++++ b/tests/integration/telemetry/policy/envoy_ratelimit_test.go
+@@ -16,6 +16,7 @@
+ package policy
+ 
+ import (
++	"fmt"
+ 	"io/ioutil"
+ 	"testing"
+ 	"time"
+@@ -31,6 +32,7 @@ import (
+ 	"istio.io/istio/pkg/test/framework/label"
+ 	"istio.io/istio/pkg/test/framework/resource"
+ 	"istio.io/istio/pkg/test/kube"
++	"istio.io/istio/pkg/test/util/retry"
+ 	"istio.io/istio/pkg/test/util/tmpl"
+ )
+ 
+@@ -159,12 +161,32 @@ func setupEnvoyFilter(ctx resource.Context) error {
+ 
+ func sendTrafficAndCheckIfRatelimited(t *testing.T) bool {
+ 	t.Helper()
++
++	testCall := echo.CallOptions{
++		Target:   srv,
++		PortName: "http",
++		Count:    1,
++	}
++
++	retry.UntilSuccessOrFail(t, func() error {
++		t.Logf("Sending a test request to see if envoy is up or not.....")
++		if parsedResponse, err := clt.Call(testCall); err == nil {
++			for _, resp := range parsedResponse {
++				if response.StatusCodeOK != resp.Code {
++					return fmt.Errorf("envoy not ready, wanted 200 got %v", resp.Code)
++				}
++			}
++		}
++		return nil
++	}, retry.Timeout(5*time.Minute))
++
+ 	t.Logf("Sending 300 requests...")
+ 	httpOpts := echo.CallOptions{
+ 		Target:   srv,
+ 		PortName: "http",
+ 		Count:    300,
+ 	}
++
+ 	if parsedResponse, err := clt.Call(httpOpts); err == nil {
+ 		for _, resp := range parsedResponse {
+ 			if response.StatusCodeTooManyRequests == resp.Code {

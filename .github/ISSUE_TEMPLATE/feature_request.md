@@ -11,9 +11,7 @@ about: Suggest an idea to improve Istio
 
 **Affected product area (please put an X in all that apply)**
 
-[ ] Ambient
 [ ] Docs
-[ ] Dual Stack
 [ ] Installation
 [ ] Networking
 [ ] Performance and Scalability
