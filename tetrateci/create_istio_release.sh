@@ -135,7 +135,7 @@ if [ ${TAG} =~ "fips" ]; then
     [[ $CHECK_CRYPTO == X:boringcrypto ]] || exit 1
 fi
 
-go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+# go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
 
 
@@ -156,9 +156,9 @@ if [[ -z ${TEST:-} ]]; then
 
     echo "Building archives..."
     # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
-    if [[ ${TAG} =~ "fips" ]]; then
-      exit 0      
-    fi
+    # if [[ ${TAG} =~ "fips" ]]; then
+    #   exit 0      
+    # fi
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
     echo "Prunning docker images to reclaim more space for 1.13.x-fips release"
