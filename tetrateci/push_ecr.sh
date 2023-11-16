@@ -24,7 +24,7 @@ for image in "${IMAGES[@]}"; do
   done
 done
 
-// Do not copy if it is a FIPS build or backport.
+# do not copy if it is a FIPS build or backport.
 if  [[ ${TAG} =~ "fips" ]] ;then
   exit 0;
 elif [[ ${BACKPORT} == "false" ]]  ; then
