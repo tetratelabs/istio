@@ -153,23 +153,18 @@ fi
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
 
-    # IMAGES=(install-cni
-    # proxyv2
-    # operator
-    # istioctl
-    # pilot)
 
-    # IMAGE_SUFFIXES=("" "-debug" "-distroless")
-
-    # for image in "${IMAGES[@]}"; do
-    #   for suffix in "${IMAGE_SUFFIXES[@]}"; do
-    #     DIGEST=$(crane digest $HUB/${image}:${TAG}${suffix})
-    #     cosign sign -y --identity-token=$(gcloud auth print-identity-token --audiences=sigstore --include-email --impersonate-service-account image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com) $HUB/${image}@$DIGEST
-    #   done
-    # done
     echo "Building archives..."
     # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
     if [[ ${TAG} =~ "fips" ]]; then
+      python3 -m pip install --upgrade cloudsmith-cli --user
+      export PATH=$PATH:/home/runner/.local/bin
+      PKGS=$(find /tmp/istio-release/ -type f  -name  "istio-sidecar*")
+      for package in $PKGS; do
+        echo "Publishing $package"
+        cloudsmith push raw tetrate/getistio $package-${TAG}
+      done
+
       exit 0      
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
@@ -185,6 +180,11 @@ if [[ -z ${TEST:-} ]]; then
     for package in $PACKAGES; do
         echo "Publishing $package"
         cloudsmith push raw tetrate/getistio /tmp/istio-release/out/$package
+    done
+    PKGS=$(find /tmp/istio-release/ -type f  -name  "istio-sidecar*")
+    for package in $PKGS; do
+      echo "Publishing $package"
+      cloudsmith push raw tetrate/getistio $package-${TAG}
     done
 fi
 echo "Cleaning /tmp/istio...."
