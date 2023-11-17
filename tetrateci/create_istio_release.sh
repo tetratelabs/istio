@@ -164,8 +164,7 @@ if [[ -z ${TEST:-} ]]; then
         echo "Publishing $package"
         cloudsmith push raw tetrate/getistio $package-${TAG}
       done
-
-      exit 0      
+  
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/

@@ -14,6 +14,8 @@ operator
 istioctl
 pilot)
 
+
+
 IMAGE_SUFFIXES=("debug" "distroless")
 
 for image in "${IMAGES[@]}"; do
