@@ -46,6 +46,7 @@ HB1=containers.istio.tetratelabs.com
 for image in "${IMAGES[@]}"; do
     for suffix in "${IMAGE_SUFFIXES[@]}"; do
         for tag in "${TG1[@]}"; do 
+            docker pull $HB1/${image}:${tag}-${suffix}
             DIGEST=$(crane digest $HB1/${image}:${tag}-${suffix})
             echo "Signing $HB1/${image}:${tag}-${suffix}"
             cosign sign -y --identity-token=$(gcloud auth print-identity-token --audiences=sigstore --include-email --impersonate-service-account image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com) $HB1/${image}@$DIGEST
