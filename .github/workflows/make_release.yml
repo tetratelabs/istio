@@ -358,7 +358,7 @@ jobs:
       #     REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: Sign Images
-        run: bash ./tetrateci/images.sh
+        run: bash ./tetrateci/images_sign.sh
         env:
           CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
