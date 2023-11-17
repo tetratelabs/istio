@@ -8,11 +8,14 @@ BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
 
 
-IMAGES=(install-cni
-proxyv2
-operator
-istioctl
-pilot)
+# IMAGES=(install-cni
+# proxyv2
+# operator
+# istioctl
+# pilot)
+
+IMAGES=(ztunnel)
+
 
 # TG=(1.19.3-tetrate-v1
 # 1.19.4-tetrate-v0
