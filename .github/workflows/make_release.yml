@@ -264,7 +264,7 @@ jobs:
     if: ${{ !cancelled() && !failure() }}
     env:
       PUBLIC_HUB: ${{ secrets.CLOUDSMITH_HUB }}
-      HUB: ${{ secrets.CLOUDSMITH_ADDON_HUB }}
+      HUB: ${{ secrets.CLOUDSMITH_FIPS_HUB }}
       ECR_REGISTRY: 957006768579.dkr.ecr.us-east-2.amazonaws.com
 
     steps:
