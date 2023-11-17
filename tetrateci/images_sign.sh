@@ -22,7 +22,6 @@ pilot)
 # 1.16.7-tetratefips-v3)
 
 TG1=(1.19.3-tetrate-v1
-1.19.4-tetrate-v0
 1.17.8-tetrate-v1
 1.18.5-tetrate-v2
 1.18.5-tetrate-v3)
