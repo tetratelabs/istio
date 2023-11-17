@@ -153,20 +153,32 @@ fi
 # If RELEASE, Build Archives
 if [[ -z ${TEST:-} ]]; then
 
+    
+
 
     echo "Building archives..."
-    # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
+    
     if [[ ${TAG} =~ "fips" ]]; then
-      exit 0      
+      cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.rpm /tmp/istio-release/out/istio-sidecar-${TAG}.rpm 
+      cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.deb /tmp/istio-release/out/istio-sidecar-${TAG}.deb
+      python3 -m pip install --upgrade cloudsmith-cli --user
+      export PATH=$PATH:/home/runner/.local/bin
+      PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
+      for package in $PACKAGES; do
+          echo "Publishing $package"
+          cloudsmith push raw tetrate/getistio /tmp/istio-release/out/$package
+      done
+      exit 0   
     fi
+    cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.rpm /tmp/istio-release/out/istio-sidecar-${TAG}.rpm 
+    cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.deb /tmp/istio-release/out/istio-sidecar-${TAG}.deb
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
-    echo "Prunning docker images to reclaim more space for 1.13.x-fips release"
-    for i in `docker images | grep -i app_sidecar | awk {'print $3'} | tail -n +2`; do echo pruning $i; docker rmi $i --force; done
     go run main.go build --manifest manifest.archive.yaml
 
     python3 -m pip install --upgrade cloudsmith-cli --user
     export PATH=$PATH:/home/runner/.local/bin
+
 
     PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
     for package in $PACKAGES; do
