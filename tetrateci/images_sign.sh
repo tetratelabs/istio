@@ -24,13 +24,13 @@ IMAGES=(ztunnel)
 # 1.18.5-tetrate-v3
 # 1.16.7-tetratefips-v3)
 
-TG1=(1.19.3-tetrate-v1
-1.18.5-tetrate-v2
-1.18.5-tetrate-v3)
+TG1=(1.19.3-tetratefips-v1
+1.18.5-tetratefips-v2
+1.18.5-tetratefips-v3)
 
 
 
-# HB=fips-containers.istio.tetratelabs.com
+HB1=fips-containers.istio.tetratelabs.com
 
 
 IMAGE_SUFFIXES=("debug" "distroless")
@@ -43,7 +43,7 @@ IMAGE_SUFFIXES=("debug" "distroless")
 # done
 
 
-HB1=containers.istio.tetratelabs.com
+# HB=containers.istio.tetratelabs.com
 for image in "${IMAGES[@]}"; do
     for suffix in "${IMAGE_SUFFIXES[@]}"; do
         for tag in "${TG1[@]}"; do 
