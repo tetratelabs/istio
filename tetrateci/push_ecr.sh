@@ -11,7 +11,8 @@ IMAGES=(install-cni
 istioctl
 operator
 pilot
-proxyv2)
+proxyv2
+ztunnel)
 
 IMAGE_SUFFIXES=("" "-debug" "-distroless")
 
@@ -23,8 +24,10 @@ for image in "${IMAGES[@]}"; do
   done
 done
 
-
-if [[ ${BACKPORT} == "false" ]] ; then
+# do not copy if it is a FIPS build or backport.
+if  [[ ${TAG} =~ "fips" ]] ;then
+  exit 0;
+elif [[ ${BACKPORT} == "false" ]]  ; then
     for image in "${IMAGES[@]}"; do
         for suffix in "${IMAGE_SUFFIXES[@]}"; do
             docker tag $HUB/${image}:${TAG}${suffix} $PUBLIC_HUB/${image}:${TAG}${suffix}
@@ -32,6 +35,4 @@ if [[ ${BACKPORT} == "false" ]] ; then
             docker push $PUBLIC_HUB/${image}:${TAG}${suffix}
         done
     done
-else
-  echo "Images synced"
 fi
