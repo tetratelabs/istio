@@ -20,7 +20,7 @@ jobs:
     runs-on: ['self-hosted','Linux','x64','c5.4xlarge']
     env:
       RELEASE_GCS_PATH: gs://getistio-build/proxy-fips
-      IMG: gcr.io/tid-testing/build-tools-proxy:v5
+      # IMG: gcr.io/tid-testing/build-tools-proxy:v5
     steps:
       - name: Get the tag
         id: get_tag
