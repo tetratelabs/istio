@@ -159,18 +159,17 @@ if [[ -z ${TEST:-} ]]; then
     echo "Building archives..."
     
     if [[ ${TAG} =~ "fips" ]]; then
-      cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.rpm /tmp/istio-release/out/istio-sidecar-${TAG}.rpm 
       cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.deb /tmp/istio-release/out/istio-sidecar-${TAG}.deb
       python3 -m pip install --upgrade cloudsmith-cli --user
       export PATH=$PATH:/home/runner/.local/bin
-      PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio")
+      PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio-sidecar")
       for package in $PACKAGES; do
           echo "Publishing $package"
           cloudsmith push raw tetrate/getistio /tmp/istio-release/out/$package
       done
       exit 0   
     fi
-    cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.rpm /tmp/istio-release/out/istio-sidecar-${TAG}.rpm 
+    
     cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.deb /tmp/istio-release/out/istio-sidecar-${TAG}.deb
     echo "Cleaning up older artifacts created in docker build stage ..."
     sudo rm -rf /tmp/istio-release/sources/ && sudo rm -rf /tmp/istio-release/work/
