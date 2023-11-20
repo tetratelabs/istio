@@ -64,6 +64,8 @@ jobs:
         run: |
           ESCAPED_RELEASE_GCS_PATH=$(printf '%s\n' "$RELEASE_GCS_PATH" | sed -e 's/[\/&]/\\&/g')
           sed -i "s/PUSH_RELEASE_FLAGS ?= -p//g; s/\"\$(RELEASE_GCS_PATH)\"/${ESCAPED_RELEASE_GCS_PATH}/g" Makefile.core.mk
+          sed -i   "s/release-binary.sh -d/release-binary.sh -i -d/g" Makefile.core.mk
+          
       - name: Tweak release-binary script
         if: ${{ steps.check_already_built.outputs.should_build == '1' }}
         # 1) Setup in-docker auth against gcloud
