@@ -106,6 +106,7 @@ jobs:
           gsutil cp ${RELEASE_GCS_PATH}/envoy-alpha-${SHA}.tar.gz ${RELEASE_GCS_PATH}/envoy-centos-alpha-${SHA}.tar.gz
 
       - name: Put Wasm binary
+        if: false
         # Copy the built Wasm binary in the upstream to the bucket - Wasm is nothing to do with FIPS stuff.
         env:
           UPSTREAM_GCSP_PATH: gs://istio-build/proxy

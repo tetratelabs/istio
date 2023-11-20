@@ -137,6 +137,9 @@ fi
 
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
+make rpm/fpm
+make rpm/deb
+
 
 
 
