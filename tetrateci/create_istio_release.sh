@@ -139,7 +139,7 @@ fi
 
 
 make -C istio deb/fpm TARGET_OUT_LINUX=/tmp/istio-release/work/src/istio.io/istio/out/linux_amd64
-make -C istio deb/rpm TARGET_OUT_LINUX=/tmp/istio-release/work/src/istio.io/istio/out/linux_amd64
+make -C istio rpm/fpm TARGET_OUT_LINUX=/tmp/istio-release/work/src/istio.io/istio/out/linux_amd64
 
 
 
