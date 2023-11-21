@@ -1,0 +1,44 @@
+From eb088b53fcb46634495240c0b27533b209383999 Mon Sep 17 00:00:00 2001
+From: psbrar99 <brargg1989@gmail.com>
+Date: Tue, 21 Nov 2023 10:17:50 -0700
+Subject: [PATCH] fix build
+
+Signed-off-by: psbrar99 <brargg1989@gmail.com>
+---
+ Makefile.core.mk          | 6 ++++--
+ common/scripts/gobuild.sh | 2 +-
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/Makefile.core.mk b/Makefile.core.mk
+index d3cc06580d..f05dd895f6 100644
+--- a/Makefile.core.mk
++++ b/Makefile.core.mk
+@@ -205,9 +205,11 @@ fmt: format-go format-python tidy-go
+ 
+ ifeq ($(DEBUG),1)
+ # gobuild script uses custom linker flag to set the variables.
+-RELEASE_LDFLAGS=''
++RELEASE_LDFLAGS=""
++else ifeq ($(GOARCH_LOCAL),amd64) 
++RELEASE_LDFLAGS="-linkmode 'external' -extldflags -static -s -w"
+ else
+-RELEASE_LDFLAGS='-extldflags -static -s -w'
++RELEASE_LDFLAGS="-extldflags -static -s -w"
+ endif
+ 
+ # List of all binaries to build
+diff --git a/common/scripts/gobuild.sh b/common/scripts/gobuild.sh
+index 25f2c8120d..b22ba0f87c 100755
+--- a/common/scripts/gobuild.sh
++++ b/common/scripts/gobuild.sh
+@@ -78,6 +78,6 @@ fi
+ time GOOS=${BUILD_GOOS} GOARCH=${BUILD_GOARCH} ${GOBINARY} build \
+         ${V} "${GOBUILDFLAGS_ARRAY[@]}" ${GCFLAGS:+-gcflags "${GCFLAGS}"} \
+         -o "${OUT}" \
+-        "${OPTIMIZATION_FLAGS[@]}" \
++        "${OPTIMIZATION_FLAGS[@]}" -tags netgo \
+         -pkgdir="${GOPKG}/${BUILD_GOOS}_${BUILD_GOARCH}" \
+         -ldflags "${LDFLAGS} ${LD_EXTRAFLAGS}" "${@}"
+-- 
+2.30.1 (Apple Git-130)
+
