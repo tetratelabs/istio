@@ -59,8 +59,8 @@ rpm/fpm:
 		--url http://istio.io  \
 		--license Apache \
 		--architecture "${TARGET_ARCH}" \
-		--vendor istio.io \
-		--maintainer istio@istio.io \
+		--vendor tetrate.io \
+		--maintainer tetrate.io \
 		--after-install tools/packaging/postinst.sh \
 		--config-files /var/lib/istio/envoy/envoy_bootstrap_tmpl.json \
 		--config-files /var/lib/istio/envoy/sidecar.env \
