@@ -12,7 +12,8 @@ IMAGES=(install-cni
 proxyv2
 operator
 istioctl
-pilot)
+pilot
+ztunnel)
 
 IMAGE_SUFFIXES=("debug" "distroless")
 
@@ -23,14 +24,13 @@ for image in "${IMAGES[@]}"; do
   done
 done
 
-
-if [[ ${BACKPORT} == "false" ]] ; then
+if  [[ ${TAG} =~ "fips" ]] ;then
+  exit 0;
+elif [[ ${BACKPORT} == "false" ]] ; then
     for image in "${IMAGES[@]}"; do
         for suffix in "${IMAGE_SUFFIXES[@]}"; do
             DIGEST=$(crane digest $PUBLIC_HUB/${image}:${TAG}-${suffix})
             cosign sign -y --identity-token=$(gcloud auth print-identity-token --audiences=sigstore --include-email --impersonate-service-account image-signing-keyless-sa@tid-testing.iam.gserviceaccount.com) $PUBLIC_HUB/${image}@$DIGEST
         done
     done
-else
-  echo "Images synced"
 fi

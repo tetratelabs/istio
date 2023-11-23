@@ -22,7 +22,7 @@ sudo gem install fpm
 sudo apt-get install go-bindata -y
 export BRANCH=release-${REL_BRANCH_VER}
 cd ..
-rm -rf release-builder
+sudo rm -rf release-builder
 git clone https://github.com/istio/release-builder --branch ${BRANCH}
 
 
@@ -138,6 +138,10 @@ fi
 go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
 
+make -C istio deb/fpm TARGET_OUT_LINUX=/tmp/istio-release/work/src/istio.io/istio/out/linux_amd64 VERSION=${TAG}
+cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.deb /tmp/istio-release/out/istio-sidecar-${TAG}.deb
+make -C istio rpm/fpm TARGET_OUT_LINUX=/tmp/istio-release/work/src/istio.io/istio/out/linux_amd64 VERSION=${TAG}
+cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.rpm /tmp/istio-release/out/istio-sidecar-${TAG}.rpm
 
 
 echo "Cleaning up the istio source artificats...."
@@ -157,6 +161,13 @@ if [[ -z ${TEST:-} ]]; then
     echo "Building archives..."
     # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
     if [[ ${TAG} =~ "fips" ]]; then
+      python3 -m pip install --upgrade cloudsmith-cli --user
+      export PATH=$PATH:/home/runner/.local/bin
+      PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio-sidecar")
+      for package in $PACKAGES; do
+        echo "Publishing $package"
+        cloudsmith push raw tetrate/getistio /tmp/istio-release/out/$package
+      done
       exit 0      
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
