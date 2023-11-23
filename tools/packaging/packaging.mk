@@ -67,6 +67,7 @@ rpm/fpm:
 		--description "Istio Sidecar" \
 		--depends iproute \
 		--depends iptables \
+		--rpm-digest sha256 \
 		--depends sudo \
 		--depends hostname \
 		$(RPM_COMPRESSION) \
@@ -85,6 +86,7 @@ deb/fpm:
 		--config-files /var/lib/istio/envoy/envoy_bootstrap_tmpl.json \
 		--config-files /var/lib/istio/envoy/sidecar.env \
 		--description "Istio Sidecar" \
+		--rpm-digest sha256 \
 		--depends iproute2 \
 		--depends iptables \
 		--depends sudo \
