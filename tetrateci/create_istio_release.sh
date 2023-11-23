@@ -138,8 +138,8 @@ fi
 # go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
 
-make -C istio deb/fpm TARGET_OUT_LINUX=/tmp/istio-release/out SIDECAR_PACKAGE_NAME=istio-sidecar-${TAG}
-make -C istio rpm/fpm TARGET_OUT_LINUX=/tmp/istio-release/out SIDECAR_PACKAGE_NAME=istio-sidecar-${TAG}
+make -C istio deb/fpm TARGET_OUT_LINUX=/tmp/istio-release/work/src/istio.io/istio/out/linux_amd64 VERSION=${TAG}
+make -C istio rpm/fpm TARGET_OUT_LINUX=/tmp/istio-release/work/src/istio.io/istio/out/linux_amd64 VERSION=${TAG}
 
 
 
