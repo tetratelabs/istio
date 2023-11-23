@@ -161,6 +161,13 @@ if [[ -z ${TEST:-} ]]; then
     echo "Building archives..."
     # if FIPS, need to use native go as boringgo as of now can't build archives for different platforms
     if [[ ${TAG} =~ "fips" ]]; then
+      python3 -m pip install --upgrade cloudsmith-cli --user
+      export PATH=$PATH:/home/runner/.local/bin
+      PACKAGES=$(ls /tmp/istio-release/out/ | grep "istio-sidecar")
+      for package in $PACKAGES; do
+        echo "Publishing $package"
+        cloudsmith push raw tetrate/getistio /tmp/istio-release/out/$package
+      done
       exit 0      
     fi
     echo "Cleaning up older artifacts created in docker build stage ..."
