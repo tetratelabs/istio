@@ -266,6 +266,7 @@ jobs:
       PUBLIC_HUB: ${{ secrets.CLOUDSMITH_HUB }}
       HUB: ${{ secrets.CLOUDSMITH_ADDON_HUB }}
       ECR_REGISTRY: 957006768579.dkr.ecr.us-east-2.amazonaws.com
+      BACKPORT: "false"
 
     steps:
       - name: Checkout to choosen tag
@@ -346,14 +347,14 @@ jobs:
           HUB: ${{ secrets.CLOUDSMITH_FIPS_HUB }}
         run: echo "HUB=$HUB" >> $GITHUB_ENV
 
-      - name: build and push images
-        run: bash ./tetrateci/create_istio_release.sh
-        env:
-          CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
-          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
-          TAG: ${{ github.event.inputs.tag }}
-          REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
-          ACCESS_TOKEN: '${{ steps.auth.outputs.access_token }}'
+      # - name: build and push images
+      #   run: bash ./tetrateci/create_istio_release.sh
+      #   env:
+      #     CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
+      #     CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+      #     TAG: ${{ github.event.inputs.tag }}
+      #     REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
+      #     ACCESS_TOKEN: '${{ steps.auth.outputs.access_token }}'
 
       - name: Push images to ECR
         run: bash ./tetrateci/push_ecr.sh
@@ -361,7 +362,6 @@ jobs:
           CLOUDSMITH_USER: ${{ secrets.CLOUDSMITH_USER }}
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
           TAG: ${{ github.event.inputs.tag }}          
-          BACKPORT: "false"
           REL_BRANCH_VER: ${{ steps.get_minor_ver.outputs.REL_BRANCH_VER }}
 
       - name: Sign Images
