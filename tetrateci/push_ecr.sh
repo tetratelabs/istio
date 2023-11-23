@@ -18,8 +18,8 @@ IMAGE_SUFFIXES=("" "-debug" "-distroless")
 
 for image in "${IMAGES[@]}"; do
   for suffix in "${IMAGE_SUFFIXES[@]}"; do
-    echo ${HUB}/${image}:${tag}${suffix}
-    crane copy ${HUB}/${image}:${tag}${suffix} $ECR_REGISTRY/tid-istio/${image}:${tag}${suffix}
+    echo ${HUB}/${image}:${TAG}${suffix}
+    crane copy ${HUB}/${image}:${TAG}${suffix} $ECR_REGISTRY/tid-istio/${image}:${TAG}${suffix}
 
     # docker tag $HUB/${image}:${TAG}${suffix} $ECR_REGISTRY/tid-istio/${image}:${TAG}${suffix}
     # echo $ECR_REGISTRY/tid-istio/${image}:${TAG}${suffix}
@@ -36,8 +36,8 @@ elif [[ ${BACKPORT} == "false" ]]  ; then
             # docker tag $HUB/${image}:${TAG}${suffix} $PUBLIC_HUB/${image}:${TAG}${suffix}
             # echo $PUBLIC_HUB/${image}:${TAG}${suffix}
             # docker push $PUBLIC_HUB/${image}:${TAG}${suffix}
-            echo ${HUB}/${image}:${tag}${suffix}
-            crane copy ${HUB}/${image}:${tag}${suffix} $PUBLIC_HUB/${image}:${tag}${suffix}
+            echo ${HUB}/${image}:${TAG}${suffix}
+            crane copy ${HUB}/${image}:${TAG}${suffix} $PUBLIC_HUB/${image}:${TAG}${suffix}
         done
     done
 fi
