@@ -135,12 +135,13 @@ if [ ${TAG} =~ "fips" ]; then
     [[ $CHECK_CRYPTO == X:boringcrypto ]] || exit 1
 fi
 
-# go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
+go run main.go publish --release /tmp/istio-release/out --dockerhub $HUB
 
 
 make -C istio deb/fpm TARGET_OUT_LINUX=/tmp/istio-release/work/src/istio.io/istio/out/linux_amd64 VERSION=${TAG}
+cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.deb /tmp/istio-release/out/istio-sidecar-${TAG}.deb
 make -C istio rpm/fpm TARGET_OUT_LINUX=/tmp/istio-release/work/src/istio.io/istio/out/linux_amd64 VERSION=${TAG}
-
+cp /tmp/istio-release/work/src/istio.io/istio/out/linux_amd64/release/istio-sidecar.rpm /tmp/istio-release/out/istio-sidecar-${TAG}.rpm
 
 
 echo "Cleaning up the istio source artificats...."
