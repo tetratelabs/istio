@@ -206,8 +206,8 @@ github.com/docker/cli v23.0.3+incompatible/go.mod h1:JLrzqnKDaYBop7H2jaqPtU4hHvM
 github.com/docker/distribution v2.8.2+incompatible h1:T3de5rq0dB1j30rp0sA2rER+m322EBzniBPB6ZIzuh8=
 github.com/docker/distribution v2.8.2+incompatible/go.mod h1:J2gT2udsDAN96Uj4KfcMRqY0/ypR+oyYUYmja8H+y+w=
 github.com/docker/docker v0.7.3-0.20190327010347-be7ac8be2ae0/go.mod h1:eEKB0N0r5NX/I1kEveEz05bcu8tLC/8azJZsviup8Sk=
-github.com/docker/docker v23.0.3+incompatible h1:9GhVsShNWz1hO//9BNg/dpMnZW25KydO4wtVxWAIbho=
-github.com/docker/docker v23.0.3+incompatible/go.mod h1:eEKB0N0r5NX/I1kEveEz05bcu8tLC/8azJZsviup8Sk=
+github.com/docker/docker v24.0.7+incompatible h1:Wo6l37AuwP3JaMnZa226lzVXGA3F9Ig1seQen0cKYlM=
+github.com/docker/docker v24.0.7+incompatible/go.mod h1:eEKB0N0r5NX/I1kEveEz05bcu8tLC/8azJZsviup8Sk=
 github.com/docker/docker-credential-helpers v0.7.0 h1:xtCHsjxogADNZcdv1pKUHXryefjlVRqWqIhk/uXJp0A=
 github.com/docker/docker-credential-helpers v0.7.0/go.mod h1:rETQfLdHNT3foU5kuNkFR1R1V12OJRRO5lzt2D1b5X0=
 github.com/docker/go-units v0.3.3/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
@@ -1432,10 +1432,10 @@ honnef.co/go/tools v0.0.0-20190523083050-ea95bdfd59fc/go.mod h1:rf3lG4BRIbNafJWh
 honnef.co/go/tools v0.0.1-2019.2.3/go.mod h1:a3bituU0lyd329TUQxRnasdCoJDkEUEAqEt0JzvZhAg=
 honnef.co/go/tools v0.0.1-2020.1.3/go.mod h1:X/FiERA/W4tHapMX5mGpAtMSVEeEUOyHaw9vFzvIQ3k=
 honnef.co/go/tools v0.0.1-2020.1.4/go.mod h1:X/FiERA/W4tHapMX5mGpAtMSVEeEUOyHaw9vFzvIQ3k=
-istio.io/api v0.0.0-20231006162241-350617755635 h1:4ELPyT2xPJxoVVSO2tLN9B4L5tq0gWEqIVVlHJSlFX8=
-istio.io/api v0.0.0-20231006162241-350617755635/go.mod h1:dDMe1TsOtrRoUlBzdxqNolWXpXPQjLfbcXvqPMtQ6eo=
-istio.io/client-go v1.18.4-0.20231006163629-bd311827a565 h1:qhsEkE5Eu434Zmuc4XdRg21190f3y18M5jwh/vESX44=
-istio.io/client-go v1.18.4-0.20231006163629-bd311827a565/go.mod h1:TwPw7IDClnXdPI1fXwomsYuo0GP4/sWv2fUcpV5kNI0=
+istio.io/api v0.0.0-20231206023236-e7cadb36da57 h1:yINFMnBRewB/CxEwnR8bfsAcdkqgM0OqG1XweO8ctuU=
+istio.io/api v0.0.0-20231206023236-e7cadb36da57/go.mod h1:dDMe1TsOtrRoUlBzdxqNolWXpXPQjLfbcXvqPMtQ6eo=
+istio.io/client-go v1.18.6-0.20231206024427-06b4f0cc7f4f h1:ruFviOQV4q5HNVXyKYNec7awc5IKLJvdqSUxyOJqK6o=
+istio.io/client-go v1.18.6-0.20231206024427-06b4f0cc7f4f/go.mod h1:MeI/KZUVp3jWyoXGSpFkiLYz012qpbQbjnVuYMcM9k4=
 istio.io/pkg v0.0.0-20230524020242-1015535057be h1:H+ww/6ysv++W5na8wIVNfoE01shRez0rXZXzLGoMIvg=
 istio.io/pkg v0.0.0-20230524020242-1015535057be/go.mod h1:ZcwaaLCBsaAszynqi6s8Bs6VL3yeTtuXDon9QuzSD5E=
 k8s.io/api v0.18.2/go.mod h1:SJCWI7OLzhZSvbY7U8zwNl9UA4o1fizoug34OV/2r78=

@@ -88,8 +88,8 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	helm.sh/helm/v3 v3.11.2
-	istio.io/api v0.0.0-20231006162241-350617755635
-	istio.io/client-go v1.18.4-0.20231006163629-bd311827a565
+	istio.io/api v0.0.0-20231206023236-e7cadb36da57
+	istio.io/client-go v1.18.6-0.20231206024427-06b4f0cc7f4f
 	istio.io/pkg v0.0.0-20230524020242-1015535057be
 	k8s.io/api v0.27.0
 	k8s.io/apiextensions-apiserver v0.27.0
@@ -145,7 +145,7 @@ require (
 	github.com/cyphar/filepath-securejoin v0.2.4 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/docker/distribution v2.8.2+incompatible // indirect
-	github.com/docker/docker v23.0.3+incompatible // indirect
+	github.com/docker/docker v24.0.7+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.7.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.10.1 // indirect
 	github.com/envoyproxy/protoc-gen-validate v0.10.1 // indirect
