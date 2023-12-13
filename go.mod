@@ -68,6 +68,7 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/prometheus/client_model v0.4.0
 	github.com/prometheus/common v0.44.0
+	github.com/prometheus/procfs v0.11.1
 	github.com/prometheus/prometheus v0.45.0
 	github.com/quic-go/quic-go v0.37.4
 	github.com/ryanuber/go-glob v1.0.0
@@ -108,8 +109,8 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	helm.sh/helm/v3 v3.12.2
-	istio.io/api v1.19.4-0.20231108024616-33a6ca44a2ff
-	istio.io/client-go v1.19.4-0.20231108025610-1df49f5c7eba
+	istio.io/api v1.19.5-0.20231206014255-f55a2b1e931e
+	istio.io/client-go v1.19.5-0.20231206015206-8cdf6a3b3cfd
 	k8s.io/api v0.28.1
 	k8s.io/apiextensions-apiserver v0.28.1
 	k8s.io/apimachinery v0.28.1
@@ -148,7 +149,7 @@ require (
 	github.com/cyphar/filepath-securejoin v0.2.4 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/docker/distribution v2.8.2+incompatible // indirect
-	github.com/docker/docker v24.0.2+incompatible // indirect
+	github.com/docker/docker v24.0.7+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.7.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.10.2 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.0.1 // indirect
@@ -212,7 +213,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.0.8 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/prometheus/procfs v0.11.1 // indirect
 	github.com/quic-go/qpack v0.4.0 // indirect
 	github.com/quic-go/qtls-go1-20 v0.3.1 // indirect
 	github.com/rivo/uniseg v0.4.3 // indirect
