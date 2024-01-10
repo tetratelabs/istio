@@ -77,7 +77,7 @@ require (
 	golang.org/x/net v0.17.0
 	golang.org/x/oauth2 v0.7.0
 	golang.org/x/sync v0.1.0
-	golang.org/x/sys v0.15.0
+	golang.org/x/sys v0.16.0
 	golang.org/x/time v0.3.0
 	gomodules.xyz/jsonpatch/v3 v3.0.1
 	google.golang.org/api v0.117.0
@@ -217,7 +217,7 @@ require (
 	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
-	github.com/sirupsen/logrus v1.9.0 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/spf13/afero v1.9.3 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
