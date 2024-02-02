@@ -28,15 +28,16 @@ require (
 	github.com/containernetworking/plugins v1.3.0
 	github.com/coreos/go-oidc/v3 v3.6.0
 	github.com/davecgh/go-spew v1.1.1
-	github.com/docker/cli v24.0.4+incompatible
+	github.com/docker/cli v24.0.5+incompatible
 	github.com/envoyproxy/go-control-plane v0.11.2-0.20230725211550-11bfe846bcd4
 	github.com/evanphx/json-patch/v5 v5.6.0
 	github.com/fatih/color v1.15.0
 	github.com/felixge/fgprof v0.9.3
 	github.com/florianl/go-nflog/v2 v2.0.1
 	github.com/florianl/go-tc v0.4.2
-	github.com/fsnotify/fsnotify v1.6.0
-	github.com/go-logr/logr v1.2.4
+	github.com/fsnotify/fsnotify v1.7.0
+	github.com/go-jose/go-jose/v3 v3.0.1
+	github.com/go-logr/logr v1.3.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.3
 	github.com/google/cel-go v0.16.0
@@ -60,7 +61,7 @@ require (
 	github.com/miekg/dns v1.1.55
 	github.com/mitchellh/copystructure v1.2.0
 	github.com/mitchellh/go-homedir v1.1.0
-	github.com/moby/buildkit v0.12.0
+	github.com/moby/buildkit v0.12.5
 	github.com/onsi/gomega v1.27.10
 	github.com/openshift/api v0.0.0-20230720094506-afcbe27aec7c
 	github.com/pires/go-proxyproto v0.7.0
@@ -105,12 +106,11 @@ require (
 	google.golang.org/grpc v1.57.1
 	google.golang.org/protobuf v1.31.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-	gopkg.in/square/go-jose.v2 v2.6.0
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	helm.sh/helm/v3 v3.12.2
-	istio.io/api v1.19.5
-	istio.io/client-go v1.19.5
+	istio.io/api v1.19.7-0.20240110022508-68cf4097ffc5
+	istio.io/client-go v1.19.7-0.20240110023605-ad5ce1f48b56
 	k8s.io/api v0.28.1
 	k8s.io/apiextensions-apiserver v0.28.1
 	k8s.io/apimachinery v0.28.1
@@ -156,8 +156,7 @@ require (
 	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
 	github.com/exponent-io/jsonpath v0.0.0-20151013193312-d6023ce2651d // indirect
 	github.com/fatih/camelcase v1.0.0 // indirect
-	github.com/go-errors/errors v1.4.2 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.1 // indirect
+	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.20.0 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
@@ -183,7 +182,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.16.5 // indirect
+	github.com/klauspost/compress v1.17.2 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.2 // indirect
