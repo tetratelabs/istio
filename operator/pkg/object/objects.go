@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"istio.io/istio/operator/pkg/apis/istio/v1alpha1"
-	"istio.io/istio/operator/pkg/helm"
 	names "istio.io/istio/operator/pkg/name"
 	"istio.io/istio/operator/pkg/tpath"
 	"istio.io/istio/operator/pkg/util"
@@ -231,7 +230,7 @@ func (os K8sObjects) String() string {
 	for _, oo := range os {
 		out = append(out, oo.YAMLDebugString())
 	}
-	return strings.Join(out, helm.YAMLSeparator)
+	return strings.Join(out, YAMLSeparator)
 }
 
 // Keys returns a slice with the keys of os.

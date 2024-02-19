@@ -19,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"istio.io/api/label"
-	"istio.io/istio/istioctl/pkg/tag"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/kclient"
@@ -27,6 +26,8 @@ import (
 	"istio.io/istio/pkg/util/sets"
 	"istio.io/pkg/log"
 )
+
+const IstioTagLabel = "istio.io/tag"
 
 // TagWatcher keeps track of the current tags and can notify watchers
 // when the tags change.
@@ -93,7 +94,7 @@ func (p *tagWatcher) HasSynced() bool {
 func (p *tagWatcher) GetMyTags() sets.String {
 	res := sets.New(p.revision)
 	for _, wh := range p.index.Lookup(p.revision) {
-		res.Insert(wh.GetLabels()[tag.IstioTagLabel])
+		res.Insert(wh.GetLabels()[IstioTagLabel])
 	}
 	return res
 }
@@ -111,6 +112,6 @@ func isTagWebhook(uobj any) bool {
 	if !ok {
 		return false
 	}
-	_, ok = obj.GetLabels()[tag.IstioTagLabel]
+	_, ok = obj.GetLabels()[IstioTagLabel]
 	return ok
 }
