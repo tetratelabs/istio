@@ -20,8 +20,12 @@ import (
 
 	"istio.io/api/operator/v1alpha1"
 	iop "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
-	"istio.io/istio/operator/pkg/helm"
 	"istio.io/istio/operator/pkg/tpath"
+)
+
+const (
+	// YAMLSeparator is a separator for multi-document YAML files.
+	YAMLSeparator = "\n---\n"
 )
 
 // Kubernetes Kind strings.
@@ -170,7 +174,7 @@ func (mm ManifestMap) Consolidated() map[string]string {
 	for cname, ms := range mm {
 		allM := ""
 		for _, m := range ms {
-			allM += m + helm.YAMLSeparator
+			allM += m + YAMLSeparator
 		}
 		out[string(cname)] = allM
 	}
@@ -179,7 +183,7 @@ func (mm ManifestMap) Consolidated() map[string]string {
 
 // MergeManifestSlices merges a slice of manifests into a single manifest string.
 func MergeManifestSlices(manifests []string) string {
-	return strings.Join(manifests, helm.YAMLSeparator)
+	return strings.Join(manifests, YAMLSeparator)
 }
 
 // String implements the Stringer interface.
@@ -187,7 +191,7 @@ func (mm ManifestMap) String() string {
 	out := ""
 	for _, ms := range mm {
 		for _, m := range ms {
-			out += m + helm.YAMLSeparator
+			out += m + YAMLSeparator
 		}
 	}
 	return out
