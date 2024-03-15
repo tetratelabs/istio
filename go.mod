@@ -152,17 +152,17 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
-	helm.sh/helm/v3 v3.14.2
-	istio.io/api v1.19.7-0.20240209174009-6a6de953e142
-	istio.io/client-go v1.19.7-0.20240209174510-438dfb69c0a8
-	k8s.io/api v0.29.0
-	k8s.io/apiextensions-apiserver v0.29.0
-	k8s.io/apimachinery v0.29.0
-	k8s.io/apiserver v0.29.0
-	k8s.io/cli-runtime v0.29.0
-	k8s.io/client-go v0.29.0
-	k8s.io/klog/v2 v2.110.1
-	k8s.io/kubectl v0.29.0
+	helm.sh/helm/v3 v3.12.2
+	istio.io/api v1.19.7-0.20240306022805-999d751c637a
+	istio.io/client-go v1.19.7-0.20240306023701-8b2b3da74273
+	k8s.io/api v0.28.1
+	k8s.io/apiextensions-apiserver v0.28.1
+	k8s.io/apimachinery v0.28.1
+	k8s.io/apiserver v0.28.1
+	k8s.io/cli-runtime v0.28.0
+	k8s.io/client-go v0.28.1
+	k8s.io/klog/v2 v2.100.1
+	k8s.io/kubectl v0.28.0
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	sigs.k8s.io/controller-runtime v0.16.0
 	sigs.k8s.io/gateway-api v0.8.0
