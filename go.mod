@@ -61,7 +61,7 @@ require (
 	github.com/miekg/dns v1.1.56
 	github.com/mitchellh/copystructure v1.2.0
 	github.com/mitchellh/go-homedir v1.1.0
-	github.com/moby/buildkit v0.12.1
+	github.com/moby/buildkit v0.12.5
 	github.com/onsi/gomega v1.27.10
 	github.com/openshift/api v0.0.0-20230823114715-5fdd7511b790
 	github.com/pires/go-proxyproto v0.7.0
@@ -109,8 +109,8 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	helm.sh/helm/v3 v3.12.3
-	istio.io/api v1.20.3-0.20240116015448-5563f7225778
-	istio.io/client-go v1.20.3-0.20240116015948-bc198a253520
+	istio.io/api v1.20.3-0.20240306014037-8f7da9136957
+	istio.io/client-go v1.20.3-0.20240306015017-fa2e43592864
 	k8s.io/api v0.28.3
 	k8s.io/apiextensions-apiserver v0.28.3
 	k8s.io/apimachinery v0.28.3
@@ -182,7 +182,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.17.1 // indirect
+	github.com/klauspost/compress v1.17.2 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.2 // indirect
