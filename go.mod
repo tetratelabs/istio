@@ -17,7 +17,7 @@ replace (
 	cloud.google.com/go/security => cloud.google.com/go/security v1.15.1
 	cloud.google.com/go/trace => cloud.google.com/go/trace v1.10.1
 	github.com/cenkalti/backoff/v4 => github.com/cenkalti/backoff/v4 v4.2.1
-	github.com/docker/cli => github.com/docker/cli v24.0.5+incompatible
+	github.com/docker/cli => github.com/docker/cli v24.0.9+incompatible
 	github.com/envoyproxy/go-control-plane => github.com/envoyproxy/go-control-plane v0.11.2-0.20230725211550-11bfe846bcd4
 	github.com/envoyproxy/protoc-gen-validate => github.com/envoyproxy/protoc-gen-validate v1.0.1
 	github.com/google/cel-go => github.com/google/cel-go v0.16.0
@@ -115,7 +115,7 @@ require (
 	github.com/prometheus/common v0.44.0
 	github.com/prometheus/procfs v0.11.1
 	github.com/prometheus/prometheus v0.45.0
-	github.com/quic-go/quic-go v0.38.1
+	github.com/quic-go/quic-go v0.42.1
 	github.com/ryanuber/go-glob v1.0.0
 	github.com/spaolacci/murmur3 v1.1.0
 	github.com/spf13/cobra v1.8.0
@@ -152,7 +152,7 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
-	helm.sh/helm/v3 v3.12.2
+	helm.sh/helm/v3 v3.14.2
 	istio.io/api v1.19.7-0.20240306022805-999d751c637a
 	istio.io/client-go v1.19.7-0.20240306023701-8b2b3da74273
 	k8s.io/api v0.28.1
@@ -193,7 +193,7 @@ require (
 	github.com/cyphar/filepath-securejoin v0.2.4 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/docker/distribution v2.8.2+incompatible // indirect
-	github.com/docker/docker v24.0.7+incompatible // indirect
+	github.com/docker/docker v24.0.9+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.7.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.0.1 // indirect
@@ -275,7 +275,7 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
 	github.com/xlab/treeprint v1.2.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.43.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/internal/retry v1.16.0 // indirect
 	go.starlark.net v0.0.0-20230525235612-a134d8f9ddca // indirect
 	go.uber.org/multierr v1.11.0 // indirect
