@@ -35,7 +35,6 @@ replace (
 	go.opentelemetry.io/proto/otlp => go.opentelemetry.io/proto/otlp v1.0.0
 	google.golang.org/api => google.golang.org/api v0.132.0
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20231002182017-d307bd883b97
-	google.golang.org/grpc => google.golang.org/grpc v1.57.1
 	k8s.io/api => k8s.io/api v0.28.1
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.28.1
 	k8s.io/apimachinery => k8s.io/apimachinery v0.28.1
