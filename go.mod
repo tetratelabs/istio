@@ -9,16 +9,47 @@ exclude k8s.io/kubernetes v1.13.0
 replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 
 replace (
-	github.com/google/cel-go => github.com/google/cel-go v0.16.1
-	k8s.io/api => k8s.io/api v0.28.3
-	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.28.3
-	k8s.io/apimachinery => k8s.io/apimachinery v0.28.3
-	k8s.io/apiserver => k8s.io/apiserver v0.28.3
+	cloud.google.com/go => cloud.google.com/go v0.110.8
+	cloud.google.com/go/compute => cloud.google.com/go/compute v1.19.1
+	cloud.google.com/go/iam => cloud.google.com/go/iam v1.1.2
+	cloud.google.com/go/longrunning => cloud.google.com/go/longrunning v0.5.1
+	cloud.google.com/go/monitoring => cloud.google.com/go/monitoring v1.16.0
+	cloud.google.com/go/security => cloud.google.com/go/security v1.15.1
+	cloud.google.com/go/trace => cloud.google.com/go/trace v1.10.1
+	github.com/cenkalti/backoff/v4 => github.com/cenkalti/backoff/v4 v4.2.1
+	github.com/docker/cli => github.com/docker/cli v24.0.5+incompatible
+	github.com/envoyproxy/go-control-plane => github.com/envoyproxy/go-control-plane v0.11.2-0.20230725211550-11bfe846bcd4
+	github.com/envoyproxy/protoc-gen-validate => github.com/envoyproxy/protoc-gen-validate v1.0.1
+	github.com/google/cel-go => github.com/google/cel-go v0.16.0
+	github.com/google/go-cmp => github.com/google/go-cmp v0.5.9
+	github.com/googleapis/gax-go/v2 => github.com/googleapis/gax-go/v2 v2.12.0
+	github.com/onsi/ginkgo/v2 => github.com/onsi/ginkgo/v2 v2.11.0
+	github.com/onsi/gomega => github.com/onsi/gomega v1.27.10
+	github.com/prometheus/client_golang => github.com/prometheus/client_golang v1.16.0
+	github.com/prometheus/client_model => github.com/prometheus/client_model v0.4.0
+	github.com/prometheus/common => github.com/prometheus/common v0.44.0
+	github.com/spf13/cobra => github.com/spf13/cobra v1.7.0
+	go.opentelemetry.io/otel => go.opentelemetry.io/otel v1.17.0
+	go.opentelemetry.io/otel/metrics => go.opentelemetry.io/otel/metrics v1.17.0
+	go.opentelemetry.io/otel/trace => go.opentelemetry.io/otel/trace v1.17.0
+	go.opentelemetry.io/proto/otlp => go.opentelemetry.io/proto/otlp v1.0.0
+	google.golang.org/api => google.golang.org/api v0.132.0
+	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20231002182017-d307bd883b97
+	google.golang.org/grpc => google.golang.org/grpc v1.57.1
+	k8s.io/api => k8s.io/api v0.28.1
+	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.28.1
+	k8s.io/apimachinery => k8s.io/apimachinery v0.28.1
+	k8s.io/apiserver => k8s.io/apiserver v0.28.1
 	k8s.io/cli-runtime => k8s.io/cli-runtime v0.28.0
-	k8s.io/client-go => k8s.io/client-go v0.28.3
-	k8s.io/component-base => k8s.io/component-base v0.28.3
+	k8s.io/client-go => k8s.io/client-go v0.28.1
+	k8s.io/component-base => k8s.io/component-base v0.28.1
 	k8s.io/klog/v2 => k8s.io/klog/v2 v2.100.1
+	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20230811205723-7ac0aad8c58d
 	k8s.io/kubectl => k8s.io/kubectl v0.28.0
+	k8s.io/utils => k8s.io/utils v0.0.0-20230726121419-3b25d923346b
+	sigs.k8s.io/kustomize/api => sigs.k8s.io/kustomize/api v0.13.5-0.20230601165947-6ce0bf390ce3
+	sigs.k8s.io/kustomize/kyaml => sigs.k8s.io/kustomize/kyaml v0.14.3
+	sigs.k8s.io/structured-merge-diff/v4 => sigs.k8s.io/structured-merge-diff/v4 v4.3.0
 )
 
 require (
