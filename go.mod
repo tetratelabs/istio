@@ -8,6 +8,19 @@ exclude k8s.io/kubernetes v1.13.0
 // Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
 replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 
+replace (
+	github.com/google/cel-go => github.com/google/cel-go v0.16.1
+	k8s.io/api => k8s.io/api v0.28.3
+	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.28.3
+	k8s.io/apimachinery => k8s.io/apimachinery v0.28.3
+	k8s.io/apiserver => k8s.io/apiserver v0.28.3
+	k8s.io/cli-runtime => k8s.io/cli-runtime v0.28.0
+	k8s.io/client-go => k8s.io/client-go v0.28.3
+	k8s.io/component-base => k8s.io/component-base v0.28.3
+	k8s.io/klog/v2 => k8s.io/klog/v2 v2.100.1
+	k8s.io/kubectl => k8s.io/kubectl v0.28.0
+)
+
 require (
 	cloud.google.com/go/compute/metadata v0.2.3
 	cloud.google.com/go/logging v1.8.1
@@ -205,7 +218,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f // indirect
 	github.com/onsi/ginkgo/v2 v2.13.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0-rc5 // indirect
