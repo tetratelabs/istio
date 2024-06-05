@@ -487,6 +487,10 @@ type IstioEndpoint struct {
 
 	// ServicePortName tracks the name of the port, this is used to select the IstioEndpoint by service port.
 	ServicePortName string
+	// LegacyClusterPortKey provides an alternative key from ServicePortName to support legacy quirks in the API.
+	// Basically, EDS merges by port name, but CDS historically ignored port name and matched on number.
+	// Note that for Kubernetes Service, this is identical - its only ServiceEntry where these checks can differ
+	LegacyClusterPortKey int
 
 	// ServiceAccount holds the associated service account.
 	ServiceAccount string
@@ -1301,6 +1305,56 @@ func (ep *IstioEndpoint) ShallowCopy() *IstioEndpoint {
 	// nolint: govet
 	cpy := *ep
 	return &cpy
+}
+
+// Equals checks whether the attributes are equal from the passed in service.
+func (ep *IstioEndpoint) Equals(other *IstioEndpoint) bool {
+	if ep == nil {
+		return other == nil
+	}
+	if other == nil {
+		return ep == nil
+	}
+
+	// Check things we can directly compare...
+	eq := ep.Address == other.Address &&
+		ep.ServicePortName == other.ServicePortName &&
+		ep.LegacyClusterPortKey == other.LegacyClusterPortKey &&
+		ep.ServiceAccount == other.ServiceAccount &&
+		ep.Network == other.Network &&
+		ep.Locality == other.Locality &&
+		ep.EndpointPort == other.EndpointPort &&
+		ep.LbWeight == other.LbWeight &&
+		ep.TLSMode == other.TLSMode &&
+		ep.Namespace == other.Namespace &&
+		ep.WorkloadName == other.WorkloadName &&
+		ep.HostName == other.HostName &&
+		ep.SubDomain == other.SubDomain &&
+		ep.HealthStatus == other.HealthStatus &&
+		ep.NodeName == other.NodeName
+	if !eq {
+		return false
+	}
+
+	// check everything else
+	if !maps.Equal(ep.Labels, other.Labels) {
+		return false
+	}
+
+	// Compare discoverability by name
+	var epp string
+	if ep.DiscoverabilityPolicy != nil {
+		epp = ep.DiscoverabilityPolicy.String()
+	}
+	var op string
+	if other.DiscoverabilityPolicy != nil {
+		op = other.DiscoverabilityPolicy.String()
+	}
+	if epp != op {
+		return false
+	}
+
+	return true
 }
 
 func copyInternal(v any) any {
