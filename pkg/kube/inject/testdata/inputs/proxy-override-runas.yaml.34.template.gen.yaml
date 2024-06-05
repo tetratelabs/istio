@@ -911,7 +911,7 @@ templates:
         service.istio.io/canonical-name: {{ index .ObjectMeta.Labels `service.istio.io/canonical-name` | default (index .ObjectMeta.Labels `app.kubernetes.io/name`) | default (index .ObjectMeta.Labels `app`) | default .DeploymentMeta.Name  | quote }}
         service.istio.io/canonical-revision: {{ index .ObjectMeta.Labels `service.istio.io/canonical-revision` | default (index .ObjectMeta.Labels `app.kubernetes.io/version`) | default (index .ObjectMeta.Labels `version`) | default "latest"  | quote }}
       annotations: {
-        istio.io/rev: {{ .Revision | default "default" }},
+        istio.io/rev: {{ .Revision | default "default" | quote }},
         {{- if ge (len $containers) 1 }}
         {{- if not (isset .ObjectMeta.Annotations `kubectl.kubernetes.io/default-logs-container`) }}
         kubectl.kubernetes.io/default-logs-container: "{{ index $containers 0 }}",
@@ -1843,31 +1843,3 @@ templates:
       {{- end }}
       type: {{ .ServiceType | quote }}
     ---
-  custom: |
-    metadata:
-      annotations:
-        # Disable the built-in transformations. In the future we may want a template-level API
-        prometheus.istio.io/merge-metrics: "false"
-        sidecar.istio.io/rewriteAppHTTPProbers: "false"
-        foo: bar
-    spec:
-      containers:
-      {{- range $index, $container := .Spec.Containers }}
-      - name: {{ $container.Name }}
-        env:
-        - name: SOME_ENV
-          value: "true"
-        - name: SOME_FILE
-          value: /var/lib/data/foo.json
-        volumeMounts:
-        - mountPath: /var/lib/data/foo.json
-          subPath: foo.json
-          name: some-injected-file
-      {{- end}}
-      volumes:
-      - name: some-injected-file
-        downwardAPI:
-          items:
-          - path: foo.json
-            fieldRef:
-              fieldPath: "metadata.annotations['foo']"

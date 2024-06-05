@@ -94,15 +94,26 @@ func (es *EndpointShards) Keys() []ShardKey {
 
 // CopyEndpoints takes a snapshot of all endpoints. As input, it takes a map of port name to number, to allow it to group
 // the results by service port number. This is a bit weird, but lets us efficiently construct the format the caller needs.
-func (es *EndpointShards) CopyEndpoints(portMap map[string]int) map[int][]*IstioEndpoint {
+func (es *EndpointShards) CopyEndpoints(portMap map[string]int, ports sets.Set[int]) map[int][]*IstioEndpoint {
 	es.RLock()
 	defer es.RUnlock()
 	res := map[int][]*IstioEndpoint{}
 	for _, v := range es.Shards {
 		for _, ep := range v {
-			portNum, f := portMap[ep.ServicePortName]
-			if !f {
-				continue
+			// use the port name as the key, unless LegacyClusterPortKey is set and takes precedence
+			// In EDS we match on port *name*. But for historical reasons, we match on port number for CDS.
+			var portNum int
+			if ep.LegacyClusterPortKey != 0 {
+				if !ports.Contains(ep.LegacyClusterPortKey) {
+					continue
+				}
+				portNum = ep.LegacyClusterPortKey
+			} else {
+				pn, f := portMap[ep.ServicePortName]
+				if !f {
+					continue
+				}
+				portNum = pn
 			}
 			res[portNum] = append(res[portNum], ep)
 		}
@@ -311,8 +322,9 @@ func (e *EndpointIndex) UpdateServiceEndpoints(
 		}
 		for _, nie := range istioEndpoints {
 			if oie, exists := emap[nie.Address]; exists {
-				// If endpoint exists already, we should push if it's health status changes.
-				if oie.HealthStatus != nie.HealthStatus {
+				// If endpoint exists already, we should push if it's changed.
+				// Skip this check if we already decide we need to push to avoid expensive checks
+				if !needPush && !oie.Equals(nie) {
 					needPush = true
 				}
 				newIstioEndpoints = append(newIstioEndpoints, nie)
@@ -391,6 +403,8 @@ func updateShardServiceAccount(shards *EndpointShards, serviceName string) bool 
 // EndpointIndexUpdater is an updater that will keep an EndpointIndex in sync. This is intended for tests only.
 type EndpointIndexUpdater struct {
 	Index *EndpointIndex
+	// Optional; if set, we will trigger ConfigUpdates in response to EDS updates as appropriate
+	ConfigUpdateFunc func(req *PushRequest)
 }
 
 var _ XDSUpdater = &EndpointIndexUpdater{}
@@ -402,7 +416,15 @@ func NewEndpointIndexUpdater(ei *EndpointIndex) *EndpointIndexUpdater {
 func (f *EndpointIndexUpdater) ConfigUpdate(*PushRequest) {}
 
 func (f *EndpointIndexUpdater) EDSUpdate(shard ShardKey, serviceName string, namespace string, eps []*IstioEndpoint) {
-	f.Index.UpdateServiceEndpoints(shard, serviceName, namespace, eps)
+	pushType := f.Index.UpdateServiceEndpoints(shard, serviceName, namespace, eps)
+	if f.ConfigUpdateFunc != nil && (pushType == IncrementalPush || pushType == FullPush) {
+		// Trigger a push
+		f.ConfigUpdateFunc(&PushRequest{
+			Full:           pushType == FullPush,
+			ConfigsUpdated: sets.New(ConfigKey{Kind: kind.ServiceEntry, Name: serviceName, Namespace: namespace}),
+			Reason:         NewReasonStats(EndpointUpdate),
+		})
+	}
 }
 
 func (f *EndpointIndexUpdater) EDSCacheUpdate(shard ShardKey, serviceName string, namespace string, eps []*IstioEndpoint) {
