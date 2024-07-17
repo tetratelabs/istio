@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	meshapi "istio.io/api/mesh/v1alpha1"
@@ -28,12 +29,15 @@ import (
 	securityclient "istio.io/client-go/pkg/apis/security/v1beta1"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/config/labels"
+	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/config/schema/kind"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/network"
+	"istio.io/istio/pkg/ptr"
 	"istio.io/istio/pkg/slices"
 	"istio.io/istio/pkg/test/util/assert"
 	"istio.io/istio/pkg/workloadapi"
+	"istio.io/istio/pkg/workloadapi/security"
 )
 
 func TestPodWorkloads(t *testing.T) {
@@ -298,6 +302,152 @@ func TestPodWorkloads(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "pod with authz",
+			inputs: []any{
+				model.WorkloadAuthorization{
+					LabelSelector: model.NewSelector(map[string]string{"app": "foo"}),
+					Authorization: &security.Authorization{Name: "wrong-ns", Namespace: "not-ns"},
+				},
+				model.WorkloadAuthorization{
+					LabelSelector: model.NewSelector(map[string]string{"app": "foo"}),
+					Authorization: &security.Authorization{Name: "local-ns", Namespace: "ns"},
+				},
+				model.WorkloadAuthorization{
+					LabelSelector: model.NewSelector(map[string]string{"app": "not-foo"}),
+					Authorization: &security.Authorization{Name: "local-ns-wrong-labels", Namespace: "ns"},
+				},
+				model.WorkloadAuthorization{
+					LabelSelector: model.NewSelector(map[string]string{"app": "foo"}),
+					Authorization: &security.Authorization{Name: "root-ns", Namespace: "istio-system"},
+				},
+			},
+			pod: &v1.Pod{
+				TypeMeta: metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Labels: map[string]string{
+						"app": "foo",
+					},
+				},
+				Spec: v1.PodSpec{},
+				Status: v1.PodStatus{
+					Phase:      v1.PodRunning,
+					Conditions: podReady,
+					PodIP:      "1.2.3.4",
+				},
+			},
+			result: &workloadapi.Workload{
+				Uid:               "cluster0//Pod/ns/name",
+				Name:              "name",
+				Namespace:         "ns",
+				Addresses:         [][]byte{netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice()},
+				Network:           testNW,
+				CanonicalName:     "foo",
+				CanonicalRevision: "latest",
+				WorkloadType:      workloadapi.WorkloadType_POD,
+				WorkloadName:      "name",
+				Status:            workloadapi.WorkloadStatus_HEALTHY,
+				ClusterId:         testC,
+				AuthorizationPolicies: []string{
+					"istio-system/root-ns",
+					"ns/local-ns",
+				},
+			},
+		},
+		{
+			name: "pod as part of selectorless service",
+			inputs: []any{
+				model.ServiceInfo{
+					Service: &workloadapi.Service{
+						Name:      "svc",
+						Namespace: "default",
+						Hostname:  "svc.default.svc.domain.suffix",
+						Ports: []*workloadapi.Port{
+							{
+								ServicePort: 80,
+								TargetPort:  80,
+							},
+						},
+					},
+					PortNames: map[int32]model.ServicePortName{
+						80: {PortName: "80"},
+					},
+					// no selector!
+					LabelSelector: model.LabelSelector{},
+					Source:        kind.Service,
+				},
+				// EndpointSlice manually associates the pod with a service
+				&discovery.EndpointSlice{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "svc-123",
+						Namespace: "default",
+						Labels: map[string]string{
+							discovery.LabelServiceName: "svc",
+						},
+					},
+					AddressType: discovery.AddressTypeIPv4,
+					Endpoints: []discovery.Endpoint{
+						{
+							Addresses: []string{"1.2.3.4"},
+							Conditions: discovery.EndpointConditions{
+								Ready: ptr.Of(true),
+							},
+							TargetRef: &v1.ObjectReference{
+								Kind:      "Pod",
+								Name:      "pod-123",
+								Namespace: "default",
+							},
+						},
+					},
+					Ports: []discovery.EndpointPort{
+						{
+							Name:     ptr.Of("http"),
+							Protocol: ptr.Of(v1.ProtocolTCP),
+							Port:     ptr.Of(int32(80)),
+						},
+					},
+				},
+			},
+			pod: &v1.Pod{
+				TypeMeta: metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-123",
+					Namespace: "default",
+					Labels: map[string]string{
+						"app": "foo",
+					},
+				},
+				Spec: v1.PodSpec{},
+				Status: v1.PodStatus{
+					Phase:      v1.PodRunning,
+					Conditions: podReady,
+					PodIP:      "1.2.3.4",
+				},
+			},
+			result: &workloadapi.Workload{
+				Uid:               "cluster0//Pod/default/pod-123",
+				Name:              "pod-123",
+				Namespace:         "default",
+				Addresses:         [][]byte{netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice()},
+				Network:           testNW,
+				CanonicalName:     "foo",
+				CanonicalRevision: "latest",
+				WorkloadType:      workloadapi.WorkloadType_POD,
+				WorkloadName:      "pod-123",
+				Status:            workloadapi.WorkloadStatus_HEALTHY,
+				ClusterId:         testC,
+				Services: map[string]*workloadapi.PortList{
+					"default/svc.default.svc.domain.suffix": {
+						Ports: []*workloadapi.Port{{
+							ServicePort: 80,
+							TargetPort:  80,
+						}},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -307,12 +457,29 @@ func TestPodWorkloads(t *testing.T) {
 			PeerAuths := krt.NewStaticCollection(extractType[*securityclient.PeerAuthentication](&inputs))
 			Waypoints := krt.NewStaticCollection(extractType[Waypoint](&inputs))
 			WorkloadServices := krt.NewStaticCollection(extractType[model.ServiceInfo](&inputs))
-			MeshConfig := krt.NewStatic(&MeshConfig{slices.First(extractType[meshapi.MeshConfig](&inputs))})
+			m := slices.First(extractType[meshapi.MeshConfig](&inputs))
+			if m == nil {
+				m = mesh.DefaultMeshConfig()
+			}
+			MeshConfig := krt.NewStatic(&MeshConfig{m})
 			Namespaces := krt.NewStaticCollection(extractType[*v1.Namespace](&inputs))
 			Nodes := krt.NewStaticCollection(extractType[*v1.Node](&inputs))
+			EndpointSlices := krt.NewStaticCollection(extractType[*discovery.EndpointSlice](&inputs))
 			assert.Equal(t, len(inputs), 0, fmt.Sprintf("some inputs were not consumed: %v", inputs))
 			WorkloadServicesNamespaceIndex := krt.NewNamespaceIndex(WorkloadServices)
-			builder := a.podWorkloadBuilder(MeshConfig, AuthorizationPolicies, PeerAuths, Waypoints, WorkloadServices, WorkloadServicesNamespaceIndex, Namespaces, Nodes)
+			EndpointSlicesAddressIndex := endpointSliceAddressIndex(EndpointSlices)
+			builder := a.podWorkloadBuilder(
+				MeshConfig,
+				AuthorizationPolicies,
+				PeerAuths,
+				Waypoints,
+				WorkloadServices,
+				WorkloadServicesNamespaceIndex,
+				EndpointSlices,
+				EndpointSlicesAddressIndex,
+				Namespaces,
+				Nodes,
+			)
 			wrapper := builder(krt.TestingDummyContext{}, tt.pod)
 			var res *workloadapi.Workload
 			if wrapper != nil {
@@ -582,6 +749,67 @@ func TestWorkloadEntryWorkloads(t *testing.T) {
 	}
 }
 
+func TestEndpointSliceWorkloads(t *testing.T) {
+	cases := []struct {
+		name   string
+		inputs []any
+		slice  *discovery.EndpointSlice
+		result []*workloadapi.Workload
+	}{
+		{
+			name:   "api server",
+			inputs: []any{},
+			slice: &discovery.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "kubernetes",
+					Namespace: "default",
+					Labels: map[string]string{
+						discovery.LabelServiceName: "kubernetes",
+					},
+				},
+				AddressType: discovery.AddressTypeIPv4,
+				Endpoints: []discovery.Endpoint{
+					{
+						Addresses: []string{"172.18.0.5"},
+						Conditions: discovery.EndpointConditions{
+							Ready: ptr.Of(true),
+						},
+					},
+				},
+				Ports: []discovery.EndpointPort{
+					{
+						Name:     ptr.Of("https"),
+						Protocol: ptr.Of(v1.ProtocolTCP),
+						Port:     ptr.Of(int32(6443)),
+					},
+				},
+			},
+			result: nil,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			inputs := tt.inputs
+			a := newAmbientUnitTest()
+			WorkloadServices := krt.NewStaticCollection(extractType[model.ServiceInfo](&inputs))
+			m := slices.First(extractType[meshapi.MeshConfig](&inputs))
+			if m == nil {
+				m = mesh.DefaultMeshConfig()
+			}
+			MeshConfig := krt.NewStatic(&MeshConfig{m})
+			builder := a.endpointSlicesBuilder(
+				MeshConfig,
+				WorkloadServices,
+			)
+			res := builder(krt.TestingDummyContext{}, tt.slice)
+			wl := slices.Map(res, func(e model.WorkloadInfo) *workloadapi.Workload {
+				return e.Workload
+			})
+			assert.Equal(t, wl, tt.result)
+		})
+	}
+}
+
 func newAmbientUnitTest() *index {
 	return &index{
 		networkUpdateTrigger: krt.NewRecomputeTrigger(),
@@ -589,6 +817,7 @@ func newAmbientUnitTest() *index {
 		Network: func(endpointIP string, labels labels.Instance) network.ID {
 			return testNW
 		},
+		DomainSuffix: "domain.suffix",
 	}
 }
 
