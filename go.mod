@@ -24,7 +24,7 @@ require (
 	github.com/containernetworking/plugins v1.4.0
 	github.com/coreos/go-oidc/v3 v3.9.0
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
-	github.com/docker/cli v24.0.7+incompatible
+	github.com/docker/cli v25.0.6+incompatible
 	github.com/envoyproxy/go-control-plane v0.12.1-0.20240326194405-485b2263e153
 	github.com/evanphx/json-patch/v5 v5.7.0
 	github.com/fatih/color v1.16.0
