@@ -1,0 +1,3 @@
+NAMESPACE     NAME         REVISION     PROGRAMMED
+default       waypoint     default      True
+fake          waypoint     default      True
