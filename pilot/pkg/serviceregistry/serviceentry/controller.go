@@ -237,9 +237,7 @@ func (s *Controller) workloadEntryHandler(old, curr config.Config, event model.E
 		s.NotifyWorkloadInstanceHandlers(wi, event)
 	}
 
-	// includes instances new updated or unchanged, in other word it is the current state.
-	instancesUpdated := []*model.ServiceInstance{}
-	instancesDeleted := []*model.ServiceInstance{}
+	allInstances := []*model.ServiceInstance{}
 	fullPush := false
 	configsUpdated := sets.New[model.ConfigKey]()
 
@@ -278,16 +276,16 @@ func (s *Controller) workloadEntryHandler(old, curr config.Config, event model.E
 			continue
 		}
 		instance := s.convertWorkloadEntryToServiceInstances(wle, services, se, &key, s.Cluster())
-		instancesUpdated = append(instancesUpdated, instance...)
+		allInstances = append(allInstances, instance...)
 		parentKey := configKeyWithParent{
 			configKey: key,
 			parent:    namespacedName,
 		}
 		if event == model.EventDelete {
 			s.serviceInstances.deleteServiceEntryInstances(namespacedName, key)
-			s.serviceInstances.deleteInstanceKeys(parentKey, instancesUpdated)
+			s.serviceInstances.deleteInstanceKeys(parentKey, instance)
 		} else {
-			s.serviceInstances.updateInstances(parentKey, instancesUpdated)
+			s.serviceInstances.updateInstances(parentKey, instance)
 			s.serviceInstances.updateServiceEntryInstancesPerConfig(namespacedName, key, instance)
 		}
 		addConfigs(se, services)
@@ -307,7 +305,7 @@ func (s *Controller) workloadEntryHandler(old, curr config.Config, event model.E
 			configKey: key,
 			parent:    namespacedName,
 		}
-		instancesDeleted = append(instancesDeleted, instance...)
+		allInstances = append(allInstances, instance...)
 		s.serviceInstances.deleteServiceEntryInstances(namespacedName, key)
 		s.serviceInstances.deleteInstanceKeys(parentKey, instance)
 		addConfigs(se, services)
@@ -320,7 +318,6 @@ func (s *Controller) workloadEntryHandler(old, curr config.Config, event model.E
 	}
 	s.mutex.Unlock()
 
-	allInstances := append(instancesUpdated, instancesDeleted...)
 	if !fullPush {
 		// trigger full xds push to the related sidecar proxy
 		if event == model.EventAdd {
@@ -365,7 +362,7 @@ func getUpdatedConfigs(services []*model.Service) sets.Set[model.ConfigKey] {
 func (s *Controller) serviceEntryHandler(old, curr config.Config, event model.Event) {
 	log.Debugf("Handle event %s for service entry %s/%s", event, curr.Namespace, curr.Name)
 	currentServiceEntry := curr.Spec.(*networking.ServiceEntry)
-	cs := convertServices(curr)
+	cs := convertServices(curr, s.clusterID)
 	configsUpdated := sets.New[model.ConfigKey]()
 	key := curr.NamespacedName()
 
@@ -748,14 +745,14 @@ func (s *Controller) queueEdsEvent(keys sets.Set[instancesKey], edsFn func(keys 
 func (s *Controller) doEdsCacheUpdate(keys sets.Set[instancesKey]) {
 	endpoints := s.buildEndpoints(keys)
 	shard := model.ShardKeyFromRegistry(s)
-	// This is delete.
-	if len(endpoints) == 0 {
-		for k := range keys {
-			s.XdsUpdater.EDSCacheUpdate(shard, string(k.hostname), k.namespace, nil)
-		}
-	} else {
-		for k, eps := range endpoints {
+
+	for k := range keys {
+		if eps, ok := endpoints[k]; ok {
+			// Update the cache with the generated endpoints.
 			s.XdsUpdater.EDSCacheUpdate(shard, string(k.hostname), k.namespace, eps)
+		} else {
+			// Handle deletions by sending a nil endpoints update.
+			s.XdsUpdater.EDSCacheUpdate(shard, string(k.hostname), k.namespace, nil)
 		}
 	}
 }
@@ -764,14 +761,14 @@ func (s *Controller) doEdsCacheUpdate(keys sets.Set[instancesKey]) {
 func (s *Controller) doEdsUpdate(keys sets.Set[instancesKey]) {
 	endpoints := s.buildEndpoints(keys)
 	shard := model.ShardKeyFromRegistry(s)
-	// This is delete.
-	if len(endpoints) == 0 {
-		for k := range keys {
-			s.XdsUpdater.EDSUpdate(shard, string(k.hostname), k.namespace, nil)
-		}
-	} else {
-		for k, eps := range endpoints {
+
+	for k := range keys {
+		if eps, ok := endpoints[k]; ok {
+			// Update with the generated endpoints.
 			s.XdsUpdater.EDSUpdate(shard, string(k.hostname), k.namespace, eps)
+		} else {
+			// Handle deletions by sending a nil endpoints update.
+			s.XdsUpdater.EDSUpdate(shard, string(k.hostname), k.namespace, nil)
 		}
 	}
 }
