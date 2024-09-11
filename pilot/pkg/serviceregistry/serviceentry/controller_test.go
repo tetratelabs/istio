@@ -133,9 +133,9 @@ func TestServiceDiscoveryServices(t *testing.T) {
 	store, sd, fx := initServiceDiscovery(t)
 	expectedServices := []*model.Service{
 		makeService(
-			"*.istio.io", "httpDNSRR", []string{constants.UnspecifiedIP}, map[string]int{"http-port": 80, "http-alt-port": 8080}, true, model.DNSRoundRobinLB),
-		makeService("*.google.com", "httpDNS", []string{constants.UnspecifiedIP}, map[string]int{"http-port": 80, "http-alt-port": 8080}, true, model.DNSLB),
-		makeService("tcpstatic.com", "tcpStatic", []string{"172.217.0.1"}, map[string]int{"tcp-444": 444}, true, model.ClientSideLB),
+			"*.istio.io", "httpDNSRR", []string{constants.UnspecifiedIP}, "", "", map[string]int{"http-port": 80, "http-alt-port": 8080}, true, model.DNSRoundRobinLB),
+		makeService("*.google.com", "httpDNS", []string{constants.UnspecifiedIP}, "", "", map[string]int{"http-port": 80, "http-alt-port": 8080}, true, model.DNSLB),
+		makeService("tcpstatic.com", "tcpStatic", []string{"172.217.0.1"}, "", "", map[string]int{"tcp-444": 444}, true, model.ClientSideLB),
 	}
 
 	createConfigs([]*config.Config{httpDNS, httpDNSRR, tcpStatic}, store, t)
@@ -558,6 +558,7 @@ func TestServiceDiscoveryServiceUpdate(t *testing.T) {
 			Event{Type: "service", ID: "selector1.com", Namespace: httpStaticOverlay.Namespace},
 			Event{Type: "service", ID: "*.google.com", Namespace: httpStaticOverlay.Namespace},
 			Event{Type: "eds cache", ID: "*.google.com", Namespace: httpStaticOverlay.Namespace},
+			Event{Type: "eds cache", ID: "selector1.com", Namespace: httpStaticOverlay.Namespace},
 			Event{Type: "xds full", ID: "*.google.com,selector1.com"}) // service added
 
 		selector1Updated := func() *config.Config {
@@ -573,6 +574,7 @@ func TestServiceDiscoveryServiceUpdate(t *testing.T) {
 			Event{Type: "service", ID: "*.google.com", Namespace: httpStaticOverlay.Namespace},
 			Event{Type: "service", ID: "selector1.com", Namespace: httpStaticOverlay.Namespace},
 			Event{Type: "eds cache", ID: "*.google.com", Namespace: httpStaticOverlay.Namespace},
+			Event{Type: "eds cache", ID: "selector1.com", Namespace: httpStaticOverlay.Namespace},
 			Event{Type: "xds full", ID: "*.google.com,selector1.com"}) // service updated
 	})
 }
@@ -1494,7 +1496,7 @@ func expectEvents(t testing.TB, ch *xdsfake.Updater, events ...Event) {
 
 func expectServiceInstances(t testing.TB, sd *Controller, cfg *config.Config, port int, expected ...[]*model.ServiceInstance) {
 	t.Helper()
-	svcs := convertServices(*cfg, "")
+	svcs := convertServices(*cfg)
 	if len(svcs) != len(expected) {
 		t.Fatalf("got more services than expected: %v vs %v", len(svcs), len(expected))
 	}
@@ -1728,8 +1730,8 @@ func TestServicesDiff(t *testing.T) {
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			as := convertServices(*tt.current, "")
-			bs := convertServices(*tt.new, "")
+			as := convertServices(*tt.current)
+			bs := convertServices(*tt.new)
 			added, deleted, updated, unchanged := servicesDiff(as, bs)
 			for i, item := range []struct {
 				hostnames []host.Name
