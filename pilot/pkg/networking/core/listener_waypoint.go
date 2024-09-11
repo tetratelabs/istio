@@ -43,6 +43,7 @@ import (
 	"istio.io/istio/pilot/pkg/networking/core/route/retry"
 	"istio.io/istio/pilot/pkg/networking/plugin/authn"
 	"istio.io/istio/pilot/pkg/networking/plugin/authz"
+	"istio.io/istio/pilot/pkg/networking/telemetry"
 	"istio.io/istio/pilot/pkg/networking/util"
 	security "istio.io/istio/pilot/pkg/security/model"
 	"istio.io/istio/pilot/pkg/util/protoconv"
@@ -209,6 +210,11 @@ func (lb *ListenerBuilder) buildWaypointInternal(wls []model.WorkloadInfo, svcs 
 				},
 				bind:  "0.0.0.0",
 				hbone: true,
+				telemetryMetadata: telemetry.FilterChainMetadata{
+					InstanceHostname:           svc.Hostname,
+					KubernetesServiceNamespace: svc.Attributes.Namespace,
+					KubernetesServiceName:      svc.Attributes.Name,
+				},
 			}
 			name := model.BuildSubsetKey(model.TrafficDirectionInboundVIP, "", svc.Hostname, port.Port)
 			tcpName := name + "-tcp"
@@ -709,7 +715,7 @@ func (lb *ListenerBuilder) GetDestinationCluster(destination *networking.Destina
 	if service != nil {
 		_, wps := findWaypointResources(lb.node, lb.push)
 		_, f := wps.services[service.Hostname]
-		if !f || service.MeshExternal {
+		if !f {
 			// this waypoint proxy isn't responsible for this service so we use outbound; TODO quicker lookup
 			dir, subset = model.TrafficDirectionOutbound, destination.Subset
 		}

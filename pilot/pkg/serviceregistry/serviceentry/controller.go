@@ -363,7 +363,7 @@ func getUpdatedConfigs(services []*model.Service) sets.Set[model.ConfigKey] {
 func (s *Controller) serviceEntryHandler(old, curr config.Config, event model.Event) {
 	log.Debugf("Handle event %s for service entry %s/%s", event, curr.Namespace, curr.Name)
 	currentServiceEntry := curr.Spec.(*networking.ServiceEntry)
-	cs := convertServices(curr, s.clusterID)
+	cs := convertServices(curr)
 	configsUpdated := sets.New[model.ConfigKey]()
 	key := curr.NamespacedName()
 
@@ -748,14 +748,14 @@ func (s *Controller) queueEdsEvent(keys sets.Set[instancesKey], edsFn func(keys 
 func (s *Controller) doEdsCacheUpdate(keys sets.Set[instancesKey]) {
 	endpoints := s.buildEndpoints(keys)
 	shard := model.ShardKeyFromRegistry(s)
-	// This is delete.
-	if len(endpoints) == 0 {
-		for k := range keys {
-			s.XdsUpdater.EDSCacheUpdate(shard, string(k.hostname), k.namespace, nil)
-		}
-	} else {
-		for k, eps := range endpoints {
+
+	for k := range keys {
+		if eps, ok := endpoints[k]; ok {
+			// Update the cache with the generated endpoints.
 			s.XdsUpdater.EDSCacheUpdate(shard, string(k.hostname), k.namespace, eps)
+		} else {
+			// Handle deletions by sending a nil endpoints update.
+			s.XdsUpdater.EDSCacheUpdate(shard, string(k.hostname), k.namespace, nil)
 		}
 	}
 }
@@ -764,14 +764,14 @@ func (s *Controller) doEdsCacheUpdate(keys sets.Set[instancesKey]) {
 func (s *Controller) doEdsUpdate(keys sets.Set[instancesKey]) {
 	endpoints := s.buildEndpoints(keys)
 	shard := model.ShardKeyFromRegistry(s)
-	// This is delete.
-	if len(endpoints) == 0 {
-		for k := range keys {
-			s.XdsUpdater.EDSUpdate(shard, string(k.hostname), k.namespace, nil)
-		}
-	} else {
-		for k, eps := range endpoints {
+
+	for k := range keys {
+		if eps, ok := endpoints[k]; ok {
+			// Update with the generated endpoints.
 			s.XdsUpdater.EDSUpdate(shard, string(k.hostname), k.namespace, eps)
+		} else {
+			// Handle deletions by sending a nil endpoints update.
+			s.XdsUpdater.EDSUpdate(shard, string(k.hostname), k.namespace, nil)
 		}
 	}
 }
@@ -887,6 +887,10 @@ func servicesDiff(os []*model.Service, ns []*model.Service) ([]*model.Service, [
 //
 // The current algorithm to allocate IPs is deterministic across all istiods.
 func autoAllocateIPs(services []*model.Service) []*model.Service {
+	// if we are using the IP Autoallocate controller then we can short circuit this
+	if features.EnableIPAutoallocate {
+		return services
+	}
 	hashedServices := make([]*model.Service, maxIPs)
 	hash := fnv.New32a()
 	// First iterate through the range of services and determine its position by hash

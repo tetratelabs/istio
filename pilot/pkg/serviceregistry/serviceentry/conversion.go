@@ -34,7 +34,6 @@ import (
 	"istio.io/istio/pkg/config/visibility"
 	"istio.io/istio/pkg/kube/labels"
 	"istio.io/istio/pkg/network"
-	"istio.io/istio/pkg/slices"
 	"istio.io/istio/pkg/spiffe"
 	netutil "istio.io/istio/pkg/util/net"
 	"istio.io/istio/pkg/util/sets"
@@ -49,8 +48,10 @@ func convertPort(port *networking.ServicePort) *model.Port {
 }
 
 type HostAddress struct {
-	host      string
-	addresses []string
+	host           string
+	address        string
+	autoAssignedV4 string
+	autoAssignedV6 string
 }
 
 // ServiceToServiceEntry converts from internal Service representation to ServiceEntry
@@ -140,7 +141,7 @@ func ServiceToServiceEntry(svc *model.Service, proxy *model.Proxy) *config.Confi
 }
 
 // convertServices transforms a ServiceEntry config to a list of internal Service objects.
-func convertServices(cfg config.Config, clusterID cluster.ID) []*model.Service {
+func convertServices(cfg config.Config) []*model.Service {
 	serviceEntry := cfg.Spec.(*networking.ServiceEntry)
 	// ShouldV2AutoAllocateIP already checks that there are no addresses in the spec however this is critical enough to likely be worth checking
 	// explicitly as well in case the logic changes. We never want to overwrite addresses in the spec if there are any
@@ -191,33 +192,33 @@ func convertServices(cfg config.Config, clusterID cluster.ID) []*model.Service {
 
 	hostAddresses := []*HostAddress{}
 	for _, hostname := range serviceEntry.Hosts {
-		localAddresses := addresses
-		if len(localAddresses) == 0 {
-			// we have no user-assed addresses but we can check if we have auto-assigned addresses
-			if autoAddresses, ok := addressLookup[hostname]; ok {
-				for _, aa := range autoAddresses {
-					localAddresses = append(localAddresses, aa.String())
-				}
-			}
-		}
-		if len(localAddresses) > 0 {
-			ha := &HostAddress{hostname, []string{}}
-			for _, address := range localAddresses {
-				// Check if addresses is an IP first because that is the most common case.
+		if len(addresses) > 0 {
+			for _, address := range addresses {
+				// Check if address is an IP first because that is the most common case.
 				if netutil.IsValidIPAddress(address) {
-					ha.addresses = append(ha.addresses, address)
+					hostAddresses = append(hostAddresses, &HostAddress{hostname, address, "", ""})
 				} else if cidr, cidrErr := netip.ParsePrefix(address); cidrErr == nil {
 					newAddress := address
 					if cidr.Bits() == cidr.Addr().BitLen() {
-						// /32 mask. Remove the /32 and make it a normal IP addresses
+						// /32 mask. Remove the /32 and make it a normal IP address
 						newAddress = cidr.Addr().String()
 					}
-					ha.addresses = append(ha.addresses, newAddress)
+					hostAddresses = append(hostAddresses, &HostAddress{hostname, newAddress, "", ""})
 				}
 			}
-			hostAddresses = append(hostAddresses, ha)
 		} else {
-			hostAddresses = append(hostAddresses, &HostAddress{hostname, []string{constants.UnspecifiedIP}})
+			var v4, v6 string
+			if autoAddresses, ok := addressLookup[hostname]; ok {
+				for _, aa := range autoAddresses {
+					if aa.Is4() {
+						v4 = aa.String()
+					}
+					if aa.Is6() {
+						v6 = aa.String()
+					}
+				}
+			}
+			hostAddresses = append(hostAddresses, &HostAddress{hostname, constants.UnspecifiedIP, v4, v6})
 		}
 	}
 
@@ -231,7 +232,7 @@ func convertServices(cfg config.Config, clusterID cluster.ID) []*model.Service {
 			CreationTime:   creationTime,
 			MeshExternal:   serviceEntry.Location == networking.ServiceEntry_MESH_EXTERNAL,
 			Hostname:       host.Name(ha.host),
-			DefaultAddress: ha.addresses[0],
+			DefaultAddress: ha.address,
 			Ports:          svcPorts,
 			Resolution:     resolution,
 			Attributes: model.ServiceAttributes{
@@ -245,12 +246,11 @@ func convertServices(cfg config.Config, clusterID cluster.ID) []*model.Service {
 			},
 			ServiceAccounts: serviceEntry.SubjectAltNames,
 		}
-		if !slices.Equal(ha.addresses, []string{constants.UnspecifiedIP}) {
-			svc.ClusterVIPs = model.AddressMap{
-				Addresses: map[cluster.ID][]string{
-					clusterID: ha.addresses,
-				},
-			}
+		if ha.autoAssignedV4 != "" {
+			svc.AutoAllocatedIPv4Address = ha.autoAssignedV4
+		}
+		if ha.autoAssignedV6 != "" {
+			svc.AutoAllocatedIPv6Address = ha.autoAssignedV6
 		}
 		out = append(out, svc)
 	}
@@ -346,7 +346,7 @@ func (s *Controller) convertServiceEntryToInstances(cfg config.Config, services 
 		return nil
 	}
 	if services == nil {
-		services = convertServices(cfg, s.clusterID)
+		services = convertServices(cfg)
 	}
 
 	endpointsNum := len(serviceEntry.Endpoints)
