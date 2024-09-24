@@ -31,7 +31,7 @@ require (
 	github.com/felixge/fgprof v0.9.3
 	github.com/florianl/go-nflog/v2 v2.0.1
 	github.com/fsnotify/fsnotify v1.7.0
-	github.com/go-jose/go-jose/v3 v3.0.1
+	github.com/go-jose/go-jose/v3 v3.0.3
 	github.com/go-logr/logr v1.4.1
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.4
@@ -50,7 +50,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/kr/pretty v0.3.1
 	github.com/kylelemons/godebug v1.1.0
-	github.com/lestrrat-go/jwx v1.2.28
+	github.com/lestrrat-go/jwx v1.2.29
 	github.com/mattn/go-isatty v0.0.20
 	github.com/miekg/dns v1.1.57
 	github.com/mitchellh/copystructure v1.2.0
@@ -144,7 +144,7 @@ require (
 	github.com/cyphar/filepath-securejoin v0.2.4 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
-	github.com/docker/docker v25.0.5+incompatible // indirect
+	github.com/docker/docker v25.0.6+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.8.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.2 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.0.4 // indirect
