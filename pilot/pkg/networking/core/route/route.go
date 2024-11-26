@@ -329,8 +329,8 @@ func buildSidecarVirtualHostForService(svc *model.Service,
 	}
 }
 
-// GetDestinationCluster generates a cluster name for the route, or error if no cluster
-// can be found. Called by translateRule to determine if
+// GetDestinationCluster generates a cluster name for the route. If the destination is invalid
+// or cannot be found, "UnknownService" is returned.
 func GetDestinationCluster(destination *networking.Destination, service *model.Service, listenerPort int) string {
 	if len(destination.GetHost()) == 0 {
 		// only happens when the gateway-api BackendRef is invalid
@@ -790,7 +790,12 @@ func ApplyRedirect(out *route.Route, redirect *networking.HTTPRedirect, port int
 		action.Redirect.ResponseCode = route.RedirectAction_PERMANENT_REDIRECT
 	default:
 		log.Warnf("Redirect Code %d is not yet supported", redirect.RedirectCode)
-		action = nil
+		// Can't just set action to nil here because the proto marshaller will still see
+		// the Route_Redirect type of the variable and assume that the value is set
+		// (and panic because it's not). What we need to do is set out.Action directly to
+		// (a typeless) nil so that type assertions to Route_Redirect will fail.
+		out.Action = nil
+		return
 	}
 
 	out.Action = action
