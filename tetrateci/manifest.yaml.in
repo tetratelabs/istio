@@ -32,7 +32,7 @@ dependencies:
     git: https://github.com/istio/tools
     branch: $BRANCH
   envoy:
-    git: https://github.com/istio/envoy
+    git: https://github.com/envoyproxy/envoy
     auto: proxy_workspace
 
 dashboards:
