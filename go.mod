@@ -8,10 +8,10 @@ exclude k8s.io/kubernetes v1.13.0
 replace (
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 	// TIS: Lock versions
+	golang.org/x/mod => golang.org/x/mod v0.13.0
 	golang.org/x/net => golang.org/x/net v0.23.0
 	golang.org/x/sync => golang.org/x/sync v0.5.0
 	golang.org/x/sys => golang.org/x/sys v0.18.0
-	golang.org/x/mod => golang.org/x/mod v0.13.0
 	golang.org/x/term => golang.org/x/term v0.18.0 // indirect
 	golang.org/x/text => golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools => golang.org/x/tools v0.14.0 // indirect
