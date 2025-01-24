@@ -751,9 +751,6 @@ spec:
       http:
         maxRequestsPerConnection: 1`).ApplyOrFail(t)
 		runTestContext(t, func(t framework.TestContext, src echo.Instance, dst echo.Instance, opt echo.CallOptions) {
-			if opt.Scheme != scheme.TCP {
-				return
-			}
 			// Ensure we don't get stuck on old connections with old RBAC rules. This causes 45s test times
 			// due to draining.
 			opt.NewConnectionPerRequest = true
@@ -810,8 +807,9 @@ spec:
 				}
 				src.CallOrFail(t, opt)
 			})
-			// globally peerauth == STRICT, but we have a port-specific allowlist that is PERMISSIVE,
-			// so anything hitting that port should not be rejected
+			// general workload peerauth == STRICT, but we have a port-specific allowlist that is PERMISSIVE,
+			// so anything hitting that port should not be rejected.
+			// NOTE: Using port 80 since that's what
 			t.NewSubTest("strict-permissive-ports").Run(func(t framework.TestContext) {
 				t.ConfigIstio().Eval(apps.Namespace.Name(), map[string]string{
 					"Destination": dst.Config().Service,
@@ -829,11 +827,83 @@ spec:
   mtls:
     mode: STRICT
   portLevelMtls:
-    8080:
+    18080:
       mode: PERMISSIVE
 				`).ApplyOrFail(t)
 				opt = opt.DeepCopy()
 				// Should pass for all workloads, in or out of mesh, targeting this port
+				src.CallOrFail(t, opt)
+			})
+
+			// global peer auth is strict, but we have a permissive port-level rule
+			t.NewSubTest("global-strict-permissive-workload-ports").Run(func(t framework.TestContext) {
+				t.ConfigIstio().YAML(i.Settings().SystemNamespace, `
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: global-strict
+spec:
+  mtls:
+    mode: STRICT
+        `).ApplyOrFail(t)
+				t.ConfigIstio().Eval(apps.Namespace.Name(), map[string]string{
+					"Destination": dst.Config().Service,
+					"Source":      src.Config().Service,
+					"Namespace":   apps.Namespace.Name(),
+				}, `
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: local-port-override
+spec:
+  selector:
+    matchLabels:
+      app: "{{ .Destination }}"
+  portLevelMtls:
+    18080:
+      mode: PERMISSIVE
+    19090:
+      mode: PERMISSIVE
+        `).ApplyOrFail(t)
+				opt = opt.DeepCopy()
+				// Should pass for all workloads, in or out of mesh, targeting this port
+				src.CallOrFail(t, opt)
+			})
+
+			t.NewSubTest("global-permissive-strict-workload-ports").Run(func(t framework.TestContext) {
+				t.ConfigIstio().YAML(i.Settings().SystemNamespace, `
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: global-permissive
+spec:
+  mtls:
+    mode: PERMISSIVE
+        `).ApplyOrFail(t)
+				t.ConfigIstio().Eval(apps.Namespace.Name(), map[string]string{
+					"Destination": dst.Config().Service,
+					"Source":      src.Config().Service,
+					"Namespace":   apps.Namespace.Name(),
+				}, `
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: local-port-override
+spec:
+  selector:
+    matchLabels:
+      app: "{{ .Destination }}"
+  portLevelMtls:
+    18080:
+      mode: STRICT
+    19090:
+      mode: STRICT
+        `).ApplyOrFail(t)
+				opt = opt.DeepCopy()
+				if !src.Config().HasProxyCapabilities() && dst.Config().HasProxyCapabilities() {
+					// Expect deny if the dest is in the mesh (enforcing mTLS) but src is not (not sending mTLS)
+					opt.Check = CheckDeny
+				}
 				src.CallOrFail(t, opt)
 			})
 		})
