@@ -1030,7 +1030,7 @@ const (
 	WaypointAccepted ConditionType = "WaypointAccepted"
 )
 
-type ConditionSet = map[ConditionType][]Condition
+type ConditionSet = map[ConditionType]*Condition
 
 type Condition struct {
 	Reason  string
@@ -1038,27 +1038,29 @@ type Condition struct {
 	Status  bool
 }
 
+func (c *Condition) Equals(v *Condition) bool {
+	return c.Reason == v.Reason &&
+		c.Message == v.Message &&
+		c.Status == v.Status
+}
+
 func (i ServiceInfo) GetConditions() ConditionSet {
-	set := map[ConditionType][]Condition{
+	set := ConditionSet{
 		// Write all conditions here, then override if we want them set.
 		// This ensures we can properly prune the condition if its no longer needed (such as if there is no waypoint attached at all).
 		WaypointBound: nil,
 	}
 	if i.Waypoint.ResourceName != "" {
-		set[WaypointBound] = []Condition{
-			{
-				Status:  true,
-				Reason:  "WaypointAccepted",
-				Message: fmt.Sprintf("Successfully attached to waypoint %v", i.Waypoint.ResourceName),
-			},
+		set[WaypointBound] = &Condition{
+			Status:  true,
+			Reason:  "WaypointAccepted",
+			Message: fmt.Sprintf("Successfully attached to waypoint %v", i.Waypoint.ResourceName),
 		}
 	} else if i.Waypoint.Error != nil {
-		set[WaypointBound] = []Condition{
-			{
-				Status:  false,
-				Reason:  i.Waypoint.Error.Reason,
-				Message: i.Waypoint.Error.Message,
-			},
+		set[WaypointBound] = &Condition{
+			Status:  false,
+			Reason:  i.Waypoint.Error.Reason,
+			Message: i.Waypoint.Error.Message,
 		}
 	}
 	return set
@@ -1078,6 +1080,10 @@ type StatusMessage struct {
 	Message string
 }
 
+func (i WaypointBindingStatus) Equals(other WaypointBindingStatus) bool {
+	return i.ResourceName == other.ResourceName && i.IngressUseWaypoint == other.IngressUseWaypoint && ptr.Equal(i.Error, other.Error)
+}
+
 func (i ServiceInfo) NamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: i.Name, Namespace: i.Namespace}
 }
@@ -1087,7 +1093,7 @@ func (i ServiceInfo) Equals(other ServiceInfo) bool {
 		maps.Equal(i.LabelSelector.Labels, other.LabelSelector.Labels) &&
 		maps.Equal(i.PortNames, other.PortNames) &&
 		i.Source == other.Source &&
-		i.Waypoint == other.Waypoint
+		i.Waypoint.Equals(other.Waypoint)
 }
 
 func (i ServiceInfo) ResourceName() string {
@@ -1153,7 +1159,7 @@ func (i WaypointPolicyStatus) GetStatusTarget() TypedObject {
 func (i WaypointPolicyStatus) GetConditions() ConditionSet {
 	set := make(ConditionSet, 1)
 
-	set[WaypointAccepted] = []Condition{flattenConditions(i.Conditions)}
+	set[WaypointAccepted] = flattenConditions(i.Conditions)
 
 	return set
 }
@@ -1163,7 +1169,7 @@ func (i WaypointPolicyStatus) GetConditions() ConditionSet {
 // flattenConditions is a work around for the uncertain future of Ancestor in gtwapi which exists at the moment.
 // It is intended to take many conditions which have ancestors and condense them into a single condition so we can
 // retain detail in the codebase to be prepared when a canonical representation is accepted upstream.
-func flattenConditions(conditions []PolicyBindingStatus) Condition {
+func flattenConditions(conditions []PolicyBindingStatus) *Condition {
 	status := false
 	reason := WaypointPolicyReasonInvalid
 	unboundAncestors := []string{}
@@ -1172,7 +1178,7 @@ func flattenConditions(conditions []PolicyBindingStatus) Condition {
 	// flatten causes a loss of some information and there is only 1 condition so no need to flatten
 	if len(conditions) == 1 {
 		c := conditions[0]
-		return Condition{
+		return &Condition{
 			Reason:  c.Status.Reason,
 			Message: c.Status.Message,
 			Status:  c.Bound,
@@ -1202,7 +1208,7 @@ func flattenConditions(conditions []PolicyBindingStatus) Condition {
 		message = fmt.Sprintf("Invalid targetRefs: %s", strings.Join(unboundAncestors, ", "))
 	}
 
-	return Condition{
+	return &Condition{
 		reason,
 		message,
 		status,
@@ -1246,21 +1252,17 @@ func (i WorkloadAuthorization) GetConditions() ConditionSet {
 	set := make(ConditionSet, 1)
 
 	if i.Binding.Status != nil {
-		set[ZtunnelAccepted] = []Condition{
-			{
-				Reason:  i.Binding.Status.Reason,
-				Message: i.Binding.Status.Message,
-				Status:  i.Binding.Bound,
-			},
+		set[ZtunnelAccepted] = &Condition{
+			Reason:  i.Binding.Status.Reason,
+			Message: i.Binding.Status.Message,
+			Status:  i.Binding.Bound,
 		}
 	} else {
 		message := "attached to ztunnel"
-		set[ZtunnelAccepted] = []Condition{
-			{
-				Reason:  "Accepted",
-				Message: message,
-				Status:  i.Binding.Bound,
-			},
+		set[ZtunnelAccepted] = &Condition{
+			Reason:  "Accepted",
+			Message: message,
+			Status:  i.Binding.Bound,
 		}
 	}
 
@@ -1502,6 +1504,27 @@ func (s *Service) GetExtraAddressesForProxy(node *Proxy) []string {
 		return addresses[1:]
 	}
 	return nil
+}
+
+// HasAddressOrAssigned returns whether the service has an IP address.
+// This includes auto-allocated IP addresses. Note that not all proxies support auto-allocated IP addresses;
+// typically GetAllAddressesForProxy should be used which automatically filters addresses to account for that.
+func (s *Service) HasAddressOrAssigned(id cluster.ID) bool {
+	if id != "" {
+		if len(s.ClusterVIPs.GetAddressesFor(id)) > 0 {
+			return true
+		}
+	}
+	if s.DefaultAddress != constants.UnspecifiedIP {
+		return true
+	}
+	if s.AutoAllocatedIPv4Address != "" {
+		return true
+	}
+	if s.AutoAllocatedIPv6Address != "" {
+		return true
+	}
+	return false
 }
 
 // GetAllAddressesForProxy returns a k8s service's all addresses to the cluster where the node resides.

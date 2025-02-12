@@ -595,14 +595,15 @@ func TestAmbientIndex_WaypointInboundBinding(t *testing.T) {
 		},
 	})
 	s.addWaypoint(t, "1.2.3.4", "proxy-sandwich", constants.AllTraffic, true)
-	// TODO needing this check seems suspicious. We should really wait for up to 2 pod events.
 	assert.EventuallyEqual(t, func() int { return len(s.waypoints.List()) }, 1)
 
 	s.addPods(t, "10.0.0.1", "proxy-sandwich-instance", "",
 		map[string]string{label.IoK8sNetworkingGatewayGatewayName.Name: "proxy-sandwich"}, nil, true, corev1.PodRunning)
 	s.assertEvent(t, s.podXdsName("proxy-sandwich-instance"))
-	appTunnel := s.lookup(s.podXdsName("proxy-sandwich-instance"))[0].GetWorkload().GetApplicationTunnel()
-	assert.Equal(t, appTunnel, &workloadapi.ApplicationTunnel{
+	// We may get 1 or 2 events, depending on ordering, so wait.
+	assert.EventuallyEqual(t, func() *workloadapi.ApplicationTunnel {
+		return s.lookup(s.podXdsName("proxy-sandwich-instance"))[0].GetWorkload().GetApplicationTunnel()
+	}, &workloadapi.ApplicationTunnel{
 		Protocol: workloadapi.ApplicationTunnel_PROXY,
 		Port:     15088,
 	})
@@ -948,10 +949,10 @@ func TestAmbientIndex_Policy(t *testing.T) {
 		}
 	})
 	s.assertEvent(t, s.podXdsName("pod1"), s.podXdsName("pod2"), xdsConvertedPeerAuthSelector) // Matching pods receive an event
-	// The policy should still be added since the effective policy is STRICT
+	// There should be no static strict policy because the permissive override should have the strict part in-line
 	assert.Equal(t,
 		s.lookup(s.addrXdsName("127.0.0.1"))[0].Address.GetWorkload().AuthorizationPolicies,
-		[]string{fmt.Sprintf("istio-system/%s", staticStrictPolicyName), fmt.Sprintf("ns1/%s", model.GetAmbientPolicyConfigName(model.ConfigKey{
+		[]string{fmt.Sprintf("ns1/%s", model.GetAmbientPolicyConfigName(model.ConfigKey{
 			Kind:      kind.PeerAuthentication,
 			Name:      selectorPolicyName,
 			Namespace: "ns1",
@@ -1152,9 +1153,11 @@ func TestAmbientIndex_Policy(t *testing.T) {
 func TestDefaultAllowWaypointPolicy(t *testing.T) {
 	// while the Waypoint is in testNS, the policies live in the Pods' namespaces
 	policyName := "ns1/istio_allow_waypoint_" + testNS + "_" + "waypoint-ns"
-	test.SetForTest(t, &features.DefaultAllowFromWaypoint, true)
 
-	s := newAmbientTestServer(t, testC, testNW)
+	s := newAmbientTestServerWithFlags(t, testC, testNW, FeatureFlags{
+		DefaultAllowFromWaypoint:              true,
+		EnableK8SServiceSelectWorkloadEntries: features.EnableK8SServiceSelectWorkloadEntries,
+	})
 	setupPolicyTest(t, s)
 
 	t.Run("policy with service accounts", func(t *testing.T) {
@@ -1257,15 +1260,88 @@ func TestRBACConvert(t *testing.T) {
 					},
 					Spec: *((pol[0].Spec).(*auth.AuthorizationPolicy)), //nolint: govet
 				})
-			case gvk.PeerAuthentication:
-				o = convertPeerAuthentication(systemNS, &clientsecurityv1beta1.PeerAuthentication{
-					TypeMeta: metav1.TypeMeta{},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      pol[0].Name,
-						Namespace: pol[0].Namespace,
-					},
-					Spec: *((pol[0].Spec).(*auth.PeerAuthentication)), //nolint: govet
-				})
+			case gvk.PeerAuthentication: // we assume all crds in the same file are of the same type
+				var rootCfg, nsCfg, workloadCfg *config.Config
+				if len(pol) > 1 {
+					for _, p := range pol {
+						switch p.Namespace {
+						case systemNS:
+							if p.Spec.(*auth.PeerAuthentication).GetSelector() != nil {
+								t.Fatalf("unexpected selector in mesh-level policy %v", p)
+							}
+							if rootCfg == nil || p.GetCreationTimestamp().Before(rootCfg.GetCreationTimestamp()) {
+								rootCfg = ptr.Of(p)
+							}
+						default:
+							spec := p.Spec.(*auth.PeerAuthentication)
+							if spec.GetSelector() != nil && workloadCfg != nil && workloadCfg.Spec.(*auth.PeerAuthentication).GetSelector() != nil {
+								t.Fatalf("multiple workload-level policies %v and %v", p, workloadCfg)
+							}
+
+							if spec.GetSelector() != nil {
+								// Workload policy
+								workloadCfg = ptr.Of(p)
+							} else if nsCfg == nil || p.GetCreationTimestamp().Before(nsCfg.GetCreationTimestamp()) {
+								// Namespace policy
+								nsCfg = ptr.Of(p)
+							}
+						}
+					}
+				}
+
+				// Simple case
+				if len(pol) == 1 {
+					o = convertPeerAuthentication(systemNS, &clientsecurityv1beta1.PeerAuthentication{
+						TypeMeta: metav1.TypeMeta{},
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      pol[0].Name,
+							Namespace: pol[0].Namespace,
+						},
+						Spec: *((pol[0].Spec).(*auth.PeerAuthentication)), //nolint: govet
+					}, nil, nil)
+				} else {
+					var workloadPA, nsPA, rootPA *clientsecurityv1beta1.PeerAuthentication
+					if workloadCfg != nil {
+						workloadPA = &clientsecurityv1beta1.PeerAuthentication{
+							TypeMeta: metav1.TypeMeta{},
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      workloadCfg.Name,
+								Namespace: workloadCfg.Namespace,
+							},
+							Spec: *((workloadCfg.Spec).(*auth.PeerAuthentication)), //nolint: govet
+						}
+					}
+					if nsCfg != nil {
+						nsPA = &clientsecurityv1beta1.PeerAuthentication{
+							TypeMeta: metav1.TypeMeta{},
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      nsCfg.Name,
+								Namespace: nsCfg.Namespace,
+							},
+							Spec: *((nsCfg.Spec).(*auth.PeerAuthentication)), //nolint: govet
+						}
+					}
+
+					if rootCfg != nil {
+						rootPA = &clientsecurityv1beta1.PeerAuthentication{
+							TypeMeta: metav1.TypeMeta{},
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      rootCfg.Name,
+								Namespace: rootCfg.Namespace,
+							},
+							Spec: *((rootCfg.Spec).(*auth.PeerAuthentication)), //nolint: govet
+						}
+					}
+
+					if workloadPA == nil {
+						// We have a namespace policy and a root policy; send the NS policy as the workload policy
+						// It won't get far anyway since this convert function returns nil for non-workload policies
+						workloadPA = nsPA
+						nsPA = nil
+					}
+
+					o = convertPeerAuthentication(systemNS, workloadPA, nsPA, rootPA)
+				}
 			default:
 				t.Fatalf("unknown kind %v", pol[0].GroupVersionKind)
 			}
@@ -1545,6 +1621,13 @@ type ambientTestServer struct {
 }
 
 func newAmbientTestServer(t *testing.T, clusterID cluster.ID, networkID network.ID) *ambientTestServer {
+	return newAmbientTestServerWithFlags(t, clusterID, networkID, FeatureFlags{
+		DefaultAllowFromWaypoint:              features.DefaultAllowFromWaypoint,
+		EnableK8SServiceSelectWorkloadEntries: features.EnableK8SServiceSelectWorkloadEntries,
+	})
+}
+
+func newAmbientTestServerWithFlags(t *testing.T, clusterID cluster.ID, networkID network.ID, flags FeatureFlags) *ambientTestServer {
 	up := xdsfake.NewFakeXDS()
 	up.SplitEvents = true
 	cl := kubeclient.NewFakeClient()
@@ -1572,6 +1655,7 @@ func newAmbientTestServer(t *testing.T, clusterID cluster.ID, networkID network.
 			return nil
 		},
 		StatusNotifier: activenotifier.New(true),
+		Flags:          flags,
 	})
 	idx.NetworksSynced()
 	cl.RunAndWait(test.NewStop(t))
