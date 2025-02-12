@@ -49,7 +49,7 @@ endif
 export VERSION
 
 # Base version of Istio image to use
-BASE_VERSION ?= 1.24-2024-11-19T19-01-56
+BASE_VERSION ?= 1.24-2024-12-17T19-00-41
 ISTIO_BASE_REGISTRY ?= gcr.io/istio-release
 
 export GO111MODULE ?= on
@@ -331,7 +331,7 @@ copy-templates:
 		for profile in manifests/helm-profiles/*.yaml ; do \
 			sed "1s|^|$${warning}\n\n|" $$profile > manifests/charts/$$chart/files/profile-$$(basename $$profile) ; \
 		done; \
-		[[ "$$chart" == "ztunnel" ]] && flatten="true" || flatten="false" ; \
+		[[ "$$chart" == "ztunnel" ]] || [[ "$$chart" == "gateway" ]] && flatten="true" || flatten="false" ; \
 		cat manifests/zzz_profile.yaml | \
 		  sed "s/FLATTEN_GLOBALS_REPLACEMENT/$${flatten}/g" \
 		  > manifests/charts/$$chart/templates/zzz_profile.yaml ; \

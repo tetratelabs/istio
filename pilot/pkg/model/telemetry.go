@@ -238,7 +238,7 @@ func workloadMode(class networking.ListenerClass) tpb.WorkloadMode {
 // If nil or empty configuration is returned, access logs are not configured via Telemetry and should use fallback mechanisms.
 // If access logging is explicitly disabled, a configuration with disabled set to true is returned.
 func (t *Telemetries) AccessLogging(push *PushContext, proxy *Proxy, class networking.ListenerClass, svc *Service) []LoggingConfig {
-	ct := t.applicableTelemetries(proxy, nil)
+	ct := t.applicableTelemetries(proxy, svc)
 	if len(ct.Logging) == 0 && len(t.meshConfig.GetDefaultProviders().GetAccessLogging()) == 0 {
 		// No Telemetry API configured, fall back to legacy mesh config setting
 		return nil
@@ -277,6 +277,11 @@ func (t *Telemetries) AccessLogging(push *PushContext, proxy *Proxy, class netwo
 		cfg.AccessLog = al
 		cfgs = append(cfgs, cfg)
 	}
+
+	// Sort the access logs by provider name for deterministic ordering
+	sort.Slice(cfgs, func(i, j int) bool {
+		return cfgs[i].Provider.Name < cfgs[j].Provider.Name
+	})
 
 	t.computedLoggingConfig[key] = cfgs
 	return cfgs
