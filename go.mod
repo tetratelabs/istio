@@ -2,8 +2,13 @@ module istio.io/istio
 
 go 1.22.0
 
-// Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
-replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
+replace (
+	github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
+	// Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
+	github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
+	github.com/stretchr/testify => github.com/stretchr/testify v1.9.0
+	golang.org/x/crypto => golang.org/x/crypto v0.31.0 // indirect
+)
 
 require (
 	cloud.google.com/go/compute/metadata v0.5.2
@@ -64,7 +69,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.19.0
 	github.com/stoewer/go-strcase v1.3.0
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/vishvananda/netlink v1.3.0
 	github.com/vishvananda/netns v0.0.4
 	github.com/yl2chen/cidranger v1.0.2
@@ -215,7 +220,7 @@ require (
 	go.starlark.net v0.0.0-20231121155337-90ade8b19d09 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/crypto v0.32.0 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
 	golang.org/x/mod v0.20.0 // indirect
 	golang.org/x/term v0.27.0 // indirect
