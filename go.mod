@@ -2,8 +2,16 @@ module istio.io/istio
 
 go 1.22.0
 
-// Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
-replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
+replace (
+	github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
+	// Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
+	github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
+	github.com/stretchr/testify => github.com/stretchr/testify v1.9.0
+	golang.org/x/crypto => golang.org/x/crypto v0.31.0 // indirect
+
+	golang.org/x/sys => golang.org/x/sys v0.28.0
+	golang.org/x/term => golang.org/x/term v0.27.0 // indirect
+)
 
 require (
 	cloud.google.com/go/compute/metadata v0.3.0
@@ -67,7 +75,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.19.0
 	github.com/stoewer/go-strcase v1.3.0
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/vishvananda/netlink v1.2.1-beta.2.0.20240411215012-578e95cc3190
 	github.com/vishvananda/netns v0.0.4
 	github.com/yl2chen/cidranger v1.0.2
@@ -87,7 +95,7 @@ require (
 	golang.org/x/net v0.33.0
 	golang.org/x/oauth2 v0.21.0
 	golang.org/x/sync v0.10.0
-	golang.org/x/sys v0.28.0
+	golang.org/x/sys v0.29.0
 	golang.org/x/time v0.5.0
 	gomodules.xyz/jsonpatch/v2 v2.4.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240604185151-ef581f913117
@@ -220,9 +228,9 @@ require (
 	go.starlark.net v0.0.0-20231121155337-90ade8b19d09 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/crypto v0.32.0 // indirect
 	golang.org/x/mod v0.18.0 // indirect
-	golang.org/x/term v0.27.0 // indirect
+	golang.org/x/term v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/tools v0.22.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
