@@ -3,8 +3,10 @@ module istio.io/istio
 go 1.22.0
 
 replace (
+	github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
 	// Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
+	github.com/stretchr/testify => github.com/stretchr/testify v1.9.0
 	golang.org/x/crypto => golang.org/x/crypto v0.31.0 // indirect 	CVE-2024-45337
 	golang.org/x/exp => golang.org/x/exp v0.0.0-20240416160154-fe59bbe5cc7f
 	golang.org/x/net => golang.org/x/net v0.33.0 // CVE-2024-45338
@@ -14,7 +16,6 @@ replace (
 	golang.org/x/term => golang.org/x/term v0.19.0 // indirect
 	golang.org/x/text => golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools => golang.org/x/tools v0.20.0 // indirect
-
 )
 
 require (
@@ -85,7 +86,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.18.2
 	github.com/stoewer/go-strcase v1.3.0
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/vishvananda/netlink v1.2.1-beta.2
 	github.com/vishvananda/netns v0.0.4
 	github.com/yl2chen/cidranger v1.0.2
@@ -250,7 +251,7 @@ require (
 	go.starlark.net v0.0.0-20231121155337-90ade8b19d09 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/crypto v0.32.0 // indirect
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/term v0.27.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
