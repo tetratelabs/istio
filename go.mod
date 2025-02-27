@@ -3,6 +3,8 @@ module istio.io/istio
 go 1.21
 
 replace (
+	github.com/go-jose/go-jose/v3 => github.com/go-jose/go-jose/v3 v3.0.4
+
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 	golang.org/x/mod => golang.org/x/mod v0.14.0
 	// TIS: Lock versions
