@@ -3,6 +3,8 @@ module istio.io/istio
 go 1.22.0
 
 replace (
+	github.com/go-jose/go-jose/v3 => github.com/go-jose/go-jose/v3 v3.0.4
+
 	github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
 	// Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
