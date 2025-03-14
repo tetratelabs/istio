@@ -5,6 +5,13 @@ go 1.23.0
 replace (
 	github.com/go-jose/go-jose/v3 => github.com/go-jose/go-jose/v3 v3.0.4
 	github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
+
+	golang.org/x/crypto => golang.org/x/crypto v0.32.0 // indirect
+	golang.org/x/net => golang.org/x/net v0.37.0
+	golang.org/x/sync => golang.org/x/sync v0.10.0
+	golang.org/x/sys => golang.org/x/sys v0.29.0
+	golang.org/x/term => golang.org/x/term v0.28.0 // indirect
+	golang.org/x/text => golang.org/x/text v0.21.0 // indirect
 )
 
 require (
@@ -86,8 +93,8 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/net v0.34.0
 	golang.org/x/oauth2 v0.25.0
-	golang.org/x/sync v0.10.0
-	golang.org/x/sys v0.29.0
+	golang.org/x/sync v0.12.0
+	golang.org/x/sys v0.31.0
 	golang.org/x/time v0.9.0
 	gomodules.xyz/jsonpatch/v2 v2.4.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20250122153221-138b5a5a4fd4
@@ -216,11 +223,11 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.58.0 // indirect
 	go.uber.org/mock v0.5.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.32.0 // indirect
+	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/exp v0.0.0-20241215155358-4a5509556b9e // indirect
 	golang.org/x/mod v0.22.0 // indirect
-	golang.org/x/term v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/term v0.30.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/tools v0.29.0 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
