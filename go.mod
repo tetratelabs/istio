@@ -1,6 +1,8 @@
 module istio.io/istio
 
-go 1.22.0
+go 1.23.0
+
+toolchain go1.23.7
 
 replace (
 	github.com/go-jose/go-jose/v3 => github.com/go-jose/go-jose/v3 v3.0.4
@@ -9,9 +11,12 @@ replace (
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 	github.com/stretchr/testify => github.com/stretchr/testify v1.9.0
 	golang.org/x/crypto => golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/net => golang.org/x/net v0.37.0
 
 	golang.org/x/sys => golang.org/x/sys v0.28.0
 	golang.org/x/term => golang.org/x/term v0.27.0 // indirect
+	golang.org/x/text => golang.org/x/text v0.21.0 // indirect
+
 )
 
 require (
@@ -95,8 +100,8 @@ require (
 	golang.org/x/exp v0.0.0-20240604190554-fc45aab8b7f8
 	golang.org/x/net v0.33.0
 	golang.org/x/oauth2 v0.21.0
-	golang.org/x/sync v0.10.0
-	golang.org/x/sys v0.29.0
+	golang.org/x/sync v0.12.0
+	golang.org/x/sys v0.31.0
 	golang.org/x/time v0.5.0
 	gomodules.xyz/jsonpatch/v2 v2.4.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240604185151-ef581f913117
@@ -229,10 +234,10 @@ require (
 	go.starlark.net v0.0.0-20231121155337-90ade8b19d09 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.32.0 // indirect
+	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/mod v0.18.0 // indirect
-	golang.org/x/term v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/term v0.30.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/tools v0.22.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
