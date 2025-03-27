@@ -2,6 +2,11 @@ module istio.io/istio
 
 go 1.23.0
 
+replace (
+	github.com/go-jose/go-jose/v3 => github.com/go-jose/go-jose/v3 v3.0.4
+	github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
+)
+
 require (
 	cloud.google.com/go/compute/metadata v0.6.0
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6
