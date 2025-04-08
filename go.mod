@@ -2,8 +2,21 @@ module istio.io/istio
 
 go 1.23.0
 
-// Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
-replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
+toolchain go1.23.7
+
+replace (
+	github.com/go-jose/go-jose/v3 => github.com/go-jose/go-jose/v3 v3.0.4
+	github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
+	// Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
+	github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
+	github.com/stretchr/testify => github.com/stretchr/testify v1.9.0
+	golang.org/x/crypto => golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/net => golang.org/x/net v0.37.0
+
+	golang.org/x/sys => golang.org/x/sys v0.28.0
+	golang.org/x/term => golang.org/x/term v0.27.0 // indirect
+	golang.org/x/text => golang.org/x/text v0.21.0 // indirect
+)
 
 require (
 	cloud.google.com/go/compute/metadata v0.3.0
@@ -67,7 +80,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.19.0
 	github.com/stoewer/go-strcase v1.3.0
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/vishvananda/netlink v1.2.1-beta.2.0.20240411215012-578e95cc3190
 	github.com/vishvananda/netns v0.0.4
 	github.com/yl2chen/cidranger v1.0.2
