@@ -229,7 +229,7 @@ type AgentOptions struct {
 	WASMOptions wasm.Options
 
 	// Enable metadata discovery bootstrap extension
-	MetadataDiscovery bool
+	MetadataDiscovery *bool
 
 	SDSFactory func(options *security.Options, workloadSecretCache security.SecretManager, pkpConf *mesh.PrivateKeyProvider) SDSService
 
@@ -293,6 +293,7 @@ func (a *Agent) generateNodeMetadata() (*model.Node, error) {
 		ExitOnZeroActiveConnections: a.cfg.ExitOnZeroActiveConnections,
 		XDSRootCert:                 a.cfg.XDSRootCerts,
 		MetadataDiscovery:           a.cfg.MetadataDiscovery,
+		WorkloadIdentitySocketFile:  a.cfg.WorkloadIdentitySocketFile,
 	})
 }
 

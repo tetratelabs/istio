@@ -750,7 +750,7 @@ var ValidateSidecar = RegisterValidateFunc("ValidateSidecar",
 					}
 					if sHost != "" && sHost != "127.0.0.1" && sHost != "0.0.0.0" && sHost != "::1" && sHost != "::" {
 						errMsg := "sidecar: defaultEndpoint must be of form 127.0.0.1:<port>,0.0.0.0:<port>,[::1]:port,[::]:port,unix://filepath or unset"
-						errs = AppendValidation(errs, fmt.Errorf(errMsg))
+						errs = AppendValidation(errs, errors.New(errMsg))
 					}
 					port, err := strconv.Atoi(sPort)
 					if err != nil {
@@ -1078,7 +1078,10 @@ func validateConnectionPool(settings *networking.ConnectionPoolSettings) (errs e
 			errs = appendErrors(errs, agent.ValidateDuration(tcp.MaxConnectionDuration))
 		}
 		if tcp.IdleTimeout != nil {
-			errs = appendErrors(errs, agent.ValidateDuration(tcp.IdleTimeout))
+			// Skip validation if the value is 0s, as it indicates that the timeout is disabled entirely.
+			if tcp.IdleTimeout.AsDuration().Milliseconds() != 0 {
+				errs = appendErrors(errs, agent.ValidateDuration(tcp.IdleTimeout))
+			}
 		}
 		if ka := tcp.TcpKeepalive; ka != nil {
 			if ka.Time != nil {
@@ -2876,10 +2879,6 @@ var ValidateServiceEntry = RegisterValidateFunc("ValidateServiceEntry",
 						ValidatePortName(name),
 						agent.ValidatePort(int(port)))
 				}
-			}
-
-			if serviceEntry.WorkloadSelector != nil {
-				errs = AppendWarningf(errs, "workloadSelector should not be set when resolution mode is %v", serviceEntry.Resolution)
 			}
 
 			if len(serviceEntry.Addresses) > 0 {
