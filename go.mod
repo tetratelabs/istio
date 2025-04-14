@@ -2,9 +2,21 @@ module istio.io/istio
 
 go 1.23.0
 
+toolchain go1.23.8
+
 replace (
 	github.com/go-jose/go-jose/v3 => github.com/go-jose/go-jose/v3 v3.0.4
 	github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
+	helm.sh/helm/v3 => helm.sh/helm/v3 v3.17.3
+
+	k8s.io/api => k8s.io/api v0.32.1
+	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.32.1
+	k8s.io/apimachinery => k8s.io/apimachinery v0.32.1
+	k8s.io/apiserver => k8s.io/apiserver v0.32.1
+	k8s.io/cli-runtime => k8s.io/cli-runtime v0.32.1
+	k8s.io/client-go => k8s.io/client-go v0.32.1
+	k8s.io/component-base => k8s.io/component-base v0.32.1 // indirect
+	k8s.io/kubectl => k8s.io/kubectl v0.32.1
 )
 
 require (
@@ -99,14 +111,14 @@ require (
 	helm.sh/helm/v3 v3.17.0
 	istio.io/api v1.25.1-0.20250321204246-eb3f2673759c
 	istio.io/client-go v1.25.1-0.20250321204545-b102c2d01354
-	k8s.io/api v0.32.1
-	k8s.io/apiextensions-apiserver v0.32.1
-	k8s.io/apimachinery v0.32.1
-	k8s.io/apiserver v0.32.1
-	k8s.io/cli-runtime v0.32.1
-	k8s.io/client-go v0.32.1
+	k8s.io/api v0.32.2
+	k8s.io/apiextensions-apiserver v0.32.2
+	k8s.io/apimachinery v0.32.2
+	k8s.io/apiserver v0.32.2
+	k8s.io/cli-runtime v0.32.2
+	k8s.io/client-go v0.32.2
 	k8s.io/klog/v2 v2.130.1
-	k8s.io/kubectl v0.32.1
+	k8s.io/kubectl v0.32.2
 	k8s.io/utils v0.0.0-20241210054802-24370beab758
 	sigs.k8s.io/controller-runtime v0.20.0
 	sigs.k8s.io/gateway-api v1.2.1
@@ -225,7 +237,7 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
-	k8s.io/component-base v0.32.1 // indirect
+	k8s.io/component-base v0.32.2 // indirect
 	k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.1 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
