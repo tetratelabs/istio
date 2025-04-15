@@ -17,16 +17,21 @@ package ambient
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/gateway-api/apis/v1beta1"
 
+	"istio.io/api/annotation"
 	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 	securityclient "istio.io/client-go/pkg/apis/security/v1"
 	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/log"
+	"istio.io/istio/pkg/ptr"
 	"istio.io/istio/pkg/slices"
 	"istio.io/istio/pkg/spiffe"
 	"istio.io/istio/pkg/workloadapi/security"
@@ -37,6 +42,8 @@ func WaypointPolicyStatusCollection(
 	waypoints krt.Collection[Waypoint],
 	services krt.Collection[*corev1.Service],
 	serviceEntries krt.Collection[*networkingclient.ServiceEntry],
+	gatewayClasses krt.Collection[*v1beta1.GatewayClass],
+	meshConfig krt.Singleton[MeshConfig],
 	namespaces krt.Collection[*corev1.Namespace],
 	opts krt.OptionsBuilder,
 ) krt.Collection[model.WaypointPolicyStatus] {
@@ -47,7 +54,14 @@ func WaypointPolicyStatusCollection(
 				return nil // targetRef is required for binding to waypoint
 			}
 
-			var conditions []model.PolicyBindingStatus
+			var (
+				conditions []model.PolicyBindingStatus
+				rootNs     string
+			)
+
+			if meshConfig.Get() != nil {
+				rootNs = meshConfig.Get().MeshConfig.RootNamespace
+			}
 
 			for _, target := range targetRefs {
 				namespace := i.GetNamespace()
@@ -59,6 +73,28 @@ func WaypointPolicyStatusCollection(
 				reason := "unknown"
 				bound := false
 				switch target.GetKind() {
+				case gvk.GatewayClass_v1.Kind:
+					// first verify the AP is in the root namespace, if not it's ignored
+					if namespace != rootNs {
+						reason = model.WaypointPolicyReasonInvalid
+						message = fmt.Sprintf("AuthorizationPolicy must be in the root namespace `%s` when referencing a GatewayClass", rootNs)
+						break
+					}
+
+					fetchedGatewayClass := ptr.Flatten(krt.FetchOne(ctx, gatewayClasses, krt.FilterKey(target.GetName())))
+					if fetchedGatewayClass == nil {
+						reason = model.WaypointPolicyReasonTargetNotFound
+					} else {
+						// verify GatewayClass is for waypoint
+						if fetchedGatewayClass.Spec.ControllerName != constants.ManagedGatewayMeshController {
+							reason = model.WaypointPolicyReasonInvalid
+							message = fmt.Sprintf("GatewayClass must use controller name `%s` for waypoints", constants.ManagedGatewayMeshController)
+						} else {
+							bound = true
+							reason = model.WaypointPolicyReasonAccepted
+							message = fmt.Sprintf("bound to %s", fetchedGatewayClass.GetName())
+						}
+					}
 				case gvk.KubernetesGateway.Kind:
 					fetchedWaypoints := krt.Fetch(ctx, waypoints, krt.FilterKey(key))
 					if len(fetchedWaypoints) == 1 {
@@ -132,6 +168,10 @@ func PolicyCollections(
 	flags FeatureFlags,
 ) (krt.Collection[model.WorkloadAuthorization], krt.Collection[model.WorkloadAuthorization]) {
 	AuthzDerivedPolicies := krt.NewCollection(authzPolicies, func(ctx krt.HandlerContext, i *securityclient.AuthorizationPolicy) *model.WorkloadAuthorization {
+		dryRun, _ := strconv.ParseBool(i.Annotations[annotation.IoIstioDryRun.Name])
+		if dryRun {
+			return nil
+		}
 		meshCfg := krt.FetchOne(ctx, meshConfig.AsCollection())
 		pol, status := convertAuthorizationPolicy(meshCfg.GetRootNamespace(), i)
 		if status == nil && pol == nil {
