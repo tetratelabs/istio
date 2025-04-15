@@ -90,11 +90,12 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240930140551-af27646dc61f
 	google.golang.org/grpc v1.67.1
 	google.golang.org/protobuf v1.34.2
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	helm.sh/helm/v3 v3.16.1
-	istio.io/api v1.24.4-0.20250310185707-46b0c1b3e4e4
-	istio.io/client-go v1.24.4-0.20250310190306-37b46c6daa9d
+	istio.io/api v1.24.5-0.20250409200717-4933c1da972e
+	istio.io/client-go v1.24.5-0.20250409201417-1715c4db04bc
 	k8s.io/api v0.31.1
 	k8s.io/apiextensions-apiserver v0.31.1
 	k8s.io/apimachinery v0.31.1
