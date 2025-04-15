@@ -50,7 +50,7 @@ replace (
 	go.opentelemetry.io/otel/trace => go.opentelemetry.io/otel/trace v1.24.0
 	go.opentelemetry.io/proto/otlp => go.opentelemetry.io/proto/otlp v1.1.0
 	go.starlark.net => go.starlark.net v0.0.0-20231121155337-90ade8b19d09 // indirect
-	golang.org/x/crypto => golang.org/x/crypto v0.31.0 // indirect 	CVE-2024-45337
+	golang.org/x/crypto => golang.org/x/crypto v0.35.0
 	golang.org/x/exp => golang.org/x/exp v0.0.0-20240416160154-fe59bbe5cc7f
 	golang.org/x/mod => golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/net => golang.org/x/net v0.37.0 // CVE-2025-22870
