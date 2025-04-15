@@ -221,6 +221,8 @@ func New(options Options) Index {
 			Waypoints,
 			Services,
 			ServiceEntries,
+			GatewayClasses,
+			MeshConfig,
 			Namespaces,
 			opts,
 		)

@@ -16,6 +16,7 @@ package ambient
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -32,10 +33,13 @@ import (
 	securityclient "istio.io/client-go/pkg/apis/security/v1"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/config/constants"
+	"istio.io/istio/pkg/config/mesh"
+	"istio.io/istio/pkg/config/mesh/meshwatcher"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/kclient"
 	"istio.io/istio/pkg/kube/krt"
+	"istio.io/istio/pkg/kube/krt/krttest"
 	"istio.io/istio/pkg/test/util/assert"
 	"istio.io/istio/pkg/test/util/retry"
 	"istio.io/istio/pkg/workloadapi"
@@ -228,6 +232,16 @@ func TestWaypointPolicyStatusCollection(t *testing.T) {
 	clientSe := kclient.New[*networkingclient.ServiceEntry](c)
 	seCol := krt.WrapClient(clientSe)
 
+	clientGwClass := kclient.New[*gtwapiv1beta1.GatewayClass](c)
+	gwClassCol := krt.WrapClient(clientGwClass)
+
+	meshConfigMock := krttest.NewMock(t, []any{
+		meshwatcher.MeshConfigResource{
+			MeshConfig: mesh.DefaultMeshConfig(),
+		},
+	})
+	meshConfigCol := GetMeshConfig(meshConfigMock)
+
 	clientNs := kclient.New[*v1.Namespace](c)
 	nsCol := krt.WrapClient(clientNs)
 
@@ -258,7 +272,7 @@ func TestWaypointPolicyStatusCollection(t *testing.T) {
 		}
 	})
 
-	wpsCollection := WaypointPolicyStatusCollection(authzPolCol, waypointCol, svcCol, seCol, nsCol, krt.OptionsBuilder{})
+	wpsCollection := WaypointPolicyStatusCollection(authzPolCol, waypointCol, svcCol, seCol, gwClassCol, meshConfigCol, nsCol, krt.OptionsBuilder{})
 	c.RunAndWait(ctx.Done())
 
 	_, err := clientNs.Create(&v1.Namespace{
@@ -978,6 +992,165 @@ func TestWaypointPolicyStatusCollection(t *testing.T) {
 				},
 			},
 		},
+		{
+			testName: "single-bind-gateway-class",
+			gatewayClasses: []gtwapiv1beta1.GatewayClass{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "istio-waypoint",
+					},
+					Spec: gtwapiv1beta1.GatewayClassSpec{
+						ControllerName: constants.ManagedGatewayMeshController,
+					},
+				},
+			},
+			policy: securityclient.AuthorizationPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "single-gateway-class-pol",
+					Namespace:  "istio-system",
+					Generation: 1,
+				},
+				Spec: v1beta1.AuthorizationPolicy{
+					TargetRefs: []*apiv1beta1.PolicyTargetReference{
+						{
+							Group: gvk.GatewayClass.Group,
+							Kind:  gvk.GatewayClass.Kind,
+							Name:  "istio-waypoint",
+						},
+					},
+					Rules:  []*v1beta1.Rule{},
+					Action: 0,
+				},
+			},
+			expect: []model.PolicyBindingStatus{
+				{
+					Ancestor: "GatewayClass.gateway.networking.k8s.io:istio-system/istio-waypoint",
+					Status: &model.StatusMessage{
+						Reason:  model.WaypointPolicyReasonAccepted,
+						Message: "bound to istio-waypoint",
+					},
+					Bound:              true,
+					ObservedGeneration: 1,
+				},
+			},
+		},
+		{
+			testName:       "nonexistent-gateway-class",
+			gatewayClasses: []gtwapiv1beta1.GatewayClass{},
+			policy: securityclient.AuthorizationPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "single-no-gateway-class-pol",
+					Namespace:  "istio-system",
+					Generation: 1,
+				},
+				Spec: v1beta1.AuthorizationPolicy{
+					TargetRefs: []*apiv1beta1.PolicyTargetReference{
+						{
+							Group: gvk.GatewayClass.Group,
+							Kind:  gvk.GatewayClass.Kind,
+							Name:  "nonexistent-gateway-class",
+						},
+					},
+					Rules:  []*v1beta1.Rule{},
+					Action: 0,
+				},
+			},
+			expect: []model.PolicyBindingStatus{
+				{
+					Ancestor: "GatewayClass.gateway.networking.k8s.io:istio-system/nonexistent-gateway-class",
+					Status: &model.StatusMessage{
+						Reason:  model.WaypointPolicyReasonTargetNotFound,
+						Message: "not bound",
+					},
+					Bound:              false,
+					ObservedGeneration: 1,
+				},
+			},
+		},
+		{
+			testName: "non-waypoint-gateway-class",
+			gatewayClasses: []gtwapiv1beta1.GatewayClass{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "not-for-waypoint",
+					},
+					Spec: gtwapiv1beta1.GatewayClassSpec{
+						ControllerName: "random-controller",
+					},
+				},
+			},
+			policy: securityclient.AuthorizationPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "non-waypoint-gateway-class-pol",
+					Namespace:  "istio-system",
+					Generation: 1,
+				},
+				Spec: v1beta1.AuthorizationPolicy{
+					TargetRefs: []*apiv1beta1.PolicyTargetReference{
+						{
+							Group: gvk.GatewayClass.Group,
+							Kind:  gvk.GatewayClass.Kind,
+							Name:  "not-for-waypoint",
+						},
+					},
+					Rules:  []*v1beta1.Rule{},
+					Action: 0,
+				},
+			},
+			expect: []model.PolicyBindingStatus{
+				{
+					Ancestor: "GatewayClass.gateway.networking.k8s.io:istio-system/not-for-waypoint",
+					Status: &model.StatusMessage{
+						Reason:  model.WaypointPolicyReasonInvalid,
+						Message: fmt.Sprintf("GatewayClass must use controller name `%s` for waypoints", constants.ManagedGatewayMeshController),
+					},
+					Bound:              false,
+					ObservedGeneration: 1,
+				},
+			},
+		},
+		{
+			testName: "gateway-class-ap-not-in-root-ns",
+			gatewayClasses: []gtwapiv1beta1.GatewayClass{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "waypoint",
+					},
+					Spec: gtwapiv1beta1.GatewayClassSpec{
+						ControllerName: constants.ManagedGatewayMeshController,
+					},
+				},
+			},
+			policy: securityclient.AuthorizationPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "gateway-class-ap-not-in-root-ns-pol",
+					Namespace:  "other-ns",
+					Generation: 1,
+				},
+				Spec: v1beta1.AuthorizationPolicy{
+					TargetRefs: []*apiv1beta1.PolicyTargetReference{
+						{
+							Group: gvk.GatewayClass.Group,
+							Kind:  gvk.GatewayClass.Kind,
+							Name:  "waypoint",
+						},
+					},
+					Rules:  []*v1beta1.Rule{},
+					Action: 0,
+				},
+			},
+			expect: []model.PolicyBindingStatus{
+				{
+					Ancestor: "GatewayClass.gateway.networking.k8s.io:other-ns/waypoint",
+					Status: &model.StatusMessage{
+						Reason:  model.WaypointPolicyReasonInvalid,
+						Message: "AuthorizationPolicy must be in the root namespace `istio-system` when referencing a GatewayClass",
+					},
+					Bound:              false,
+					ObservedGeneration: 1,
+				},
+			},
+		},
 	}
 
 	// these nolint are to suppress findings regarding copying the mutex contained within our service entry proto fields
@@ -993,6 +1166,11 @@ func TestWaypointPolicyStatusCollection(t *testing.T) {
 
 			for _, s := range tc.services {
 				_, err := clientSvc.Create(&s)
+				assert.NoError(t, err)
+			}
+
+			for _, gwClass := range tc.gatewayClasses {
+				_, err := clientGwClass.Create(&gwClass)
 				assert.NoError(t, err)
 			}
 
@@ -1014,6 +1192,7 @@ type TestWaypointPolicyStatusCollectionTestCase struct {
 	testName       string
 	serviceEntries []networkingclient.ServiceEntry
 	services       []v1.Service
+	gatewayClasses []gtwapiv1beta1.GatewayClass
 	policy         securityclient.AuthorizationPolicy
 	expect         []model.PolicyBindingStatus
 }
