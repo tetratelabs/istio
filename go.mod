@@ -39,7 +39,7 @@ replace (
 	go.opentelemetry.io/proto/otlp => go.opentelemetry.io/proto/otlp v1.2.0
 	go.starlark.net => go.starlark.net v0.0.0-20231121155337-90ade8b19d09 // indirect
 	golang.org/x/crypto => golang.org/x/crypto v0.35.0
-	golang.org/x/net => golang.org/x/net v0.37.0
+	golang.org/x/net => golang.org/x/net v0.38.0
 
 	golang.org/x/sys => golang.org/x/sys v0.28.0
 	golang.org/x/term => golang.org/x/term v0.27.0 // indirect
