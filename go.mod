@@ -53,7 +53,7 @@ replace (
 	golang.org/x/crypto => golang.org/x/crypto v0.35.0
 	golang.org/x/exp => golang.org/x/exp v0.0.0-20240416160154-fe59bbe5cc7f
 	golang.org/x/mod => golang.org/x/mod v0.17.0 // indirect
-	golang.org/x/net => golang.org/x/net v0.37.0 // CVE-2025-22870
+	golang.org/x/net => golang.org/x/net v0.38.0
 	golang.org/x/oauth2 => golang.org/x/oauth2 v0.19.0
 	golang.org/x/sync => golang.org/x/sync v0.7.0
 	golang.org/x/sys => golang.org/x/sys v0.19.0
