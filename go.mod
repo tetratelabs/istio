@@ -57,7 +57,7 @@ replace (
 	golang.org/x/exp => golang.org/x/exp v0.0.0-20240110193028-0dcbfd608b1e
 	golang.org/x/mod => golang.org/x/mod v0.14.0
 	golang.org/x/net => golang.org/x/net v0.38.0
-	golang.org/x/oauth2 => golang.org/x/oauth2 v0.16.0
+	golang.org/x/oauth2 => golang.org/x/oauth2 v0.27.0
 	golang.org/x/sync => golang.org/x/sync v0.6.0
 	golang.org/x/sys => golang.org/x/sys v0.18.0
 	golang.org/x/term => golang.org/x/term v0.18.0 // indirect
@@ -323,7 +323,6 @@ require (
 	golang.org/x/term v0.30.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/tools v0.26.0 // indirect
-	google.golang.org/appengine v1.6.8 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	k8s.io/component-base v0.32.2 // indirect
