@@ -100,6 +100,6 @@ ed148b62dfb0dc79adc8c8573ced4806883389c0/1.19.2-dev/Modified/RELEASE/BoringSSL-F
 
 [1]: https://go.googlesource.com/go/+/dev.boringcrypto/README.boringcrypto.md
 [2]: https://go-boringcrypto.storage.googleapis.com
-[3]: https://csrc.nist.gov/projects/cryptographic-module-validation-program/certificate/3678
+[3]: https://csrc.nist.gov/projects/cryptographic-module-validation-program/certificate/4407
 [4]: https://istio.tetratelabs.io/
 [5]: https://cloudsmith.io/~tetrate/repos/getistio-containers/packages/
