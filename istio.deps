@@ -1,0 +1,16 @@
+[
+  {
+    "_comment": "",
+    "name": "PROXY_REPO_SHA",
+    "repoName": "proxy",
+    "file": "",
+    "lastStableSHA": "71a753428f4479887db4b686ca9d01cfc6e11068"
+  },
+  {
+    "_comment": "",
+    "name": "ZTUNNEL_REPO_SHA",
+    "repoName": "ztunnel",
+    "file": "",
+    "lastStableSHA": "2f601957bd172b34990612f4d8f847cadf4e880d"
+  }
+]
