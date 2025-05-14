@@ -2,6 +2,20 @@ module istio.io/istio
 
 go 1.23.0
 
+// CVE-2025-32386
+// CVE-2025-32387
+replace (
+	helm.sh/helm/v3 => helm.sh/helm/v3 v3.17.3
+	k8s.io/api => k8s.io/api v0.32.1
+	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.32.1
+	k8s.io/apimachinery => k8s.io/apimachinery v0.32.1
+	k8s.io/apiserver => k8s.io/apiserver v0.32.1
+	k8s.io/cli-runtime => k8s.io/cli-runtime v0.32.1
+	k8s.io/client-go => k8s.io/client-go v0.32.1
+	k8s.io/component-base => k8s.io/component-base v0.32.1 // indirect
+	k8s.io/kubectl v0.33.0 => k8s.io/kubectl v0.32.1
+)
+
 require (
 	cloud.google.com/go/compute/metadata v0.6.0
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6
@@ -95,14 +109,14 @@ require (
 	helm.sh/helm/v3 v3.17.0
 	istio.io/api v1.25.2-0.20250410212420-84c271001f68
 	istio.io/client-go v1.25.2-0.20250410213018-e5f6074bc228
-	k8s.io/api v0.32.1
-	k8s.io/apiextensions-apiserver v0.32.1
-	k8s.io/apimachinery v0.32.1
-	k8s.io/apiserver v0.32.1
-	k8s.io/cli-runtime v0.32.1
-	k8s.io/client-go v0.32.1
+	k8s.io/api v0.32.2
+	k8s.io/apiextensions-apiserver v0.32.2
+	k8s.io/apimachinery v0.32.2
+	k8s.io/apiserver v0.32.2
+	k8s.io/cli-runtime v0.32.2
+	k8s.io/client-go v0.32.2
 	k8s.io/klog/v2 v2.130.1
-	k8s.io/kubectl v0.32.1
+	k8s.io/kubectl v0.32.2
 	k8s.io/utils v0.0.0-20241210054802-24370beab758
 	sigs.k8s.io/controller-runtime v0.20.0
 	sigs.k8s.io/gateway-api v1.2.1
@@ -220,7 +234,7 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
-	k8s.io/component-base v0.32.1 // indirect
+	k8s.io/component-base v0.32.2 // indirect
 	k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.1 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
