@@ -124,7 +124,7 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
-	helm.sh/helm/v3 v3.17.3
+	helm.sh/helm/v3 v3.18.4
 	istio.io/api v1.24.5-0.20250409200717-4933c1da972e
 	istio.io/client-go v1.24.5-0.20250409201417-1715c4db04bc
 	k8s.io/api v0.32.2
