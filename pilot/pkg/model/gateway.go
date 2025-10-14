@@ -22,10 +22,12 @@ import (
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model/credentials"
 	"istio.io/istio/pkg/config"
+	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/gateway"
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/monitoring"
+	"istio.io/istio/pkg/util/protomarshal"
 	"istio.io/istio/pkg/util/sets"
 )
 
@@ -190,12 +192,16 @@ func mergeGateways(gateways []gatewayWithInstances, proxy *Proxy, ps *PushContex
 				RecordRejectedConfig(gatewayName)
 				continue
 			}
-			sanitizeServerHostNamespace(s, gatewayConfig.Namespace)
+			s := sanitizeServerHostNamespace(s, gatewayConfig.Namespace)
 			gatewayNameForServer[s] = gatewayName
 			log.Debugf("mergeGateways: gateway %q processing server %s :%v", gatewayName, s.Name, s.Hosts)
 
+			expectedSA := gatewayConfig.Annotations[constants.InternalServiceAccount]
+			identityVerified := proxy.VerifiedIdentity != nil &&
+				proxy.VerifiedIdentity.Namespace == gatewayConfig.Namespace &&
+				(proxy.VerifiedIdentity.ServiceAccount == expectedSA || expectedSA == "")
 			cn := s.GetTls().GetCredentialName()
-			if cn != "" && proxy.VerifiedIdentity != nil {
+			if cn != "" && identityVerified {
 				// Ignore BuiltinGatewaySecretTypeURI, as it is not referencing a Secret at all
 				if !strings.HasPrefix(cn, credentials.BuiltinGatewaySecretTypeURI) {
 					rn := credentials.ToResourceName(cn)
@@ -564,21 +570,27 @@ func ParseGatewayRDSRouteName(name string) (portNumber int, portName, gatewayNam
 // convert ./host to currentNamespace/Host
 // */host to just host
 // */* to just *
-func sanitizeServerHostNamespace(server *networking.Server, namespace string) {
+func sanitizeServerHostNamespace(server *networking.Server, namespace string) *networking.Server {
+	needsClone := true
 	for i, h := range server.Hosts {
 		if strings.Contains(h, "/") {
 			parts := strings.Split(h, "/")
+			if needsClone {
+				server = protomarshal.Clone(server)
+				needsClone = false
+			}
 			if parts[0] == "." {
 				server.Hosts[i] = namespace + "/" + parts[1] // format: %s/%s
 			} else if parts[0] == "*" {
 				if parts[1] == "*" {
 					server.Hosts = []string{"*"}
-					return
+					continue
 				}
 				server.Hosts[i] = parts[1]
 			}
 		}
 	}
+	return server
 }
 
 type GatewayPortMap map[int]sets.Set[int]
