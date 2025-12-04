@@ -63,7 +63,7 @@ type ListenerSet struct {
 }
 
 func (g ListenerSet) ResourceName() string {
-	return config.NamespacedName(g.Config).Name
+	return config.NamespacedName(g.Config).String()
 }
 
 func (g ListenerSet) Equals(other ListenerSet) bool {
@@ -166,8 +166,8 @@ func ListenerSetCollection(
 				meta[model.InternalGatewayServiceAnnotation] = strings.Join(gatewayServices, ",")
 				meta[constants.InternalParentNamespace] = parentGwObj.Namespace
 				serviceAccountName := model.GetOrDefault(
-					obj.GetAnnotations()[annotation.GatewayServiceAccount.Name],
-					getDefaultName(obj.GetName(), &parentGwObj.Spec, classInfo.disableNameSuffix),
+					parentGwObj.GetAnnotations()[annotation.GatewayServiceAccount.Name],
+					getDefaultName(parentGwObj.GetName(), &parentGwObj.Spec, classInfo.disableNameSuffix),
 				)
 				meta[constants.InternalServiceAccount] = serviceAccountName
 
