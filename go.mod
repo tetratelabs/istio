@@ -2,8 +2,6 @@ module istio.io/istio
 
 go 1.24.2
 
-godebug fips140=off
-
 require (
 	cloud.google.com/go/compute/metadata v0.7.0
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6
