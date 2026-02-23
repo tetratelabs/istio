@@ -142,6 +142,9 @@ _internal_defaults_do_not_set:
   # For Helm compatibility.
   ownerName: ""
 
+  # Set to true for EKS with Bottlerocket FIPS AMI
+  bottlerocketFips: false
+
   global:
     # Default hub for Istio images.
     # Releases are published to docker hub under 'istio' project.
