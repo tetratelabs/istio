@@ -842,8 +842,15 @@ func checkEntryOrFailAfter(
 	connectedTo string,
 	after time.Duration,
 ) {
+	// The sleep is required: some subtests use artificially advanced
+	// ConnectedAt timestamps (e.g. +10ms), so enough wall-clock time must
+	// pass for time.Now() in OnDisconnect to exceed those timestamps.
+	// The retry handles the case where the async queue hasn't processed the
+	// disconnect within the sleep window (common under stress -p 90).
 	time.Sleep(after)
-	checkEntryOrFail(t, store, wg, proxy, node, connectedTo)
+	retry.UntilSuccessOrFail(t, func() error {
+		return checkEntry(store, wg, proxy, node, connectedTo)
+	}, retry.Delay(time.Millisecond))
 }
 
 func checkNoEntryOrFail(
@@ -916,7 +923,7 @@ func checkEntryHealth(store model.ConfigStoreController, proxy *model.Proxy, hea
 func checkHealthOrFail(t test.Failer, store model.ConfigStoreController, proxy *model.Proxy, healthy bool) {
 	retry.UntilSuccessOrFail(t, func() error {
 		return checkEntryHealth(store, proxy, healthy)
-	})
+	}, retry.Timeout(5*time.Second))
 }
 
 func checkEntryDisconnected(store model.ConfigStoreController, we config.Config) error {
