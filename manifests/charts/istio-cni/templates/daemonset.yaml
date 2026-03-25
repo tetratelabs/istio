@@ -142,6 +142,32 @@ spec:
             seccompProfile:
 {{ toYaml .Values.seccompProfile | trim | indent 14 }}
 {{- end }}
+{{- if .Values.bottlerocketFips }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              # Bottlerocket FIPS AMI sets GODEBUG=fips140=on in containerd's
+              # systemd env. CNI plugins inherit this, which conflicts with
+              # GOEXPERIMENT=boringcrypto. This shim strips GODEBUG before exec.
+              SRC="/opt/cni/bin/istio-cni"
+              HOST_RAW="/host/opt/cni/bin/istio-cni-raw"
+              HOST_SHIM="/host/opt/cni/bin/istio-cni"
+              cp "$SRC" "$HOST_RAW"
+              cat <<'EOF' > "$HOST_SHIM"
+              #!/usr/bin/env -S -u GODEBUG /opt/cni/bin/istio-cni-raw
+              EOF
+              chmod +x "$HOST_RAW" "$HOST_SHIM"
+              cp "$HOST_SHIM" "$SRC"
+              echo "[fips-shim] Deployed"
+              exec install-cni \
+              {{- if or .Values.logging.level .Values.global.logging.level }}
+                --log_output_level={{ coalesce .Values.logging.level .Values.global.logging.level }} \
+              {{- end }}
+              {{- if .Values.global.logAsJson }}
+                --log_as_json \
+              {{- end }}
+{{- else }}
           command: ["install-cni"]
           args:
             {{- if or .Values.logging.level .Values.global.logging.level }}
@@ -150,6 +176,7 @@ spec:
             {{- if .Values.global.logAsJson }}
             - --log_as_json
             {{- end}}
+{{- end }}
           envFrom:
             - configMapRef:
                 name: {{ template "name" . }}-config
