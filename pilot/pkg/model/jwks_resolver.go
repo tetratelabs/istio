@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -31,6 +32,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -179,6 +181,7 @@ func newJwksResolverWithCABundlePaths(
 			Transport: &http.Transport{
 				Proxy:             http.ProxyFromEnvironment,
 				DisableKeepAlives: true,
+				DialContext:       blockedCIDRDialContext,
 			},
 		},
 	}
@@ -204,6 +207,7 @@ func newJwksResolverWithCABundlePaths(
 			Transport: &http.Transport{
 				Proxy:             http.ProxyFromEnvironment,
 				DisableKeepAlives: true,
+				DialContext:       blockedCIDRDialContext,
 				TLSClientConfig: &tls.Config{
 					// nolint: gosec // user explicitly opted into insecure
 					InsecureSkipVerify: features.JwksResolverInsecureSkipVerify,
@@ -594,6 +598,35 @@ func (r *JwksResolver) refresh(jwksURIBackgroundChannel bool) bool {
 // (right now calls it from initDiscoveryService in pkg/bootstrap/server.go).
 func (r *JwksResolver) Close() {
 	closeChan <- true
+}
+
+// blockedCIDRDialContext is a custom dialContext that blocks connections to IP addresses
+// in CIDR ranges using the dialer's Control callback, which receives the resolved
+// IP address for each connection attempt.
+func blockedCIDRDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{}
+
+	if len(features.BlockedCIDRsInJWKURIs) > 0 {
+		dialer.Control = func(network, address string, c syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			ip := net.ParseIP(host)
+			if ip == nil {
+				return fmt.Errorf("unable to parse IP from resolved address %s", address)
+			}
+			for _, cidr := range features.BlockedCIDRsInJWKURIs {
+				if cidr.Contains(ip) {
+					return fmt.Errorf("connection to %s (resolved IP %s) blocked: IP is in blocked CIDR range %s",
+						addr, ip.String(), cidr.String())
+				}
+			}
+			return nil
+		}
+	}
+
+	return dialer.DialContext(ctx, network, addr)
 }
 
 // Compare two JWKS responses, returning true if there is a difference and false otherwise

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -401,6 +402,37 @@ func compatibleRoutesForHost(routes []*istio.TLSRoute, parentHost string) []*ist
 			r.Match[0].SniHosts = sniHosts
 		}
 		res = append(res, r)
+	}
+	return res
+}
+
+// constrainTLSRoutesToListenerHost constrains TLS route SniHosts to only include the
+// intersection with the listener hostname. This ensures that a TLSRoute with a broader
+// hostname (e.g. *.com) attached to a listener with a narrower hostname (e.g. *.example.com)
+// only matches the intersection (*.example.com), not the full route hostname.
+func constrainTLSRoutesToListenerHost(routes []*istio.TLSRoute, listenerHost string) []*istio.TLSRoute {
+	if listenerHost == "" {
+		return routes
+	}
+	listenerNames := host.NewNames([]string{listenerHost})
+	res := make([]*istio.TLSRoute, 0, len(routes))
+	for _, r := range routes {
+		r = r.DeepCopy()
+		for _, m := range r.Match {
+			routeNames := host.NewNames(m.SniHosts)
+			m.SniHosts = slices.Map(routeNames.Intersection(listenerNames), func(n host.Name) string { return string(n) })
+		}
+		// Only include the route if at least one match still has hosts
+		hasHosts := false
+		for _, m := range r.Match {
+			if len(m.SniHosts) > 0 {
+				hasHosts = true
+				break
+			}
+		}
+		if hasHosts || len(r.Match) == 0 {
+			res = append(res, r)
+		}
 	}
 	return res
 }
@@ -1233,10 +1265,60 @@ func createCorsFilter(filter *k8s.HTTPCORSFilter) *istio.CorsPolicy {
 			continue // Not valid anyways, but double check
 		}
 
-		// TODO: support wildcards (https://github.com/kubernetes-sigs/gateway-api/issues/3648)
+		// Code here is based on kgateway implementation
+		// Direct wildcard allows any origin
+		if rs == "*" {
+			// Use strict regex that only matches valid origin formats per RFC 6454
+			// Format: <scheme>://<host>(:<port>)?
+			// Allows: http://example.com, https://sub.example.com:8443, ws://localhost:3000
+			res.AllowOrigins = append(res.AllowOrigins, &istio.StringMatch{
+				MatchType: &istio.StringMatch_Regex{
+					// Match valid origin: scheme://host(:port)?
+					// - scheme: starts with letter, followed by alphanumeric, +, -, or .
+					// - host(:port): any characters except /, whitespace, ?, #
+					Regex: `^[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s?#]+$`,
+				},
+			})
+			continue
+		}
+
+		// No wildcard should use exact matcher
+		if !strings.Contains(rs, "*") {
+			res.AllowOrigins = append(res.AllowOrigins, &istio.StringMatch{
+				MatchType: &istio.StringMatch_Exact{Exact: rs},
+			})
+			continue
+		}
+
+		// Check if there is a single wildcard and it is at the end
+		// In this case, we can use prefix matching
+		if strings.Count(rs, "*") == 1 && strings.HasSuffix(rs, "*") {
+			// Extract the prefix before the wildcard
+			prefix := strings.TrimSuffix(rs, "*")
+			res.AllowOrigins = append(res.AllowOrigins, &istio.StringMatch{
+				MatchType: &istio.StringMatch_Prefix{Prefix: prefix},
+			})
+			continue
+		}
+
+		// For any other wildcard pattern, use regex matching
+
+		// First escape all special characters
+		regexPattern := regexp.QuoteMeta(rs)
+
+		// Then convert escaped wildcards to regex wildcard patterns
+		regexPattern = strings.ReplaceAll(regexPattern, "\\*", ".*")
+
+		// Test the regex pattern to make sure it is a valid RE2 pattern
+		if _, err := regexp.Compile(regexPattern); err != nil {
+			log.Errorf("failed to convert origin %s to regex pattern: %s", rs, err)
+			continue
+		}
+
 		res.AllowOrigins = append(res.AllowOrigins, &istio.StringMatch{
-			MatchType: &istio.StringMatch_Exact{Exact: string(r)},
+			MatchType: &istio.StringMatch_Regex{Regex: "^" + regexPattern + "$"},
 		})
+
 	}
 	if ptr.OrEmpty(filter.AllowCredentials) {
 		res.AllowCredentials = wrappers.Bool(true)
@@ -1253,6 +1335,7 @@ func createCorsFilter(filter *k8s.HTTPCORSFilter) *istio.CorsPolicy {
 	if filter.MaxAge > 0 {
 		res.MaxAge = durationpb.New(time.Duration(filter.MaxAge) * time.Second)
 	}
+	res.UnmatchedPreflights = istio.CorsPolicy_IGNORE
 
 	return res
 }

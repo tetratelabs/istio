@@ -283,6 +283,55 @@ func TestConfigureIstioGateway(t *testing.T) {
   network: network-2`,
 		},
 		{
+			name: "waypoint-resources-null",
+			gw: k8sbeta.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "namespace",
+					Namespace: "default",
+				},
+				Spec: k8s.GatewaySpec{
+					GatewayClassName: constants.WaypointGatewayClassName,
+					Listeners: []k8s.Listener{{
+						Name:     "mesh",
+						Port:     k8s.PortNumber(15008),
+						Protocol: "ALL",
+					}},
+				},
+			},
+			objects: defaultObjects,
+			values: `global:
+  waypoint:
+    resources:
+      limits:
+        cpu: null
+        memory: 500Mi
+      requests:
+        cpu: null
+        memory: 150Mi`,
+		},
+		{
+			name: "kube-gateway-resources-null",
+			gw: k8sbeta.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "default",
+					Namespace: "default",
+				},
+				Spec: k8s.GatewaySpec{
+					GatewayClassName: k8s.ObjectName(features.GatewayAPIDefaultGatewayClass),
+				},
+			},
+			objects: defaultObjects,
+			values: `global:
+  proxy:
+    resources:
+      limits:
+        cpu: null
+        memory: 500Mi
+      requests:
+        cpu: null
+        memory: 150Mi`,
+		},
+		{
 			name: "waypoint-no-network-label",
 			gw: k8sbeta.Gateway{
 				ObjectMeta: metav1.ObjectMeta{
@@ -578,6 +627,7 @@ metadata:
 			stop := test.NewStop(t)
 			env := newTestEnv()
 			env.PushContext().ProxyConfigs = tt.pcs
+			env.PushContext().InitDone.Store(true)
 			tw := revisions.NewTagWatcher(client, "", "istio-system")
 			go tw.Run(stop)
 			d := NewDeploymentController(client, cluster.ID(features.ClusterName), env, testInjectionConfig(t, tt.values), func(fn func()) {
@@ -656,6 +706,7 @@ func TestMeshGatewayReconciliation(t *testing.T) {
 
 	stop := test.NewStop(t)
 	gws := clienttest.Wrap(t, d.gateways)
+	env.PushContext().InitDone.Store(true)
 	go tw.Run(stop)
 	go d.Run(stop)
 	c.RunAndWait(stop)
@@ -738,6 +789,7 @@ func TestVersionManagement(t *testing.T) {
 	}
 	stop := test.NewStop(t)
 	gws := clienttest.Wrap(t, d.gateways)
+	env.PushContext().InitDone.Store(true)
 	go tw.Run(stop)
 	go d.Run(stop)
 	c.RunAndWait(stop)
