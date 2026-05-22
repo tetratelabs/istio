@@ -96,13 +96,13 @@ require (
 	helm.sh/helm/v3 v3.18.6
 	istio.io/api v1.28.6
 	istio.io/client-go v1.28.6
-	k8s.io/api v0.34.1
+	k8s.io/api v0.35.1
 	k8s.io/apiextensions-apiserver v0.34.1
-	k8s.io/apimachinery v0.34.1
+	k8s.io/apimachinery v0.35.1
 	k8s.io/apiserver v0.34.1
-	k8s.io/cli-runtime v0.33.3
-	k8s.io/client-go v0.34.1
-	k8s.io/component-helpers v0.33.3
+	k8s.io/cli-runtime v0.35.1
+	k8s.io/client-go v0.35.1
+	k8s.io/component-helpers v0.35.1
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/kubectl v0.35.1
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
