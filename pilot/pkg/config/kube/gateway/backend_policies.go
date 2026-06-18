@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	gatewayalpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
-	gatewayalpha3 "sigs.k8s.io/gateway-api/apis/v1alpha3"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	k8s "sigs.k8s.io/gateway-api/apis/v1beta1"
 	gatewayx "sigs.k8s.io/gateway-api/apisx/v1alpha1"
 
@@ -81,7 +81,7 @@ func (b BackendPolicy) Equals(other BackendPolicy) bool {
 // policy types that are merged together.
 func DestinationRuleCollection(
 	trafficPolicies krt.Collection[*gatewayx.XBackendTrafficPolicy],
-	tlsPolicies krt.Collection[*gatewayalpha3.BackendTLSPolicy],
+	tlsPolicies krt.Collection[*gatewayv1.BackendTLSPolicy],
 	references *ReferenceSet,
 	domainSuffix string,
 	c *Controller,
@@ -178,33 +178,33 @@ func DestinationRuleCollection(
 }
 
 func BackendTLSPolicyCollection(
-	tlsPolicies krt.Collection[*gatewayalpha3.BackendTLSPolicy],
+	tlsPolicies krt.Collection[*gatewayv1.BackendTLSPolicy],
 	references *ReferenceSet,
 	opts krt.OptionsBuilder,
-) (krt.StatusCollection[*gatewayalpha3.BackendTLSPolicy, gatewayalpha2.PolicyStatus], krt.Collection[BackendPolicy]) {
-	return krt.NewStatusManyCollection(tlsPolicies, func(ctx krt.HandlerContext, i *gatewayalpha3.BackendTLSPolicy) (
-		*gatewayalpha2.PolicyStatus,
+) (krt.StatusCollection[*gatewayv1.BackendTLSPolicy, gatewayv1.PolicyStatus], krt.Collection[BackendPolicy]) {
+	return krt.NewStatusManyCollection(tlsPolicies, func(ctx krt.HandlerContext, i *gatewayv1.BackendTLSPolicy) (
+		*gatewayv1.PolicyStatus,
 		[]BackendPolicy,
 	) {
 		status := i.Status.DeepCopy()
 		res := make([]BackendPolicy, 0, len(i.Spec.TargetRefs))
-		ancestors := make([]gatewayalpha2.PolicyAncestorStatus, 0, len(i.Spec.TargetRefs))
+		ancestors := make([]gatewayv1.PolicyAncestorStatus, 0, len(i.Spec.TargetRefs))
 
 		tls := &networking.ClientTLSSettings{Mode: networking.ClientTLSSettings_SIMPLE}
 		s := i.Spec
 
 		conds := map[string]*condition{
-			string(gatewayalpha2.PolicyConditionAccepted): {
-				reason:  string(gatewayalpha2.PolicyReasonAccepted),
+			string(gatewayv1.PolicyConditionAccepted): {
+				reason:  string(gatewayv1.PolicyReasonAccepted),
 				message: "Configuration is valid",
 			},
 		}
 		tls.Sni = string(s.Validation.Hostname)
-		tls.SubjectAltNames = slices.MapFilter(s.Validation.SubjectAltNames, func(e gatewayalpha3.SubjectAltName) *string {
+		tls.SubjectAltNames = slices.MapFilter(s.Validation.SubjectAltNames, func(e gatewayv1.SubjectAltName) *string {
 			switch e.Type {
-			case gatewayalpha3.HostnameSubjectAltNameType:
+			case gatewayv1.HostnameSubjectAltNameType:
 				return ptr.Of(string(e.Hostname))
-			case gatewayalpha3.URISubjectAltNameType:
+			case gatewayv1.URISubjectAltNameType:
 				return ptr.Of(string(e.URI))
 			}
 			return nil
@@ -212,7 +212,7 @@ func BackendTLSPolicyCollection(
 		tls.CredentialName = getBackendTLSCredentialName(s.Validation, i.Namespace, conds, references)
 		for idx, t := range i.Spec.TargetRefs {
 			conds = maps.Clone(conds)
-			refo, err := references.LocalPolicyTargetRef(t.LocalPolicyTargetReference, i.Namespace)
+			refo, err := references.LocalPolicyTargetRef(gatewayalpha2.LocalPolicyTargetReference(t.LocalPolicyTargetReference), i.Namespace)
 			if err == nil {
 				switch refo.(type) {
 				case *v1.Service:
@@ -221,8 +221,8 @@ func BackendTLSPolicyCollection(
 				}
 			}
 			if err != nil {
-				conds[string(gatewayalpha2.PolicyConditionAccepted)].error = &ConfigError{
-					Reason:  string(gatewayalpha2.PolicyReasonTargetNotFound),
+				conds[string(gatewayv1.PolicyConditionAccepted)].error = &ConfigError{
+					Reason:  string(gatewayv1.PolicyReasonTargetNotFound),
 					Message: fmt.Sprintf("targetRefs invalid: %v", err),
 				}
 			} else {
@@ -253,18 +253,18 @@ func BackendTLSPolicyCollection(
 }
 
 func getBackendTLSCredentialName(
-	validation gatewayalpha3.BackendTLSPolicyValidation,
+	validation gatewayv1.BackendTLSPolicyValidation,
 	policyNamespace string,
 	conds map[string]*condition,
 	references *ReferenceSet,
 ) string {
 	if wk := validation.WellKnownCACertificates; wk != nil {
 		switch *wk {
-		case gatewayalpha3.WellKnownCACertificatesSystem:
+		case gatewayv1.WellKnownCACertificatesSystem:
 			// Already our default, no action needed
 		default:
-			conds[string(gatewayalpha2.PolicyConditionAccepted)].error = &ConfigError{
-				Reason:  string(gatewayalpha2.PolicyReasonInvalid),
+			conds[string(gatewayv1.PolicyConditionAccepted)].error = &ConfigError{
+				Reason:  string(gatewayv1.PolicyReasonInvalid),
 				Message: fmt.Sprintf("Unknown wellKnownCACertificates: %v", *wk),
 			}
 		}
@@ -278,7 +278,7 @@ func getBackendTLSCredentialName(
 	// We only support 1
 	ref := validation.CACertificateRefs[0]
 	if len(validation.CACertificateRefs) > 1 {
-		conds[string(gatewayalpha2.PolicyConditionAccepted)].message += "; warning: only the first caCertificateRefs will be used"
+		conds[string(gatewayv1.PolicyConditionAccepted)].message += "; warning: only the first caCertificateRefs will be used"
 	}
 	refo, err := references.LocalPolicyRef(ref, policyNamespace)
 	if err == nil {
@@ -299,8 +299,8 @@ func getBackendTLSCredentialName(
 		}
 	}
 	if err != nil {
-		conds[string(gatewayalpha2.PolicyConditionAccepted)].error = &ConfigError{
-			Reason:  string(gatewayalpha2.PolicyReasonInvalid),
+		conds[string(gatewayv1.PolicyConditionAccepted)].error = &ConfigError{
+			Reason:  string(gatewayv1.PolicyReasonInvalid),
 			Message: fmt.Sprintf("Certificate reference invalid: %v", err),
 		}
 		// Generate an invalid reference. This ensures traffic is blocked.
@@ -321,14 +321,14 @@ func BackendTrafficPolicyCollection(
 	) {
 		status := i.Status.DeepCopy()
 		res := make([]BackendPolicy, 0, len(i.Spec.TargetRefs))
-		ancestors := make([]gatewayalpha2.PolicyAncestorStatus, 0, len(i.Spec.TargetRefs))
+		ancestors := make([]gatewayv1.PolicyAncestorStatus, 0, len(i.Spec.TargetRefs))
 
 		lb := &networking.LoadBalancerSettings{}
 		var retryBudget *networking.TrafficPolicy_RetryBudget
 
 		conds := map[string]*condition{
-			string(gatewayalpha2.PolicyConditionAccepted): {
-				reason:  string(gatewayalpha2.PolicyReasonAccepted),
+			string(gatewayv1.PolicyConditionAccepted): {
+				reason:  string(gatewayv1.PolicyReasonAccepted),
 				message: "Configuration is valid",
 			},
 		}
@@ -351,12 +351,12 @@ func BackendTrafficPolicyCollection(
 		}
 		if len(unsupported) > 0 {
 			msg := fmt.Sprintf("Configuration is valid, but Istio does not support the following fields: %v", humanReadableJoin(unsupported))
-			conds[string(gatewayalpha2.PolicyConditionAccepted)].message = msg
+			conds[string(gatewayv1.PolicyConditionAccepted)].message = msg
 		}
 
 		for idx, t := range i.Spec.TargetRefs {
 			conds = maps.Clone(conds)
-			refo, err := references.LocalPolicyTargetRef(t, i.Namespace)
+			refo, err := references.LocalPolicyTargetRef(gatewayalpha2.LocalPolicyTargetReference(t), i.Namespace)
 			if err == nil {
 				switch refo.(type) {
 				case *v1.Service:
@@ -365,8 +365,8 @@ func BackendTrafficPolicyCollection(
 				}
 			}
 			if err != nil {
-				conds[string(gatewayalpha2.PolicyConditionAccepted)].error = &ConfigError{
-					Reason:  string(gatewayalpha2.PolicyReasonTargetNotFound),
+				conds[string(gatewayv1.PolicyConditionAccepted)].error = &ConfigError{
+					Reason:  string(gatewayv1.PolicyReasonTargetNotFound),
 					Message: fmt.Sprintf("targetRefs invalid: %v", err),
 				}
 			} else {
@@ -398,24 +398,24 @@ func BackendTrafficPolicyCollection(
 }
 
 func setAncestorStatus(
-	t gatewayalpha2.LocalPolicyTargetReference,
-	status *gatewayalpha2.PolicyStatus,
+	t gatewayv1.LocalPolicyTargetReference,
+	status *gatewayv1.PolicyStatus,
 	generation int64,
 	conds map[string]*condition,
-) gatewayalpha2.PolicyAncestorStatus {
+) gatewayv1.PolicyAncestorStatus {
 	pr := gatewayalpha2.ParentReference{
 		Group: &t.Group,
 		Kind:  &t.Kind,
 		Name:  t.Name,
 	}
-	currentAncestor := slices.FindFunc(status.Ancestors, func(ex gatewayalpha2.PolicyAncestorStatus) bool {
+	currentAncestor := slices.FindFunc(status.Ancestors, func(ex gatewayv1.PolicyAncestorStatus) bool {
 		return parentRefEqual(ex.AncestorRef, pr)
 	})
 	var currentConds []metav1.Condition
 	if currentAncestor != nil {
 		currentConds = currentAncestor.Conditions
 	}
-	return gatewayalpha2.PolicyAncestorStatus{
+	return gatewayv1.PolicyAncestorStatus{
 		AncestorRef:    pr,
 		ControllerName: k8s.GatewayController(features.ManagedGatewayController),
 		Conditions:     setConditions(generation, currentConds, conds),
@@ -433,7 +433,7 @@ func parentRefEqual(a, b gatewayalpha2.ParentReference) bool {
 
 // mergeAncestors merges an existing ancestor with in incoming one. We preserve order, prune stale references set by our controller,
 // and add any new references from our controller.
-func mergeAncestors(existing []gatewayalpha2.PolicyAncestorStatus, incoming []gatewayalpha2.PolicyAncestorStatus) []gatewayalpha2.PolicyAncestorStatus {
+func mergeAncestors(existing []gatewayv1.PolicyAncestorStatus, incoming []gatewayv1.PolicyAncestorStatus) []gatewayv1.PolicyAncestorStatus {
 	ourController := k8s.GatewayController(features.ManagedGatewayController)
 	n := 0
 	for _, x := range existing {
@@ -443,7 +443,7 @@ func mergeAncestors(existing []gatewayalpha2.PolicyAncestorStatus, incoming []ga
 			n++
 			continue
 		}
-		replacement := slices.IndexFunc(incoming, func(status gatewayalpha2.PolicyAncestorStatus) bool {
+		replacement := slices.IndexFunc(incoming, func(status gatewayv1.PolicyAncestorStatus) bool {
 			return parentRefEqual(status.AncestorRef, x.AncestorRef)
 		})
 		if replacement != -1 {

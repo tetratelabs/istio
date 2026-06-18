@@ -22,7 +22,7 @@ import (
 	"go.uber.org/atomic"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	inferencev1alpha2 "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	inferencev1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayalpha "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gateway "sigs.k8s.io/gateway-api/apis/v1beta1"
@@ -146,7 +146,7 @@ func HTTPRouteCollection(
 						currentRouteInferenceConfigs[httpRule.Name] = kube.InferencePoolRouteRuleConfig{
 							FQDN:             ipCfg.endpointPickerDst,
 							Port:             ipCfg.endpointPickerPort,
-							FailureModeAllow: ipCfg.endpointPickerFailureMode == string(inferencev1alpha2.FailOpen),
+							FailureModeAllow: ipCfg.endpointPickerFailureMode == string(inferencev1.EndpointPickerFailOpen),
 						}
 					}
 				}
@@ -289,7 +289,7 @@ func GRPCRouteCollection(
 						currentRouteInferenceConfigs[httpRule.Name] = kube.InferencePoolRouteRuleConfig{
 							FQDN:             ipCfg.endpointPickerDst,
 							Port:             ipCfg.endpointPickerPort,
-							FailureModeAllow: ipCfg.endpointPickerFailureMode == string(inferencev1alpha2.FailOpen),
+							FailureModeAllow: ipCfg.endpointPickerFailureMode == string(inferencev1.EndpointPickerFailOpen),
 						}
 					}
 				}
@@ -572,7 +572,7 @@ type RouteContextInputs struct {
 	Services        krt.Collection[*corev1.Service]
 	Namespaces      krt.Collection[*corev1.Namespace]
 	ServiceEntries  krt.Collection[*networkingclient.ServiceEntry]
-	InferencePools  krt.Collection[*inferencev1alpha2.InferencePool]
+	InferencePools  krt.Collection[*inferencev1.InferencePool]
 	internalContext krt.RecomputeProtected[*atomic.Pointer[GatewayContext]]
 }
 

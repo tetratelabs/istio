@@ -30,7 +30,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	klabels "k8s.io/apimachinery/pkg/labels"
-	inferencev1alpha2 "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	inferencev1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	k8s "sigs.k8s.io/gateway-api/apis/v1"
 	k8salpha "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gatewayalpha3 "sigs.k8s.io/gateway-api/apis/v1alpha3"
@@ -1259,7 +1259,7 @@ func createCorsFilter(filter *k8s.HTTPCORSFilter) *istio.CorsPolicy {
 			MatchType: &istio.StringMatch_Exact{Exact: string(r)},
 		})
 	}
-	if filter.AllowCredentials {
+	if filter.AllowCredentials != nil && *filter.AllowCredentials {
 		res.AllowCredentials = wrappers.Bool(true)
 	}
 	for _, r := range filter.AllowMethods {
@@ -2118,7 +2118,7 @@ func buildTLS(
 	ctx krt.HandlerContext,
 	secrets krt.Collection[*corev1.Secret],
 	grants ReferenceGrants,
-	tls *k8s.GatewayTLSConfig,
+	tls *k8s.ListenerTLSConfig,
 	gw controllers.Object,
 	isAutoPassthrough bool,
 ) (*istio.ServerTLSSettings, *ConfigError) {
@@ -2483,7 +2483,7 @@ func GetStatus[I, IS any](spec I) IS {
 		return any(t.Status).(IS)
 	case *gatewayx.XListenerSet:
 		return any(t.Status).(IS)
-	case *inferencev1alpha2.InferencePool:
+	case *inferencev1.InferencePool:
 		return any(t.Status).(IS)
 	default:
 		log.Fatalf("unknown type %T", t)
