@@ -1558,7 +1558,7 @@ func TestDefaultAllowWaypointPolicy(t *testing.T) {
 			s := newAmbientTestServerWithFlags(t, testC, testNW, FeatureFlags{
 				DefaultAllowFromWaypoint:              true,
 				EnableK8SServiceSelectWorkloadEntries: features.EnableK8SServiceSelectWorkloadEntries,
-			}, "")
+			}, "", true)
 			setupPolicyTest(t, s)
 
 			t.Run("policy with service accounts", func(t *testing.T) {
@@ -2283,7 +2283,7 @@ func newAmbientTestServer(t *testing.T, clusterID cluster.ID, networkID network.
 	return newAmbientTestServerWithFlags(t, clusterID, networkID, FeatureFlags{
 		DefaultAllowFromWaypoint:              features.DefaultAllowFromWaypoint,
 		EnableK8SServiceSelectWorkloadEntries: features.EnableK8SServiceSelectWorkloadEntries,
-	}, revision)
+	}, revision, true)
 }
 
 func newAmbientTestServerFromOptions(t *testing.T, networkID network.ID, options Options, runClient bool) *ambientTestServer {
@@ -2387,7 +2387,14 @@ func newAmbientTestServerFromOptions(t *testing.T, networkID network.ID, options
 	return a
 }
 
-func newAmbientTestServerWithFlags(t *testing.T, clusterID cluster.ID, networkID network.ID, flags FeatureFlags, revision string) *ambientTestServer {
+func newAmbientTestServerWithFlags(
+	t *testing.T,
+	clusterID cluster.ID,
+	networkID network.ID,
+	flags FeatureFlags,
+	revision string,
+	runClient bool,
+) *ambientTestServer {
 	up := xdsfake.NewFakeXDS()
 	up.SplitEvents = true
 	cl := kubeclient.NewFakeClient()
@@ -2449,7 +2456,7 @@ func newAmbientTestServerWithFlags(t *testing.T, clusterID cluster.ID, networkID
 		}
 	}
 
-	return newAmbientTestServerFromOptions(t, networkID, o, true)
+	return newAmbientTestServerFromOptions(t, networkID, o, runClient)
 }
 
 func dumpOnFailure(t *testing.T, debugger *krt.DebugHandler) {
@@ -3217,6 +3224,7 @@ func (p *pushRequestRecorder) SvcUpdate(model.ShardKey, string, string, model.Ev
 func (p *pushRequestRecorder) ConfigUpdate(req *model.PushRequest)                   { p.req = req }
 func (p *pushRequestRecorder) ProxyUpdate(cluster.ID, string)                        {}
 func (p *pushRequestRecorder) RemoveShard(model.ShardKey)                            {}
+func (p *pushRequestRecorder) PruneShard(model.ShardKey, map[string]sets.String)     {}
 
 func TestPushXdsAddressWaypointRefs(t *testing.T) {
 	waypoint := &workloadapi.GatewayAddress{
