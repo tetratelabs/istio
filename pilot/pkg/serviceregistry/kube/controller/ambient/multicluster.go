@@ -194,6 +194,7 @@ func (a *index) buildGlobalCollections(
 		LocalWaypoints,
 		opts,
 	)
+	authPoliciesByNs := selectingWorkloadAuthzByNs(AuthorizationPolicies)
 
 	LocalWorkloadServices := a.builder.ServicesCollection(
 		localCluster.ID,
@@ -287,6 +288,7 @@ func (a *index) buildGlobalCollections(
 	GlobalNodeLocality := GlobalNodesCollection(GlobalNodesWithCluster, opts.WithName("GlobalNodeLocalityWithCluster")...)
 	GlobalNodeLocalityByCluster := nestedCollectionIndexByCluster(GlobalNodeLocality)
 
+	localPeerAuthsByNs := krt.NewNamespaceIndex(localPeerAuths)
 	GlobalWorkloads := MergedGlobalWorkloadsCollection(
 		localCluster,
 		LocalWaypoints,
@@ -297,8 +299,8 @@ func (a *index) buildGlobalCollections(
 		GlobalNodeLocality,
 		GlobalNodeLocalityByCluster,
 		options.MeshConfig,
-		AuthorizationPolicies,
-		localPeerAuths,
+		authPoliciesByNs,
+		localPeerAuthsByNs,
 		GlobalWaypoints,
 		WaypointsByCluster,
 		LocalWorkloadServices,
@@ -486,9 +488,13 @@ func (a *index) buildGlobalCollections(
 			sans = sans.Union(sets.New(svc.Service.SubjectAltNames...))
 
 			newSvcInfo := &model.ServiceInfo{
-				Service:      protomarshal.Clone(svc.Service),
-				Scope:        svc.Scope,
-				CreationTime: svc.CreationTime,
+				Service:       protomarshal.Clone(svc.Service),
+				PortNames:     svc.PortNames,
+				LabelSelector: svc.LabelSelector,
+				Source:        svc.Source,
+				Waypoint:      svc.Waypoint,
+				Scope:         svc.Scope,
+				CreationTime:  svc.CreationTime,
 			}
 			newSvcInfo.Service.SubjectAltNames = sans.UnsortedList()
 			return precomputeServicePtr(newSvcInfo)

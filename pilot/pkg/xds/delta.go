@@ -297,6 +297,9 @@ func (s *DiscoveryServer) processDeltaRequest(req *discovery.DeltaDiscoveryReque
 			// Record sub/unsub, but drop synthetic wildcard info
 			Subscribed:   subs,
 			Unsubscribed: sets.New(req.ResourceNamesUnsubscribe...).Delete("*"),
+			// On reconnect, the versions of resources the client retained. Generators with
+			// content-based versions use this to skip re-sending unchanged resources.
+			InitialResourceVersions: req.InitialResourceVersions,
 		},
 		Forced: true,
 	}
@@ -388,7 +391,7 @@ func shouldRespondDelta(con *Connection, request *discovery.DeltaDiscoveryReques
 		}
 
 		res, wildcard, _ := deltaWatchedResources(nil, request)
-		skip := request.TypeUrl == v3.AddressType && wildcard
+		skip := requiresResourceNamesModification(request.TypeUrl) && wildcard
 		if skip {
 			// Due to the high resource count in WDS at scale, we do not store ResourceName.
 			// See the workload generator for more information on why we don't use this.
