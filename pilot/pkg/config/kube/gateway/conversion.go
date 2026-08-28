@@ -576,6 +576,57 @@ func waypointConfigured(labels map[string]string) bool {
 	return false
 }
 
+func waypointManagedByAnotherController(ctx RouteContext, parentRef parentReference) bool {
+	var labels map[string]string
+	switch parentRef.Kind {
+	case gvk.Service:
+		svc := ptr.Flatten(krt.FetchOne(ctx.Krt, ctx.Services, krt.FilterKey(parentRef.Namespace+"/"+parentRef.Name)))
+		if svc == nil {
+			return false
+		}
+		labels = svc.Labels
+	case gvk.ServiceEntry:
+		svc := ptr.Flatten(krt.FetchOne(ctx.Krt, ctx.ServiceEntries, krt.FilterKey(parentRef.Namespace+"/"+parentRef.Name)))
+		if svc == nil {
+			return false
+		}
+		labels = svc.Labels
+	default:
+		return false
+	}
+
+	waypointName, found := labels[label.IoIstioUseWaypoint.Name]
+	if !found {
+		ns := ptr.Flatten(krt.FetchOne(ctx.Krt, ctx.Namespaces, krt.FilterKey(parentRef.Namespace)))
+		if ns == nil {
+			return false
+		}
+		labels = ns.Labels
+		waypointName, found = labels[label.IoIstioUseWaypoint.Name]
+	}
+	if !found || waypointName == "" || strings.EqualFold(waypointName, "none") {
+		return false
+	}
+	if ctx.Gateways == nil || ctx.GatewayClasses == nil {
+		return false
+	}
+
+	waypointNamespace := parentRef.Namespace
+	if namespace := labels[label.IoIstioUseWaypointNamespace.Name]; namespace != "" {
+		waypointNamespace = namespace
+	}
+	waypoint := ptr.Flatten(krt.FetchOne(ctx.Krt, ctx.Gateways, krt.FilterKey(waypointNamespace+"/"+waypointName)))
+	if waypoint == nil {
+		return false
+	}
+	class := ptr.Flatten(krt.FetchOne(ctx.Krt, ctx.GatewayClasses, krt.FilterKey(string(waypoint.Spec.GatewayClassName))))
+	if class == nil {
+		return false
+	}
+	return class.Spec.ControllerName != constants.ManagedGatewayMeshController &&
+		class.Spec.ControllerName != k8s.GatewayController(features.ManagedGatewayController)
+}
+
 func referenceAllowed(
 	ctx RouteContext,
 	parent *parentInfo,
@@ -745,6 +796,9 @@ func extractParentReferenceInfo(ctx RouteContext, parents RouteParents, obj cont
 		}
 		gk := ir
 		if ir.Kind == gvk.Service || ir.Kind == gvk.ServiceEntry {
+			if waypointManagedByAnotherController(ctx, pk) {
+				continue
+			}
 			gk = meshParentKey
 		}
 		currentParents := parents.fetch(ctx.Krt, gk)
@@ -1861,72 +1915,43 @@ func reportGatewayStatus(
 	gs.Conditions = setConditions(obj.Generation, gs.Conditions, gatewayConditions)
 }
 
-func reportListenerSetStatus(
-	r *gatewaycommon.GatewayContext,
-	parentGwObj *k8s.Gateway,
-	obj *k8s.ListenerSet,
-	gs *k8s.ListenerSetStatus,
-	gatewayServices []string,
-	servers []*istio.Server,
-	gatewayErr *ConfigError,
-) {
-	internal, _, _, _, warnings, allUsable := r.ResolveGatewayInstances(parentGwObj.Namespace, gatewayServices, servers)
-
-	// Setup initial conditions to the success state. If we encounter errors, we will update this.
-	// We have two status
-	// Accepted: is the configuration valid. We only have errors in listeners, and the status is not supposed to
-	// be tied to listeners, so this is always accepted
-	// Programmed: is the data plane "ready" (note: eventually consistent)
-	gatewayConditions := map[string]*condition{
-		string(k8s.GatewayConditionAccepted): {
-			reason:  string(k8s.GatewayReasonAccepted),
-			message: "Resource accepted",
-		},
-		string(k8s.GatewayConditionProgrammed): {
-			reason:  string(k8s.GatewayReasonProgrammed),
-			message: "Resource programmed",
-		},
+func setProgrammedCondition(gatewayConditions map[string]*condition, internal []string, gatewayServices []string, warnings []string, allUsable bool) {
+	programmed := gatewayConditions[string(k8s.GatewayConditionProgrammed)]
+	mapped := map[string]*gatewaycommon.ListenerStatusCondition{
+		string(k8s.GatewayConditionProgrammed): listenerStatusConditionFromCondition(programmed),
 	}
-	if gatewayErr != nil {
-		gatewayErr.Message = "Parent not accepted: " + gatewayErr.Message
-		gatewayConditions[string(k8s.GatewayConditionAccepted)].error = gatewayErr
-	}
-
-	setProgrammedCondition(gatewayConditions, internal, gatewayServices, warnings, allUsable)
-
-	gs.Conditions = setConditions(obj.Generation, gs.Conditions, gatewayConditions)
+	gatewaycommon.SetProgrammedCondition(mapped, internal, gatewayServices, warnings, allUsable)
+	applyConditionFromListenerStatus(programmed, mapped[string(k8s.GatewayConditionProgrammed)])
 }
 
-func setProgrammedCondition(gatewayConditions map[string]*condition, internal []string, gatewayServices []string, warnings []string, allUsable bool) {
-	if len(internal) > 0 {
-		msg := fmt.Sprintf("Resource programmed, assigned to service(s) %s", humanReadableJoin(internal))
-		gatewayConditions[string(k8s.GatewayConditionProgrammed)].message = msg
+func listenerStatusConditionFromCondition(c *condition) *gatewaycommon.ListenerStatusCondition {
+	if c == nil {
+		return &gatewaycommon.ListenerStatusCondition{}
 	}
+	out := &gatewaycommon.ListenerStatusCondition{
+		Reason:  c.reason,
+		Message: c.message,
+		Status:  c.status,
+		SetOnce: c.setOnce,
+	}
+	if c.error != nil {
+		out.Error = &gatewaycommon.ListenerStatusConfigError{Reason: c.error.Reason, Message: c.error.Message}
+	}
+	return out
+}
 
-	if len(gatewayServices) == 0 {
-		gatewayConditions[string(k8s.GatewayConditionProgrammed)].error = &ConfigError{
-			Reason:  InvalidAddress,
-			Message: "Failed to assign to any requested addresses",
-		}
-	} else if len(warnings) > 0 {
-		var msg string
-		var reason string
-		if len(internal) != 0 {
-			msg = fmt.Sprintf("Assigned to service(s) %s, but failed to assign to all requested addresses: %s",
-				humanReadableJoin(internal), strings.Join(warnings, "; "))
-		} else {
-			msg = fmt.Sprintf("Failed to assign to any requested addresses: %s", strings.Join(warnings, "; "))
-		}
-		if allUsable {
-			reason = string(k8s.GatewayReasonAddressNotAssigned)
-		} else {
-			reason = string(k8s.GatewayReasonAddressNotUsable)
-		}
-		gatewayConditions[string(k8s.GatewayConditionProgrammed)].error = &ConfigError{
-			// TODO: this only checks Service ready, we should also check Deployment ready?
-			Reason:  reason,
-			Message: msg,
-		}
+func applyConditionFromListenerStatus(c *condition, u *gatewaycommon.ListenerStatusCondition) {
+	if c == nil || u == nil {
+		return
+	}
+	c.reason = u.Reason
+	c.message = u.Message
+	c.status = u.Status
+	c.setOnce = u.SetOnce
+	if u.Error != nil {
+		c.error = &ConfigError{Reason: u.Error.Reason, Message: u.Error.Message}
+	} else {
+		c.error = nil
 	}
 }
 
@@ -1952,50 +1977,6 @@ func reportUnmanagedGatewayStatus(
 	status.Addresses = slices.Map(obj.Spec.Addresses, func(e k8s.GatewaySpecAddress) k8s.GatewayStatusAddress {
 		return k8s.GatewayStatusAddress(e)
 	})
-	status.Listeners = nil
-	status.Conditions = setConditions(obj.Generation, status.Conditions, gatewayConditions)
-}
-
-// reportUnsupportedListenerSet reports a status message for a ListenerSet that is not supported
-func reportUnsupportedListenerSet(class string, status *k8s.ListenerSetStatus, obj *k8s.ListenerSet) {
-	gatewayConditions := map[string]*condition{
-		string(k8s.GatewayConditionAccepted): {
-			reason: string(k8s.GatewayReasonAccepted),
-			error: &ConfigError{
-				Reason:  string(k8s.ListenerSetReasonNotAllowed),
-				Message: fmt.Sprintf("The %q GatewayClass does not support ListenerSet", class),
-			},
-		},
-		string(k8s.GatewayConditionProgrammed): {
-			reason: string(k8s.GatewayReasonProgrammed),
-			error: &ConfigError{
-				Reason:  string(k8s.ListenerSetReasonNotAllowed),
-				Message: fmt.Sprintf("The %q GatewayClass does not support ListenerSet", class),
-			},
-		},
-	}
-	status.Listeners = nil
-	status.Conditions = setConditions(obj.Generation, status.Conditions, gatewayConditions)
-}
-
-// reportNotAllowedListenerSet reports a status message for a ListenerSet that is not allowed to be selected
-func reportNotAllowedListenerSet(status *k8s.ListenerSetStatus, obj *k8s.ListenerSet) {
-	gatewayConditions := map[string]*condition{
-		string(k8s.GatewayConditionAccepted): {
-			reason: string(k8s.GatewayReasonAccepted),
-			error: &ConfigError{
-				Reason:  string(k8s.ListenerSetReasonNotAllowed),
-				Message: "The parent Gateway does not allow this reference; check the 'spec.allowedRoutes'",
-			},
-		},
-		string(k8s.GatewayConditionProgrammed): {
-			reason: string(k8s.GatewayReasonProgrammed),
-			error: &ConfigError{
-				Reason:  string(k8s.ListenerSetReasonNotAllowed),
-				Message: "The parent Gateway does not allow this reference; check the 'spec.allowedRoutes'",
-			},
-		},
-	}
 	status.Listeners = nil
 	status.Conditions = setConditions(obj.Generation, status.Conditions, gatewayConditions)
 }
@@ -2055,55 +2036,59 @@ func buildListener(
 	controllerName k8s.GatewayController,
 	portErr error,
 ) (*istio.Server, []k8s.ListenerStatus, bool) {
-	listenerConditions := map[string]*condition{
+	listenerConditions := map[string]*gatewaycommon.ListenerStatusCondition{
 		string(k8s.ListenerConditionAccepted): {
-			reason:  string(k8s.ListenerReasonAccepted),
-			message: "No errors found",
+			Reason:  string(k8s.ListenerReasonAccepted),
+			Message: "No errors found",
 		},
 		string(k8s.ListenerConditionProgrammed): {
-			reason:  string(k8s.ListenerReasonProgrammed),
-			message: "No errors found",
+			Reason:  string(k8s.ListenerReasonProgrammed),
+			Message: "No errors found",
 		},
 		string(k8s.ListenerConditionConflicted): {
-			reason:  string(k8s.ListenerReasonNoConflicts),
-			message: "No errors found",
-			status:  kstatus.StatusFalse,
+			Reason:  string(k8s.ListenerReasonNoConflicts),
+			Message: "No errors found",
+			Status:  kstatus.StatusFalse,
 		},
 		string(k8s.ListenerConditionResolvedRefs): {
-			reason:  string(k8s.ListenerReasonResolvedRefs),
-			message: "No errors found",
+			Reason:  string(k8s.ListenerReasonResolvedRefs),
+			Message: "No errors found",
 		},
 	}
 
 	ok := true
 	tls, err := buildTLS(ctx, configMaps, secrets, grants, resolveGatewayTLS(l.Port, gw.TLS), l.TLS, obj, kube.IsAutoPassthrough(obj.GetLabels(), l))
 	if err != nil {
-		listenerConditions[string(k8s.ListenerConditionResolvedRefs)].error = err
-		listenerConditions[string(k8s.GatewayConditionProgrammed)].error = &ConfigError{
-			Reason:  string(k8s.GatewayReasonInvalid),
-			Message: "Bad TLS configuration",
+		listenerConditions[string(k8s.ListenerConditionResolvedRefs)].Error = &gatewaycommon.ListenerStatusConfigError{
+			Reason: err.Reason, Message: err.Message,
+		}
+		listenerConditions[string(k8s.GatewayConditionProgrammed)].Error = &gatewaycommon.ListenerStatusConfigError{
+			Reason: string(k8s.GatewayReasonInvalid), Message: "Bad TLS configuration",
+		}
+		if err.Reason == InvalidCACertificateRef || err.Reason == InvalidCACertificateKind || err.Reason == InvalidListenerRefNotPermitted {
+			listenerConditions[string(k8s.ListenerConditionAccepted)].Error = &gatewaycommon.ListenerStatusConfigError{
+				Reason: string(k8s.ListenerReasonNoValidCACertificate), Message: err.Message,
+			}
 		}
 		ok = false
 	}
 	hostnames := buildHostnameMatch(ctx, obj.GetNamespace(), namespaces, l)
 	if portErr != nil {
-		listenerConditions[string(k8s.ListenerConditionAccepted)].error = &ConfigError{
-			Reason:  string(k8s.ListenerReasonUnsupportedProtocol),
-			Message: portErr.Error(),
+		listenerConditions[string(k8s.ListenerConditionAccepted)].Error = &gatewaycommon.ListenerStatusConfigError{
+			Reason: string(k8s.ListenerReasonUnsupportedProtocol), Message: portErr.Error(),
 		}
 		ok = false
 	}
 	protocol, perr := listenerProtocolToIstio(controllerName, l.Protocol)
 	if perr != nil {
-		listenerConditions[string(k8s.ListenerConditionAccepted)].error = &ConfigError{
-			Reason:  string(k8s.ListenerReasonUnsupportedProtocol),
-			Message: perr.Error(),
+		listenerConditions[string(k8s.ListenerConditionAccepted)].Error = &gatewaycommon.ListenerStatusConfigError{
+			Reason: string(k8s.ListenerReasonUnsupportedProtocol), Message: perr.Error(),
 		}
 		ok = false
 	}
 	if controllerName == constants.ManagedGatewayMeshController {
 		if unexpectedWaypointListener(l) {
-			listenerConditions[string(k8s.ListenerConditionAccepted)].error = &ConfigError{
+			listenerConditions[string(k8s.ListenerConditionAccepted)].Error = &gatewaycommon.ListenerStatusConfigError{
 				Reason:  string(k8s.ListenerReasonUnsupportedProtocol),
 				Message: `Expected a single listener on port 15008 with protocol "HBONE"`,
 			}
@@ -2112,7 +2097,7 @@ func buildListener(
 
 	if controllerName == constants.ManagedGatewayEastWestController {
 		if unexpectedEastWestWaypointListener(l) {
-			listenerConditions[string(k8s.ListenerConditionAccepted)].error = &ConfigError{
+			listenerConditions[string(k8s.ListenerConditionAccepted)].Error = &gatewaycommon.ListenerStatusConfigError{
 				Reason:  string(k8s.ListenerReasonUnsupportedProtocol),
 				Message: `East-west gateway listeners must be either port 15008 with protocol "HBONE" and TLS.Mode == Terminate, or TLS with TLS.Mode == Passthrough`,
 			}
@@ -2128,8 +2113,24 @@ func buildListener(
 		Hosts: hostnames,
 		Tls:   tls,
 	}
+	if tls == nil && (l.Protocol == k8s.HTTPSProtocolType || l.Protocol == k8s.TLSProtocolType) {
+		// This is a placeholder listener for ListenerSets.
+		// We don't generate an istio.Server for it.
+		log.Warnf("protocol is %s but no TLS section is defined, skipping listener creation", l.Protocol)
+		server = nil
+		if _, isListenerSet := obj.(*k8s.ListenerSet); isListenerSet {
+			ok = false
+			listenerConditions[string(k8s.ListenerConditionAccepted)].Error = &gatewaycommon.ListenerStatusConfigError{
+				Reason:  string(k8s.ListenerReasonUnsupportedProtocol),
+				Message: fmt.Sprintf("protocol is %s but no TLS section is defined", l.Protocol),
+			}
+			listenerConditions[string(k8s.GatewayConditionProgrammed)].Error = &gatewaycommon.ListenerStatusConfigError{
+				Reason: string(k8s.GatewayReasonInvalid), Message: "Bad TLS configuration",
+			}
+		}
+	}
 
-	updatedStatus := reportListenerCondition(listenerIndex, l, obj, status, listenerConditions)
+	updatedStatus := gatewaycommon.ReportListenerCondition(listenerIndex, l, obj, status, listenerConditions)
 	return server, updatedStatus, ok
 }
 
@@ -2138,7 +2139,8 @@ var supportedProtocols = sets.New(
 	k8s.HTTPSProtocolType,
 	k8s.TLSProtocolType,
 	k8s.TCPProtocolType,
-	k8s.ProtocolType(protocol.HBONE))
+	k8s.ProtocolType(protocol.HBONE),
+)
 
 func listenerProtocolToIstio(name k8s.GatewayController, p k8s.ProtocolType) (string, error) {
 	switch p {
@@ -2236,22 +2238,27 @@ func buildTLS(
 		validCertCount := 0
 		var combinedErr *ConfigError
 		for i, certRef := range tls.CertificateRefs {
-			cred, err := buildSecretReference(ctx, certRef, gw, secrets)
-			if err != nil {
-				combinedErr = joinErrors(combinedErr, err)
-				continue
-			}
 			credNs := ptr.OrDefault((*string)(certRef.Namespace), namespace)
 			sameNamespace := credNs == namespace
 			objectKind := schematypes.GvkFromObject(gw)
-			if !sameNamespace && !grants.SecretAllowed(ctx, objectKind, creds.ToResourceName(cred), namespace) {
-				combinedErr = joinErrors(combinedErr, &ConfigError{
-					Reason: InvalidListenerRefNotPermitted,
-					Message: fmt.Sprintf(
-						"certificateRef %v/%v not accessible to a Gateway in namespace %q (missing a ReferenceGrant?)",
-						certRef.Name, credNs, namespace,
-					),
-				})
+			// Authorize cross-namespace refs before resolving the target, so status never
+			// reveals whether the referent exists when no ReferenceGrant allows it (CWE-203).
+			if !sameNamespace {
+				resourceName := creds.ToResourceName(creds.ToKubernetesGatewayResource(credNs, string(certRef.Name)))
+				if !grants.SecretAllowed(ctx, objectKind, resourceName, namespace) {
+					combinedErr = joinErrors(combinedErr, &ConfigError{
+						Reason: InvalidListenerRefNotPermitted,
+						Message: fmt.Sprintf(
+							"certificateRef %v/%v not accessible to a Gateway in namespace %q (missing a ReferenceGrant?)",
+							certRef.Name, credNs, namespace,
+						),
+					})
+					continue
+				}
+			}
+			cred, err := buildSecretReference(ctx, certRef, gw, secrets)
+			if err != nil {
+				combinedErr = joinErrors(combinedErr, err)
 				continue
 			}
 			credNames[i] = cred
@@ -2271,23 +2278,26 @@ func buildTLS(
 			// TODO: add 'Mode'
 			if len(gatewayTLS.Validation.CACertificateRefs) > 1 {
 				return out, &ConfigError{
-					Reason:  InvalidTLS,
+					Reason:  InvalidCACertificateRef,
 					Message: "only one caCertificateRef is supported",
 				}
 			}
 			caCertRef := gatewayTLS.Validation.CACertificateRefs[0]
-			cred, err := buildCaCertificateReference(ctx, caCertRef, gw, configMaps, secrets)
-			if err != nil {
-				return out, err
-			}
-			if cred.Namespace != namespace && !grants.SecretAllowed(ctx, schematypes.GvkFromObject(gw), cred.ResourceName, namespace) {
+			// Authorize cross-namespace refs before resolving the target, so status never
+			// reveals whether the referent exists when no ReferenceGrant allows it (CWE-203).
+			caNamespace, caResourceName := caCertificateResourceName(caCertRef, gw)
+			if caNamespace != namespace && !grants.SecretAllowed(ctx, schematypes.GvkFromObject(gw), caResourceName, namespace) {
 				return out, &ConfigError{
 					Reason: InvalidListenerRefNotPermitted,
 					Message: fmt.Sprintf(
 						"caCertificateRef %v/%v not accessible to a Gateway in namespace %q (missing a ReferenceGrant?)",
-						cred.Namespace, caCertRef.Name, namespace,
+						caNamespace, caCertRef.Name, namespace,
 					),
 				}
+			}
+			cred, err := buildCaCertificateReference(ctx, caCertRef, gw, configMaps, secrets)
+			if err != nil {
+				return out, err
 			}
 			out.Mode = istio.ServerTLSSettings_MUTUAL
 			out.CaCertCredentialName = cred.ResourceName
@@ -2358,6 +2368,21 @@ func buildSecretReference(
 	return creds.ToKubernetesGatewayResource(secret.Namespace, secret.Name), nil
 }
 
+// caCertificateResourceName returns the CA reference's SDS resource identity
+// without fetching the referenced object, so authorization can run before
+// resolution. The returned resourceName matches SecretResource.ResourceName
+// produced by buildCaCertificateReference.
+func caCertificateResourceName(ref k8s.ObjectReference, gw controllers.Object) (namespace, resourceName string) {
+	namespace = ptr.OrDefault((*string)(ref.Namespace), gw.GetNamespace())
+	name := string(ref.Name)
+	resourceType := creds.KubernetesConfigMapType
+	if gatewaycommon.NormalizeReference(&ref.Group, &ref.Kind, config.GroupVersionKind{}) == gvk.Secret {
+		resourceType = creds.KubernetesGatewaySecretType
+	}
+	resourceName = fmt.Sprintf("%s://%s/%s%s", resourceType, namespace, name, creds.SdsCaSuffix)
+	return namespace, resourceName
+}
+
 func buildCaCertificateReference(
 	ctx krt.HandlerContext,
 	ref k8s.ObjectReference,
@@ -2382,7 +2407,7 @@ func buildCaCertificateReference(
 		cm := ptr.Flatten(krt.FetchOne(ctx, configMaps, krt.FilterKey(key)))
 		if cm == nil {
 			return nil, &ConfigError{
-				Reason:  InvalidTLS,
+				Reason:  InvalidCACertificateRef,
 				Message: fmt.Sprintf("invalid CA certificate reference %v, configmap %v not found", objectReferenceString(ref), key),
 			}
 		}
@@ -2395,26 +2420,26 @@ func buildCaCertificateReference(
 		scrt := ptr.Flatten(krt.FetchOne(ctx, secrets, krt.FilterKey(key)))
 		if scrt == nil {
 			return nil, &ConfigError{
-				Reason:  InvalidTLS,
+				Reason:  InvalidCACertificateRef,
 				Message: fmt.Sprintf("invalid CA certificate reference %v, secret %v not found", objectReferenceString(ref), key),
 			}
 		}
 		certInfo, certInfoErr = kubecreds.ExtractRoot(scrt.Data)
 	default:
 		return nil, &ConfigError{
-			Reason:  InvalidTLS,
+			Reason:  InvalidCACertificateKind,
 			Message: fmt.Sprintf("invalid CA certificate reference %v, only secret and configmap are allowed", objectReferenceString(ref)),
 		}
 	}
 	if certInfoErr != nil {
 		return nil, &ConfigError{
-			Reason:  InvalidTLS,
+			Reason:  InvalidCACertificateRef,
 			Message: fmt.Sprintf("invalid CA certificate reference %v, %v", objectReferenceString(ref), certInfoErr),
 		}
 	}
 	if !x509.NewCertPool().AppendCertsFromPEM(certInfo.Cert) {
 		return nil, &ConfigError{
-			Reason:  InvalidTLS,
+			Reason:  InvalidCACertificateRef,
 			Message: fmt.Sprintf("invalid CA certificate reference %v, the bundle is malformed", objectReferenceString(ref)),
 		}
 	}
@@ -2510,19 +2535,6 @@ func namespacesFromSelector(ctx krt.HandlerContext, localNamespace string, names
 	return namespaces
 }
 
-func humanReadableJoin(ss []string) string {
-	switch len(ss) {
-	case 0:
-		return ""
-	case 1:
-		return ss[0]
-	case 2:
-		return ss[0] + " and " + ss[1]
-	default:
-		return strings.Join(ss[:len(ss)-1], ", ") + ", and " + ss[len(ss)-1]
-	}
-}
-
 // NamespaceNameLabel represents that label added automatically to namespaces is newer Kubernetes clusters
 const NamespaceNameLabel = "kubernetes.io/metadata.name"
 
@@ -2579,18 +2591,6 @@ func defaultString[T ~string](s *T, def string) string {
 		return def
 	}
 	return string(*s)
-}
-
-func toRouteKind(g config.GroupVersionKind) k8s.RouteGroupKind {
-	return k8s.RouteGroupKind{Group: (*k8s.Group)(&g.Group), Kind: k8s.Kind(g.Kind)}
-}
-
-func routeGroupKindEqual(rgk1, rgk2 k8s.RouteGroupKind) bool {
-	return rgk1.Kind == rgk2.Kind && getGroup(rgk1) == getGroup(rgk2)
-}
-
-func getGroup(rgk k8s.RouteGroupKind) k8s.Group {
-	return ptr.OrDefault(rgk.Group, k8s.Group(gvk.KubernetesGateway.Group))
 }
 
 func GetStatus[I, IS any](spec I) IS {
