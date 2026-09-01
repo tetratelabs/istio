@@ -1,0 +1,3000 @@
+// Copyright Istio Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package ambient
+
+import (
+	"net/netip"
+	"reflect"
+	"testing"
+	"time"
+
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"istio.io/api/annotation"
+	"istio.io/api/label"
+	meshConfig "istio.io/api/mesh/v1alpha1"
+	networking "istio.io/api/networking/v1alpha3"
+	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
+	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pkg/config/constants"
+	"istio.io/istio/pkg/config/mesh/meshwatcher"
+	"istio.io/istio/pkg/config/schema/kind"
+	"istio.io/istio/pkg/kube/krt"
+	"istio.io/istio/pkg/kube/krt/krttest"
+	"istio.io/istio/pkg/ptr"
+	"istio.io/istio/pkg/slices"
+	"istio.io/istio/pkg/test/util/assert"
+	"istio.io/istio/pkg/workloadapi"
+)
+
+func TestServiceEntryServices(t *testing.T) {
+	waypointAddr := &workloadapi.GatewayAddress{
+		Destination: &workloadapi.GatewayAddress_Hostname{
+			Hostname: &workloadapi.NamespacedHostname{
+				Namespace: "ns",
+				Hostname:  "hostname.example",
+			},
+		},
+		// TODO: look up the HBONE port instead of hardcoding it
+		HboneMtlsPort: 15008,
+	}
+
+	waypoint := Waypoint{
+		Named: krt.Named{
+			Name:      "waypoint",
+			Namespace: "ns",
+		},
+		TrafficType: constants.AllTraffic,
+		Address:     waypointAddr,
+		AllowedRoutes: WaypointSelector{
+			FromNamespaces: gatewayv1.NamespacesFromSelector,
+			Selector:       labels.ValidatedSetSelector(map[string]string{v1.LabelMetadataName: "ns"}),
+		},
+	}
+
+	ns := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns",
+			Labels: map[string]string{
+				v1.LabelMetadataName: "ns",
+			},
+		},
+	}
+
+	// A waypoint in a different namespace than the ServiceEntry ("ns"), reachable via
+	// use-waypoint-namespace. Its allowedRoutes permit attachment from "ns", so the binding is
+	// attempted and reaches the NAMESPACE-visibility guard rather than being denied earlier.
+	crossNsWaypointAddr := &workloadapi.GatewayAddress{
+		Destination: &workloadapi.GatewayAddress_Hostname{
+			Hostname: &workloadapi.NamespacedHostname{
+				Namespace: "other",
+				Hostname:  "hostname.other.example",
+			},
+		},
+		HboneMtlsPort: 15008,
+	}
+	crossNsWaypoint := Waypoint{
+		Named: krt.Named{
+			Name:      "waypoint",
+			Namespace: "other",
+		},
+		TrafficType: constants.AllTraffic,
+		Address:     crossNsWaypointAddr,
+		AllowedRoutes: WaypointSelector{
+			FromNamespaces: gatewayv1.NamespacesFromSelector,
+			Selector:       labels.ValidatedSetSelector(map[string]string{v1.LabelMetadataName: "ns"}),
+		},
+	}
+
+	cases := []struct {
+		name   string
+		inputs []any
+		se     *networkingclient.ServiceEntry
+		result []*workloadapi.Service
+		// waypointErr, when set, asserts the (single) resulting service's
+		// WaypointBindingStatus.Error -- the status surfaced when a binding is refused. The
+		// service builder result otherwise only carries the *workloadapi.Service, which drops it.
+		waypointErr *model.StatusMessage
+	}{
+		{
+			name:   "DNS service entry with address",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Addresses: []string{"1.2.3.4"},
+					Hosts:     []string{"a.example.com", "b.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number:   80,
+						Name:     "http",
+						Protocol: "HTTP",
+					}},
+					SubjectAltNames: []string{"san1"},
+					Resolution:      networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "name",
+					Namespace: "ns",
+					Hostname:  "a.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+					SubjectAltNames: []string{"san1"},
+				},
+				{
+					Name:      "name",
+					Namespace: "ns",
+					Hostname:  "b.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+					SubjectAltNames: []string{"san1"},
+				},
+			},
+		},
+		{
+			name:   "Uses auto-assigned addresses",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "auto-assigned",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Hosts: []string{"assign-me.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					SubjectAltNames: []string{"san1"},
+					Resolution:      networking.ServiceEntry_DNS,
+				},
+				Status: networking.ServiceEntryStatus{
+					Addresses: []*networking.ServiceEntryAddress{
+						{
+							Host:  "assign-me.example.com",
+							Value: "240.240.0.1",
+						},
+						{
+							Host:  "assign-me.example.com",
+							Value: "2001:2::1",
+						},
+					},
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "auto-assigned",
+					Namespace: "ns",
+					Hostname:  "assign-me.example.com",
+					Addresses: []*workloadapi.NetworkAddress{
+						{
+							Network: testNW,
+							Address: netip.AddrFrom4([4]byte{240, 240, 0, 1}).AsSlice(),
+						},
+						{
+							Network: testNW,
+							Address: netip.MustParseAddr("2001:2::1").AsSlice(),
+						},
+					},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+					SubjectAltNames: []string{"san1"},
+				},
+			},
+		},
+		{
+			name:   "Uses multiple auto-assigned addresses",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "multi-host-auto-assigned",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Hosts: []string{
+						"multi-host-assign-me.example.com",
+						"second-host-assign-me.example.com",
+					},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					SubjectAltNames: []string{"san1"},
+					Resolution:      networking.ServiceEntry_DNS,
+				},
+				Status: networking.ServiceEntryStatus{
+					Addresses: []*networking.ServiceEntryAddress{
+						{
+							Host:  "multi-host-assign-me.example.com",
+							Value: "240.240.0.1",
+						},
+						{
+							Host:  "multi-host-assign-me.example.com",
+							Value: "2001:2::1",
+						},
+						{
+							Host:  "second-host-assign-me.example.com",
+							Value: "240.240.0.2",
+						},
+						{
+							Host:  "second-host-assign-me.example.com",
+							Value: "2001:2::2",
+						},
+					},
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "multi-host-auto-assigned",
+					Namespace: "ns",
+					Hostname:  "multi-host-assign-me.example.com",
+					Addresses: []*workloadapi.NetworkAddress{
+						{
+							Network: testNW,
+							Address: netip.AddrFrom4([4]byte{240, 240, 0, 1}).AsSlice(),
+						},
+						{
+							Network: testNW,
+							Address: netip.MustParseAddr("2001:2::1").AsSlice(),
+						},
+					},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+					SubjectAltNames: []string{"san1"},
+				},
+				{
+					Name:      "multi-host-auto-assigned",
+					Namespace: "ns",
+					Hostname:  "second-host-assign-me.example.com",
+					Addresses: []*workloadapi.NetworkAddress{
+						{
+							Network: testNW,
+							Address: netip.AddrFrom4([4]byte{240, 240, 0, 2}).AsSlice(),
+						},
+						{
+							Network: testNW,
+							Address: netip.MustParseAddr("2001:2::2").AsSlice(),
+						},
+					},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+					SubjectAltNames: []string{"san1"},
+				},
+			},
+		},
+		{
+			name:   "Does not use auto-assigned addresses user provided address",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "user-provided",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Addresses: []string{"1.2.3.4"},
+					Hosts:     []string{"user-provided.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					SubjectAltNames: []string{"san1"},
+					Resolution:      networking.ServiceEntry_DNS,
+				},
+				Status: networking.ServiceEntryStatus{
+					Addresses: []*networking.ServiceEntryAddress{
+						{
+							Host:  "user-provided.example.com",
+							Value: "240.240.0.1",
+						},
+						{
+							Host:  "user-provided.example.com",
+							Value: "2001:2::1",
+						},
+					},
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "user-provided",
+					Namespace: "ns",
+					Hostname:  "user-provided.example.com",
+					Addresses: []*workloadapi.NetworkAddress{
+						{
+							Network: testNW,
+							Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+						},
+					},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+					SubjectAltNames: []string{"san1"},
+				},
+			},
+		},
+		{
+			name:   "Does not use auto-assigned addresses none resolution",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "none-resolution",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Hosts: []string{"none-resolution.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					SubjectAltNames: []string{"san1"},
+					Resolution:      networking.ServiceEntry_NONE,
+				},
+				Status: networking.ServiceEntryStatus{
+					Addresses: []*networking.ServiceEntryAddress{
+						{
+							Host:  "none-resolution.example.com",
+							Value: "240.240.0.1",
+						},
+						{
+							Host:  "none-resolution.example.com",
+							Value: "2001:2::1",
+						},
+					},
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "none-resolution",
+					Namespace: "ns",
+					Hostname:  "none-resolution.example.com",
+					LoadBalancing: &workloadapi.LoadBalancing{
+						Mode:         workloadapi.LoadBalancing_PASSTHROUGH,
+						HealthPolicy: workloadapi.LoadBalancing_ALLOW_ALL,
+					},
+					Addresses: []*workloadapi.NetworkAddress{},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+					SubjectAltNames: []string{"san1"},
+				},
+			},
+		},
+		{
+			name:   "Does not use auto-assigned addresses user opted out",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "user-opt-out",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.NetworkingEnableAutoallocateIp.Name: "false",
+					},
+				},
+				Spec: networking.ServiceEntry{
+					Hosts: []string{"user-opt-out.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					SubjectAltNames: []string{"san1"},
+					Resolution:      networking.ServiceEntry_DNS,
+				},
+				Status: networking.ServiceEntryStatus{
+					Addresses: []*networking.ServiceEntryAddress{
+						{
+							Host:  "user-opt-out.example.com",
+							Value: "240.240.0.1",
+						},
+						{
+							Host:  "user-opt-out.example.com",
+							Value: "2001:2::1",
+						},
+					},
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "user-opt-out",
+					Namespace: "ns",
+					Hostname:  "user-opt-out.example.com",
+					Addresses: []*workloadapi.NetworkAddress{},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+					SubjectAltNames: []string{"san1"},
+				},
+			},
+		},
+		{
+			name:   "Does not use auto-assigned addresses for wildcard host with DNS resolution",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "partial-wildcard",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Hosts: []string{"*.wildcard.example.com", "this-is-ok.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					SubjectAltNames: []string{"san1"},
+					Resolution:      networking.ServiceEntry_DNS,
+				},
+				Status: networking.ServiceEntryStatus{
+					Addresses: []*networking.ServiceEntryAddress{
+						{
+							Host:  "this-is-ok.example.com",
+							Value: "240.240.0.1",
+						},
+						{
+							Host:  "this-is-ok.example.com",
+							Value: "2001:2::1",
+						},
+					},
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "partial-wildcard",
+					Namespace: "ns",
+					Hostname:  "*.wildcard.example.com",
+					Addresses: []*workloadapi.NetworkAddress{},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+					SubjectAltNames: []string{"san1"},
+				},
+				{
+					Name:      "partial-wildcard",
+					Namespace: "ns",
+					Hostname:  "this-is-ok.example.com",
+					Addresses: []*workloadapi.NetworkAddress{
+						{
+							Network: testNW,
+							Address: netip.AddrFrom4([4]byte{240, 240, 0, 1}).AsSlice(),
+						},
+						{
+							Network: testNW,
+							Address: netip.MustParseAddr("2001:2::1").AsSlice(),
+						},
+					},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+					SubjectAltNames: []string{"san1"},
+				},
+			},
+		},
+		{
+			name: "Uses auto assigned addresses for wildcard host",
+			inputs: []any{
+				waypoint,
+				ns,
+			},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "wildcard",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:          "waypoint",
+						label.IoIstioUseWaypointNamespace.Name: "ns",
+					},
+				},
+				Spec: networking.ServiceEntry{
+					Hosts: []string{"*.wildcard.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					SubjectAltNames: []string{"san1"},
+					Resolution:      networking.ServiceEntry_DYNAMIC_DNS,
+				},
+				Status: networking.ServiceEntryStatus{
+					Addresses: []*networking.ServiceEntryAddress{
+						{
+							Host:  "*.wildcard.example.com",
+							Value: "240.240.0.1",
+						},
+						{
+							Host:  "*.wildcard.example.com",
+							Value: "2001:2::1",
+						},
+					},
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "wildcard",
+					Namespace: "ns",
+					Hostname:  "*.wildcard.example.com",
+					Addresses: []*workloadapi.NetworkAddress{
+						{
+							Network: testNW,
+							Address: netip.AddrFrom4([4]byte{240, 240, 0, 1}).AsSlice(),
+						},
+						{
+							Network: testNW,
+							Address: netip.MustParseAddr("2001:2::1").AsSlice(),
+						},
+					},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+					SubjectAltNames: []string{"san1"},
+					Waypoint:        waypointAddr,
+				},
+			},
+		},
+		{
+			name:   "prefer same node traffic distribution",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Annotations: map[string]string{
+						"networking.istio.io/traffic-distribution": "PreferSameNode",
+					},
+				},
+				Spec: networking.ServiceEntry{
+					Addresses: []string{"1.2.3.4"},
+					Hosts:     []string{"a.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					Resolution: networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "name",
+					Namespace: "ns",
+					Hostname:  "a.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					LoadBalancing: &workloadapi.LoadBalancing{
+						RoutingPreference: []workloadapi.LoadBalancing_Scope{
+							workloadapi.LoadBalancing_NETWORK,
+							workloadapi.LoadBalancing_REGION,
+							workloadapi.LoadBalancing_ZONE,
+							workloadapi.LoadBalancing_SUBZONE,
+							workloadapi.LoadBalancing_NODE,
+						},
+						Mode: workloadapi.LoadBalancing_FAILOVER,
+					},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+				},
+			},
+		},
+		{
+			name:   "prefer same zone distribution",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Annotations: map[string]string{
+						"networking.istio.io/traffic-distribution": "PreferSameZone",
+					},
+				},
+				Spec: networking.ServiceEntry{
+					Addresses: []string{"1.2.3.4"},
+					Hosts:     []string{"a.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					Resolution: networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "name",
+					Namespace: "ns",
+					Hostname:  "a.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					LoadBalancing: &workloadapi.LoadBalancing{
+						RoutingPreference: []workloadapi.LoadBalancing_Scope{
+							workloadapi.LoadBalancing_NETWORK,
+							workloadapi.LoadBalancing_REGION,
+							workloadapi.LoadBalancing_ZONE,
+						},
+						Mode: workloadapi.LoadBalancing_FAILOVER,
+					},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+				},
+			},
+		},
+		{
+			name:   "prefer close traffic distribution",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Annotations: map[string]string{
+						"networking.istio.io/traffic-distribution": "PreferClose",
+					},
+				},
+				Spec: networking.ServiceEntry{
+					Addresses: []string{"1.2.3.4"},
+					Hosts:     []string{"a.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					Resolution: networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "name",
+					Namespace: "ns",
+					Hostname:  "a.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					LoadBalancing: &workloadapi.LoadBalancing{
+						RoutingPreference: []workloadapi.LoadBalancing_Scope{
+							workloadapi.LoadBalancing_NETWORK,
+							workloadapi.LoadBalancing_REGION,
+							workloadapi.LoadBalancing_ZONE,
+						},
+						Mode: workloadapi.LoadBalancing_FAILOVER,
+					},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+				},
+			},
+		},
+		{
+			name: "namespace annotation inheritance",
+			inputs: []any{
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							v1.LabelMetadataName: "ns",
+						},
+						Annotations: map[string]string{
+							"networking.istio.io/traffic-distribution": "PreferClose",
+						},
+					},
+				},
+			},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Addresses: []string{"1.2.3.4"},
+					Hosts:     []string{"a.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					Resolution: networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "name",
+					Namespace: "ns",
+					Hostname:  "a.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					LoadBalancing: &workloadapi.LoadBalancing{
+						RoutingPreference: []workloadapi.LoadBalancing_Scope{
+							workloadapi.LoadBalancing_NETWORK,
+							workloadapi.LoadBalancing_REGION,
+							workloadapi.LoadBalancing_ZONE,
+						},
+						Mode: workloadapi.LoadBalancing_FAILOVER,
+					},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+				},
+			},
+		},
+		{
+			name:   "ingress-use-waypoint label true sets WDS field on service entry",
+			inputs: []any{waypoint, ns},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:          "waypoint",
+						label.IoIstioUseWaypointNamespace.Name: "ns",
+						label.IoIstioIngressUseWaypoint.Name:   "true",
+					},
+				},
+				Spec: networking.ServiceEntry{
+					Addresses: []string{"1.2.3.4"},
+					Hosts:     []string{"a.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number:   80,
+						Name:     "http",
+						Protocol: "HTTP",
+					}},
+					Resolution: networking.ServiceEntry_STATIC,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "name",
+					Namespace: "ns",
+					Hostname:  "a.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					Waypoint:           waypointAddr,
+					IngressUseWaypoint: true,
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+				},
+			},
+		},
+		{
+			name: "serviceentry annotation overrides namespace",
+			inputs: []any{
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							v1.LabelMetadataName: "ns",
+						},
+						Annotations: map[string]string{
+							"networking.istio.io/traffic-distribution": "PreferClose",
+						},
+					},
+				},
+			},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Annotations: map[string]string{
+						"networking.istio.io/traffic-distribution": "PreferSameNode",
+					},
+				},
+				Spec: networking.ServiceEntry{
+					Addresses: []string{"1.2.3.4"},
+					Hosts:     []string{"a.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number: 80,
+						Name:   "http",
+					}},
+					Resolution: networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "name",
+					Namespace: "ns",
+					Hostname:  "a.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					LoadBalancing: &workloadapi.LoadBalancing{
+						RoutingPreference: []workloadapi.LoadBalancing_Scope{
+							workloadapi.LoadBalancing_NETWORK,
+							workloadapi.LoadBalancing_REGION,
+							workloadapi.LoadBalancing_ZONE,
+							workloadapi.LoadBalancing_SUBZONE,
+							workloadapi.LoadBalancing_NODE,
+						},
+						Mode: workloadapi.LoadBalancing_FAILOVER,
+					},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+					}},
+				},
+			},
+		},
+		{
+			name:   "Service entry with CIDR address",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cidr-se",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Addresses: []string{"10.0.0.0/24"},
+					Hosts:     []string{"cidr.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number:   80,
+						Name:     "http",
+						Protocol: "HTTP",
+					}},
+					Resolution: networking.ServiceEntry_NONE,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "cidr-se",
+					Namespace: "ns",
+					Hostname:  "cidr.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.MustParseAddr("10.0.0.0").AsSlice(),
+						Length:  ptr.Of(uint32(24)),
+					}},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+					LoadBalancing: &workloadapi.LoadBalancing{
+						Mode:         workloadapi.LoadBalancing_PASSTHROUGH,
+						HealthPolicy: workloadapi.LoadBalancing_ALLOW_ALL,
+					},
+				},
+			},
+		},
+		{
+			name:   "Service entry with non-canonical CIDR address is normalized",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "noncanonical-cidr-se",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Addresses: []string{"10.0.0.5/24"},
+					Hosts:     []string{"noncanonical.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number:   80,
+						Name:     "http",
+						Protocol: "HTTP",
+					}},
+					Resolution: networking.ServiceEntry_NONE,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "noncanonical-cidr-se",
+					Namespace: "ns",
+					Hostname:  "noncanonical.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.MustParseAddr("10.0.0.0").AsSlice(),
+						Length:  ptr.Of(uint32(24)),
+					}},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+					LoadBalancing: &workloadapi.LoadBalancing{
+						Mode:         workloadapi.LoadBalancing_PASSTHROUGH,
+						HealthPolicy: workloadapi.LoadBalancing_ALLOW_ALL,
+					},
+				},
+			},
+		},
+		{
+			name:   "Service entry with single-IP CIDR address",
+			inputs: []any{},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "single-cidr-se",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Addresses: []string{"1.2.3.4/32"},
+					Hosts:     []string{"single.example.com"},
+					Ports: []*networking.ServicePort{{
+						Number:   80,
+						Name:     "http",
+						Protocol: "HTTP",
+					}},
+					Resolution: networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "single-cidr-se",
+					Namespace: "ns",
+					Hostname:  "single.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+				},
+			},
+		},
+		{
+			name: "ServiceEntry visibility NAMESPACE via namespaceSelector",
+			inputs: []any{
+				ns,
+				meshwatcher.MeshConfigResource{MeshConfig: &meshConfig.MeshConfig{
+					ServiceEntryVisibility: &meshConfig.ServiceEntryVisibility{
+						DefaultVisibility: meshConfig.ServiceEntryVisibility_PUBLIC,
+						Policies: []*meshConfig.ServiceEntryVisibility_Policy{{
+							Visibility: meshConfig.ServiceEntryVisibility_NAMESPACE,
+							MatchingRules: []*meshConfig.ServiceEntryVisibility_MatchRule{{
+								Matcher: &meshConfig.ServiceEntryVisibility_MatchRule_NamespaceSelector{
+									NamespaceSelector: &meshConfig.LabelSelector{
+										MatchLabels: map[string]string{v1.LabelMetadataName: "ns"},
+									},
+								},
+							}},
+						}},
+					},
+				}},
+			},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vis-namespace-se",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Addresses:  []string{"1.2.3.4/32"},
+					Hosts:      []string{"nslocal.example.com"},
+					Ports:      []*networking.ServicePort{{Number: 80, Name: "http", Protocol: "HTTP"}},
+					Resolution: networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "vis-namespace-se",
+					Namespace: "ns",
+					Hostname:  "nslocal.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+					Visibility: workloadapi.Service_NAMESPACE,
+				},
+			},
+		},
+		{
+			name: "ServiceEntry visibility NONE is dropped",
+			inputs: []any{
+				ns,
+				meshwatcher.MeshConfigResource{MeshConfig: &meshConfig.MeshConfig{
+					ServiceEntryVisibility: &meshConfig.ServiceEntryVisibility{
+						DefaultVisibility: meshConfig.ServiceEntryVisibility_NONE,
+					},
+				}},
+			},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vis-none-se",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Addresses:  []string{"1.2.3.4/32"},
+					Hosts:      []string{"dropped.example.com"},
+					Ports:      []*networking.ServicePort{{Number: 80, Name: "http", Protocol: "HTTP"}},
+					Resolution: networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{},
+		},
+		{
+			name: "ServiceEntry falls back to defaultVisibility NAMESPACE when no policy matches",
+			inputs: []any{
+				ns,
+				meshwatcher.MeshConfigResource{MeshConfig: &meshConfig.MeshConfig{
+					ServiceEntryVisibility: &meshConfig.ServiceEntryVisibility{
+						DefaultVisibility: meshConfig.ServiceEntryVisibility_NAMESPACE,
+						Policies: []*meshConfig.ServiceEntryVisibility_Policy{{
+							Visibility: meshConfig.ServiceEntryVisibility_PUBLIC,
+							MatchingRules: []*meshConfig.ServiceEntryVisibility_MatchRule{{
+								Matcher: &meshConfig.ServiceEntryVisibility_MatchRule_NamespaceSelector{
+									NamespaceSelector: &meshConfig.LabelSelector{
+										// Selects a different namespace, so this policy does not match.
+										MatchLabels: map[string]string{v1.LabelMetadataName: "other"},
+									},
+								},
+							}},
+						}},
+					},
+				}},
+			},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vis-default-ns-se",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Addresses:  []string{"1.2.3.4/32"},
+					Hosts:      []string{"defaultns.example.com"},
+					Ports:      []*networking.ServicePort{{Number: 80, Name: "http", Protocol: "HTTP"}},
+					Resolution: networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "vis-default-ns-se",
+					Namespace: "ns",
+					Hostname:  "defaultns.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+					Visibility: workloadapi.Service_NAMESPACE,
+				},
+			},
+		},
+		{
+			// Two policies both match the SE's namespace. First-match-wins means the earlier
+			// NAMESPACE policy applies; if ordering were broken (last-wins/most-restrictive),
+			// the later NONE policy would instead drop the service and this test would fail.
+			name: "ServiceEntry visibility uses the first matching policy in order",
+			inputs: []any{
+				ns,
+				meshwatcher.MeshConfigResource{MeshConfig: &meshConfig.MeshConfig{
+					ServiceEntryVisibility: &meshConfig.ServiceEntryVisibility{
+						DefaultVisibility: meshConfig.ServiceEntryVisibility_PUBLIC,
+						Policies: []*meshConfig.ServiceEntryVisibility_Policy{
+							{
+								Visibility: meshConfig.ServiceEntryVisibility_NAMESPACE,
+								MatchingRules: []*meshConfig.ServiceEntryVisibility_MatchRule{{
+									Matcher: &meshConfig.ServiceEntryVisibility_MatchRule_NamespaceSelector{
+										NamespaceSelector: &meshConfig.LabelSelector{
+											MatchLabels: map[string]string{v1.LabelMetadataName: "ns"},
+										},
+									},
+								}},
+							},
+							{
+								Visibility: meshConfig.ServiceEntryVisibility_NONE,
+								MatchingRules: []*meshConfig.ServiceEntryVisibility_MatchRule{{
+									Matcher: &meshConfig.ServiceEntryVisibility_MatchRule_NamespaceSelector{
+										NamespaceSelector: &meshConfig.LabelSelector{
+											MatchLabels: map[string]string{v1.LabelMetadataName: "ns"},
+										},
+									},
+								}},
+							},
+						},
+					},
+				}},
+			},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vis-ordering-se",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Addresses:  []string{"1.2.3.4/32"},
+					Hosts:      []string{"ordered.example.com"},
+					Ports:      []*networking.ServicePort{{Number: 80, Name: "http", Protocol: "HTTP"}},
+					Resolution: networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "vis-ordering-se",
+					Namespace: "ns",
+					Hostname:  "ordered.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+					Visibility: workloadapi.Service_NAMESPACE,
+				},
+			},
+		},
+		{
+			// An empty namespaceSelector matches every namespace. Redundant with
+			// defaultVisibility in practice, but it is expressible, so confirm it always
+			// matches: the NAMESPACE policy applies rather than falling through to the
+			// PUBLIC default.
+			name: "ServiceEntry visibility empty namespaceSelector matches all namespaces",
+			inputs: []any{
+				ns,
+				meshwatcher.MeshConfigResource{MeshConfig: &meshConfig.MeshConfig{
+					ServiceEntryVisibility: &meshConfig.ServiceEntryVisibility{
+						DefaultVisibility: meshConfig.ServiceEntryVisibility_PUBLIC,
+						Policies: []*meshConfig.ServiceEntryVisibility_Policy{{
+							Visibility: meshConfig.ServiceEntryVisibility_NAMESPACE,
+							MatchingRules: []*meshConfig.ServiceEntryVisibility_MatchRule{{
+								Matcher: &meshConfig.ServiceEntryVisibility_MatchRule_NamespaceSelector{
+									NamespaceSelector: &meshConfig.LabelSelector{},
+								},
+							}},
+						}},
+					},
+				}},
+			},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vis-empty-selector-se",
+					Namespace: "ns",
+				},
+				Spec: networking.ServiceEntry{
+					Addresses:  []string{"1.2.3.4/32"},
+					Hosts:      []string{"emptysel.example.com"},
+					Ports:      []*networking.ServicePort{{Number: 80, Name: "http", Protocol: "HTTP"}},
+					Resolution: networking.ServiceEntry_DNS,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "vis-empty-selector-se",
+					Namespace: "ns",
+					Hostname:  "emptysel.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+					Visibility: workloadapi.Service_NAMESPACE,
+				},
+			},
+		},
+		{
+			name: "NAMESPACE visibility refuses cross-namespace waypoint binding",
+			inputs: []any{
+				ns,
+				crossNsWaypoint,
+				meshwatcher.MeshConfigResource{MeshConfig: &meshConfig.MeshConfig{
+					ServiceEntryVisibility: &meshConfig.ServiceEntryVisibility{
+						DefaultVisibility: meshConfig.ServiceEntryVisibility_NAMESPACE,
+					},
+				}},
+			},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ns-crossns-wp",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:          "waypoint",
+						label.IoIstioUseWaypointNamespace.Name: "other",
+					},
+				},
+				Spec: networking.ServiceEntry{
+					Addresses:  []string{"1.2.3.4"},
+					Hosts:      []string{"a.example.com"},
+					Ports:      []*networking.ServicePort{{Number: 80, Name: "http", Protocol: "HTTP"}},
+					Resolution: networking.ServiceEntry_STATIC,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "ns-crossns-wp",
+					Namespace: "ns",
+					Hostname:  "a.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+					Visibility: workloadapi.Service_NAMESPACE,
+					// Waypoint intentionally nil: the cross-namespace binding is refused, and it is
+					// NOT retargeted to a same-named colocated waypoint.
+				},
+			},
+			waypointErr: ReportWaypointCrossNamespaceForbidden("other/waypoint"),
+		},
+		{
+			name: "NAMESPACE visibility keeps same-namespace waypoint binding",
+			inputs: []any{
+				ns,
+				waypoint,
+				meshwatcher.MeshConfigResource{MeshConfig: &meshConfig.MeshConfig{
+					ServiceEntryVisibility: &meshConfig.ServiceEntryVisibility{
+						DefaultVisibility: meshConfig.ServiceEntryVisibility_NAMESPACE,
+					},
+				}},
+			},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ns-samens-wp",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:          "waypoint",
+						label.IoIstioUseWaypointNamespace.Name: "ns",
+					},
+				},
+				Spec: networking.ServiceEntry{
+					Addresses:  []string{"1.2.3.4"},
+					Hosts:      []string{"a.example.com"},
+					Ports:      []*networking.ServicePort{{Number: 80, Name: "http", Protocol: "HTTP"}},
+					Resolution: networking.ServiceEntry_STATIC,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "ns-samens-wp",
+					Namespace: "ns",
+					Hostname:  "a.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					Waypoint: waypointAddr,
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+					Visibility: workloadapi.Service_NAMESPACE,
+				},
+			},
+		},
+		{
+			name: "PUBLIC visibility keeps cross-namespace waypoint binding",
+			inputs: []any{
+				ns,
+				crossNsWaypoint,
+			},
+			se: &networkingclient.ServiceEntry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "public-crossns-wp",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:          "waypoint",
+						label.IoIstioUseWaypointNamespace.Name: "other",
+					},
+				},
+				Spec: networking.ServiceEntry{
+					Addresses:  []string{"1.2.3.4"},
+					Hosts:      []string{"a.example.com"},
+					Ports:      []*networking.ServicePort{{Number: 80, Name: "http", Protocol: "HTTP"}},
+					Resolution: networking.ServiceEntry_STATIC,
+				},
+			},
+			result: []*workloadapi.Service{
+				{
+					Name:      "public-crossns-wp",
+					Namespace: "ns",
+					Hostname:  "a.example.com",
+					Addresses: []*workloadapi.NetworkAddress{{
+						Network: testNW,
+						Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+					}},
+					Waypoint: crossNsWaypointAddr,
+					Ports: []*workloadapi.Port{{
+						ServicePort: 80,
+						TargetPort:  80,
+						AppProtocol: workloadapi.AppProtocol_HTTP11,
+					}},
+					// Visibility PUBLIC (zero value): cross-namespace binding is allowed.
+				},
+			},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := krttest.NewMock(t, tt.inputs)
+			a := newAmbientUnitTest(t)
+			// Build a synchronous, precompiled visibility singleton from the mock mesh config.
+			// (A reactive NewSingleton is not computed synchronously under TestingDummyContext.)
+			var sev *meshConfig.ServiceEntryVisibility
+			if mc := krttest.GetMockSingleton[MeshConfig](mock).Get(); mc != nil {
+				sev = mc.GetServiceEntryVisibility()
+			}
+			matcher, _ := model.CompileServiceEntryVisibility(sev)
+			builder := a.serviceEntryServiceBuilder(
+				krttest.GetMockCollection[Waypoint](mock),
+				krttest.GetMockCollection[*v1.Namespace](mock),
+				krt.NewStatic(matcher, true),
+			)
+			wrapper := builder(krt.TestingDummyContext{}, tt.se)
+			res := slices.Map(wrapper, func(e TypedServiceInfo) *workloadapi.Service {
+				return e.Service
+			})
+			assert.Equal(t, res, tt.result)
+			if tt.waypointErr != nil {
+				assert.Equal(t, len(wrapper), 1)
+				assert.Equal(t, wrapper[0].Waypoint.Error, tt.waypointErr)
+			}
+		})
+	}
+}
+
+func TestSelectWorkloadServices(t *testing.T) {
+	const host = "shared.example.com"
+	older := time.Unix(100, 0)
+	newer := time.Unix(200, 0)
+
+	si := func(ns, name string, k kind.Kind, vis workloadapi.Service_Visibility, created time.Time) TypedServiceInfo {
+		return TypedServiceInfo{ServiceInfo: model.ServiceInfo{
+			Service: &workloadapi.Service{
+				Name:       name,
+				Namespace:  ns,
+				Hostname:   host,
+				Visibility: vis,
+			},
+			Source:       model.TypedObject{Kind: k},
+			CreationTime: created,
+		}}
+	}
+
+	// run returns the winning service name per namespace and the name of the single canonical
+	// service ("" if none).
+	run := func(t *testing.T, inputs []TypedServiceInfo) (map[string]string, string) {
+		winners := map[string]string{}
+		canonical := ""
+		for _, s := range selectWorkloadServices(inputs) {
+			winners[s.Service.Namespace] = s.Service.Name
+			if s.Service.Canonical {
+				if canonical != "" {
+					t.Fatalf("more than one canonical service: %s and %s", canonical, s.Service.Name)
+				}
+				canonical = s.Service.Name
+			}
+		}
+		return winners, canonical
+	}
+
+	cases := []struct {
+		name          string
+		inputs        []TypedServiceInfo
+		wantWinners   map[string]string
+		wantCanonical string
+	}{
+		{
+			// Same namespace, same hostname: the older SE owns the slot. Because the owner is
+			// NAMESPACE-scoped, nothing is canonical (out-of-namespace clients see no service).
+			name: "same namespace: older NAMESPACE beats newer PUBLIC, nothing canonical",
+			inputs: []TypedServiceInfo{
+				si("ns", "pub", kind.ServiceEntry, workloadapi.Service_PUBLIC, newer),
+				si("ns", "nslocal", kind.ServiceEntry, workloadapi.Service_NAMESPACE, older),
+			},
+			wantWinners:   map[string]string{"ns": "nslocal"},
+			wantCanonical: "",
+		},
+		{
+			// A Kubernetes Service must be canonical over an older ServiceEntry that camps its
+			// hostname -- age must not let the SE capture it.
+			name: "kube Service is canonical over an older camping PUBLIC ServiceEntry",
+			inputs: []TypedServiceInfo{
+				si("team-a", "svc", kind.Service, workloadapi.Service_PUBLIC, newer),
+				si("team-b", "camp", kind.ServiceEntry, workloadapi.Service_PUBLIC, older),
+			},
+			wantWinners:   map[string]string{"team-a": "svc", "team-b": "camp"},
+			wantCanonical: "svc",
+		},
+		{
+			// Cross namespace: the PUBLIC SE is canonical; the NAMESPACE SE owns only its namespace.
+			name: "cross namespace: PUBLIC is canonical, NAMESPACE is not",
+			inputs: []TypedServiceInfo{
+				si("team-a", "nslocal", kind.ServiceEntry, workloadapi.Service_NAMESPACE, older),
+				si("team-b", "pub", kind.ServiceEntry, workloadapi.Service_PUBLIC, newer),
+			},
+			wantWinners:   map[string]string{"team-a": "nslocal", "team-b": "pub"},
+			wantCanonical: "pub",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Order-independence: same result for the inputs and their reverse.
+			reverse := slices.Clone(tc.inputs)
+			slices.Reverse(reverse)
+			for _, order := range [][]TypedServiceInfo{tc.inputs, reverse} {
+				winners, canonical := run(t, order)
+				assert.Equal(t, winners, tc.wantWinners)
+				assert.Equal(t, canonical, tc.wantCanonical)
+			}
+		})
+	}
+}
+
+// Test_setCanonical asserts setCanonical propagates every ServiceInfo field to the canonical
+// copy. The reflection check keeps the fixture fully populated as fields are added; without it a
+// new field would default to zero and the equality below would pass without covering it. The
+// input is a fixed point of setCanonical: Canonical is already true and the marshaled address is
+// precomputed, so output must equal input exactly.
+func Test_setCanonical(t *testing.T) {
+	svc := &workloadapi.Service{
+		Name:      "name",
+		Namespace: "ns",
+		Hostname:  "host.example.com",
+		Canonical: true,
+	}
+	ai := model.NewAddressInfo(serviceToAddress(svc))
+	se := model.ServiceInfo{
+		Service:              svc,
+		LabelSelector:        model.LabelSelector{Labels: map[string]string{"app": "a"}},
+		PortNames:            map[int32]model.ServicePortName{80: {PortName: "http"}},
+		Source:               model.TypedObject{Kind: kind.ServiceEntry},
+		Scope:                model.Local,
+		Waypoint:             model.WaypointBindingStatus{ResourceName: "ns/waypoint"},
+		MarshaledAddress:     ai.Marshaled,
+		AsAddress:            ai,
+		DNSConnectStrategy:   model.DNSConnectStrategyRaceFirstTCPConnect,
+		CreationTime:         time.Now(),
+		VisibilityConfigured: true,
+	}
+	rv := reflect.ValueOf(se)
+	rt := rv.Type()
+	for i := range rv.NumField() {
+		if rv.Field(i).IsZero() {
+			t.Errorf("field %q must be non-zero so this test covers it", rt.Field(i).Name)
+		}
+	}
+	seCopy := setCanonical(se)
+	assert.Equal(t, &se, &seCopy)
+}
+
+func TestServiceServices(t *testing.T) {
+	waypointAddr := &workloadapi.GatewayAddress{
+		Destination: &workloadapi.GatewayAddress_Hostname{
+			Hostname: &workloadapi.NamespacedHostname{
+				Namespace: "ns",
+				Hostname:  "hostname.example",
+			},
+		},
+		// TODO: look up the HBONE port instead of hardcoding it
+		HboneMtlsPort: 15008,
+	}
+	// Canary waypoint fixtures (both in namespace "ns", attachable from "ns").
+	canaryAddr := &workloadapi.GatewayAddress{
+		Destination: &workloadapi.GatewayAddress_Hostname{
+			Hostname: &workloadapi.NamespacedHostname{Namespace: "ns", Hostname: "canary.example"},
+		},
+		HboneMtlsPort: 15008,
+	}
+	allowNS := WaypointSelector{
+		FromNamespaces: gatewayv1.NamespacesFromSelector,
+		Selector:       labels.ValidatedSetSelector(map[string]string{v1.LabelMetadataName: "ns"}),
+	}
+	primaryWaypoint := Waypoint{
+		Named:         krt.Named{Name: "waypoint", Namespace: "ns"},
+		TrafficType:   constants.AllTraffic,
+		Address:       waypointAddr,
+		AllowedRoutes: allowNS,
+	}
+	canaryWaypoint := Waypoint{
+		Named:         krt.Named{Name: "canary", Namespace: "ns"},
+		TrafficType:   constants.AllTraffic,
+		Address:       canaryAddr,
+		AllowedRoutes: allowNS,
+	}
+	nsNS := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ns", Labels: map[string]string{v1.LabelMetadataName: "ns"}},
+	}
+	cases := []struct {
+		name   string
+		inputs []any
+		svc    *v1.Service
+		result *workloadapi.Service
+	}{
+		{
+			name:   "simple",
+			inputs: []any{},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+				},
+				Spec: v1.ServiceSpec{
+					ClusterIP: "1.2.3.4",
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name:   "external name",
+			inputs: []any{},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+				},
+				Spec: v1.ServiceSpec{
+					Type:         v1.ServiceTypeExternalName,
+					ExternalName: "example.com",
+				},
+			},
+			result: nil,
+		},
+		{
+			name:   "target ports",
+			inputs: []any{},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+				},
+				Spec: v1.ServiceSpec{
+					ClusterIP: "1.2.3.4",
+					Ports: []v1.ServicePort{
+						{
+							Port:       80,
+							TargetPort: intstr.FromInt32(81),
+							Name:       "http",
+						},
+						{
+							Port:       8080,
+							TargetPort: intstr.FromString("something"),
+							Name:       "http-alt",
+						},
+					},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+					TargetPort:  81,
+				}, {
+					ServicePort: 8080,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+					TargetPort:  0,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name:   "headless",
+			inputs: []any{},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+				},
+				Spec: v1.ServiceSpec{
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name:   "traffic distribution prefer close",
+			inputs: []any{},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+				},
+				Spec: v1.ServiceSpec{
+					TrafficDistribution: ptr.Of(v1.ServiceTrafficDistributionPreferClose),
+					ClusterIP:           "1.2.3.4",
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				LoadBalancing: &workloadapi.LoadBalancing{
+					RoutingPreference: []workloadapi.LoadBalancing_Scope{
+						workloadapi.LoadBalancing_NETWORK,
+						workloadapi.LoadBalancing_REGION,
+						workloadapi.LoadBalancing_ZONE,
+					},
+					Mode: workloadapi.LoadBalancing_FAILOVER,
+				},
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+
+		{
+			name:   "traffic distribution prefer same zone",
+			inputs: []any{},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+				},
+				Spec: v1.ServiceSpec{
+					TrafficDistribution: ptr.Of(v1.ServiceTrafficDistributionPreferSameZone),
+					ClusterIP:           "1.2.3.4",
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				LoadBalancing: &workloadapi.LoadBalancing{
+					RoutingPreference: []workloadapi.LoadBalancing_Scope{
+						workloadapi.LoadBalancing_NETWORK,
+						workloadapi.LoadBalancing_REGION,
+						workloadapi.LoadBalancing_ZONE,
+					},
+					Mode: workloadapi.LoadBalancing_FAILOVER,
+				},
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+
+		{
+			name:   "traffic distribution prefer same node",
+			inputs: []any{},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+				},
+				Spec: v1.ServiceSpec{
+					TrafficDistribution: ptr.Of(v1.ServiceTrafficDistributionPreferSameNode),
+					ClusterIP:           "1.2.3.4",
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				LoadBalancing: &workloadapi.LoadBalancing{
+					RoutingPreference: []workloadapi.LoadBalancing_Scope{
+						workloadapi.LoadBalancing_NETWORK,
+						workloadapi.LoadBalancing_REGION,
+						workloadapi.LoadBalancing_ZONE,
+						workloadapi.LoadBalancing_SUBZONE,
+						workloadapi.LoadBalancing_NODE,
+					},
+					Mode: workloadapi.LoadBalancing_FAILOVER,
+				},
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name:   "publishNotReadyAddresses",
+			inputs: []any{},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+				},
+				Spec: v1.ServiceSpec{
+					PublishNotReadyAddresses: true,
+					ClusterIP:                "1.2.3.4",
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				LoadBalancing: &workloadapi.LoadBalancing{
+					HealthPolicy: workloadapi.LoadBalancing_ALLOW_ALL,
+				},
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name: "cross namespace waypoint",
+			inputs: []any{
+				Waypoint{
+					Named: krt.Named{
+						Name:      "waypoint",
+						Namespace: "waypoint-ns",
+					},
+					TrafficType: constants.AllTraffic,
+					Address:     waypointAddr,
+					AllowedRoutes: WaypointSelector{
+						FromNamespaces: gatewayv1.NamespacesFromSelector,
+						Selector:       labels.ValidatedSetSelector(map[string]string{v1.LabelMetadataName: "ns"}),
+					},
+				},
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							v1.LabelMetadataName: "ns",
+						},
+					},
+				},
+			},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:          "waypoint",
+						label.IoIstioUseWaypointNamespace.Name: "waypoint-ns",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					ClusterIP: "1.2.3.4",
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				Waypoint: waypointAddr,
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name: "cross namespace waypoint denied",
+			inputs: []any{
+				Waypoint{
+					Named: krt.Named{
+						Name:      "waypoint",
+						Namespace: "waypoint-ns",
+					},
+					TrafficType: constants.AllTraffic,
+					Address:     waypointAddr,
+					AllowedRoutes: WaypointSelector{
+						FromNamespaces: gatewayv1.NamespacesFromSelector,
+						Selector:       labels.ValidatedSetSelector(map[string]string{v1.LabelMetadataName: "not-ns"}),
+					},
+				},
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							v1.LabelMetadataName: "ns",
+						},
+					},
+				},
+			},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:          "waypoint",
+						label.IoIstioUseWaypointNamespace.Name: "waypoint-ns",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					ClusterIP: "1.2.3.4",
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				Waypoint: nil,
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name: "ingress-use-waypoint label true sets WDS field",
+			inputs: []any{
+				Waypoint{
+					Named: krt.Named{
+						Name:      "waypoint",
+						Namespace: "waypoint-ns",
+					},
+					TrafficType: constants.AllTraffic,
+					Address:     waypointAddr,
+					AllowedRoutes: WaypointSelector{
+						FromNamespaces: gatewayv1.NamespacesFromSelector,
+						Selector:       labels.ValidatedSetSelector(map[string]string{v1.LabelMetadataName: "ns"}),
+					},
+				},
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							v1.LabelMetadataName: "ns",
+						},
+					},
+				},
+			},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:          "waypoint",
+						label.IoIstioUseWaypointNamespace.Name: "waypoint-ns",
+						label.IoIstioIngressUseWaypoint.Name:   "true",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					ClusterIP: "1.2.3.4",
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				Waypoint:           waypointAddr,
+				IngressUseWaypoint: true,
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name: "ingress-use-waypoint label false does not set WDS field",
+			inputs: []any{
+				Waypoint{
+					Named: krt.Named{
+						Name:      "waypoint",
+						Namespace: "waypoint-ns",
+					},
+					TrafficType: constants.AllTraffic,
+					Address:     waypointAddr,
+					AllowedRoutes: WaypointSelector{
+						FromNamespaces: gatewayv1.NamespacesFromSelector,
+						Selector:       labels.ValidatedSetSelector(map[string]string{v1.LabelMetadataName: "ns"}),
+					},
+				},
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							v1.LabelMetadataName: "ns",
+						},
+					},
+				},
+			},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:          "waypoint",
+						label.IoIstioUseWaypointNamespace.Name: "waypoint-ns",
+						label.IoIstioIngressUseWaypoint.Name:   "false",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					ClusterIP: "1.2.3.4",
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				Waypoint:           waypointAddr,
+				IngressUseWaypoint: false,
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name: "namespace annotation inheritance",
+			inputs: []any{
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							v1.LabelMetadataName: "ns",
+						},
+						Annotations: map[string]string{
+							"networking.istio.io/traffic-distribution": "PreferClose",
+						},
+					},
+				},
+			},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+				},
+				Spec: v1.ServiceSpec{
+					ClusterIP: "1.2.3.4",
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				LoadBalancing: &workloadapi.LoadBalancing{
+					RoutingPreference: []workloadapi.LoadBalancing_Scope{
+						workloadapi.LoadBalancing_NETWORK,
+						workloadapi.LoadBalancing_REGION,
+						workloadapi.LoadBalancing_ZONE,
+					},
+					Mode: workloadapi.LoadBalancing_FAILOVER,
+				},
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name: "service annotation overrides namespace",
+			inputs: []any{
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							v1.LabelMetadataName: "ns",
+						},
+						Annotations: map[string]string{
+							"networking.istio.io/traffic-distribution": "PreferClose",
+						},
+					},
+				},
+			},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Annotations: map[string]string{
+						"networking.istio.io/traffic-distribution": "PreferSameNode",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					ClusterIP: "1.2.3.4",
+					Ports: []v1.ServicePort{{
+						Port: 80,
+						Name: "http",
+					}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				LoadBalancing: &workloadapi.LoadBalancing{
+					RoutingPreference: []workloadapi.LoadBalancing_Scope{
+						workloadapi.LoadBalancing_NETWORK,
+						workloadapi.LoadBalancing_REGION,
+						workloadapi.LoadBalancing_ZONE,
+						workloadapi.LoadBalancing_SUBZONE,
+						workloadapi.LoadBalancing_NODE,
+					},
+					Mode: workloadapi.LoadBalancing_FAILOVER,
+				},
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name:   "weighted canary",
+			inputs: []any{primaryWaypoint, canaryWaypoint, nsNS},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:       "waypoint",
+						label.IoIstioUseWaypointCanary.Name: "canary",
+					},
+					Annotations: map[string]string{
+						annotation.IoIstioUseWaypointCanaryWeight.Name: "5",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					ClusterIP: "1.2.3.4",
+					Ports:     []v1.ServicePort{{Port: 80, Name: "http"}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				Waypoint: waypointAddr,
+				WeightedWaypoints: []*workloadapi.WeightedWaypoint{
+					{Destination: waypointAddr, Weight: 95},
+					{Destination: canaryAddr, Weight: 5},
+				},
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name:   "canary invalid weight falls back to primary only",
+			inputs: []any{primaryWaypoint, canaryWaypoint, nsNS},
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:       "waypoint",
+						label.IoIstioUseWaypointCanary.Name: "canary",
+					},
+					Annotations: map[string]string{
+						annotation.IoIstioUseWaypointCanaryWeight.Name: "not-a-number",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					ClusterIP: "1.2.3.4",
+					Ports:     []v1.ServicePort{{Port: 80, Name: "http"}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				Waypoint: waypointAddr,
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+		{
+			name:   "canary not ready falls back to primary only",
+			inputs: []any{primaryWaypoint, nsNS}, // canary waypoint not provided/ready
+			svc: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "ns",
+					Labels: map[string]string{
+						label.IoIstioUseWaypoint.Name:       "waypoint",
+						label.IoIstioUseWaypointCanary.Name: "canary",
+					},
+					Annotations: map[string]string{
+						annotation.IoIstioUseWaypointCanaryWeight.Name: "5",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					ClusterIP: "1.2.3.4",
+					Ports:     []v1.ServicePort{{Port: 80, Name: "http"}},
+				},
+			},
+			result: &workloadapi.Service{
+				Name:      "name",
+				Namespace: "ns",
+				Hostname:  "name.ns.svc.domain.suffix",
+				Addresses: []*workloadapi.NetworkAddress{{
+					Network: testNW,
+					Address: netip.AddrFrom4([4]byte{1, 2, 3, 4}).AsSlice(),
+				}},
+				Waypoint: waypointAddr,
+				Ports: []*workloadapi.Port{{
+					ServicePort: 80,
+					AppProtocol: workloadapi.AppProtocol_HTTP11,
+				}},
+				Canonical: true,
+			},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := krttest.NewMock(t, tt.inputs)
+			a := newAmbientUnitTest(t)
+			builder := a.serviceServiceBuilder(
+				krttest.GetMockCollection[Waypoint](mock),
+				krttest.GetMockCollection[*v1.Namespace](mock),
+				krttest.GetMockSingleton[MeshConfig](mock),
+				true,
+			)
+			res := builder(krt.TestingDummyContext{}, tt.svc)
+			if res == nil {
+				assert.Equal(t, nil, tt.result)
+			} else {
+				assert.Equal(t, res.Service, tt.result)
+			}
+		})
+	}
+}
+
+// TestPreferSamePresetNotMutated is a regression test for a bug where the
+// preferSameZoneLoadBalancer / preferSameNodeLoadBalancer presets were stored
+// as package-level *workloadapi.LoadBalancing pointers. When a Service combined
+// PublishNotReadyAddresses=true with PreferSameZone/PreferSameNode traffic
+// distribution, the code path:
+//
+//	lb = preferSameZoneLoadBalancer
+//	if svc.Spec.PublishNotReadyAddresses { lb.HealthPolicy = ALLOW_ALL }
+//
+// mutated the shared global pointer in place, permanently leaking
+// HealthPolicy=ALLOW_ALL to every subsequent Service that used the same preset.
+// This caused ztunnel to route to not-ready endpoints cluster-wide.
+//
+// The fix turned the presets into functions that return a fresh value each call.
+func TestPreferSamePresetNotMutated(t *testing.T) {
+	a := newAmbientUnitTest(t)
+	mock := krttest.NewMock(t, []any{})
+	builder := a.serviceServiceBuilder(
+		krttest.GetMockCollection[Waypoint](mock),
+		krttest.GetMockCollection[*v1.Namespace](mock),
+		krttest.GetMockSingleton[MeshConfig](mock),
+		true,
+	)
+
+	mkSvc := func(name, ip, td string, pnra bool) *v1.Service {
+		return &v1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "ns",
+				Annotations: map[string]string{
+					"networking.istio.io/traffic-distribution": td,
+				},
+			},
+			Spec: v1.ServiceSpec{
+				ClusterIP:                ip,
+				PublishNotReadyAddresses: pnra,
+				Ports:                    []v1.ServicePort{{Port: 80, Name: "http"}},
+			},
+		}
+	}
+
+	ctx := krt.TestingDummyContext{}
+
+	// Process a "poisoner" Service (PreferSameZone + PNRA) before a plain Service
+	// using PreferSameZone. The plain Service must NOT inherit ALLOW_ALL.
+	_ = builder(ctx, mkSvc("poisoner-zone", "1.2.3.4", "PreferSameZone", true))
+	victimZone := builder(ctx, mkSvc("victim-zone", "1.2.3.5", "PreferSameZone", false))
+
+	// Same scenario for PreferSameNode.
+	_ = builder(ctx, mkSvc("poisoner-node", "1.2.3.6", "PreferSameNode", true))
+	victimNode := builder(ctx, mkSvc("victim-node", "1.2.3.7", "PreferSameNode", false))
+
+	assert.Equal(t,
+		victimZone.Service.LoadBalancing.HealthPolicy, workloadapi.LoadBalancing_ONLY_HEALTHY)
+	assert.Equal(t,
+		victimNode.Service.LoadBalancing.HealthPolicy, workloadapi.LoadBalancing_ONLY_HEALTHY)
+}
+
+func TestServiceConditions(t *testing.T) {
+	waypointAddr := &workloadapi.GatewayAddress{
+		Destination: &workloadapi.GatewayAddress_Hostname{
+			Hostname: &workloadapi.NamespacedHostname{
+				Namespace: "ns",
+				Hostname:  "hostname.example",
+			},
+		},
+		// TODO: look up the HBONE port instead of hardcoding it
+		HboneMtlsPort: 15008,
+	}
+
+	waypoint := Waypoint{
+		Named: krt.Named{
+			Name:      "waypoint",
+			Namespace: "waypoint-ns",
+		},
+		TrafficType: constants.AllTraffic,
+		Address:     waypointAddr,
+		AllowedRoutes: WaypointSelector{
+			FromNamespaces: gatewayv1.NamespacesFromSelector,
+			Selector:       labels.ValidatedSetSelector(map[string]string{v1.LabelMetadataName: "ns"}),
+		},
+	}
+
+	ns := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns",
+			Labels: map[string]string{
+				v1.LabelMetadataName: "ns",
+			},
+		},
+	}
+
+	makeServiceWithLabels := func(labels map[string]string) *v1.Service {
+		return &v1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "name",
+				Namespace: "ns",
+				Labels:    labels,
+			},
+			Spec: v1.ServiceSpec{
+				ClusterIP: "1.2.3.4",
+				Ports: []v1.ServicePort{{
+					Port: 80,
+					Name: "http",
+				}},
+			},
+		}
+	}
+
+	cases := []struct {
+		name       string
+		inputs     []any
+		svc        *v1.Service
+		result     *workloadapi.Service
+		conditions model.ConditionSet
+	}{
+		{
+			name: "service bound to waypoint",
+			inputs: []any{
+				waypoint,
+				ns,
+			},
+			svc: makeServiceWithLabels(map[string]string{
+				label.IoIstioUseWaypoint.Name:          "waypoint",
+				label.IoIstioUseWaypointNamespace.Name: "waypoint-ns",
+			}),
+			conditions: map[model.ConditionType]*model.Condition{
+				model.WaypointBound: {
+					Status:  true,
+					Reason:  string(model.WaypointAccepted),
+					Message: "Successfully attached to waypoint waypoint-ns/waypoint",
+				},
+			},
+		},
+		{
+			name: "service bound to waypoint and using waypoint for ingress",
+			inputs: []any{
+				waypoint,
+				ns,
+			},
+			svc: makeServiceWithLabels(map[string]string{
+				label.IoIstioUseWaypoint.Name:          "waypoint",
+				label.IoIstioUseWaypointNamespace.Name: "waypoint-ns",
+				"istio.io/ingress-use-waypoint":        "true",
+			}),
+			conditions: map[model.ConditionType]*model.Condition{
+				model.WaypointBound: {
+					Status:  true,
+					Reason:  string(model.WaypointAccepted),
+					Message: "Successfully attached to waypoint waypoint-ns/waypoint. Ingress traffic will traverse the waypoint",
+				},
+			},
+		},
+		{
+			name: "service bound to waypoint and ingress label is malformed",
+			inputs: []any{
+				waypoint,
+				ns,
+			},
+			svc: makeServiceWithLabels(map[string]string{
+				label.IoIstioUseWaypoint.Name:          "waypoint",
+				label.IoIstioUseWaypointNamespace.Name: "waypoint-ns",
+				"istio.io/ingress-use-waypoint":        "eurt",
+			}),
+			conditions: map[model.ConditionType]*model.Condition{
+				model.WaypointBound: {
+					Status: true,
+					Reason: string(model.WaypointAccepted),
+					Message: "Successfully attached to waypoint waypoint-ns/waypoint. " +
+						"Ingress traffic is not using the waypoint, set the istio.io/ingress-use-waypoint label to true if desired.",
+				},
+			},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := krttest.NewMock(t, tt.inputs)
+			a := newAmbientUnitTest(t)
+			builder := a.serviceServiceBuilder(
+				krttest.GetMockCollection[Waypoint](mock),
+				krttest.GetMockCollection[*v1.Namespace](mock),
+				krttest.GetMockSingleton[MeshConfig](mock),
+				true,
+			)
+			res := builder(krt.TestingDummyContext{}, tt.svc)
+			assert.Equal(t, res.GetConditions(nil), tt.conditions) // TODO: Test transitions for conditions
+		})
+	}
+}
+
+func TestMatchServiceScope(t *testing.T) {
+	ns := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns",
+			Labels: map[string]string{
+				v1.LabelMetadataName:      "ns",
+				"istio.io/dataplane-mode": "ambient",
+			},
+		},
+	}
+
+	svcGlobal := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "svc-global",
+			Namespace: "ns",
+			Labels: map[string]string{
+				v1.LabelMetadataName: "svc-global",
+				"istio.io/global":    "true",
+			},
+		},
+		Spec: v1.ServiceSpec{
+			Type: v1.ServiceTypeClusterIP,
+		},
+	}
+
+	svcLocal := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "svc-local",
+			Namespace: "ns",
+			Labels: map[string]string{
+				v1.LabelMetadataName: "svc-local",
+			},
+		},
+		Spec: v1.ServiceSpec{
+			Type: v1.ServiceTypeClusterIP,
+		},
+	}
+
+	svcLocalLabel := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "svc-no-label",
+			Namespace: "ns",
+			Labels: map[string]string{
+				v1.LabelMetadataName: "svc-local-label",
+				"istio.io/local":     "true",
+			},
+		},
+		Spec: v1.ServiceSpec{
+			Type: v1.ServiceTypeClusterIP,
+		},
+	}
+
+	tests := []struct {
+		name    string
+		inputs  []any
+		meshCfg *MeshConfig
+		svc     *v1.Service
+		want    model.ServiceScope
+	}{
+		{
+			name: "explicit service opt-in - no match",
+			inputs: []any{
+				ns,
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							ServicesSelector: &meshConfig.LabelSelector{
+								MatchExpressions: []*meshConfig.LabelSelectorRequirement{
+									{
+										Key:      "istio.io/global",
+										Operator: string(metav1.LabelSelectorOpIn),
+										Values:   []string{"true"},
+									},
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcLocal,
+			want: model.Local,
+		},
+		{
+			name: "services global by default, opt out by namespace - no match",
+			inputs: []any{
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							"istio.io/local": "true",
+						},
+					},
+				},
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							NamespaceSelector: &meshConfig.LabelSelector{
+								MatchExpressions: []*meshConfig.LabelSelectorRequirement{
+									{
+										Key:      "istio.io/local",
+										Operator: string(metav1.LabelSelectorOpDoesNotExist),
+									},
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcLocal,
+			want: model.Local,
+		},
+		{
+			name: "explicit namespace opt-in - no match",
+			inputs: []any{
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							"istio.io/global": "false",
+						},
+					},
+				},
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							NamespaceSelector: &meshConfig.LabelSelector{
+								MatchLabels: map[string]string{
+									"istio.io/global": "true",
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcLocal,
+			want: model.Local,
+		},
+		{
+			name: "explicit service opt-in - match global",
+			inputs: []any{
+				ns,
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							ServicesSelector: &meshConfig.LabelSelector{
+								MatchLabels: map[string]string{
+									"istio.io/global": "true",
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcGlobal,
+			want: model.Global,
+		},
+		{
+			name: "services global by default, opt out by namespace - match global",
+			inputs: []any{
+				ns,
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							NamespaceSelector: &meshConfig.LabelSelector{
+								MatchExpressions: []*meshConfig.LabelSelectorRequirement{
+									{
+										Key:      "istio.io/local",
+										Operator: string(metav1.LabelSelectorOpDoesNotExist),
+									},
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcGlobal,
+			want: model.Global,
+		},
+		{
+			name: "namespace opt-in - match global",
+			inputs: []any{
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							"istio.io/global": "true",
+						},
+					},
+				},
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							NamespaceSelector: &meshConfig.LabelSelector{
+								MatchLabels: map[string]string{
+									"istio.io/global": "true",
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcGlobal,
+			want: model.Global,
+		},
+		{
+			name: "service and namespace opt-in - match global",
+			inputs: []any{
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							"istio.io/global": "true",
+						},
+					},
+				},
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							NamespaceSelector: &meshConfig.LabelSelector{
+								MatchLabels: map[string]string{
+									"istio.io/global": "true",
+								},
+							},
+							ServicesSelector: &meshConfig.LabelSelector{
+								MatchLabels: map[string]string{
+									"istio.io/global": "true",
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcGlobal,
+			want: model.Global,
+		},
+		{
+			name: "service without istio.io/global label - match local",
+			inputs: []any{
+				ns,
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							ServicesSelector: &meshConfig.LabelSelector{
+								MatchLabels: map[string]string{
+									"istio.io/global": "true",
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcLocal,
+			want: model.Local,
+		},
+		{
+			name: "Services global by default, opt out by namespace and opt out by service - match local",
+			inputs: []any{
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							"istio.io/local": "true",
+						},
+					},
+				},
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							NamespaceSelector: &meshConfig.LabelSelector{
+								MatchExpressions: []*meshConfig.LabelSelectorRequirement{
+									{
+										Key:      "istio.io/local",
+										Operator: string(metav1.LabelSelectorOpDoesNotExist),
+									},
+								},
+							},
+							ServicesSelector: &meshConfig.LabelSelector{
+								MatchExpressions: []*meshConfig.LabelSelectorRequirement{
+									{
+										Key:      "istio.io/local",
+										Operator: string(metav1.LabelSelectorOpDoesNotExist),
+									},
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcGlobal,
+			want: model.Local,
+		},
+		{
+			name: "Services global by default, opt out by namespace and opt out by service - match local on svc",
+			inputs: []any{
+				ns,
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							NamespaceSelector: &meshConfig.LabelSelector{
+								MatchExpressions: []*meshConfig.LabelSelectorRequirement{
+									{
+										Key:      "istio.io/local",
+										Operator: string(metav1.LabelSelectorOpDoesNotExist),
+									},
+								},
+							},
+							ServicesSelector: &meshConfig.LabelSelector{
+								MatchExpressions: []*meshConfig.LabelSelectorRequirement{
+									{
+										Key:      "istio.io/local",
+										Operator: string(metav1.LabelSelectorOpDoesNotExist),
+									},
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcLocalLabel,
+			want: model.Local,
+		},
+		{
+			name: "Services global by default, opt out by namespace and opt out by service - no match global",
+			inputs: []any{
+				ns,
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							NamespaceSelector: &meshConfig.LabelSelector{
+								MatchExpressions: []*meshConfig.LabelSelectorRequirement{
+									{
+										Key:      "istio.io/local",
+										Operator: string(metav1.LabelSelectorOpDoesNotExist),
+									},
+								},
+							},
+							ServicesSelector: &meshConfig.LabelSelector{
+								MatchExpressions: []*meshConfig.LabelSelectorRequirement{
+									{
+										Key:      "istio.io/local",
+										Operator: string(metav1.LabelSelectorOpDoesNotExist),
+									},
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcGlobal,
+			want: model.Global,
+		},
+		{
+			name: "Explicit namespace opt-in, opt out by service - no match local",
+			inputs: []any{
+				&v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ns",
+						Labels: map[string]string{
+							"istio.io/global": "true",
+						},
+					},
+				},
+			},
+			meshCfg: &meshwatcher.MeshConfigResource{
+				MeshConfig: &meshConfig.MeshConfig{
+					ServiceScopeConfigs: []*meshConfig.MeshConfig_ServiceScopeConfigs{
+						{
+							NamespaceSelector: &meshConfig.LabelSelector{
+								MatchExpressions: []*meshConfig.LabelSelectorRequirement{
+									{
+										Key:      "istio.io/global",
+										Operator: string(metav1.LabelSelectorOpIn),
+										Values:   []string{"true"},
+									},
+								},
+							},
+							ServicesSelector: &meshConfig.LabelSelector{
+								MatchExpressions: []*meshConfig.LabelSelectorRequirement{
+									{
+										Key:      "istio.io/local",
+										Operator: string(metav1.LabelSelectorOpDoesNotExist),
+									},
+								},
+							},
+							Scope: meshConfig.MeshConfig_ServiceScopeConfigs_GLOBAL,
+						},
+					},
+				},
+			},
+			svc:  svcLocalLabel,
+			want: model.Local,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := krt.TestingDummyContext{}
+			mock := krttest.NewMock(t, tt.inputs)
+			got := matchServiceScope(ctx, tt.meshCfg, krttest.GetMockCollection[*v1.Namespace](mock), tt.svc)
+			assert.Equal(t, got, tt.want)
+		})
+	}
+}
+
+func TestIngressUseWaypointFromLabels(t *testing.T) {
+	tests := []struct {
+		name            string
+		serviceLabels   map[string]string
+		namespaceLabels map[string]string
+		wantPresent     bool
+		wantUseWaypoint bool
+	}{
+		{
+			"no labels",
+			nil, nil,
+			false, false,
+		},
+		{
+			"service label true",
+			map[string]string{label.IoIstioIngressUseWaypoint.Name: "true"},
+			nil,
+			true, true,
+		},
+		{
+			"service label empty",
+			map[string]string{label.IoIstioIngressUseWaypoint.Name: ""},
+			nil,
+			true, false,
+		},
+		{
+			"service label True (case)",
+			map[string]string{label.IoIstioIngressUseWaypoint.Name: "True"},
+			nil,
+			true, true,
+		},
+		{
+			"no service label, namespace label true",
+			map[string]string{},
+			map[string]string{label.IoIstioIngressUseWaypoint.Name: "true"},
+			true, true,
+		},
+		{
+			"no service label, namespace label false",
+			map[string]string{},
+			map[string]string{label.IoIstioIngressUseWaypoint.Name: "false"},
+			true, false,
+		},
+		{
+			"service overrides namespace",
+			map[string]string{label.IoIstioIngressUseWaypoint.Name: "false"},
+			map[string]string{label.IoIstioIngressUseWaypoint.Name: "true"},
+			true, false,
+		},
+		{
+			"namespace label empty",
+			map[string]string{},
+			map[string]string{label.IoIstioIngressUseWaypoint.Name: ""},
+			true, false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotPresent, gotUse := ingressUseWaypointFromLabels(tt.serviceLabels, tt.namespaceLabels)
+			if gotPresent != tt.wantPresent || gotUse != tt.wantUseWaypoint {
+				t.Errorf("ingressUseWaypointFromLabels() = (present=%v, use=%v), want (present=%v, use=%v)",
+					gotPresent, gotUse, tt.wantPresent, tt.wantUseWaypoint)
+			}
+		})
+	}
+}
