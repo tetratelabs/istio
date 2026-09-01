@@ -1,0 +1,419 @@
+// Copyright Istio Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package core
+
+import (
+	"fmt"
+	"reflect"
+	"testing"
+
+	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	proxyprotocol "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
+	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
+
+	meshconfig "istio.io/api/mesh/v1alpha1"
+	networking "istio.io/api/networking/v1alpha3"
+	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pilot/pkg/networking/core/loadbalancer"
+	"istio.io/istio/pilot/pkg/networking/util"
+	"istio.io/istio/pkg/test/util/assert"
+)
+
+func TestApplyDefaultTrafficPolicy(t *testing.T) {
+	meshConnPool := &networking.ConnectionPoolSettings{
+		Tcp: &networking.ConnectionPoolSettings_TCPSettings{MaxConnections: 100},
+	}
+	meshOutlier := &networking.OutlierDetection{
+		Consecutive_5XxErrors: &wrappers.UInt32Value{Value: 5},
+	}
+	drConnPool := &networking.ConnectionPoolSettings{
+		Tcp: &networking.ConnectionPoolSettings_TCPSettings{MaxConnections: 7},
+	}
+	drOutlier := &networking.OutlierDetection{
+		Consecutive_5XxErrors: &wrappers.UInt32Value{Value: 9},
+	}
+	bothDefault := &meshconfig.MeshConfig_DefaultTrafficPolicy{
+		ConnectionPool:   meshConnPool,
+		OutlierDetection: meshOutlier,
+	}
+
+	tests := []struct {
+		name         string
+		meshDefault  *meshconfig.MeshConfig_DefaultTrafficPolicy
+		policy       *networking.TrafficPolicy
+		wantConnPool *networking.ConnectionPoolSettings
+		wantOutlier  *networking.OutlierDetection
+		wantNil      bool
+	}{
+		{
+			name:        "no mesh default, nil policy stays nil",
+			meshDefault: nil,
+			policy:      nil,
+			wantNil:     true,
+		},
+		{
+			name:         "no mesh default leaves DR policy untouched",
+			meshDefault:  &meshconfig.MeshConfig_DefaultTrafficPolicy{},
+			policy:       &networking.TrafficPolicy{ConnectionPool: drConnPool},
+			wantConnPool: drConnPool,
+		},
+		{
+			name:         "no DR inherits both baseline blocks",
+			meshDefault:  bothDefault,
+			policy:       nil,
+			wantConnPool: meshConnPool,
+			wantOutlier:  meshOutlier,
+		},
+		{
+			name:         "DR connectionPool overrides, outlier inherited",
+			meshDefault:  bothDefault,
+			policy:       &networking.TrafficPolicy{ConnectionPool: drConnPool},
+			wantConnPool: drConnPool,
+			wantOutlier:  meshOutlier,
+		},
+		{
+			name:         "DR sets both, baseline ignored",
+			meshDefault:  bothDefault,
+			policy:       &networking.TrafficPolicy{ConnectionPool: drConnPool, OutlierDetection: drOutlier},
+			wantConnPool: drConnPool,
+			wantOutlier:  drOutlier,
+		},
+		{
+			name:         "baseline only connectionPool, DR sets outlier",
+			meshDefault:  &meshconfig.MeshConfig_DefaultTrafficPolicy{ConnectionPool: meshConnPool},
+			policy:       &networking.TrafficPolicy{OutlierDetection: drOutlier},
+			wantConnPool: meshConnPool,
+			wantOutlier:  drOutlier,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := applyDefaultTrafficPolicy(tt.meshDefault, tt.policy)
+			if tt.wantNil {
+				assert.Equal(t, got == nil, true)
+				return
+			}
+			assert.Equal(t, got.GetConnectionPool(), tt.wantConnPool)
+			assert.Equal(t, got.GetOutlierDetection(), tt.wantOutlier)
+		})
+	}
+}
+
+func TestApplyUpstreamProxyProtocol(t *testing.T) {
+	istioMutualTLSSettings := &networking.ClientTLSSettings{
+		Mode:            networking.ClientTLSSettings_ISTIO_MUTUAL,
+		SubjectAltNames: []string{"custom.foo.com"},
+		Sni:             "custom.foo.com",
+	}
+	mutualTLSSettingsWithCerts := &networking.ClientTLSSettings{
+		Mode:              networking.ClientTLSSettings_MUTUAL,
+		CaCertificates:    "root-cert.pem",
+		ClientCertificate: "cert-chain.pem",
+		PrivateKey:        "key.pem",
+		SubjectAltNames:   []string{"custom.foo.com"},
+		Sni:               "custom.foo.com",
+	}
+	simpleTLSSettingsWithCerts := &networking.ClientTLSSettings{
+		Mode:            networking.ClientTLSSettings_SIMPLE,
+		CaCertificates:  "root-cert.pem",
+		SubjectAltNames: []string{"custom.foo.com"},
+		Sni:             "custom.foo.com",
+	}
+
+	tests := []struct {
+		name                       string
+		mtlsCtx                    mtlsContextType
+		discoveryType              cluster.Cluster_DiscoveryType
+		tls                        *networking.ClientTLSSettings
+		proxyProtocolSettings      *networking.TrafficPolicy_ProxyProtocol
+		expectTransportSocket      bool
+		expectTransportSocketMatch bool
+		expectRawBuffer            bool
+
+		validateTLSContext func(t *testing.T, ctx *tls.UpstreamTlsContext)
+	}{
+		{
+			name:          "user specified without tls",
+			mtlsCtx:       userSupplied,
+			discoveryType: cluster.Cluster_EDS,
+			tls:           nil,
+			proxyProtocolSettings: &networking.TrafficPolicy_ProxyProtocol{
+				Version: networking.TrafficPolicy_ProxyProtocol_V2,
+			},
+			expectTransportSocket:      true,
+			expectTransportSocketMatch: false,
+		},
+		{
+			name:          "user specified with istio_mutual tls",
+			mtlsCtx:       userSupplied,
+			discoveryType: cluster.Cluster_EDS,
+			tls:           istioMutualTLSSettings,
+			proxyProtocolSettings: &networking.TrafficPolicy_ProxyProtocol{
+				Version: networking.TrafficPolicy_ProxyProtocol_V2,
+			},
+			expectTransportSocket:      true,
+			expectTransportSocketMatch: false,
+			validateTLSContext: func(t *testing.T, ctx *tls.UpstreamTlsContext) {
+				if got := ctx.CommonTlsContext.GetAlpnProtocols(); !reflect.DeepEqual(got, util.ALPNInMeshWithMxc) {
+					t.Fatalf("expected alpn list %v; got %v", util.ALPNInMeshWithMxc, got)
+				}
+			},
+		},
+		{
+			name:          "user specified simple tls",
+			mtlsCtx:       userSupplied,
+			discoveryType: cluster.Cluster_EDS,
+			tls:           simpleTLSSettingsWithCerts,
+			proxyProtocolSettings: &networking.TrafficPolicy_ProxyProtocol{
+				Version: networking.TrafficPolicy_ProxyProtocol_V2,
+			},
+			expectTransportSocket:      true,
+			expectTransportSocketMatch: false,
+			validateTLSContext: func(t *testing.T, ctx *tls.UpstreamTlsContext) {
+				rootName := "file-root:" + mutualTLSSettingsWithCerts.CaCertificates
+				if got := ctx.CommonTlsContext.GetCombinedValidationContext().GetValidationContextSdsSecretConfig().GetName(); rootName != got {
+					t.Fatalf("expected root name %v got %v", rootName, got)
+				}
+				if got := ctx.CommonTlsContext.GetAlpnProtocols(); got != nil {
+					t.Fatalf("expected alpn list nil as not h2 or Istio_Mutual TLS Setting; got %v", got)
+				}
+				if got := ctx.GetSni(); got != simpleTLSSettingsWithCerts.Sni {
+					t.Fatalf("expected TLSContext SNI %v; got %v", simpleTLSSettingsWithCerts.Sni, got)
+				}
+			},
+		},
+		{
+			name:          "user specified mutual tls",
+			mtlsCtx:       userSupplied,
+			discoveryType: cluster.Cluster_EDS,
+			tls:           mutualTLSSettingsWithCerts,
+			proxyProtocolSettings: &networking.TrafficPolicy_ProxyProtocol{
+				Version: networking.TrafficPolicy_ProxyProtocol_V2,
+			},
+			expectTransportSocket:      true,
+			expectTransportSocketMatch: false,
+			validateTLSContext: func(t *testing.T, ctx *tls.UpstreamTlsContext) {
+				rootName := "file-root:" + mutualTLSSettingsWithCerts.CaCertificates
+				certName := fmt.Sprintf("file-cert:%s~%s", mutualTLSSettingsWithCerts.ClientCertificate, mutualTLSSettingsWithCerts.PrivateKey)
+				if got := ctx.CommonTlsContext.GetCombinedValidationContext().GetValidationContextSdsSecretConfig().GetName(); rootName != got {
+					t.Fatalf("expected root name %v got %v", rootName, got)
+				}
+				if got := ctx.CommonTlsContext.GetTlsCertificateSdsSecretConfigs()[0].GetName(); certName != got {
+					t.Fatalf("expected cert name %v got %v", certName, got)
+				}
+				if got := ctx.CommonTlsContext.GetAlpnProtocols(); got != nil {
+					t.Fatalf("expected alpn list nil as not h2 or Istio_Mutual TLS Setting; got %v", got)
+				}
+				if got := ctx.GetSni(); got != mutualTLSSettingsWithCerts.Sni {
+					t.Fatalf("expected TLSContext SNI %v; got %v", mutualTLSSettingsWithCerts.Sni, got)
+				}
+			},
+		},
+		{
+			name:          "auto detect with tls",
+			mtlsCtx:       autoDetected,
+			discoveryType: cluster.Cluster_EDS,
+			tls:           istioMutualTLSSettings,
+			proxyProtocolSettings: &networking.TrafficPolicy_ProxyProtocol{
+				Version: networking.TrafficPolicy_ProxyProtocol_V2,
+			},
+			expectTransportSocket:      false,
+			expectTransportSocketMatch: true,
+			validateTLSContext: func(t *testing.T, ctx *tls.UpstreamTlsContext) {
+				if got := ctx.CommonTlsContext.GetAlpnProtocols(); !reflect.DeepEqual(got, util.ALPNInMeshWithMxc) {
+					t.Fatalf("expected alpn list %v; got %v", util.ALPNInMeshWithMxc, got)
+				}
+			},
+		},
+	}
+
+	proxy := &model.Proxy{
+		Type:         model.SidecarProxy,
+		Metadata:     &model.NodeMetadata{},
+		IstioVersion: &model.IstioVersion{Major: 1, Minor: 5},
+	}
+	push := model.NewPushContext()
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cb := NewClusterBuilder(proxy, &model.PushRequest{Push: push}, model.DisabledCache{})
+			opts := &buildClusterOpts{
+				mutable: newClusterWrapper(&cluster.Cluster{
+					ClusterDiscoveryType: &cluster.Cluster_Type{Type: test.discoveryType},
+				}),
+				mesh: push.Mesh,
+			}
+			cb.applyUpstreamTLSSettings(opts, test.tls, test.mtlsCtx)
+			// apply proxy protocol settings
+			cb.applyUpstreamProxyProtocol(opts, test.proxyProtocolSettings)
+			cluster := opts.mutable.cluster
+			if test.expectTransportSocket && cluster.TransportSocket == nil ||
+				!test.expectTransportSocket && cluster.TransportSocket != nil {
+				t.Errorf("Expected TransportSocket %v", test.expectTransportSocket)
+			}
+			if test.expectTransportSocketMatch && cluster.TransportSocketMatches == nil ||
+				!test.expectTransportSocketMatch && cluster.TransportSocketMatches != nil {
+				t.Errorf("Expected TransportSocketMatch %v", test.expectTransportSocketMatch)
+			}
+			upstreamProxyProtocol := &proxyprotocol.ProxyProtocolUpstreamTransport{}
+			if cluster.TransportSocket != nil {
+				if got := cluster.TransportSocket.Name; got != "envoy.transport_sockets.upstream_proxy_protocol" {
+					t.Errorf("Expected TransportSocket name %v, got %v", "envoy.transport_sockets.upstream_proxy_protocol", got)
+				}
+				if err := cluster.TransportSocket.GetTypedConfig().UnmarshalTo(upstreamProxyProtocol); err != nil {
+					t.Fatal(err)
+				}
+				if upstreamProxyProtocol.Config.Version != core.ProxyProtocolConfig_Version(test.proxyProtocolSettings.Version) {
+					t.Errorf("Expected proxy protocol version %v, got %v", test.proxyProtocolSettings.Version, upstreamProxyProtocol.Config.Version)
+				}
+				if test.validateTLSContext != nil {
+					ctx := &tls.UpstreamTlsContext{}
+					if err := upstreamProxyProtocol.TransportSocket.GetTypedConfig().UnmarshalTo(ctx); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if test.expectRawBuffer {
+					assert.Equal(t, upstreamProxyProtocol.TransportSocket.Name, util.RawBufferTransport().Name)
+				}
+			}
+
+			for i, match := range cluster.TransportSocketMatches {
+				if err := match.TransportSocket.GetTypedConfig().UnmarshalTo(upstreamProxyProtocol); err != nil {
+					t.Fatal(err)
+				}
+				if upstreamProxyProtocol.Config.Version != core.ProxyProtocolConfig_Version(test.proxyProtocolSettings.Version) {
+					t.Errorf("Expected proxy protocol version %v, got %v", test.proxyProtocolSettings.Version, upstreamProxyProtocol.Config.Version)
+				}
+				if test.validateTLSContext != nil && i == 0 {
+					ctx := &tls.UpstreamTlsContext{}
+					if err := upstreamProxyProtocol.TransportSocket.GetTypedConfig().UnmarshalTo(ctx); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestApplyZoneAwareLoadBalancer covers the cluster-level zone-aware wiring:
+//   - With enableSelfDiscovery=true, sets CommonLbConfig.ZoneAwareLbConfig
+//     and propagates MinClusterSize from the ZoneAwareLoadBalancerSetting.
+//   - With enableSelfDiscovery=false, leaves CommonLbConfig.LocalityConfigSpecifier unset.
+//   - Region-bucketing on the cluster's LoadAssignment is delegated to the loadbalancer
+//     package and exercised end-to-end here.
+func TestApplyZoneAwareLoadBalancer(t *testing.T) {
+	proxyLocality := &core.Locality{Region: "region1", Zone: "zone1", SubZone: "subzone1"}
+
+	newCluster := func() *cluster.Cluster {
+		return &cluster.Cluster{
+			Name:           "outbound|80||svc.default.svc.cluster.local",
+			CommonLbConfig: &cluster.Cluster_CommonLbConfig{},
+			LoadAssignment: &endpoint.ClusterLoadAssignment{
+				Endpoints: []*endpoint.LocalityLbEndpoints{
+					{Locality: &core.Locality{Region: "region1", Zone: "zone1", SubZone: "subzone1"}},
+					{Locality: &core.Locality{Region: "region1", Zone: "zone2", SubZone: "subzone1"}},
+					{Locality: &core.Locality{Region: "region2", Zone: "zone1", SubZone: "subzone1"}},
+				},
+			},
+		}
+	}
+
+	t.Run("sets ZoneAwareLbConfig with MinClusterSize", func(t *testing.T) {
+		c := newCluster()
+		za := &networking.ZoneAwareLoadBalancerSetting{
+			Enabled:        wrappers.Bool(true),
+			MinClusterSize: &wrappers.UInt32Value{Value: 7},
+		}
+		loadbalancer.ZoneAwareLBSettings{Setting: za}.ApplyToCluster(c, nil, proxyLocality, nil, false, "test-proxy", true)
+		zaCfg := c.CommonLbConfig.GetZoneAwareLbConfig()
+		if zaCfg == nil {
+			t.Fatal("expected CommonLbConfig.ZoneAwareLbConfig to be set")
+		}
+		if zaCfg.GetMinClusterSize().GetValue() != 7 {
+			t.Errorf("MinClusterSize = %v, want 7", zaCfg.GetMinClusterSize())
+		}
+	})
+
+	t.Run("sets ZoneAwareLbConfig with nil MinClusterSize", func(t *testing.T) {
+		c := newCluster()
+		za := &networking.ZoneAwareLoadBalancerSetting{Enabled: wrappers.Bool(true)}
+		loadbalancer.ZoneAwareLBSettings{Setting: za}.ApplyToCluster(c, nil, proxyLocality, nil, false, "test-proxy", true)
+		zaCfg := c.CommonLbConfig.GetZoneAwareLbConfig()
+		if zaCfg == nil {
+			t.Fatal("expected ZoneAwareLbConfig to be set even without MinClusterSize")
+		}
+		if zaCfg.GetMinClusterSize() != nil {
+			t.Errorf("MinClusterSize = %v, want nil", zaCfg.GetMinClusterSize())
+		}
+	})
+
+	t.Run("self-discovery off still sets ZoneAwareLbConfig and emits warning", func(t *testing.T) {
+		c := newCluster()
+		za := &networking.ZoneAwareLoadBalancerSetting{
+			Enabled:        wrappers.Bool(true),
+			MinClusterSize: &wrappers.UInt32Value{Value: 7},
+		}
+		// ZoneAwareLbConfig is always set; enableSelfDiscovery=false only triggers a warning.
+		loadbalancer.ZoneAwareLBSettings{Setting: za}.ApplyToCluster(c, nil, proxyLocality, nil, false, "test-proxy", false)
+		if c.CommonLbConfig.GetZoneAwareLbConfig() == nil {
+			t.Error("expected ZoneAwareLbConfig to be set even when self-discovery is off")
+		}
+	})
+
+	t.Run("region-buckets CLA priorities", func(t *testing.T) {
+		c := newCluster()
+		za := &networking.ZoneAwareLoadBalancerSetting{Enabled: wrappers.Bool(true)}
+		loadbalancer.ZoneAwareLBSettings{Setting: za}.ApplyToCluster(c, nil, proxyLocality, nil, false, "test-proxy", true)
+		// region1 endpoints (any zone) → 0, region2 → 1.
+		want := []uint32{0, 0, 1}
+		for i, ep := range c.LoadAssignment.Endpoints {
+			if ep.Priority != want[i] {
+				t.Errorf("endpoint[%d] locality %v: got priority %d, want %d",
+					i, ep.Locality, ep.Priority, want[i])
+			}
+		}
+	})
+
+	t.Run("nil LoadAssignment is safe", func(t *testing.T) {
+		c := &cluster.Cluster{CommonLbConfig: &cluster.Cluster_CommonLbConfig{}}
+		za := &networking.ZoneAwareLoadBalancerSetting{Enabled: wrappers.Bool(true)}
+		loadbalancer.ZoneAwareLBSettings{Setting: za}.ApplyToCluster(c, nil, proxyLocality, nil, false, "test-proxy", true)
+		// ZoneAwareLbConfig still gets set even without a LoadAssignment.
+		if c.CommonLbConfig.GetZoneAwareLbConfig() == nil {
+			t.Error("expected ZoneAwareLbConfig set even with nil LoadAssignment")
+		}
+	})
+
+	t.Run("disabled sets routing_enabled 0% and leaves priorities untouched", func(t *testing.T) {
+		c := newCluster()
+		za := &networking.ZoneAwareLoadBalancerSetting{Enabled: wrappers.Bool(false)}
+		loadbalancer.ZoneAwareLBSettings{Setting: za}.ApplyToCluster(c, nil, proxyLocality, nil, false, "test-proxy", true)
+		zaCfg := c.CommonLbConfig.GetZoneAwareLbConfig()
+		if zaCfg == nil {
+			t.Fatal("expected ZoneAwareLbConfig to be set even when disabled")
+		}
+		if zaCfg.GetRoutingEnabled() == nil || zaCfg.GetRoutingEnabled().GetValue() != 0 {
+			t.Errorf("RoutingEnabled = %v, want 0", zaCfg.GetRoutingEnabled())
+		}
+		// Priorities should be untouched (all 0 from newCluster).
+		for i, ep := range c.LoadAssignment.Endpoints {
+			if ep.Priority != 0 {
+				t.Errorf("endpoint[%d] priority = %d, want 0 (priorities untouched when disabled)", i, ep.Priority)
+			}
+		}
+	})
+}
