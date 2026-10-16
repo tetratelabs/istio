@@ -57,7 +57,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
-	github.com/prometheus/common v0.72.1
+	github.com/prometheus/common v0.72.0
 	github.com/prometheus/procfs v0.22.0
 	github.com/prometheus/prometheus v0.311.3
 	github.com/quic-go/quic-go v0.63.0
@@ -82,7 +82,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.11.1
 	go.uber.org/atomic v1.12.0
 	go.uber.org/zap v1.28.0
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.60.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/sys v0.49.0
