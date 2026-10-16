@@ -74,6 +74,112 @@ func TestWorkloadSubscriberNeedsAddressPush(t *testing.T) {
 	}
 }
 
+func TestGatewayScopeDependencies(t *testing.T) {
+	const gatewayNamespace = "gateway"
+	const serviceNamespace = "backend"
+	const rootNamespace = "root"
+	const serviceHost = "backend.example.com"
+	service := &model.Service{
+		Hostname: serviceHost,
+		Attributes: model.ServiceAttributes{
+			Namespace: serviceNamespace,
+			ExportTo:  sets.New(visibility.Public),
+		},
+	}
+	destinationRule := config.Config{
+		Meta: config.Meta{GroupVersionKind: gvk.DestinationRule, Name: "dr", Namespace: serviceNamespace},
+		Spec: &networking.DestinationRule{Host: serviceHost},
+	}
+	peerAuthentication := config.Config{
+		Meta: config.Meta{GroupVersionKind: gvk.PeerAuthentication, Name: "pa", Namespace: serviceNamespace},
+		Spec: &security.PeerAuthentication{},
+	}
+	old := core.NewConfigGenTest(t, core.TestOptions{
+		Services:   []*model.Service{service},
+		Configs:    []config.Config{destinationRule, peerAuthentication},
+		MeshConfig: &mesh.MeshConfig{RootNamespace: rootNamespace},
+	})
+	current := core.NewConfigGenTest(t, core.TestOptions{
+		Services:   []*model.Service{service},
+		MeshConfig: &mesh.MeshConfig{RootNamespace: rootNamespace},
+	})
+	proxy := &model.Proxy{Type: model.Router, ConfigNamespace: gatewayNamespace, Metadata: &model.NodeMetadata{}}
+	proxy.SetSidecarScope(old.PushContext())
+	proxy.SetSidecarScope(current.PushContext())
+
+	t.Run("removed dependencies", func(t *testing.T) {
+		for _, k := range []kind.Kind{kind.DestinationRule, kind.PeerAuthentication} {
+			name := "dr"
+			if k == kind.PeerAuthentication {
+				name = "pa"
+			}
+			key := model.ConfigKey{Kind: k, Name: name, Namespace: serviceNamespace}
+			assert.Equal(t, proxy.SidecarScope.DependsOnConfig(key, rootNamespace), false)
+			assert.Equal(t, proxy.PrevSidecarScope.DependsOnConfig(key, rootNamespace), true)
+			_, needsPush := DefaultProxyNeedsPush(proxy, &model.PushRequest{
+				Push: current.PushContext(), ConfigsUpdated: sets.New(key),
+			})
+			assert.Equal(t, needsPush, true)
+		}
+	})
+
+	t.Run("current dependencies", func(t *testing.T) {
+		proxy := &model.Proxy{Type: model.Router, ConfigNamespace: gatewayNamespace, Metadata: &model.NodeMetadata{}}
+		proxy.SetSidecarScope(old.PushContext())
+		for _, cfg := range []config.Config{destinationRule, peerAuthentication} {
+			_, needsPush := DefaultProxyNeedsPush(proxy, &model.PushRequest{
+				Push: old.PushContext(), ConfigsUpdated: sets.New(model.ConfigKey{
+					Kind: gvk.MustToKind(cfg.GroupVersionKind), Name: cfg.Name, Namespace: cfg.Namespace,
+				}),
+			})
+			assert.Equal(t, needsPush, true)
+		}
+	})
+
+	for _, k := range []kind.Kind{
+		kind.EnvoyFilter, kind.RequestAuthentication, kind.AuthorizationPolicy,
+		kind.Telemetry, kind.TrafficExtension, kind.WasmPlugin,
+	} {
+		for _, ns := range []string{rootNamespace, gatewayNamespace, "unrelated"} {
+			t.Run(k.String()+"/"+ns, func(t *testing.T) {
+				key := model.ConfigKey{Kind: k, Name: "policy", Namespace: ns}
+				req := &model.PushRequest{Push: current.PushContext(), ConfigsUpdated: sets.New(key)}
+				filtered, needsPush := DefaultProxyNeedsPush(proxy, req)
+				want := ns != "unrelated"
+				assert.Equal(t, needsPush, want)
+				assert.Equal(t, filtered.ConfigsUpdated.Contains(key), want)
+				assert.Equal(t, req.ConfigsUpdated.Contains(key), true)
+			})
+		}
+	}
+
+	for _, k := range []kind.Kind{kind.DestinationRule, kind.PeerAuthentication, kind.VirtualService, kind.Gateway} {
+		t.Run(k.String(), func(t *testing.T) {
+			_, needsPush := DefaultProxyNeedsPush(proxy, &model.PushRequest{
+				Push: current.PushContext(), ConfigsUpdated: sets.New(model.ConfigKey{
+					Kind: k, Name: "unrelated", Namespace: "unrelated",
+				}),
+			})
+			assert.Equal(t, needsPush, k == kind.VirtualService || k == kind.Gateway)
+		})
+	}
+
+	t.Run("service update merged with unrelated filter", func(t *testing.T) {
+		serviceKey := model.ConfigKey{Kind: kind.ServiceEntry, Name: serviceHost, Namespace: serviceNamespace}
+		filterKey := model.ConfigKey{Kind: kind.EnvoyFilter, Name: "filter", Namespace: "unrelated"}
+		for _, forced := range []bool{false, true} {
+			req := &model.PushRequest{
+				Push: current.PushContext(), ConfigsUpdated: sets.New(serviceKey, filterKey), Forced: forced,
+			}
+			filtered, needsPush := DefaultProxyNeedsPush(proxy, req)
+			assert.Equal(t, needsPush, true)
+			assert.Equal(t, filtered.ConfigsUpdated.Contains(serviceKey), true)
+			assert.Equal(t, filtered.ConfigsUpdated.Contains(filterKey), forced)
+			assert.Equal(t, req.ConfigsUpdated.Contains(filterKey), true)
+		}
+	})
+}
+
 func TestProxyNeedsPush(t *testing.T) {
 	const (
 		svcName        = "svc1.com"
@@ -700,6 +806,58 @@ func TestProxyNeedsPushServiceTargets(t *testing.T) {
 			if !tt.wantConfigs.Equals(newReq.ConfigsUpdated) {
 				t.Fatalf("Got configs updated = %v, expected %v", newReq.ConfigsUpdated, tt.wantConfigs)
 			}
+		})
+	}
+}
+
+func TestCanSendPartialFullPushesIgnoresSkippedConfigs(t *testing.T) {
+	endpoint := model.ConfigKey{Kind: kind.Endpoints, Name: "service.example"}
+	for skippedKind := range skippedEdsConfigs {
+		if skippedKind == kind.Address {
+			continue
+		}
+		t.Run(skippedKind.String(), func(t *testing.T) {
+			assert.Equal(t, canSendPartialFullPushes(&model.PushRequest{
+				ConfigsUpdated: sets.New(
+					endpoint,
+					model.ConfigKey{Kind: skippedKind, Name: "unrelated"},
+				),
+			}), true)
+		})
+	}
+}
+
+func TestCanSendPartialFullPushesConservativeFallbacks(t *testing.T) {
+	endpoint := model.ConfigKey{Kind: kind.Endpoints, Name: "service.example"}
+	tests := []struct {
+		name string
+		req  *model.PushRequest
+	}{
+		{
+			name: "Address",
+			req: &model.PushRequest{ConfigsUpdated: sets.New(
+				endpoint,
+				model.ConfigKey{Kind: kind.Address, Name: "address"},
+			)},
+		},
+		{
+			name: "unclassified kind",
+			req: &model.PushRequest{ConfigsUpdated: sets.New(
+				endpoint,
+				model.ConfigKey{Kind: kind.Kind(255), Name: "unknown"},
+			)},
+		},
+		{
+			name: "root PeerAuthentication",
+			req: &model.PushRequest{
+				ConfigsUpdated: sets.New(model.ConfigKey{Kind: kind.PeerAuthentication, Name: "default", Namespace: "istio-system"}),
+				Push:           &model.PushContext{Mesh: &mesh.MeshConfig{RootNamespace: "istio-system"}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, canSendPartialFullPushes(tt.req), false)
 		})
 	}
 }
