@@ -928,7 +928,7 @@ func (lb *ListenerBuilder) buildWaypointNetworkFilters(svc *model.Service, fcc i
 		// Add SNI DFP before the TCP proxy so it can use SNI to resolve DNS
 		networkFilterstack = append([]*listener.Filter{sniDFPFilter}, networkFilterstack...)
 	}
-	return lb.buildCompleteNetworkFilters(istionetworking.ListenerClassSidecarInbound, fcc.port.Port, networkFilterstack, true, fcc.policyService)
+	return lb.buildCompleteNetworkFilters(istionetworking.ListenerClassSidecarInbound, fcc.port.Port, networkFilterstack, true, fcc.policyService, true)
 }
 
 var meshGateways = sets.New(constants.IstioMeshGateway)
