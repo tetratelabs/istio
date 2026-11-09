@@ -1,0 +1,1136 @@
+//go:build integ
+
+// Copyright Istio Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package ambient
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"golang.org/x/sync/errgroup"
+	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"istio.io/api/label"
+	"istio.io/istio/pkg/config/constants"
+	"istio.io/istio/pkg/config/protocol"
+	"istio.io/istio/pkg/kube/inject"
+	"istio.io/istio/pkg/maps"
+	"istio.io/istio/pkg/slices"
+	"istio.io/istio/pkg/test/echo/common/scheme"
+	"istio.io/istio/pkg/test/framework"
+	"istio.io/istio/pkg/test/framework/components/ambient"
+	"istio.io/istio/pkg/test/framework/components/cluster"
+	"istio.io/istio/pkg/test/framework/components/crd"
+	"istio.io/istio/pkg/test/framework/components/echo"
+	"istio.io/istio/pkg/test/framework/components/echo/check"
+	"istio.io/istio/pkg/test/framework/components/echo/common/ports"
+	"istio.io/istio/pkg/test/framework/components/echo/deployment"
+	"istio.io/istio/pkg/test/framework/components/echo/match"
+	"istio.io/istio/pkg/test/framework/components/namespace"
+	"istio.io/istio/pkg/test/util/retry"
+)
+
+type workload struct {
+	serviceName   string
+	cluster       cluster.Cluster
+	namespace     namespace.Instance
+	replicas      int32
+	serviceLabels map[string]string
+	subsetLabels  map[string]string
+}
+
+func TestMulticlusterFailover(t *testing.T) {
+	const brokenService1 = "broken1"
+	const brokenService2 = "broken2"
+	const clientService = "client"
+
+	runTest := func(t framework.TestContext, healthy, unhealthy cluster.Cluster, ns1, ns2 namespace.Instance) {
+		workloads := deployWorkloadsOrFail(t, []workload{
+			{
+				serviceName: brokenService1,
+				cluster:     unhealthy,
+				namespace:   ns1,
+				serviceLabels: map[string]string{
+					"istio.io/global": "true",
+				},
+				replicas: 0,
+			},
+			{
+				serviceName: brokenService1,
+				cluster:     healthy,
+				namespace:   ns1,
+				serviceLabels: map[string]string{
+					"istio.io/global": "true",
+				},
+				replicas: 1,
+			},
+			{
+				serviceName: brokenService2,
+				cluster:     unhealthy,
+				namespace:   ns2,
+				serviceLabels: map[string]string{
+					"istio.io/global": "true",
+				},
+				replicas: 0,
+			},
+			{
+				serviceName: brokenService2,
+				cluster:     healthy,
+				namespace:   ns2,
+				serviceLabels: map[string]string{
+					"istio.io/global": "true",
+				},
+				replicas: 1,
+			},
+			{
+				serviceName: clientService,
+				cluster:     unhealthy,
+				namespace:   ns1,
+				replicas:    1,
+			},
+			{
+				serviceName: clientService,
+				cluster:     healthy,
+				namespace:   ns1,
+				replicas:    1,
+			},
+			{
+				serviceName: clientService,
+				cluster:     unhealthy,
+				namespace:   ns2,
+				replicas:    1,
+			},
+			{
+				serviceName: clientService,
+				cluster:     healthy,
+				namespace:   ns2,
+				replicas:    1,
+			},
+		})
+		clients := match.AnyServiceName([]echo.NamespacedName{
+			{Name: clientService, Namespace: ns1},
+			{Name: clientService, Namespace: ns2},
+		}).GetMatches(workloads)
+		for _, src := range clients {
+			// The services we call below are partially broken, i.e., one of the clusters does not have any healthy
+			// replicas to talk to. However, because this setup is multi-cluster, we should be able to successfully
+			// failover to replicas in a remote cluster
+			//
+			// NOTE: we talk to two different services here to cover the case reported in
+			// https://github.com/istio/istio/issues/58630. That bug wasn't caught by any other tests we had.
+			var wg errgroup.Group
+			wg.Go(func() error {
+				_, err := src.Call(echo.CallOptions{
+					Address: fmt.Sprintf("%s.%s.svc.cluster.local", brokenService1, ns1.Name()),
+					Port:    ports.HTTP,
+					Scheme:  scheme.HTTP,
+					Check:   check.OK(),
+					HTTP: echo.HTTP{
+						HTTP2: true,
+						Path:  "/?delay=1s",
+					},
+					Retry: echo.Retry{NoRetry: true},
+					Count: 1,
+				})
+				return err
+			})
+			wg.Go(func() error {
+				_, err := src.Call(echo.CallOptions{
+					Address: fmt.Sprintf("%s.%s.svc.cluster.local", brokenService2, ns2.Name()),
+					Port:    ports.HTTP,
+					Scheme:  scheme.HTTP,
+					Check:   check.OK(),
+					HTTP: echo.HTTP{
+						HTTP2: true,
+						Path:  "/?delay=1s",
+					},
+					Retry: echo.Retry{NoRetry: true},
+					Count: 1,
+				})
+				return err
+			})
+			err := wg.Wait()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	framework.NewMulticlusterTest(t).Run(func(t framework.TestContext) {
+		t.NewSubTest("without-waypoint").Run(func(t framework.TestContext) {
+			if !t.Settings().Ambient || !t.Settings().AmbientMultiNetwork {
+				t.Skip("this test is ambient multi-cluster specific")
+			}
+
+			if len(t.Clusters()) < 2 {
+				t.Fatal("ambient multi-cluster failover test requires at least 2 clusters")
+			}
+
+			allClusters := t.Clusters()
+			local := allClusters[0]
+			remote := allClusters[1]
+			// if we have multiple-cluster in the topology, find the cluster on a remote nework,
+			// if one is available, to make sure that traffic goes through an E/W gateway.
+			for _, c := range allClusters {
+				if local.NetworkName() != c.NetworkName() {
+					remote = c
+					break
+				}
+			}
+
+			ns1 := namespace.NewOrFail(t, namespace.Config{
+				Prefix: "without-waypoint",
+				Inject: false,
+				Labels: map[string]string{
+					label.IoIstioDataplaneMode.Name: "ambient",
+				},
+			})
+			ns2 := namespace.NewOrFail(t, namespace.Config{
+				Prefix: "without-waypoint",
+				Inject: false,
+				Labels: map[string]string{
+					label.IoIstioDataplaneMode.Name: "ambient",
+				},
+			})
+
+			runTest(t, local, remote, ns1, ns2)
+		})
+		t.NewSubTest("with-waypoints").Run(func(t framework.TestContext) {
+			if !t.Settings().Ambient || !t.Settings().AmbientMultiNetwork {
+				t.Skip("this test is ambient multi-cluster specific")
+			}
+
+			if len(t.Clusters()) < 2 {
+				t.Fatal("ambient multi-cluster failover test requires at least 2 clusters")
+			}
+
+			allClusters := t.Clusters()
+			local := allClusters[0]
+			remote := allClusters[1]
+			// if we have multiple-cluster in the topology, find the cluster on a remote nework,
+			// if one is available, to make sure that traffic goes through an E/W gateway.
+			for _, c := range allClusters {
+				if local.NetworkName() != c.NetworkName() {
+					remote = c
+					break
+				}
+			}
+
+			ns1 := namespace.NewOrFail(t, namespace.Config{
+				Prefix: "with-waypoint",
+				Inject: false,
+				Labels: map[string]string{
+					label.IoIstioDataplaneMode.Name: "ambient",
+				},
+			})
+			ns2 := namespace.NewOrFail(t, namespace.Config{
+				Prefix: "with-waypoint",
+				Inject: false,
+				Labels: map[string]string{
+					label.IoIstioDataplaneMode.Name: "ambient",
+				},
+			})
+
+			waypointName := "waypoint"
+			deployWaypointsOrFail(t, local, waypointName, ns1)
+			deployWaypointsOrFail(t, local, waypointName, ns2)
+			runTest(t, local, remote, ns1, ns2)
+
+			t.NewSubTest("ingress-use-waypoint").Run(func(t framework.TestContext) {
+				SetNsIngressUseWaypoint(t, ns1.Name())
+
+				t.ConfigIstio().Eval(ns1.Name(), map[string]string{
+					"Service": brokenService1,
+					"Port":    fmt.Sprintf("%d", ports.HTTP.ServicePort),
+				}, `apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: tag-via-waypoint
+spec:
+  parentRefs:
+  - group: ""
+    kind: Service
+    name: {{.Service}}
+  rules:
+  - filters:
+    - type: ResponseHeaderModifier
+      responseHeaderModifier:
+        add:
+        - name: x-traversed-waypoint
+          value: "true"
+    backendRefs:
+    - group: ""
+      kind: Service
+      name: {{.Service}}
+      port: {{.Port}}
+`).ApplyOrFail(t)
+
+				t.ConfigIstio().Eval(ns1.Name(), map[string]string{
+					"Destination": fmt.Sprintf("%s.%s.svc.cluster.local", brokenService1, ns1.Name()),
+				}, `apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: gateway
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts: ["*"]
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: route
+spec:
+  gateways:
+  - gateway
+  hosts:
+  - "*"
+  http:
+  - route:
+    - destination:
+        host: "{{.Destination}}"
+`).ApplyOrFail(t)
+
+				i.IngressFor(local).CallOrFail(t, echo.CallOptions{
+					Port: echo.Port{
+						Protocol:    protocol.HTTP,
+						ServicePort: 80,
+					},
+					Scheme: scheme.HTTP,
+					Check: check.And(
+						check.OK(),
+						check.ResponseHeader("x-traversed-waypoint", "true"),
+					),
+				})
+			})
+		})
+	})
+}
+
+func TestIngressToRemoteSidecar(t *testing.T) {
+	framework.NewTest(t).Run(func(t framework.TestContext) {
+		if !t.Settings().Ambient || !t.Settings().AmbientMultiNetwork {
+			t.Skip("this test is ambient multi-network specific")
+		}
+		if len(t.Clusters()) < 2 {
+			t.Fatal("ingress to remote sidecar test requires at least 2 clusters")
+		}
+
+		local := t.Clusters()[0]
+		var remote cluster.Cluster
+		for _, c := range t.Clusters() {
+			if c.NetworkName() != local.NetworkName() {
+				remote = c
+				break
+			}
+		}
+		if remote == nil {
+			t.Skip("ingress to remote sidecar test requires clusters on different networks")
+		}
+
+		for _, c := range []cluster.Cluster{local, remote} {
+			_, err := c.Kube().AdmissionregistrationV1().MutatingWebhookConfigurations().
+				Get(t.Context(), "istio-sidecar-injector", metav1.GetOptions{})
+			if kerrors.IsNotFound(err) {
+				t.Skipf("sidecar injection webhook is not installed in cluster %s", c.Name())
+			}
+			if err != nil {
+				t.Fatalf("failed checking sidecar injection webhook in cluster %s: %v", c.Name(), err)
+			}
+		}
+
+		ns := namespace.NewOrFail(t, namespace.Config{
+			Prefix: "ingress-remote-sidecar",
+			Inject: true,
+		})
+		sidecarLabels := map[string]string{
+			"sidecar.istio.io/inject":       "true",
+			label.IoIstioDataplaneMode.Name: constants.DataplaneModeNone,
+		}
+		globalService := map[string]string{"istio.io/global": "true"}
+		workloads := deployWorkloadsOrFail(t, []workload{
+			{
+				serviceName:   "remote-sidecar",
+				cluster:       local,
+				namespace:     ns,
+				replicas:      0,
+				serviceLabels: globalService,
+				subsetLabels:  sidecarLabels,
+			},
+			{
+				serviceName:   "remote-sidecar",
+				cluster:       remote,
+				namespace:     ns,
+				replicas:      1,
+				serviceLabels: globalService,
+				subsetLabels:  sidecarLabels,
+			},
+		})
+
+		remoteBackends := workloads.ForCluster(remote.Name())
+		if len(remoteBackends) != 1 {
+			t.Fatalf("expected 1 remote sidecar instance in cluster %s, got %d", remote.Name(), len(remoteBackends))
+		}
+		remoteBackend := remoteBackends[0]
+		if !remoteBackend.Config().HasSidecar() {
+			t.Fatal("remote backend echo config does not enable sidecar injection")
+		}
+		remoteWorkloads := remoteBackend.WorkloadsOrFail(t)
+		if len(remoteWorkloads) != 1 {
+			t.Fatalf("expected 1 remote sidecar workload, got %d", len(remoteWorkloads))
+		}
+		remoteWorkload := remoteWorkloads[0]
+		if remoteWorkload.Sidecar() == nil {
+			t.Fatalf("remote workload %s does not have an injected sidecar", remoteWorkload.PodName())
+		}
+
+		// When ambient enabled ingress should work with or without HBONE enabled in sidecars, but the
+		// reason why we check this here is because I want to cover a case when remote sidecar has both
+		// HBONE and sidecar-style mTLS enabled.
+		//
+		// When that happens, ingress gateway must prefer mTLS, becaue sidecar don't support
+		// HBONE connections targeting services and when connection goes to a remote network through E/W
+		// gateway, ambient uses service hostname as a target instead of individual workload IP.
+		pod, err := remote.Kube().CoreV1().Pods(ns.Name()).Get(t.Context(), remoteWorkload.PodName(), metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("failed getting remote sidecar pod %s: %v", remoteWorkload.PodName(), err)
+		}
+		if got := pod.Labels["networking.istio.io/tunnel"]; got != "http" {
+			t.Fatalf("remote sidecar pod networking.istio.io/tunnel label = %q, want %q", got, "http")
+		}
+		// istio-proxy is an init container when native sidecars are in use, so search both lists.
+		proxy := inject.FindSidecar(pod)
+		if proxy == nil {
+			t.Fatalf("remote sidecar pod %s has no istio-proxy container", remoteWorkload.PodName())
+		}
+		hboneEnabled := false
+		for _, env := range proxy.Env {
+			if env.Name == "ISTIO_META_ENABLE_HBONE" && env.Value == "true" {
+				hboneEnabled = true
+				break
+			}
+		}
+		if !hboneEnabled {
+			t.Fatal("remote sidecar pod does not have ISTIO_META_ENABLE_HBONE=true")
+		}
+
+		t.ConfigIstio().Eval(ns.Name(), map[string]string{
+			"Destination": remoteBackend.Config().ClusterLocalFQDN(),
+		}, `apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: remote-sidecar
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts: ["*"]
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: remote-sidecar
+spec:
+  gateways:
+  - remote-sidecar
+  hosts:
+  - "*"
+  http:
+  - route:
+    - destination:
+        host: "{{.Destination}}"
+`).ApplyOrFail(t)
+
+		t.ConfigKube(remote).Eval(ns.Name(), map[string]string{
+			"Namespace": ns.Name(),
+			"Network":   remote.NetworkName(),
+		}, `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: istio-mtls-eastwestgateway
+    istio: eastwestgateway
+    istio.io/rev: default
+    release: istio
+    topology.istio.io/network: {{.Network}}
+  name: istio-mtls-eastwestgateway
+  namespace: {{.Namespace}}
+spec:
+  selector:
+    matchLabels:
+      app: istio-mtls-eastwestgateway
+      istio: eastwestgateway
+      topology.istio.io/network: {{.Network}}
+  template:
+    metadata:
+      annotations:
+        inject.istio.io/templates: gateway
+        sidecar.istio.io/inject: "true"
+      labels:
+        app: istio-mtls-eastwestgateway
+        chart: gateways
+        heritage: Tiller
+        istio: eastwestgateway
+        release: istio
+        sidecar.istio.io/inject: "true"
+        topology.istio.io/network: {{.Network}}
+    spec:
+      containers:
+      - env:
+        - name: ISTIO_META_REQUESTED_NETWORK_VIEW
+          value: {{.Network}}
+        - name: ISTIO_META_UNPRIVILEGED_POD
+          value: "true"
+        image: auto
+        name: istio-proxy
+        ports:
+        - containerPort: 15021
+          protocol: TCP
+        - containerPort: 15443
+          protocol: TCP
+        - containerPort: 15012
+          protocol: TCP
+        - containerPort: 15017
+          protocol: TCP
+        - containerPort: 15090
+          name: http-envoy-prom
+          protocol: TCP
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          privileged: false
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /etc/istio/ingressgateway-certs
+          name: ingressgateway-certs
+          readOnly: true
+        - mountPath: /etc/istio/ingressgateway-ca-certs
+          name: ingressgateway-ca-certs
+          readOnly: true
+      securityContext:
+        runAsGroup: 1337
+        runAsNonRoot: true
+        runAsUser: 1337
+      volumes:
+      - name: ingressgateway-certs
+        secret:
+          optional: true
+          secretName: istio-ingressgateway-certs
+      - name: ingressgateway-ca-certs
+        secret:
+          optional: true
+          secretName: istio-ingressgateway-ca-certs
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    istio.io/rev: default
+    release: istio
+  name: istio-mtls-eastwestgateway-sds
+  namespace: {{.Namespace}}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - watch
+  - list
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    istio.io/rev: default
+    release: istio
+  name: istio-mtls-eastwestgateway-sds
+  namespace: {{.Namespace}}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: istio-mtls-eastwestgateway-sds
+subjects:
+- kind: ServiceAccount
+  name: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations: null
+  labels:
+    app: istio-mtls-eastwestgateway
+    istio: eastwestgateway
+    istio.io/rev: default
+    release: istio
+    topology.istio.io/network: {{.Network}}
+  name: istio-mtls-eastwestgateway
+  namespace: {{.Namespace}}
+spec:
+  ports:
+  - name: status-port
+    port: 15021
+    targetPort: 15021
+  - name: tls
+    port: 15443
+    targetPort: 15443
+  - name: tls-istiod
+    port: 15012
+    targetPort: 15012
+  - name: tls-webhook
+    port: 15017
+    targetPort: 15017
+  selector:
+    app: istio-mtls-eastwestgateway
+    istio: eastwestgateway
+    topology.istio.io/network: {{.Network}}
+  type: LoadBalancer`).ApplyOrFail(t)
+
+		if err := retry.UntilSuccess(func() error {
+			pods, err := remote.Kube().CoreV1().Pods(ns.Name()).List(t.Context(), metav1.ListOptions{LabelSelector: "app=istio-mtls-eastwestgateway"})
+			if err != nil {
+				return err
+			}
+			for _, p := range pods.Items {
+				if p.Status.Phase == corev1.PodRunning {
+					return nil
+				}
+			}
+			return fmt.Errorf("no ready pods for %v app=istio-mtls-eastwestgateway", pods.Items)
+		}, retry.Timeout(2*time.Minute), retry.BackoffDelay(time.Second)); err != nil {
+			t.Errorf("failed waiting for mTLS east-west gateway to be ready: %v", err)
+		}
+
+		i.IngressFor(local).CallOrFail(t, echo.CallOptions{
+			Port: echo.Port{
+				Protocol:    protocol.HTTP,
+				ServicePort: 80,
+			},
+			Scheme: scheme.HTTP,
+			Check: check.And(
+				check.OK(),
+				check.Cluster(remote.Name()),
+			),
+			Retry: echo.Retry{
+				Options: []retry.Option{retry.Timeout(2 * time.Minute), retry.Delay(time.Second)},
+			},
+		})
+	})
+}
+
+func deployWorkloadsOrFail(t framework.TestContext, workloads []workload) echo.Instances {
+	t.Helper()
+
+	builder := deployment.New(t)
+	for _, w := range workloads {
+		builder = builder.WithConfig(echo.Config{
+			Service:       w.serviceName,
+			Namespace:     w.namespace,
+			Cluster:       w.cluster,
+			Ports:         ports.All(),
+			ServiceLabels: w.serviceLabels,
+			Subsets: []echo.SubsetConfig{{
+				Version:  w.serviceName,
+				Replicas: 1,
+				Labels:   w.subsetLabels,
+			}},
+		})
+	}
+
+	deployments := builder.BuildOrFail(t)
+
+	for _, w := range workloads {
+		if w.replicas != 1 {
+			scaleDeploymentOrFail(t, w.cluster, w.namespace.Name(), fmt.Sprintf("%s-%s", w.serviceName, w.serviceName), w.replicas)
+		}
+	}
+
+	return deployments
+}
+
+// deployWaypointsOrFail deploys global (a.k.a. multi-network) waypoints in two clusters.
+// One of the clusters designated as unhealthy the deployed waypoint will be unhealthy there.
+// The other cluster is designated as healthy and deployed waypoint will be healthy there.
+func deployWaypointsOrFail(t framework.TestContext, unhealthy cluster.Cluster, waypoint string, ns namespace.Instance) {
+	t.Helper()
+
+	_ = ambient.NewWaypointProxyOrFail(t, ns, waypoint)
+	ambient.SetWaypointForNamespace(t, ns, waypoint)
+	labelService(t, ns.Name(), waypoint, "istio.io/global", "true", t.AllClusters()...)
+
+	scaleDeploymentOrFail(t, unhealthy, ns.Name(), waypoint, 0)
+}
+
+func scaleDeploymentOrFail(t framework.TestContext, c cluster.Cluster, namespace, name string, scale int32) {
+	t.Helper()
+
+	s, err := c.Kube().AppsV1().Deployments(namespace).GetScale(t.Context(), name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to find deployment %s in namespace %s: %v", name, namespace, err)
+	}
+
+	s.Spec.Replicas = scale
+	_, err = c.Kube().AppsV1().Deployments(namespace).UpdateScale(t.Context(), name, s, metav1.UpdateOptions{})
+	if err != nil {
+		t.Fatalf("failed to scale deployment %s in namespace %s to %d replicas: %v", name, namespace, scale, err)
+	}
+
+	retry.UntilSuccessOrFail(t, func() error {
+		s, err := c.Kube().AppsV1().Deployments(namespace).GetScale(t.Context(), name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to find deployment %s in namespace %s: %w", name, namespace, err)
+		}
+		pods, err := c.PodsForSelector(t.Context(), namespace, s.Status.Selector)
+		if err != nil {
+			return fmt.Errorf("failed to query pods matching selector %s in namespace %s: %w", s.Status.Selector, namespace, err)
+		}
+		if s.Status.Replicas == scale && len(pods.Items) == int(scale) {
+			return nil
+		}
+		return fmt.Errorf("deployment still has different number of pods, want %d, got %d", scale, len(pods.Items))
+	})
+}
+
+// TestEastWestGatewayTLSRoute checks if we can expose passthrough ports on E/W gateways
+// and use TLSRoutes so internal services that don't belong to the mesh can be reached from
+// outside the cluster. A use case for this is when users want to expose the Kubenertes API
+// service through their E/W gateway.
+func TestEastWestGatewayTLSRoute(t *testing.T) {
+	framework.NewMulticlusterTest(t).Run(func(t framework.TestContext) {
+		if !t.Settings().Ambient || !t.Settings().AmbientMultiNetwork {
+			t.Skip("this test is ambient multi-cluster specific")
+		}
+		allClusters := slices.Group(t.Clusters(), func(c cluster.Cluster) string {
+			return c.NetworkName()
+		})
+		networks := maps.Keys(allClusters)
+		if len(networks) < 2 {
+			t.Skip("east-west gateway TLSRoute test requires at least 2 clusters on different networks")
+		}
+
+		// gwCluster hosts the E/W gateway + backend; remoteCluster is the client.
+		gwNetwork := networks[0]
+		gwCluster := allClusters[gwNetwork][0]
+
+		remoteNetwork := networks[1]
+		remoteCluster := allClusters[remoteNetwork][0]
+
+		crd.DeployGatewayAPIOrSkip(t)
+
+		nsConfig := namespace.NewOrFail(t, namespace.Config{
+			Prefix: "ew-tlsroute",
+			Inject: false,
+		})
+
+		const backendSvc = "tlsroute-backend"
+		const clientSvc = "tlsroute-client"
+		// Note that for legacy reasons we can't use
+		// port 15443. If port 15443 is used, pilot
+		// automagically converts the TLS mode to AUTO_PASSTHROUGH.
+		const tlsPassthroughPort = 16443
+
+		echos := deployment.New(t).
+			WithConfig(echo.Config{
+				Service:   backendSvc,
+				Namespace: nsConfig,
+				Cluster:   gwCluster,
+				Ports: echo.Ports{
+					{Name: "tls", Protocol: protocol.HTTPS, ServicePort: tlsPassthroughPort, TLS: true},
+				},
+				ServiceLabels: map[string]string{
+					"istio.io/global": "true",
+				},
+			}).
+			WithConfig(echo.Config{
+				Service:   clientSvc,
+				Namespace: nsConfig,
+				Cluster:   remoteCluster,
+				Ports: echo.Ports{
+					{Name: "tls", Protocol: protocol.HTTPS, ServicePort: tlsPassthroughPort},
+				},
+			}).
+			BuildOrFail(t)
+
+		backends := match.ServiceName(echo.NamespacedName{Name: backendSvc, Namespace: nsConfig}).GetMatches(echos)
+		clients := match.ServiceName(echo.NamespacedName{Name: clientSvc, Namespace: nsConfig}).GetMatches(echos)
+
+		if len(backends) == 0 {
+			t.Fatal("no backend instances found")
+		}
+		if len(clients) == 0 {
+			t.Fatal("no client instances found")
+		}
+
+		systemNS := i.Settings().SystemNamespace
+		const ewGatewayName = "istio-eastwestgateway"
+		const passthroughListenerName = "tls-passthrough"
+
+		// Adds a TLS passthrough listener to the existing shared east-west gateway
+		// and route to the backend with a TLSRoute.
+		addPassthroughListenerOrFail(t, gwCluster, systemNS, ewGatewayName, passthroughListenerName, tlsPassthroughPort)
+
+		templateArgs := map[string]string{
+			"BackendSvc":   backendSvc,
+			"BackendNS":    nsConfig.Name(),
+			"TLSPort":      fmt.Sprintf("%d", tlsPassthroughPort),
+			"SystemNS":     systemNS,
+			"GatewayName":  ewGatewayName,
+			"ListenerName": passthroughListenerName,
+		}
+		t.ConfigKube(gwCluster).
+			Eval(systemNS, templateArgs, `
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: eastwest-tlsroute-test
+spec:
+  parentRefs:
+  - name: {{ .GatewayName }}
+    kind: Gateway
+    sectionName: {{ .ListenerName }}
+  hostnames:
+  - "{{ .BackendSvc }}.{{ .BackendNS }}.svc.cluster.local"
+  rules:
+  - backendRefs:
+    - name: {{ .BackendSvc }}
+      namespace: {{ .BackendNS }}
+      port: {{ .TLSPort }}
+`).
+			Eval(nsConfig.Name(), templateArgs, `
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: eastwest-tlsroute-test
+  namespace: {{ .BackendNS }}
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: TLSRoute
+    namespace: {{ .SystemNS }}
+  to:
+  - group: ""
+    kind: Service
+`).ApplyOrFail(t)
+
+		// Wait for the passthrough listener to be programmed and for the TLSRoute to
+		// attach to it.
+		retry.UntilSuccessOrFail(t, func() error {
+			gw, err := gwCluster.GatewayAPI().GatewayV1().Gateways(systemNS).
+				Get(t.Context(), ewGatewayName, metav1.GetOptions{})
+			if err != nil {
+				return fmt.Errorf("gateway not found: %v", err)
+			}
+			for _, ls := range gw.Status.Listeners {
+				if string(ls.Name) != passthroughListenerName {
+					continue
+				}
+				programmed := false
+				for _, cond := range ls.Conditions {
+					if cond.Type == string(k8sv1.ListenerConditionProgrammed) && string(cond.Status) == "True" {
+						programmed = true
+						break
+					}
+				}
+				if !programmed {
+					return fmt.Errorf("listener %q is not yet programmed", passthroughListenerName)
+				}
+				if ls.AttachedRoutes < 1 {
+					return fmt.Errorf("listener %q has no attached routes yet", passthroughListenerName)
+				}
+				return nil
+			}
+			return fmt.Errorf("listener %q not found in gateway status", passthroughListenerName)
+		}, retry.Timeout(2*time.Minute), retry.Delay(time.Second))
+
+		// Resolve the shared east-west gateway's external address for the TLS
+		// passthrough port.
+		ewgw := i.EastWestGatewayForAmbient(gwCluster)
+		addrs, portList := ewgw.AddressesForPort(tlsPassthroughPort)
+		if len(addrs) == 0 || len(portList) == 0 {
+			t.Fatal("east-west gateway TLS passthrough address or port not found")
+		}
+
+		sni := fmt.Sprintf("%s.%s.svc.cluster.local", backendSvc, nsConfig.Name())
+
+		// From the remote cluster, call the TLS passthrough listener on the E/W gateway.
+		// The TLSRoute should route based on SNI to the backend service.
+		clients[0].CallOrFail(t, echo.CallOptions{
+			Address: addrs[0],
+			Port: echo.Port{
+				ServicePort: portList[0],
+				Protocol:    protocol.HTTPS,
+			},
+			Scheme: scheme.HTTPS,
+			TLS: echo.TLS{
+				InsecureSkipVerify: true,
+				ServerName:         sni,
+			},
+			Count: 1,
+			Check: check.OK(),
+			Retry: echo.Retry{
+				Options: []retry.Option{retry.Timeout(2 * time.Minute), retry.Delay(time.Second)},
+			},
+		})
+	})
+}
+
+// Adds a TLS passthrough listener on the given port to an
+// existing Gateway and registers a cleanup to remove it later.
+func addPassthroughListenerOrFail(t framework.TestContext, c cluster.Cluster, ns, gatewayName, listenerName string, port int) {
+	t.Helper()
+	gateways := c.GatewayAPI().GatewayV1().Gateways(ns)
+	mode := k8sv1.TLSModePassthrough
+	listener := k8sv1.Listener{
+		Name:     k8sv1.SectionName(listenerName),
+		Port:     k8sv1.PortNumber(port),
+		Protocol: k8sv1.TLSProtocolType,
+		TLS: &k8sv1.ListenerTLSConfig{
+			Mode: &mode,
+		},
+	}
+
+	retry.UntilSuccessOrFail(t, func() error {
+		gw, err := gateways.Get(t.Context(), gatewayName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		for _, l := range gw.Spec.Listeners {
+			if l.Name == listener.Name {
+				return nil
+			}
+		}
+		gw.Spec.Listeners = append(gw.Spec.Listeners, listener)
+		_, err = gateways.Update(t.Context(), gw, metav1.UpdateOptions{})
+		return err
+	}, retry.Timeout(time.Minute), retry.Delay(time.Second))
+
+	t.Cleanup(func() {
+		_ = retry.UntilSuccess(func() error {
+			gw, err := gateways.Get(context.Background(), gatewayName, metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+			kept := make([]k8sv1.Listener, 0, len(gw.Spec.Listeners))
+			for _, l := range gw.Spec.Listeners {
+				if l.Name != listener.Name {
+					kept = append(kept, l)
+				}
+			}
+			if len(kept) == len(gw.Spec.Listeners) {
+				return nil
+			}
+			gw.Spec.Listeners = kept
+			_, err = gateways.Update(context.Background(), gw, metav1.UpdateOptions{})
+			return err
+		}, retry.Timeout(time.Minute), retry.Delay(time.Second))
+	})
+}
+
+// TestEastWestGatewaySidecarAutoPassthrough checks that a single ambient east-west gateway can also serve
+// sidecar (non-ambient) multi-network traffic. Adding a TLS passthrough listener on port 15443 to the
+// istio-east-west Gateway makes it an AUTO_PASSTHROUGH listener, which routes the sidecar's mTLS traffic by
+// SNI to the SNI-DNAT cluster of the target service, exactly like a classic east-west gateway does. A mixed
+// ambient and sidecar mesh therefore no longer needs a second east-west gateway per cluster.
+func TestEastWestGatewaySidecarAutoPassthrough(t *testing.T) {
+	framework.NewMulticlusterTest(t).Run(func(t framework.TestContext) {
+		if !t.Settings().Ambient || !t.Settings().AmbientMultiNetwork {
+			t.Skip("this test is ambient multi-cluster specific")
+		}
+		allClusters := slices.Group(t.Clusters(), func(c cluster.Cluster) string {
+			return c.NetworkName()
+		})
+		networks := maps.Keys(allClusters)
+		if len(networks) < 2 {
+			t.Skip("east-west gateway auto passthrough test requires at least 2 clusters on different networks")
+		}
+
+		// gwCluster hosts the east-west gateway under test and a backend; remoteCluster hosts the sidecar client.
+		gwCluster := allClusters[networks[0]][0]
+		remoteCluster := allClusters[networks[1]][0]
+
+		crd.DeployGatewayAPIOrSkip(t)
+		for _, c := range []cluster.Cluster{gwCluster, remoteCluster} {
+			_, err := c.Kube().AdmissionregistrationV1().MutatingWebhookConfigurations().
+				Get(t.Context(), "istio-sidecar-injector", metav1.GetOptions{})
+			if kerrors.IsNotFound(err) {
+				t.Skipf("sidecar injector is not installed in cluster %s", c.Name())
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// Sidecar-injected namespace (not ambient), so that the client and backends are classic sidecar workloads.
+		nsConfig := namespace.NewOrFail(t, namespace.Config{
+			Prefix: "ew-autopassthrough",
+			Inject: true,
+		})
+
+		const backendSvc = "autopassthrough-backend"
+		const clientSvc = "autopassthrough-client"
+		// Port 15443 with TLS passthrough on a network-labeled gateway is implicitly AUTO_PASSTHROUGH.
+		const autoPassthroughPort = 15443
+
+		echos := deployment.New(t).
+			WithClusters(gwCluster, remoteCluster).
+			WithConfig(echo.Config{
+				Service:        backendSvc,
+				Namespace:      nsConfig,
+				Ports:          echo.Ports{ports.HTTP},
+				ServiceAccount: true,
+				ServiceLabels: map[string]string{
+					// In ambient multi-network, a service is only exported across clusters when it is global.
+					"istio.io/global": "true",
+				},
+			}).
+			WithConfig(echo.Config{
+				Service:        clientSvc,
+				Namespace:      nsConfig,
+				Cluster:        remoteCluster,
+				Ports:          echo.Ports{ports.HTTP},
+				ServiceAccount: true,
+			}).
+			BuildOrFail(t)
+
+		backends := match.ServiceName(echo.NamespacedName{Name: backendSvc, Namespace: nsConfig}).GetMatches(echos)
+		clients := match.ServiceName(echo.NamespacedName{Name: clientSvc, Namespace: nsConfig}).GetMatches(echos)
+		if len(backends) == 0 || len(clients) == 0 {
+			t.Fatalf("missing echo instances: %d backends, %d clients", len(backends), len(clients))
+		}
+
+		systemNS := i.Settings().SystemNamespace
+		const ewGatewayName = "istio-eastwestgateway"
+		const autoPassthroughListenerName = "cross-network"
+
+		// Add the AUTO_PASSTHROUGH listener to the existing shared ambient east-west gateway, which keeps
+		// serving HBONE on port 15008 at the same time.
+		addPassthroughListenerOrFail(t, gwCluster, systemNS, ewGatewayName, autoPassthroughListenerName, autoPassthroughPort)
+		waitForListenerProgrammedOrFail(t, gwCluster, systemNS, ewGatewayName, autoPassthroughListenerName)
+
+		ewgw := i.EastWestGatewayForAmbient(gwCluster)
+		if addrs, portList := ewgw.AddressesForPort(autoPassthroughPort); len(addrs) == 0 || len(portList) == 0 {
+			t.Fatal("east-west gateway auto passthrough address or port not found")
+		}
+		sniDNATCluster := fmt.Sprintf("outbound_.%d_._.%s.%s.svc.cluster.local", ports.HTTP.ServicePort, backendSvc, nsConfig.Name())
+
+		// The sidecar client must reach the backends on every network. The backend on the gateway's network is
+		// only reachable through the east-west gateway's AUTO_PASSTHROUGH listener.
+		clients[0].CallOrFail(t, echo.CallOptions{
+			To:    backends,
+			Port:  ports.HTTP,
+			Count: 10,
+			Check: check.And(
+				check.OK(),
+				check.ReachedClusters(t.AllClusters(), backends.Clusters()),
+			),
+			Retry: echo.Retry{
+				Options: []retry.Option{retry.Timeout(2 * time.Minute), retry.Delay(time.Second)},
+			},
+		})
+
+		// Confirm the traffic really went through the gateway: its SNI-DNAT cluster for the backend must have
+		// forwarded connections to the local backend pod.
+		retry.UntilSuccessOrFail(t, func() error {
+			connections, err := eastWestGatewayUpstreamConnections(t, gwCluster, systemNS, ewGatewayName, sniDNATCluster)
+			if err != nil {
+				return err
+			}
+			if connections == 0 {
+				return fmt.Errorf("east-west gateway cluster %q has not forwarded any connection yet", sniDNATCluster)
+			}
+			return nil
+		}, retry.Timeout(time.Minute), retry.Delay(time.Second))
+	})
+}
+
+// waitForListenerProgrammedOrFail waits until the given listener of a Gateway reports Programmed=True.
+func waitForListenerProgrammedOrFail(t framework.TestContext, c cluster.Cluster, ns, gatewayName, listenerName string) {
+	t.Helper()
+	retry.UntilSuccessOrFail(t, func() error {
+		gw, err := c.GatewayAPI().GatewayV1().Gateways(ns).Get(t.Context(), gatewayName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("gateway not found: %v", err)
+		}
+		for _, ls := range gw.Status.Listeners {
+			if string(ls.Name) != listenerName {
+				continue
+			}
+			for _, cond := range ls.Conditions {
+				if cond.Type == string(k8sv1.ListenerConditionProgrammed) && string(cond.Status) == "True" {
+					return nil
+				}
+			}
+			return fmt.Errorf("listener %q is not yet programmed", listenerName)
+		}
+		return fmt.Errorf("listener %q not found in gateway status", listenerName)
+	}, retry.Timeout(2*time.Minute), retry.Delay(time.Second))
+}
+
+// eastWestGatewayUpstreamConnections returns the number of connections the east-west gateway pods of the
+// given cluster have forwarded to the hosts of the given Envoy cluster, read from their Envoy admin
+// clusters endpoint.
+func eastWestGatewayUpstreamConnections(t framework.TestContext, c cluster.Cluster, ns, gatewayName, clusterName string) (int, error) {
+	pods, err := c.Kube().CoreV1().Pods(ns).List(t.Context(), metav1.ListOptions{
+		LabelSelector: label.IoK8sNetworkingGatewayGatewayName.Name + "=" + gatewayName,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if len(pods.Items) == 0 {
+		return 0, fmt.Errorf("no east-west gateway pods found for %s/%s in cluster %s", ns, gatewayName, c.Name())
+	}
+	out := ""
+	for _, pod := range pods.Items {
+		stdout, _, err := c.PodExec(pod.Name, ns, "istio-proxy", "pilot-agent request GET clusters")
+		if err != nil {
+			return 0, fmt.Errorf("failed reading clusters from east-west gateway pod %s: %v", pod.Name, err)
+		}
+		out += stdout + "\n"
+	}
+	// Lines look like: <cluster>::<host:port>::cx_total::<count>
+	total := 0
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Split(strings.TrimSpace(line), "::")
+		if len(fields) != 4 || fields[0] != clusterName || fields[2] != "cx_total" {
+			continue
+		}
+		n, err := strconv.Atoi(fields[3])
+		if err != nil {
+			return 0, fmt.Errorf("unexpected clusters output line %q: %v", line, err)
+		}
+		total += n
+	}
+	return total, nil
+}
