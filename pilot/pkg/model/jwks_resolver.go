@@ -274,6 +274,11 @@ func (r *JwksResolver) GetPublicKey(issuer string, jwksURI string, timeout time.
 		resp, err = r.getRemoteContentWithRetry(jwksURI, networkFetchRetryCountOnMainFlow, timeout)
 		if err != nil {
 			log.Errorf("Failed to fetch public key from jwks URI %q: %v", jwksURI, err)
+		} else if err = validateJWKSFormat(resp); err != nil {
+			// Reject a response that is not a JWKS so an SSRF-controlled jwksURI cannot get an
+			// arbitrary fetched body embedded verbatim as an inline JWKS and read back via config_dump.
+			log.Errorf("Content fetched from jwks URI %q is not a valid JWKS: %v", jwksURI, err)
+			resp = nil
 		}
 		pubKey = string(resp)
 	}
@@ -533,6 +538,11 @@ func (r *JwksResolver) refresh(jwksURIBackgroundChannel bool) bool {
 				k.jwksURI = jwksURI
 			}
 			resp, err := r.getRemoteContentWithRetry(jwksURI, networkFetchRetryCountOnRefreshFlow, e.timeout)
+			if err == nil {
+				// Reject a response that is not a JWKS so an SSRF-controlled jwksURI cannot get an
+				// arbitrary fetched body embedded verbatim as an inline JWKS and read back via config_dump.
+				err = validateJWKSFormat(resp)
+			}
 			if err != nil {
 				hasErrors.Store(true)
 				log.Errorf("Failed to refresh JWT public key from %q: %v", jwksURI, err)
@@ -627,6 +637,28 @@ func blockedCIDRDialContext(ctx context.Context, network, addr string) (net.Conn
 	}
 
 	return dialer.DialContext(ctx, network, addr)
+}
+
+// validateJWKSFormat reports an error if body does not look like a JWKS: a JSON object with a
+// "keys" array (RFC 7517). It is deliberately loose - it does not validate individual keys - and
+// exists to stop an arbitrary fetched response (e.g. from an SSRF-controlled jwksURI pointed at an
+// internal endpoint) from being embedded verbatim into a proxy's config as an inline JWKS and read
+// back through config_dump.
+func validateJWKSFormat(body []byte) error {
+	var doc struct {
+		Keys *json.RawMessage `json:"keys"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return fmt.Errorf("not valid JSON: %w", err)
+	}
+	if doc.Keys == nil {
+		return fmt.Errorf("missing \"keys\" field")
+	}
+	var keys []json.RawMessage
+	if err := json.Unmarshal(*doc.Keys, &keys); err != nil {
+		return fmt.Errorf("\"keys\" is not an array: %w", err)
+	}
+	return nil
 }
 
 // Compare two JWKS responses, returning true if there is a difference and false otherwise
